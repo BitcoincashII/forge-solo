@@ -256,7 +256,14 @@ func run1175PayoutCycle() {
 			height := hb[0].(int64)
 			hash := hb[1].(string)
 			conf, found := aux1175BlockConfirmations(hash)
-			if !found || conf < 0 {
+			// CRITICAL: found=false means the aux node could not be consulted (RPC error /
+			// node down / restarting / behind), NOT that the block reorged. Skip so a node
+			// blip never voids valid credits. Only conf<0 (node HAS the block on a side
+			// branch) is a genuine orphan.
+			if !found {
+				continue // leave pending, retry next cycle
+			}
+			if conf < 0 {
 				if err := stats.Orphan1175Block(height); err != nil {
 					logger.Warn("1175 orphan mark failed", zap.Int64("height", height), zap.Error(err))
 				}
