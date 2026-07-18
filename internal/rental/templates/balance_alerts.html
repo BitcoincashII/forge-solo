@@ -1,0 +1,65 @@
+{{define "content"}}
+<section class="dashboard">
+    <div class="container-narrow">
+        <div class="mb-20">
+            <a href="/settings" class="text-muted">&larr; Back to Settings</a>
+        </div>
+
+        <div class="card">
+            <h1 class="card-title mb-20">Balance Alerts</h1>
+            <p class="text-muted mb-20">Get notified when your balance drops below a threshold.</p>
+
+            {{if .Error}}
+            <div class="alert alert-error mb-20">{{.Error}}</div>
+            {{end}}
+
+            {{if .Success}}
+            <div class="alert alert-success mb-20">{{.Success}}</div>
+            {{end}}
+
+            <div class="stat-card mb-30">
+                <div class="stat-label">Current Balance</div>
+                <div class="stat-value positive">{{.BalanceBTC}} BTC</div>
+            </div>
+
+            <form method="POST" action="/settings/balance-alerts">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="enabled" {{if .Alert.Enabled}}checked{{end}}>
+                        <span>Enable balance alerts</span>
+                    </label>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Alert Threshold (BTC)</label>
+                    <input type="number" name="threshold" class="form-input"
+                           value="{{.ThresholdBTC}}" step="0.00000001" min="0">
+                    <p class="form-hint">You'll be notified when your balance drops below this amount.</p>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Notification Methods</label>
+                    <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="notify_email" {{if .Alert.NotifyEmail}}checked{{end}}>
+                            <span>Email notification</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="notify_inapp" {{if .Alert.NotifyInApp}}checked{{end}}>
+                            <span>In-app notification</span>
+                        </label>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-full">Save Settings</button>
+            </form>
+
+            {{if .Alert.LastAlertedAt}}
+            <p class="text-small text-muted mt-20">Last alert sent: {{.Alert.LastAlertedAt.Format "Jan 2, 2006 3:04 PM"}}</p>
+            {{end}}
+        </div>
+    </div>
+</section>
+{{end}}

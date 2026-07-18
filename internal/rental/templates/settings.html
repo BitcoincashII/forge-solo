@@ -1,0 +1,81 @@
+{{define "content"}}
+<section class="dashboard">
+    <div class="container-narrow">
+        <div class="card">
+            <h1 class="card-title mb-20">Account Settings</h1>
+
+            {{if .Error}}
+            <div class="alert alert-error">{{.Error}}</div>
+            {{end}}
+
+            {{if .Success}}
+            <div class="alert alert-success">{{.Success}}</div>
+            {{end}}
+
+            <form method="POST" action="/settings">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+                <div class="form-group">
+                    <label class="form-label">Email</label>
+                    <input type="email" class="form-input" value="{{.Customer.Email}}" disabled>
+                    <p class="form-hint">Contact support to change your email address.</p>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">BCH2 Payout Address *</label>
+                    <input type="text" name="bch2_address" class="form-input"
+                           value="{{.BCH2Address}}"
+                           placeholder="qz7x8y9z..." required>
+                    <p class="form-hint">Your BCH2 address where mining rewards will be sent. Required before placing orders.</p>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-full">Save Settings</button>
+            </form>
+
+            <hr style="margin: 30px 0; border-color: var(--border);">
+
+            <h2 class="card-title mb-20">Security</h2>
+
+            <div class="stat-card mb-20">
+                <div class="stat-label">Two-Factor Authentication</div>
+                <a href="/2fa/setup" class="btn btn-secondary">Manage 2FA</a>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-label">Password</div>
+                <a href="/forgot-password" class="btn btn-secondary">Change Password</a>
+            </div>
+
+            <div class="stat-card mt-20">
+                <div class="stat-label">Active Sessions</div>
+                <p class="form-hint mb-10">If you suspect your account has been compromised, log out all other sessions.</p>
+                <form method="POST" action="/security/logout-all" style="display: inline;">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                    <button type="submit" class="btn btn-danger" data-confirm="This will log out all devices except this one. Continue?">Logout All Other Sessions</button>
+                </form>
+            </div>
+
+            <hr style="margin: 30px 0; border-color: var(--border);">
+
+            <h2 class="card-title mb-20">Data & Privacy</h2>
+
+            <div class="stat-card mb-20">
+                <div class="stat-label">Export Your Data</div>
+                <p class="form-hint mb-10">Download a copy of your account data including orders, transactions, and settings.</p>
+                <a href="/settings/export" class="btn btn-secondary">Export Data</a>
+            </div>
+
+            <div class="stat-card" style="border-color: var(--accent-red);">
+                <div class="stat-label" style="color: var(--accent-red);">Delete Account</div>
+                <p class="form-hint mb-10">Permanently delete your account and all associated data. This action cannot be undone. You must withdraw any remaining balance first.</p>
+                <form method="POST" action="/settings/delete-account" style="display: inline;">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                    <button type="submit" class="btn btn-danger" data-confirm="Are you absolutely sure you want to delete your account? This action is PERMANENT and cannot be undone. All your data will be erased.">Delete My Account</button>
+                </form>
+            </div>
+
+            <a href="/dashboard" class="btn btn-secondary btn-full mt-30">Back to Dashboard</a>
+        </div>
+    </div>
+</section>
+{{end}}

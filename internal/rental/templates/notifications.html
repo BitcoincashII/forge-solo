@@ -1,0 +1,69 @@
+{{define "content"}}
+<section class="dashboard">
+    <div class="container-narrow">
+        <div class="card">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <h1 class="card-title">Notifications</h1>
+                {{if gt .UnreadCount 0}}
+                <form method="POST" action="/notifications/read-all" style="display: inline;">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                    <button type="submit" class="btn btn-secondary btn-small">Mark All Read</button>
+                </form>
+                {{end}}
+            </div>
+
+            {{if .Notifications}}
+            <div class="notification-list">
+                {{range .Notifications}}
+                <div class="notification-item{{if not .Read}} notification-unread{{end}}" style="padding: 15px; border-bottom: 1px solid var(--border); {{if not .Read}}background: rgba(var(--accent-rgb), 0.05);{{end}}">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                        <div style="flex: 1;">
+                            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
+                                {{if eq .Type "deposit"}}
+                                    <span style="color: var(--accent-green);">+</span>
+                                {{else if eq .Type "order_started"}}
+                                    <span style="color: var(--accent);">&#9650;</span>
+                                {{else if eq .Type "order_completed"}}
+                                    <span style="color: var(--accent-green);">&#10003;</span>
+                                {{else if eq .Type "withdrawal"}}
+                                    <span style="color: var(--accent);">&#8594;</span>
+                                {{else if eq .Type "security"}}
+                                    <span style="color: var(--accent-red);">!</span>
+                                {{else}}
+                                    <span style="color: var(--text-muted);">&#9679;</span>
+                                {{end}}
+                                <strong>{{.Title}}</strong>
+                                {{if not .Read}}<span class="badge badge-pending" style="font-size: 10px;">New</span>{{end}}
+                            </div>
+                            <p class="text-small" style="margin: 0; color: var(--text-secondary);">{{.Message}}</p>
+                            <div class="text-small text-muted" style="margin-top: 8px;">{{formatTime .CreatedAt}}</div>
+                        </div>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            {{if .Link}}
+                            <a href="{{.Link}}" class="btn btn-secondary btn-small">View</a>
+                            {{end}}
+                            {{if not .Read}}
+                            <form method="POST" action="/notifications/read" style="display: inline;">
+                                <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                                <input type="hidden" name="notification_id" value="{{.ID}}">
+                                <button type="submit" class="btn btn-secondary btn-small" title="Mark as read">&#10003;</button>
+                            </form>
+                            {{end}}
+                        </div>
+                    </div>
+                </div>
+                {{end}}
+            </div>
+            {{else}}
+            <div class="text-center text-muted" style="padding: 60px 20px;">
+                <div style="font-size: 48px; margin-bottom: 20px;">&#128276;</div>
+                <p>No notifications yet</p>
+                <p class="text-small">You'll see updates about deposits, orders, and withdrawals here.</p>
+            </div>
+            {{end}}
+
+            <a href="/dashboard" class="btn btn-secondary btn-full mt-30">Back to Dashboard</a>
+        </div>
+    </div>
+</section>
+{{end}}

@@ -1,0 +1,418 @@
+{{define "content"}}
+<section class="dashboard">
+    <div class="container-narrow">
+        <div class="card">
+            <h1 class="card-title mb-20">Rent BCH2 Hashpower</h1>
+
+            {{if .Error}}
+            <div class="alert alert-error">{{.Error}}</div>
+            {{end}}
+
+            {{if not .Customer.BCH2Address}}
+            <div class="alert alert-warning">
+                You must <a href="/settings" style="color: inherit; text-decoration: underline;">set your BCH2 payout address</a> before placing an order.
+            </div>
+            {{end}}
+
+            {{if .HasActiveOrder}}
+            <div class="alert alert-warning">
+                You already have an active order. <a href="/mining/{{.ActiveOrderID}}" style="color: inherit; text-decoration: underline;">View it</a> or cancel it to create a new one.
+            </div>
+            {{end}}
+
+            <div class="stat-card mb-30">
+                <div class="stat-label">Your Balance</div>
+                <div class="stat-value">{{.BalanceBTC}} BTC</div>
+            </div>
+
+            <div class="stat-card mb-30">
+                <div class="stat-label">Current Price</div>
+                <div class="stat-value" id="current-price">--</div>
+                <div class="stat-sub">BTC per PH/day</div>
+            </div>
+
+            <form method="POST" action="/order/new" id="order-form">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <input type="hidden" name="confirm" value="" id="confirm-input">
+                <input type="hidden" name="totp_code" value="" id="totp-input">
+                <input type="hidden" name="acknowledge" value="" id="acknowledge-input">
+
+                <div class="form-group">
+                    <label class="form-label">Mining Mode</label>
+                    <div style="display: flex; gap: 15px;">
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="radio" name="mining_mode" value="pplns" checked>
+                            <span>PPLNS</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="radio" name="mining_mode" value="solo">
+                            <span>Solo</span>
+                        </label>
+                    </div>
+                    <p class="form-hint">PPLNS = steady payouts based on shares. Solo = win entire block reward (higher variance).</p>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Hashrate (PH/s)</label>
+                    <input type="number" name="speed_limit_ph" class="form-input"
+                           value="1" min="1" max="500" step="1" required id="hashrate-input">
+                    <p class="form-hint">Minimum 1 PH/s, maximum 500 PH/s.</p>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Budget (BTC)</label>
+                    <input type="number" name="budget_btc" class="form-input"
+                           min="0.00125" max="{{.MaxBudgetBTC}}" step="0.00000001" required id="budget-input"
+                           placeholder="0.01">
+                    <p class="form-hint">
+                        Minimum 0.00125 BTC. Must cover at least 1 hour of mining.
+                        <br>Estimated runtime: <strong id="runtime-estimate">--</strong>
+                    </p>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Worker Name (optional)</label>
+                    <input type="text" name="worker_name" class="form-input"
+                           placeholder="rental" maxlength="50"
+                           pattern="[a-zA-Z0-9_\-]*" id="worker-input">
+                    <p class="form-hint">Identifier appended to your BCH2 address: {{.Customer.BCH2Address}}.workername</p>
+                </div>
+
+                <button type="button" class="btn btn-primary btn-full" id="review-btn" {{if or .HasActiveOrder (not .Customer.BCH2Address)}}disabled{{end}}>
+                    Review Order
+                </button>
+            </form>
+
+            <a href="/dashboard" class="btn btn-secondary btn-full mt-20">Cancel</a>
+        </div>
+    </div>
+</section>
+
+<!-- Order Confirmation Modal -->
+<div id="confirm-modal" class="modal" style="display: none;">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+        <h2 class="modal-title">Confirm Your Order</h2>
+
+        <div class="order-summary">
+            <h3>Order Summary</h3>
+            <table class="summary-table">
+                <tr>
+                    <td>Mining Mode:</td>
+                    <td id="summary-mode">--</td>
+                </tr>
+                <tr>
+                    <td>Hashrate:</td>
+                    <td id="summary-hashrate">--</td>
+                </tr>
+                <tr>
+                    <td>Budget:</td>
+                    <td id="summary-budget">--</td>
+                </tr>
+                <tr>
+                    <td>Estimated Runtime:</td>
+                    <td id="summary-runtime">--</td>
+                </tr>
+                <tr>
+                    <td>Worker Name:</td>
+                    <td id="summary-worker">--</td>
+                </tr>
+                <tr>
+                    <td>Payout Address:</td>
+                    <td id="summary-address">{{.Customer.BCH2Address}}</td>
+                </tr>
+            </table>
+        </div>
+
+        <div class="form-group mt-20">
+            <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer;">
+                <input type="checkbox" id="acknowledge-checkbox" style="margin-top: 3px;">
+                <span>I understand my budget will be reserved immediately and only unused balance is refundable upon cancellation.</span>
+            </label>
+        </div>
+
+        {{if .Has2FA}}
+        <div class="form-group mt-20">
+            <label class="form-label">2FA Code</label>
+            <input type="text" id="modal-totp" class="form-input"
+                   placeholder="Enter 6-digit code" maxlength="30" autocomplete="off">
+            <p class="form-hint">Enter your authenticator code or a backup code to confirm.</p>
+        </div>
+        {{end}}
+
+        <div id="modal-error" class="alert alert-error mt-20" style="display: none;"></div>
+
+        <div class="modal-actions mt-20">
+            <button type="button" class="btn btn-secondary" id="cancel-modal-btn">Cancel</button>
+            <button type="button" class="btn btn-primary" id="confirm-order-btn" disabled>
+                Start Mining
+            </button>
+        </div>
+    </div>
+</div>
+
+<style>
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-backdrop {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+}
+
+.modal-content {
+    position: relative;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 30px;
+    max-width: 500px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.modal-title {
+    margin: 0 0 20px 0;
+    color: var(--text-primary);
+}
+
+.order-summary {
+    background: var(--bg-secondary);
+    border-radius: 6px;
+    padding: 20px;
+    overflow: hidden;
+}
+
+.order-summary h3 {
+    margin: 0 0 15px 0;
+    font-size: 1rem;
+    color: var(--text-secondary);
+}
+
+.summary-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.summary-table td {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.summary-table tr:last-child td {
+    border-bottom: none;
+}
+
+.summary-table td:first-child {
+    color: var(--text-secondary);
+    white-space: nowrap;
+    padding-right: 15px;
+}
+
+.summary-table td:last-child {
+    color: var(--text-primary);
+    font-weight: 500;
+    word-break: break-word;
+}
+
+.modal-actions {
+    display: flex;
+    gap: 15px;
+    justify-content: flex-end;
+}
+
+.modal-actions .btn {
+    min-width: 120px;
+}
+</style>
+
+<script nonce="{{.CSPNonce}}">
+let pricePerPHDay = 0;
+let costPerPHDay = 0;
+const has2FA = {{if .Has2FA}}true{{else}}false{{end}};
+
+document.addEventListener('DOMContentLoaded', function() {
+    fetch('/api/v1/rental/prices')
+        .then(r => r.json())
+        .then(data => {
+            pricePerPHDay = (data.pool_price_sat / 1000) / 100000000;
+            costPerPHDay = (data.best_ask_sat / 1000) / 100000000;
+            document.getElementById('current-price').textContent = pricePerPHDay.toFixed(8);
+            updateEstimate();
+        });
+
+    document.getElementById('hashrate-input').addEventListener('input', updateEstimate);
+    document.getElementById('budget-input').addEventListener('input', updateEstimate);
+
+    var hashrateInput = document.getElementById('hashrate-input');
+    hashrateInput.addEventListener('blur', function() {
+        var val = parseFloat(this.value);
+        if (isNaN(val) || val < 1) {
+            this.value = 1;
+            updateEstimate();
+        }
+    });
+
+    var budgetInput = document.getElementById('budget-input');
+    budgetInput.addEventListener('blur', function() {
+        var val = parseFloat(this.value);
+        if (isNaN(val) || val < 0.00125) {
+            this.value = 0.00125;
+            updateEstimate();
+        }
+    });
+
+    // Review button opens modal
+    document.getElementById('review-btn').addEventListener('click', openConfirmModal);
+
+    // Cancel modal
+    document.getElementById('cancel-modal-btn').addEventListener('click', closeModal);
+    document.querySelector('.modal-backdrop').addEventListener('click', closeModal);
+
+    // Confirm order
+    document.getElementById('confirm-order-btn').addEventListener('click', submitOrder);
+
+    // Enable/disable confirm button based on acknowledgment
+    document.getElementById('acknowledge-checkbox').addEventListener('change', updateConfirmButton);
+
+    if (has2FA) {
+        document.getElementById('modal-totp').addEventListener('input', updateConfirmButton);
+    }
+
+    // Handle escape key
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            closeModal();
+        }
+    });
+});
+
+function updateEstimate() {
+    const hashrate = parseFloat(document.getElementById('hashrate-input').value) || 1;
+    const budget = parseFloat(document.getElementById('budget-input').value) || 0;
+
+    if (costPerPHDay > 0 && budget > 0) {
+        const actualCostPerDay = costPerPHDay * hashrate;
+        const days = budget / actualCostPerDay;
+        const hours = days * 24;
+
+        if (hours < 1) {
+            document.getElementById('runtime-estimate').textContent = 'Less than 1 hour (need more budget)';
+            document.getElementById('runtime-estimate').style.color = 'var(--accent-red)';
+        } else if (hours < 24) {
+            document.getElementById('runtime-estimate').textContent = hours.toFixed(1) + ' hours';
+            document.getElementById('runtime-estimate').style.color = 'var(--accent-green)';
+        } else {
+            document.getElementById('runtime-estimate').textContent = days.toFixed(1) + ' days';
+            document.getElementById('runtime-estimate').style.color = 'var(--accent-green)';
+        }
+    } else {
+        document.getElementById('runtime-estimate').textContent = '--';
+        document.getElementById('runtime-estimate').style.color = '';
+    }
+}
+
+function openConfirmModal() {
+    // Validate form first
+    const budget = parseFloat(document.getElementById('budget-input').value);
+    const hashrate = parseFloat(document.getElementById('hashrate-input').value);
+
+    if (!budget || budget < 0.00125) {
+        alert('Please enter a valid budget (minimum 0.00125 BTC)');
+        return;
+    }
+    if (!hashrate || hashrate < 1) {
+        alert('Please enter a valid hashrate (minimum 1 PH/s)');
+        return;
+    }
+
+    // Populate summary
+    const miningMode = document.querySelector('input[name="mining_mode"]:checked').value;
+    const workerName = document.getElementById('worker-input').value || 'rental';
+
+    document.getElementById('summary-mode').textContent = miningMode.toUpperCase();
+    document.getElementById('summary-hashrate').textContent = hashrate + ' PH/s';
+    document.getElementById('summary-budget').textContent = budget.toFixed(8) + ' BTC';
+    document.getElementById('summary-runtime').textContent = document.getElementById('runtime-estimate').textContent;
+    document.getElementById('summary-worker').textContent = workerName;
+
+    // Reset modal state
+    document.getElementById('acknowledge-checkbox').checked = false;
+    if (has2FA) {
+        document.getElementById('modal-totp').value = '';
+    }
+    document.getElementById('modal-error').style.display = 'none';
+    document.getElementById('confirm-order-btn').disabled = true;
+
+    // Show modal
+    document.getElementById('confirm-modal').style.display = 'flex';
+
+    // Focus on appropriate field
+    if (has2FA) {
+        document.getElementById('modal-totp').focus();
+    } else {
+        document.getElementById('acknowledge-checkbox').focus();
+    }
+}
+
+function closeModal() {
+    document.getElementById('confirm-modal').style.display = 'none';
+}
+
+function updateConfirmButton() {
+    const acknowledged = document.getElementById('acknowledge-checkbox').checked;
+    let canConfirm = acknowledged;
+
+    if (has2FA) {
+        const totpCode = document.getElementById('modal-totp').value.trim();
+        canConfirm = acknowledged && totpCode.length >= 6;
+    }
+
+    document.getElementById('confirm-order-btn').disabled = !canConfirm;
+}
+
+function submitOrder() {
+    const acknowledged = document.getElementById('acknowledge-checkbox').checked;
+    if (!acknowledged) {
+        document.getElementById('modal-error').textContent = 'You must acknowledge the cancellation policy.';
+        document.getElementById('modal-error').style.display = 'block';
+        return;
+    }
+
+    if (has2FA) {
+        const totpCode = document.getElementById('modal-totp').value.trim();
+        if (!totpCode || totpCode.length < 6) {
+            document.getElementById('modal-error').textContent = 'Please enter your 2FA code.';
+            document.getElementById('modal-error').style.display = 'block';
+            return;
+        }
+        document.getElementById('totp-input').value = totpCode;
+    }
+
+    // Set confirmation values
+    document.getElementById('confirm-input').value = 'true';
+    document.getElementById('acknowledge-input').value = 'true';
+
+    // Disable button to prevent double-submit
+    document.getElementById('confirm-order-btn').disabled = true;
+    document.getElementById('confirm-order-btn').textContent = 'Starting...';
+
+    // Submit the form
+    document.getElementById('order-form').submit();
+}
+</script>
+{{end}}

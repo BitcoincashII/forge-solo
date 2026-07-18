@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Forge Solo Miner BCH2 Mining">
+    <title>Forge Solo Miner</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/css/common.css">
+    <script src="/js/chart.min.js"></script>
+    <style>
+        :root{--gold:#f59e0b;--gold-dark:#d97706}
+
+        .dashboard{padding:32px 0}
+        .miner-header{margin-bottom:32px}
+        .miner-header h1{font-size:28px;margin-bottom:8px;display:flex;align-items:center;gap:12px}
+        .miner-address-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+        .miner-address{font-family:'JetBrains Mono',monospace;color:var(--text-secondary);font-size:14px;word-break:break-all}
+        .copy-btn{background:var(--bg-card);border:1px solid var(--border);color:var(--text-secondary);padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;transition:all 0.2s}
+        .copy-btn:hover{border-color:var(--gold);color:var(--gold)}
+        .copy-btn.copy-success{background:var(--gold);color:#000;border-color:var(--gold)}
+
+        .balance-card{background:linear-gradient(135deg,var(--bch-green),#068a65);border-radius:16px;padding:32px;margin-bottom:24px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:20px}
+        .balance-info h2{font-size:14px;opacity:0.8;margin-bottom:8px;color:#000}
+        .balance-amount{font-size:42px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#000}
+        .balance-amount small{font-size:20px}
+        .balance-sub{font-size:14px;opacity:0.7;margin-top:4px;color:#000}
+        .balance-right{text-align:right}
+        .blocks-found{font-size:36px;font-weight:800;color:#000}
+        .blocks-label{font-size:14px;opacity:0.7;color:#000}
+
+        .stats-row{display:grid;grid-template-columns:repeat(7,1fr);gap:16px;margin-bottom:32px}
+        .stat-tile{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:20px;text-align:center;transition:border-color 0.2s}
+        .stat-tile:hover{border-color:var(--gold)}
+        .stat-tile.highlight{border-color:var(--gold);background:rgba(245,158,11,0.1)}
+        .stat-value{font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--gold)}
+        .stat-tile.highlight .stat-value{font-size:24px}
+        .stat-label{font-size:11px;color:var(--text-secondary);margin-top:4px}
+
+        .main-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:32px}
+        .card{background:var(--bg-card);border:1px solid var(--border);border-radius:16px;padding:24px}
+        .card h2{font-size:16px;margin-bottom:20px;display:flex;align-items:center;gap:8px}
+
+        .effort-bar-container{background:#1a1a1a;border-radius:8px;height:40px;position:relative;overflow:hidden;margin-bottom:12px}
+        .effort-bar{height:100%;border-radius:8px;transition:width 0.5s ease;min-width:2px}
+        .effort-100-mark{position:absolute;left:50%;top:0;bottom:0;width:2px;background:var(--bch-green)}
+        .effort-markers{display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);font-family:'JetBrains Mono',monospace}
+
+        .effort-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;text-align:center;margin-top:20px}
+        .effort-stat-value{font-size:24px;font-weight:700;font-family:'JetBrains Mono',monospace}
+        .effort-stat-label{font-size:11px;color:var(--text-secondary);margin-top:4px}
+
+        .time-to-block{text-align:center;margin-top:20px;padding:16px;background:var(--bg-primary);border-radius:10px}
+        .time-to-block .label{font-size:14px;color:var(--text-secondary);margin-bottom:8px}
+        .time-to-block .value{font-size:28px;font-weight:700;color:var(--gold)}
+
+        .workers-table{width:100%;border-collapse:collapse}
+        .workers-table th,.workers-table td{padding:12px;text-align:left;border-bottom:1px solid var(--border)}
+        .workers-table th{color:var(--text-secondary);font-weight:500;font-size:11px;text-transform:uppercase}
+        .workers-table td{font-family:'JetBrains Mono',monospace;font-size:13px}
+        .status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:8px}
+        .status-dot.online{background:var(--bch-green);box-shadow:0 0 8px var(--bch-green)}
+        .status-dot.offline{background:var(--red)}
+
+        .chart-container{height:200px;position:relative}
+
+        .table-scroll{max-height:300px;overflow-y:auto}
+        .blocks-table{width:100%;border-collapse:collapse}
+        .blocks-table th,.blocks-table td{padding:10px;text-align:left;border-bottom:1px solid var(--border);font-size:13px}
+        .blocks-table th{color:var(--text-secondary);font-weight:500;font-size:11px;text-transform:uppercase}
+
+        /* Solo mode badge */
+        .mode-badge{background:var(--gold);color:#000}
+
+        footer a{color:var(--gold)}
+
+        @media(max-width:900px){
+            .stats-row{grid-template-columns:repeat(4,1fr)}
+            .main-grid{grid-template-columns:1fr}
+        }
+        @media(max-width:600px){
+            .stats-row{grid-template-columns:repeat(2,1fr)}
+            .miner-header h1{font-size:22px}
+            .balance-card{flex-direction:column;text-align:center}
+            .balance-right{text-align:center}
+        }
+    </style>
+</head>
+<body>
+    <a href="#main-content" class="skip-link" data-i18n="p_skip_to_content">Skip to main content</a>
+
+    <div id="offlineBanner" class="offline-banner" style="display:none" role="alert">
+        <span data-i18n="p_offline_banner">You are offline. Some data may be outdated.</span>
+    </div>
+
+    <header>
+        <div class="container header-content">
+            <a href="/" class="logo" aria-label="Forge Solo Miner Home">
+                <svg class="logo-icon" viewBox="0 0 788 788" aria-hidden="true"><defs><linearGradient id="cg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#0ac18e"/><stop offset="100%" style="stop-color:#089e74"/></linearGradient></defs><circle cx="394" cy="394" r="394" fill="url(#cg)"/><text x="400" y="580" text-anchor="middle" font-family="Times New Roman,serif" font-size="620" font-weight="bold" fill="rgba(0,0,0,0.35)">II</text><path fill="#000" d="M516.9,261.7c-19.8-44.9-65.3-54.5-121-45.2L378,147.1L335.8,158l17.6,69.2c-11.1,2.8-22.5,5.2-33.8,8.4L302,166.8l-42.2,10.9l17.9,69.4c-9.1,2.6-85.2,22.1-85.2,22.1l11.6,45.2c0,0,31-8.7,30.7-8c17.2-4.5,25.3,4.1,29.1,12.2l49.2,190.2c0.6,5.5-0.4,14.9-12.2,18.1c0.7,0.4-30.7,7.9-30.7,7.9l4.6,52.7c0,0,75.4-19.3,85.3-21.8l18.1,70.2l42.2-10.9l-18.1-70.7c11.6-2.7,22.9-5.5,33.9-8.4l18,70.3l42.2-10.9l-18.1-70.1c65-15.8,110.9-56.8,101.5-119.5c-6-37.8-47.3-68.8-81.6-72.3C519.3,324.7,530,297.4,516.9,261.7L516.9,261.7z M496.6,427.2c8.4,62.1-77.9,69.7-106.4,77.2l-24.8-92.9C394,404,482.4,372.5,496.6,427.2z M444.6,300.7c8.9,55.2-64.9,61.6-88.7,67.7l-22.6-84.3C357.2,278.2,426.5,249.6,444.6,300.7z"/></svg>
+                <div><div class="logo-text">Forge Pool</div><div class="logo-sub" data-i18n="p_logo_sub">Bitcoin Cash II Mining Pool</div></div>
+            </a>
+            <nav role="navigation" aria-label="Main navigation">
+                <a href="https://bch2.org/language.html?return=https://pool.bch2.org" title="Language" id="langSwitch" style="text-transform: uppercase; font-size: 0.85em;">🌐 EN</a>
+                <a href="/" data-i18n="p_nav_dashboard">Dashboard</a>
+                <a href="/help" data-i18n="p_nav_help">Help</a>
+                <a href="/settings" data-i18n="p_nav_settings">Settings</a>
+                <span class="mode-badge">SOLO</span>
+            </nav>
+        </div>
+    </header>
+
+    <main id="main-content">
+        <div class="container dashboard">
+            <div class="miner-header">
+                <h1 data-i18n="p_solo_title">Solo Mining Dashboard</h1>
+                <div class="miner-address-row">
+                    <div class="miner-address" id="minerAddress" data-i18n="p_miner_loading">Loading...</div>
+                    <button class="copy-btn" id="copyAddressBtn" aria-label="Copy address to clipboard">Copy</button>
+                </div>
+            </div>
+
+            <div class="balance-card" role="region" aria-label="Balance information">
+                <div class="balance-info">
+                    <h2 data-i18n="p_solo_mature_balance">Mature Balance</h2>
+                    <div class="balance-amount"><span id="matureBalance">0.00</span> <small>BCH2</small></div>
+                    <div class="balance-sub">Immature: <span id="immatureBalance">0.00</span> BCH2 (waiting 100 confirms)</div>
+                </div>
+                <div class="balance-right">
+                    <div class="blocks-found" id="blocksFound">0</div>
+                    <div class="blocks-label" data-i18n="p_solo_blocks_found">Your Blocks Found</div>
+                    <div style="margin-top:8px;font-size:13px;opacity:0.8;color:#000" id="totalEarned">Total: 0 BCH2</div>
+                </div>
+            </div>
+
+            <div class="stats-row" role="region" aria-label="Mining statistics">
+                <div class="stat-tile highlight">
+                    <div class="stat-value" id="hashrate5m">--</div>
+                    <div class="stat-label" data-i18n="p_solo_hashrate_5m">Your Hashrate (5m)</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-value" id="hashrate60m">--</div>
+                    <div class="stat-label" data-i18n="p_solo_hashrate_60m">Your Hashrate (60m)</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-value" id="networkHashrate">--</div>
+                    <div class="stat-label" data-i18n="p_solo_network_hashrate">Network Hashrate</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-value" id="networkDiff">--</div>
+                    <div class="stat-label" data-i18n="p_solo_network_diff">Network Diff</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-value" id="workers">--</div>
+                    <div class="stat-label" data-i18n="p_solo_workers">Workers</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-value" id="validShares">--</div>
+                    <div class="stat-label" data-i18n="p_solo_valid_shares">Valid Shares</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-value" id="rejectRate">0%</div>
+                    <div class="stat-label" data-i18n="p_solo_reject_pct">Reject %</div>
+                </div>
+            </div>
+
+            <div class="main-grid">
+                <div class="card">
+                    <h2 data-i18n="p_solo_round_effort">Round Effort</h2>
+                    <div class="effort-bar-container" role="progressbar" aria-valuemin="0" aria-valuemax="200" aria-valuenow="0" id="effortBarContainer">
+                        <div class="effort-bar" id="effortBar" style="width:0%;background:linear-gradient(90deg,var(--bch-green),var(--gold))"></div>
+                        <div class="effort-100-mark" aria-hidden="true"></div>
+                    </div>
+                    <div class="effort-markers" aria-hidden="true">
+                        <span>0%</span>
+                        <span>50%</span>
+                        <span>100%</span>
+                        <span>150%</span>
+                        <span>200%+</span>
+                    </div>
+                    <div class="effort-stats">
+                        <div>
+                            <div class="effort-stat-value" id="currentEffort" style="color:var(--gold)">--%</div>
+                            <div class="effort-stat-label" data-i18n="p_solo_current_effort">Current Effort</div>
+                        </div>
+                        <div title="Your average effort over recent blocks — the stable reference. Current Effort (left) is just this one round and swings widely; over many blocks it averages out to this.">
+                            <div class="effort-stat-value" id="avgEffort" style="color:var(--bch-green)">--</div>
+                            <div class="effort-stat-label" data-i18n="p_solo_avg_effort">Avg Effort (recent)</div>
+                        </div>
+                        <div>
+                            <div class="effort-stat-value" id="roundShares" style="color:var(--bch-green)">--</div>
+                            <div class="effort-stat-label" data-i18n="p_solo_round_shares">Round Shares</div>
+                        </div>
+                        <div>
+                            <div class="effort-stat-value" id="bestDiff" style="color:var(--text-secondary)">--</div>
+                            <div class="effort-stat-label" data-i18n="p_solo_best_diff">Best Difficulty</div>
+                        </div>
+                    </div>
+                    <div class="time-to-block">
+                        <div class="label" data-i18n="p_solo_est_time">Estimated Time to Block</div>
+                        <div class="value" id="timeToBlock">--</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2 data-i18n="p_solo_workers_title">Workers</h2>
+                    <div class="table-scroll" id="workersContainer">
+                        <table class="workers-table" aria-describedby="workers-desc">
+                            <caption id="workers-desc" class="sr-only">List of connected mining workers</caption>
+                            <thead>
+                                <tr>
+                                    <th scope="col" data-i18n="p_solo_th_worker">Worker</th>
+                                    <th scope="col" data-i18n="p_solo_th_blocks">Blocks</th>
+                                    <th scope="col" data-i18n="p_solo_th_5m_hash">5m Hash</th>
+                                    <th scope="col" data-i18n="p_solo_th_60m_hash">60m Hash</th>
+                                    <th scope="col" data-i18n="p_solo_th_round_best">Round Best</th>
+                                    <th scope="col" data-i18n="p_solo_th_ath_diff">ATH Diff</th>
+                                </tr>
+                            </thead>
+                            <tbody id="workersTable">
+                                <tr><td colspan="6"><div class="loading-state"><div class="loading-spinner"></div><span data-i18n="p_loading_workers">Loading workers...</span></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="main-grid">
+                <div class="card">
+                    <h2 data-i18n="p_solo_hashrate_history">Hashrate History (24h)</h2>
+                    <div class="chart-container">
+                        <canvas id="hashrateChart" aria-label="Hashrate history chart"></canvas>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2 data-i18n="p_solo_your_blocks">Your Blocks Found</h2>
+                    <div style="margin-bottom:12px;padding:10px 14px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;font-size:12px;color:var(--text-secondary)">
+                        <strong style="color:var(--gold)">Note:</strong> Block rewards are collected by the pool, then paid to your address after 100 confirmations. Check <strong>Payout History</strong> below for your payment transactions.
+                    </div>
+                    <div class="table-scroll" id="blocksContainer">
+                        <table class="blocks-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col" data-i18n="p_th_coin">Coin</th>
+                                    <th scope="col" data-i18n="p_solo_th_height">Height</th>
+                                    <th scope="col" data-i18n="p_solo_th_block">Block</th>
+                                    <th scope="col" data-i18n="p_solo_th_reward">Reward</th>
+                                    <th scope="col" data-i18n="p_solo_th_time">Time</th>
+                                    <th scope="col" data-i18n="p_solo_th_status">Status</th>
+                                    <th scope="col" data-i18n="p_solo_th_payout">Payout</th>
+                                </tr>
+                            </thead>
+                            <tbody id="blocksTable">
+                                <tr><td colspan="7"><div class="loading-state"><div class="loading-spinner"></div><span data-i18n="p_loading_blocks">Loading blocks...</span></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2><span data-i18n="p_solo_payout_history">Payout History</span> <span id="payoutCount" style="font-size:14px;color:var(--text-secondary)">(0)</span></h2>
+                <div style="margin-bottom:15px;color:var(--bch-green);font-size:18px">Total Paid: <span id="totalPaidAmount">0</span> BCH2</div>
+                <div class="table-scroll" id="payoutsContainer">
+                    <table class="blocks-table">
+                        <thead>
+                            <tr>
+                                <th scope="col" data-i18n="p_solo_th_transaction">Transaction</th>
+                                <th scope="col" data-i18n="p_solo_th_amount">Amount</th>
+                                <th scope="col">Blocks</th>
+                                <th scope="col" data-i18n="p_solo_th_time">Time</th>
+                            </tr>
+                        </thead>
+                        <tbody id="payoutsTable">
+                            <tr><td colspan="4"><div class="loading-state"><div class="loading-spinner"></div><span data-i18n="p_loading_payouts">Loading payouts...</span></div></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p data-i18n="p_footer_solo">Forge Solo Miner 2026 | <a href="https://bch2.org" rel="noopener noreferrer">BCH2</a> | 0% fee (solo)</p>
+        </div>
+    </footer>
+
+    <script src="/js/common.js"></script>
+    <script src="/lang/pool-en.js"></script>
+    <script src="/js/pool-i18n.js"></script>
+    <script src="/js/pool-solo-inline.js?v=20260718b"></script>
+</body>
+</html>

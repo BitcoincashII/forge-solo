@@ -1,0 +1,59 @@
+{{define "content"}}
+<div class="auth-page">
+    <div class="auth-card">
+        <h1 class="auth-title">Deposit BTC</h1>
+        <p class="auth-subtitle">Send Bitcoin to fund your account</p>
+
+        <div class="form-group text-center">
+            <div class="qr-container">
+                <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={{.BTCAddress}}"
+                     alt="BTC Address QR Code" width="200" height="200">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Your Deposit Address</label>
+            <div class="copy-field">
+                <input type="text" class="form-input" value="{{.BTCAddress}}" readonly id="btc-address">
+                <button type="button" class="copy-btn" data-copy="btc-address">Copy</button>
+            </div>
+        </div>
+
+        <div class="alert alert-warning">
+            <strong>Important:</strong> Only send BTC to this address. 3 confirmations required before funds are available.
+        </div>
+
+        {{if .PendingDeposits}}
+        <div class="card mt-20">
+            <h3 class="card-title mb-20">Pending Deposits</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Amount</th>
+                        <th>Confirmations</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .PendingDeposits}}
+                    <tr>
+                        <td class="mono">{{formatBTC .AmountSat}} BTC</td>
+                        <td>{{.Confirmations}} / 3</td>
+                        <td>
+                            {{if .Credited}}
+                            <span class="badge badge-completed">CREDITED</span>
+                            {{else}}
+                            <span class="badge badge-pending">PENDING</span>
+                            {{end}}
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+        {{end}}
+
+        <a href="/dashboard" class="btn btn-secondary btn-full mt-20">Back to Dashboard</a>
+    </div>
+</div>
+{{end}}

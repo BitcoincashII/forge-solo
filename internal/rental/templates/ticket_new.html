@@ -1,0 +1,51 @@
+{{define "content"}}
+<section class="dashboard">
+    <div class="container-narrow">
+        <div class="mb-20">
+            <a href="/support" class="text-muted">&larr; Back to Tickets</a>
+        </div>
+
+        <div class="card">
+            <h1 class="card-title mb-20">New Support Ticket</h1>
+            <p class="text-muted mb-30">Describe your issue and we'll get back to you as soon as possible.</p>
+
+            {{if .Error}}
+            <div class="alert alert-error mb-20">{{.Error}}</div>
+            {{end}}
+
+            <form method="POST" action="/support/new">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+                <div class="form-group">
+                    <label class="form-label">Category</label>
+                    <select name="category" class="form-input">
+                        <option value="general">General Question</option>
+                        <option value="orders">Orders & Mining</option>
+                        <option value="payments">Deposits & Withdrawals</option>
+                        <option value="account">Account Issues</option>
+                        <option value="technical">Technical Support</option>
+                        <option value="billing">Billing</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Subject *</label>
+                    <input type="text" name="subject" class="form-input"
+                           placeholder="Brief description of your issue"
+                           maxlength="200" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Message *</label>
+                    <textarea name="message" class="form-input" rows="8"
+                              placeholder="Please describe your issue in detail. Include any relevant order IDs, transaction IDs, or error messages."
+                              required></textarea>
+                    <p class="form-hint">Be as specific as possible to help us resolve your issue quickly.</p>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-full">Submit Ticket</button>
+            </form>
+        </div>
+    </div>
+</section>
+{{end}}

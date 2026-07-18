@@ -1,0 +1,85 @@
+{{define "content"}}
+<section class="dashboard">
+    <div class="container">
+        <div class="card-header" style="margin-bottom: 30px;">
+            <h1>Order History</h1>
+            <a href="/dashboard" class="btn btn-secondary btn-small">Back to Dashboard</a>
+        </div>
+
+        {{if .Error}}
+        <div class="alert alert-error">{{.Error}}</div>
+        {{end}}
+
+        <div class="card">
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Target</th>
+                            <th>Hashrate</th>
+                            <th>Mode</th>
+                            <th>Budget</th>
+                            <th>Spent</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Orders}}
+                        <tr>
+                            <td class="mono"><a href="/mining/{{.ID}}" style="color: var(--accent);">#{{.ID}}</a></td>
+                            <td class="mono text-small">{{truncate .TargetIdentity 20}}</td>
+                            <td>{{.SpeedLimitPH}} PH/s</td>
+                            <td class="mono">{{upper .MiningMode}}</td>
+                            <td class="mono">{{formatBTC .BudgetSat}}</td>
+                            <td class="mono">{{formatBTC .AmountSpentSat}}</td>
+                            <td><span class="badge badge-{{.Status}}">{{upper .Status}}</span></td>
+                            <td class="text-small">{{formatTime .CreatedAt}}</td>
+                            <td>
+                                {{if eq .Status "active"}}
+                                <a href="/order/{{.ID}}/extend" class="btn btn-secondary btn-small">Extend</a>
+                                {{else}}
+                                <a href="/mining/{{.ID}}" class="btn btn-secondary btn-small">View</a>
+                                {{end}}
+                            </td>
+                        </tr>
+                        {{else}}
+                        <tr>
+                            <td colspan="9" class="text-center text-muted" style="padding: 40px;">
+                                No orders yet. <a href="/order/new" style="color: var(--accent);">Rent hashpower</a> to get started.
+                            </td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+
+            {{if .HasMore}}
+            <div class="text-center mt-20">
+                <a href="/orders?page={{.NextPage}}" class="btn btn-secondary">Load More</a>
+            </div>
+            {{end}}
+        </div>
+
+        <!-- Order Stats -->
+        {{if .Orders}}
+        <div class="dashboard-grid mt-30">
+            <div class="stat-card">
+                <div class="stat-label">Total Orders</div>
+                <div class="stat-value">{{.TotalOrders}}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Spent</div>
+                <div class="stat-value">{{.TotalSpentBTC}} BTC</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Active Orders</div>
+                <div class="stat-value">{{.ActiveCount}}</div>
+            </div>
+        </div>
+        {{end}}
+    </div>
+</section>
+{{end}}

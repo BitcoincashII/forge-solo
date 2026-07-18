@@ -1,0 +1,18 @@
+{{define "content"}}
+<section class="dashboard">
+    <div class="container-narrow">
+        <div class="card" style="text-align: center; padding: 60px 40px;">
+            <div style="font-size: 80px; margin-bottom: 20px; opacity: 0.5;">404</div>
+            <h1 class="card-title mb-20">Page Not Found</h1>
+            <p class="text-muted mb-30">The page you're looking for doesn't exist or has been moved.</p>
+            <div style="display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
+                <a href="/" class="btn btn-primary">Go Home</a>
+                {{if .LoggedIn}}
+                <a href="/dashboard" class="btn btn-secondary">Dashboard</a>
+                {{end}}
+                <a href="/contact" class="btn btn-secondary">Contact Support</a>
+            </div>
+        </div>
+    </div>
+</section>
+{{end}}

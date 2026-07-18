@@ -1,0 +1,102 @@
+{{define "content"}}
+<section class="dashboard">
+    <div class="container">
+        <div class="mb-20">
+            <a href="/support" class="text-muted">&larr; Back to Tickets</a>
+        </div>
+
+        <div class="card mb-30">
+            <div class="card-header">
+                <div>
+                    <h1 class="card-title">Ticket #{{.Ticket.ID}}</h1>
+                    <p class="text-muted text-small" style="margin-top: 5px;">{{.Ticket.Subject}}</p>
+                </div>
+                <span class="badge {{if eq .Ticket.Status "open"}}badge-active{{else if eq .Ticket.Status "pending"}}badge-pending{{else}}badge-completed{{end}}">
+                    {{upper .Ticket.Status}}
+                </span>
+            </div>
+
+            <div class="dashboard-grid" style="margin-bottom: 20px;">
+                <div>
+                    <div class="stat-label">Category</div>
+                    <div class="mono">{{upper .Ticket.Category}}</div>
+                </div>
+                <div>
+                    <div class="stat-label">Priority</div>
+                    <div class="mono">{{upper .Ticket.Priority}}</div>
+                </div>
+                <div>
+                    <div class="stat-label">Created</div>
+                    <div class="text-small">{{formatTime .Ticket.CreatedAt}}</div>
+                </div>
+                <div>
+                    <div class="stat-label">Last Updated</div>
+                    <div class="text-small">{{formatTime .Ticket.UpdatedAt}}</div>
+                </div>
+            </div>
+
+            {{if ne .Ticket.Status "closed"}}
+            <form method="POST" action="/support/ticket/{{.Ticket.ID}}" style="display: inline;">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <input type="hidden" name="action" value="close">
+                <button type="submit" class="btn btn-secondary btn-small"
+                        data-confirm="Close this ticket? You can reopen it by sending a new message.">
+                    Close Ticket
+                </button>
+            </form>
+            {{end}}
+        </div>
+
+        <!-- Messages -->
+        <div class="card mb-30">
+            <h2 class="card-title mb-20">Conversation</h2>
+
+            <div class="ticket-messages" style="display: flex; flex-direction: column; gap: 20px;">
+                {{range .Messages}}
+                <div class="ticket-message" style="padding: 15px; border-radius: 8px; background: {{if eq .SenderType "customer"}}rgba(37, 99, 235, 0.1){{else}}rgba(10, 193, 142, 0.1){{end}}; border-left: 3px solid {{if eq .SenderType "customer"}}var(--accent){{else}}var(--accent-green){{end}};">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <span class="badge {{if eq .SenderType "customer"}}badge-active{{else}}badge-completed{{end}}">
+                            {{if eq .SenderType "customer"}}You{{else}}Support{{end}}
+                        </span>
+                        <span class="text-small text-muted">{{formatTime .CreatedAt}}</span>
+                    </div>
+                    <div style="white-space: pre-wrap; line-height: 1.6;">{{.Message}}</div>
+                </div>
+                {{else}}
+                <p class="text-muted">No messages yet.</p>
+                {{end}}
+            </div>
+        </div>
+
+        <!-- Reply Form -->
+        {{if ne .Ticket.Status "closed"}}
+        <div class="card">
+            <h2 class="card-title mb-20">Send Reply</h2>
+
+            <form method="POST" action="/support/ticket/{{.Ticket.ID}}">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+                <div class="form-group">
+                    <textarea name="message" class="form-input" rows="5"
+                              placeholder="Type your message here..."
+                              required></textarea>
+                </div>
+
+                <button type="submit" class="btn btn-primary">Send Message</button>
+            </form>
+        </div>
+        {{else}}
+        <div class="card">
+            <div class="text-center text-muted" style="padding: 30px;">
+                <p style="margin-bottom: 15px;">This ticket is closed.</p>
+                <form method="POST" action="/support/ticket/{{.Ticket.ID}}" style="display: inline;">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                    <input type="hidden" name="message" value="Reopening this ticket for follow-up.">
+                    <button type="submit" class="btn btn-secondary">Reopen Ticket</button>
+                </form>
+            </div>
+        </div>
+        {{end}}
+    </div>
+</section>
+{{end}}

@@ -1,0 +1,75 @@
+{{define "content"}}
+<div class="auth-page">
+    <div class="auth-card">
+        {{if .Enabled}}
+        <h1 class="auth-title">2FA Enabled</h1>
+        <p class="auth-subtitle">Your account is protected with two-factor authentication</p>
+
+        <div class="alert alert-success">
+            Two-factor authentication is active. You have <strong>{{.BackupCodesRemaining}}</strong> backup codes remaining.
+        </div>
+
+        <a href="/2fa/backup-codes" class="btn btn-secondary btn-full mb-20">Regenerate Backup Codes</a>
+        <a href="/2fa/disable" class="btn btn-danger btn-full mb-20">Disable 2FA</a>
+        <a href="/dashboard" class="btn btn-secondary btn-full">Back to Dashboard</a>
+
+        {{else if .Secret}}
+        <h1 class="auth-title">Enable 2FA</h1>
+        <p class="auth-subtitle">Step 2: Verify your authenticator</p>
+
+        {{if .Error}}
+        <div class="alert alert-error">{{.Error}}</div>
+        {{end}}
+
+        <div class="text-center mb-20">
+            <p class="text-muted text-small mb-20">Scan this QR code with your authenticator app:</p>
+            <div class="qr-container">
+                <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={{.QRCodeURI}}"
+                     alt="2FA QR Code" width="200" height="200">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Or enter manually:</label>
+            <div class="copy-field">
+                <input type="text" class="form-input" value="{{.Secret}}" readonly id="secret">
+                <button type="button" class="copy-btn" data-copy="secret">Copy</button>
+            </div>
+        </div>
+
+        <form method="POST" action="/2fa/verify">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+            <div class="form-group">
+                <label class="form-label">Enter the 6-digit code from your app</label>
+                <input type="text" name="code" class="form-input" placeholder="000000"
+                       pattern="[0-9]{6}" maxlength="6" required autofocus>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-full">Verify & Enable 2FA</button>
+        </form>
+
+        <a href="/dashboard" class="btn btn-secondary btn-full mt-20">Cancel</a>
+
+        {{else}}
+        <h1 class="auth-title">Enable 2FA</h1>
+        <p class="auth-subtitle">Secure your account with two-factor authentication</p>
+
+        {{if .Error}}
+        <div class="alert alert-error">{{.Error}}</div>
+        {{end}}
+
+        <div class="alert alert-warning">
+            2FA is <strong>required</strong> for withdrawals. Enable it now to protect your funds.
+        </div>
+
+        <form method="POST" action="/2fa/setup">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <button type="submit" class="btn btn-primary btn-full">Set Up 2FA</button>
+        </form>
+
+        <a href="/dashboard" class="btn btn-secondary btn-full mt-20">Back to Dashboard</a>
+        {{end}}
+    </div>
+</div>
+{{end}}

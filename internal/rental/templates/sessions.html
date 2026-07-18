@@ -1,0 +1,63 @@
+{{define "content"}}
+<section class="dashboard">
+    <div class="container-narrow">
+        <div class="card">
+            <h1 class="card-title mb-20">Active Sessions</h1>
+
+            {{if .Success}}
+            <div class="alert alert-success mb-20">Session revoked successfully</div>
+            {{end}}
+
+            <p class="form-hint mb-20">These are the devices currently logged into your account. You can revoke any session to log that device out.</p>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Device</th>
+                            <th>IP Address</th>
+                            <th>Last Active</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Sessions}}
+                        <tr{{if .IsCurrent}} style="background: rgba(var(--accent-rgb), 0.1);"{{end}}>
+                            <td>
+                                {{.DeviceName}}
+                                {{if .IsCurrent}}<span class="badge badge-active" style="margin-left: 8px;">Current</span>{{end}}
+                            </td>
+                            <td class="mono text-small">{{if .IPAddress}}{{.IPAddress}}{{else}}-{{end}}</td>
+                            <td class="text-small">{{formatTime .LastUsedAt}}</td>
+                            <td>
+                                {{if not .IsCurrent}}
+                                <form method="POST" action="/security/sessions" style="display: inline;">
+                                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                                    <input type="hidden" name="session_id" value="{{.ID}}">
+                                    <button type="submit" class="btn btn-danger btn-small" data-confirm="Revoke this session?">Revoke</button>
+                                </form>
+                                {{else}}
+                                <span class="text-muted">-</span>
+                                {{end}}
+                            </td>
+                        </tr>
+                        {{else}}
+                        <tr>
+                            <td colspan="4" class="text-center text-muted">No active sessions</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="mt-30" style="display: flex; gap: 10px;">
+                <a href="/security" class="btn btn-secondary">Back to Security</a>
+                <form method="POST" action="/security/logout-all" style="display: inline;">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                    <button type="submit" class="btn btn-danger" data-confirm="Log out all devices except this one?">Logout All Other Sessions</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</section>
+{{end}}

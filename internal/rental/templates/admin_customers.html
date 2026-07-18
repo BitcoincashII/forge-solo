@@ -1,0 +1,42 @@
+{{define "content"}}
+<section class="dashboard">
+    <div class="container">
+        <h1 class="mb-30">All Customers</h1>
+
+        <a href="/admin" class="btn btn-secondary mb-20">Back to Admin Dashboard</a>
+
+        <div class="card">
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Email</th>
+                            <th>Balance</th>
+                            <th>Orders</th>
+                            <th>2FA</th>
+                            <th>Joined</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Customers}}
+                        <tr>
+                            <td class="mono">#{{.ID}}</td>
+                            <td class="mono text-small">{{.Email}}</td>
+                            <td class="mono">{{.BalanceBTC}} BTC</td>
+                            <td>{{.OrderCount}}</td>
+                            <td>{{if .TwoFAEnabled}}<span style="color: var(--accent-green);">Yes</span>{{else}}<span class="text-muted">No</span>{{end}}</td>
+                            <td class="text-small">{{formatTime .CreatedAt}}</td>
+                        </tr>
+                        {{else}}
+                        <tr>
+                            <td colspan="6" class="text-center text-muted">No customers yet</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+{{end}}

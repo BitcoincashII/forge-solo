@@ -1,0 +1,87 @@
+{{define "content"}}
+<section class="dashboard">
+    <div class="container-narrow">
+        <div class="card">
+            <h1 class="card-title mb-20">Withdrawal Address Whitelist</h1>
+
+            {{if .Error}}
+            <div class="alert alert-error mb-20">{{.Error}}</div>
+            {{end}}
+
+            {{if .Success}}
+            <div class="alert alert-success mb-20">{{.Success}}</div>
+            {{end}}
+
+            <p class="form-hint mb-20">Pre-approve Bitcoin addresses for faster withdrawals. New addresses require a 24-hour waiting period for security.</p>
+
+            <!-- Add New Address -->
+            <div class="stat-card mb-30">
+                <div class="stat-label mb-10">Add New Address</div>
+                <form method="POST" action="/settings/whitelist">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                    <input type="hidden" name="action" value="add">
+
+                    <div class="form-group">
+                        <label class="form-label">BTC Address</label>
+                        <input type="text" name="btc_address" class="form-input" required placeholder="bc1q... or 1... or 3...">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Label (optional)</label>
+                        <input type="text" name="label" class="form-input" placeholder="e.g., Hardware wallet, Exchange">
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Add Address</button>
+                </form>
+            </div>
+
+            <!-- Whitelisted Addresses -->
+            <h2 class="card-title mb-20">Your Addresses</h2>
+
+            {{if .Addresses}}
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Address</th>
+                            <th>Label</th>
+                            <th>Status</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Addresses}}
+                        <tr>
+                            <td class="mono text-small">{{truncate .BTCAddress 20}}</td>
+                            <td>{{if .Label}}{{.Label}}{{else}}<span class="text-muted">-</span>{{end}}</td>
+                            <td>
+                                {{if .Verified}}
+                                    <span class="badge badge-active">Ready</span>
+                                {{else}}
+                                    <span class="badge badge-pending">Pending (24h)</span>
+                                {{end}}
+                            </td>
+                            <td>
+                                <form method="POST" action="/settings/whitelist" style="display: inline;">
+                                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                                    <input type="hidden" name="action" value="remove">
+                                    <input type="hidden" name="address_id" value="{{.ID}}">
+                                    <button type="submit" class="btn btn-danger btn-small" data-confirm="Remove this address?">Remove</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+            {{else}}
+            <div class="text-center text-muted" style="padding: 40px;">
+                No addresses whitelisted yet
+            </div>
+            {{end}}
+
+            <a href="/settings" class="btn btn-secondary btn-full mt-30">Back to Settings</a>
+        </div>
+    </div>
+</section>
+{{end}}

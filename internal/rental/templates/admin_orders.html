@@ -1,0 +1,44 @@
+{{define "content"}}
+<section class="dashboard">
+    <div class="container">
+        <h1 class="mb-30">All Orders</h1>
+
+        <a href="/admin" class="btn btn-secondary mb-20">Back to Admin Dashboard</a>
+
+        <div class="card">
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Customer</th>
+                            <th>Hashrate</th>
+                            <th>Budget</th>
+                            <th>Spent</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Orders}}
+                        <tr>
+                            <td class="mono">#{{.ID}}</td>
+                            <td class="mono text-small">{{.CustomerEmail}}</td>
+                            <td>{{.SpeedLimitPH}} PH/s</td>
+                            <td class="mono">{{formatBTC .BudgetSat}} BTC</td>
+                            <td class="mono">{{formatBTC .AmountSpentSat}} BTC</td>
+                            <td><span class="badge badge-{{.Status}}">{{upper .Status}}</span></td>
+                            <td class="text-small">{{formatTime .CreatedAt}}</td>
+                        </tr>
+                        {{else}}
+                        <tr>
+                            <td colspan="7" class="text-center text-muted">No orders yet</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+{{end}}

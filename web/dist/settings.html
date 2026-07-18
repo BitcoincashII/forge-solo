@@ -1,0 +1,74 @@
+<!DOCTYPE html><html lang="en"><head>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Settings - Forge Solo Miner</title>
+<link rel="stylesheet" href="/css/common.css">
+<style>
+ .wrap{max-width:760px;margin:0 auto;padding:32px 20px}
+ .card{background:var(--bg-card);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:20px}
+ .card h2{font-size:16px;margin-bottom:14px}
+ .row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--border);font-size:14px}
+ .row:last-child{border-bottom:none}
+ .row .k{color:var(--text-secondary)} .row .v{font-family:'JetBrains Mono',monospace;word-break:break-all;text-align:right}
+ code{background:#000;padding:2px 8px;border-radius:6px;font-family:'JetBrains Mono',monospace}
+ .cta{display:inline-block;background:var(--bch-green,#0ac18e);color:#000;padding:10px 18px;border-radius:8px;font-weight:700;text-decoration:none;margin-top:8px}
+ .note{color:var(--text-secondary);font-size:13px;line-height:1.6;margin-top:8px}
+</style></head><body>
+<header><div class="container header-content">
+  <a href="/solo" class="logo" aria-label="Home"><div><div class="logo-text">Forge Solo Miner</div><div class="logo-sub">BCH2 + 1175 merge-mining</div></div></a>
+  <nav role="navigation"><a href="/solo">Dashboard</a><a href="/help">Help</a><a href="/settings" class="active">Settings</a></nav>
+</div></header>
+<main class="wrap">
+  <div class="card">
+    <h2>Connect your miner</h2>
+    <div class="row"><span class="k">Stratum URL</span><span class="v" id="stratumUrl">stratum+tcp://…:3333</span></div>
+    <div class="row"><span class="k">Worker username</span><span class="v">your BCH2 address</span></div>
+    <div class="row"><span class="k">Password</span><span class="v">x (anything)</span></div>
+    <p class="note">Solo mining: whoever's miner finds a block keeps the full reward (minus nothing — 0% fee).
+    Set your miner's worker/username to the BCH2 address you want paid. Every share also merge-mines
+    <strong>1175 (ESF)</strong> for free.</p>
+    <a class="cta" id="openDash" href="/solo">Open dashboard →</a>
+  </div>
+  <div class="card">
+    <h2>Payout &amp; merge-mining</h2>
+    <div class="row"><span class="k">1175 (ESF) payout address</span><span class="v" id="esfAddr">— set in Umbrel app settings —</span></div>
+    <div class="row"><span class="k">Minimum payout</span><span class="v" id="minPayout">—</span></div>
+    <div class="row"><span class="k">Network difficulty</span><span class="v" id="netDiff">—</span></div>
+    <div class="row"><span class="k">Pool hashrate</span><span class="v" id="poolHr">—</span></div>
+    <p class="note">Your <strong>1175 payout address</strong> and <strong>minimum payout</strong> are set in the
+    Umbrel app's settings for this app (they take effect on restart). BCH2 payouts always go to the address
+    you use as your miner's worker username.</p>
+  </div>
+  <div class="card">
+    <h2>Block signature (coinbase tag)</h2>
+    <div class="row"><span class="k">Coinbase tag</span><span class="v"><input id="cbTag" type="text" maxlength="24" placeholder="Forge" style="background:#000;border:1px solid var(--border);border-radius:6px;color:var(--text,#fff);padding:6px 10px;font-family:'JetBrains Mono',monospace;width:190px;text-align:right"></span></div>
+    <p class="note">A short label embedded in the coinbase of every block you solo-mine, so your blocks are identifiable on-chain (e.g. <code>Forge</code>). Printable ASCII, up to 24 characters. <strong>Takes effect after the miner service restarts.</strong></p>
+    <button class="cta" id="saveTag" style="border:none;cursor:pointer">Save tag</button>
+    <span class="note" id="tagStatus" style="margin-left:12px"></span>
+  </div>
+</main>
+<script src="/js/common.js"></script>
+<script>
+ (function(){
+   var host=window.location.hostname||'your-umbrel';
+   document.getElementById('stratumUrl').textContent='stratum+tcp://'+host+':3333';
+   fetch('/api/v1/stats').then(function(r){return r.json()}).then(function(d){
+     if(d.networkDifficulty!=null) document.getElementById('netDiff').textContent=Number(d.networkDifficulty).toLocaleString();
+     if(d.hashrate!=null) document.getElementById('poolHr').textContent=d.hashrate;
+   }).catch(function(){});
+   fetch('/api/v1/pool/config').then(function(r){return r.json()}).then(function(d){
+     if(d.coinbase_tag!=null){ document.getElementById('cbTag').value=d.coinbase_tag; }
+     if(d.min_payout!=null){ document.getElementById('minPayout').textContent=d.min_payout; }
+   }).catch(function(){});
+   document.getElementById('saveTag').addEventListener('click', function(){
+     var tag=document.getElementById('cbTag').value;
+     var st=document.getElementById('tagStatus');
+     st.textContent='Saving...';
+     fetch('/api/v1/pool/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({coinbase_tag:tag})})
+       .then(function(r){return r.json()}).then(function(d){
+         st.textContent = d.success ? 'Saved - restart the app to apply' : ('Error: '+(d.error||'failed'));
+       }).catch(function(e){ st.textContent='Error: '+String(e); });
+   });
+ })();
+</script>
+</body></html>

@@ -1,0 +1,84 @@
+{{define "content"}}
+<section class="dashboard">
+    <div class="container">
+        <div class="card-header" style="margin-bottom: 30px;">
+            <h1>Transaction History</h1>
+            <a href="/dashboard" class="btn btn-secondary btn-small">Back to Dashboard</a>
+        </div>
+
+        {{if .Error}}
+        <div class="alert alert-error">{{.Error}}</div>
+        {{end}}
+
+        <!-- Filter tabs -->
+        <div class="card mb-30" style="padding: 15px 20px;">
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <a href="/transactions" class="btn btn-small {{if eq .Filter "all"}}btn-primary{{else}}btn-secondary{{end}}">All</a>
+                <a href="/transactions?filter=deposit" class="btn btn-small {{if eq .Filter "deposit"}}btn-primary{{else}}btn-secondary{{end}}">Deposits</a>
+                <a href="/transactions?filter=withdrawal" class="btn btn-small {{if eq .Filter "withdrawal"}}btn-primary{{else}}btn-secondary{{end}}">Withdrawals</a>
+                <a href="/transactions?filter=order_charge" class="btn btn-small {{if eq .Filter "order_charge"}}btn-primary{{else}}btn-secondary{{end}}">Order Charges</a>
+                <a href="/transactions?filter=order_refund" class="btn btn-small {{if eq .Filter "order_refund"}}btn-primary{{else}}btn-secondary{{end}}">Refunds</a>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Type</th>
+                            <th>Amount</th>
+                            <th>Memo</th>
+                            <th>Balance</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Transactions}}
+                        <tr>
+                            <td class="text-small">{{formatTime .CreatedAt}}</td>
+                            <td><span class="badge badge-{{txTypeBadge .TxType}}">{{upper .TxType}}</span></td>
+                            <td class="mono {{if gt .AmountSat 0}}positive{{end}}">
+                                {{if gt .AmountSat 0}}+{{end}}{{formatBTC .AmountSat}}
+                            </td>
+                            <td class="text-small text-muted">{{.Memo}}</td>
+                            <td class="mono">{{formatBTC .RunningTotal}}</td>
+                        </tr>
+                        {{else}}
+                        <tr>
+                            <td colspan="5" class="text-center text-muted" style="padding: 40px;">
+                                No transactions yet. <a href="/deposit" style="color: var(--accent);">Make a deposit</a> to get started.
+                            </td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+
+            {{if .HasMore}}
+            <div class="text-center mt-20">
+                <a href="/transactions?page={{.NextPage}}{{if .Filter}}&filter={{.Filter}}{{end}}" class="btn btn-secondary">Load More</a>
+            </div>
+            {{end}}
+        </div>
+
+        <!-- Transaction Summary -->
+        {{if .Transactions}}
+        <div class="dashboard-grid mt-30">
+            <div class="stat-card">
+                <div class="stat-label">Total Deposited</div>
+                <div class="stat-value positive">{{.TotalDepositedBTC}} BTC</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Withdrawn</div>
+                <div class="stat-value">{{.TotalWithdrawnBTC}} BTC</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Current Balance</div>
+                <div class="stat-value positive">{{.BalanceBTC}} BTC</div>
+            </div>
+        </div>
+        {{end}}
+    </div>
+</section>
+{{end}}

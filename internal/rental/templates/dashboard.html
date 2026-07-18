@@ -1,0 +1,303 @@
+{{define "content"}}
+<section class="dashboard">
+    <div class="container">
+        <h1 class="mb-30">Dashboard</h1>
+
+        {{if .Error}}
+        <div class="alert alert-error">{{.Error}}</div>
+        {{end}}
+
+        {{if .Success}}
+        <div class="alert alert-success">{{.Success}}</div>
+        {{end}}
+
+        <!-- Stats Cards -->
+        <div class="dashboard-grid">
+            <div class="stat-card">
+                <div class="stat-label">Available Balance</div>
+                <div class="stat-value positive">{{.BalanceBTC}} BTC</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Pending Deposits</div>
+                <div class="stat-value">{{formatBTC .PendingDeposit}} BTC</div>
+                <div class="stat-sub">{{if .PendingDeposits}}{{len .PendingDeposits}} pending{{else}}No pending deposits{{end}}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Active Orders</div>
+                <div class="stat-value">{{.ActiveOrders}}</div>
+                <div class="stat-sub">{{if .ActiveOrders}}Mining in progress{{else}}No active orders{{end}}</div>
+            </div>
+        </div>
+
+        {{if .PendingDeposits}}
+        <!-- Pending Deposits -->
+        <div class="card mb-30" style="border-color: var(--accent);">
+            <div class="card-header">
+                <h2 class="card-title">Incoming Deposits</h2>
+                <span class="badge badge-pending">CONFIRMING</span>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Amount</th>
+                            <th>Confirmations</th>
+                            <th>Status</th>
+                            <th>Transaction</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .PendingDeposits}}
+                        <tr>
+                            <td class="mono positive">+{{formatBTC .AmountSat}} BTC</td>
+                            <td>
+                                <span class="mono">{{.Confirmations}} / {{$.RequiredConfirms}}</span>
+                                <div style="background: var(--bg-input); height: 4px; border-radius: 2px; margin-top: 4px; width: 80px;">
+                                    <div style="background: var(--accent-green); height: 100%; border-radius: 2px; width: {{if ge .Confirmations 3}}100{{else if eq .Confirmations 2}}66{{else if eq .Confirmations 1}}33{{else}}0{{end}}%;"></div>
+                                </div>
+                            </td>
+                            <td>
+                                {{if ge .Confirmations $.RequiredConfirms}}
+                                <span class="badge badge-active">READY</span>
+                                {{else if eq .Confirmations 0}}
+                                <span class="badge badge-pending">MEMPOOL</span>
+                                {{else}}
+                                <span class="badge badge-pending">{{.Confirmations}} CONF</span>
+                                {{end}}
+                            </td>
+                            <td class="mono text-small">
+                                <a href="https://mempool.space/tx/{{.BTCTxID}}" target="_blank" rel="noopener" style="color: var(--accent);">
+                                    {{truncate .BTCTxID 16}}...
+                                </a>
+                            </td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+            <p class="text-small text-muted" style="margin-top: 10px;">
+                Deposits require {{.RequiredConfirms}} confirmations before being credited to your balance.
+            </p>
+        </div>
+        {{end}}
+
+        {{if .MiningRewards.TotalBlocks}}
+        <!-- Mining Rewards -->
+        <div class="card mb-30" style="background: linear-gradient(135deg, rgba(10,193,142,0.1), rgba(10,193,142,0.05)); border-color: var(--accent-green);">
+            <div class="card-header">
+                <h2 class="card-title" style="color: var(--accent-green);">Mining Rewards</h2>
+                <a href="/blocks" class="btn btn-secondary btn-small">View Blocks</a>
+            </div>
+            <div class="dashboard-grid">
+                <div>
+                    <div class="stat-label">Total Blocks Found</div>
+                    <div class="stat-value" style="color: var(--accent-green);">{{.MiningRewards.TotalBlocks}}</div>
+                </div>
+                <div>
+                    <div class="stat-label">Total BCH2 Earned</div>
+                    <div class="stat-value" style="color: var(--accent-green);">{{printf "%.2f" .MiningRewards.TotalRewardBCH2}} BCH2</div>
+                </div>
+                <div>
+                    <div class="stat-label">Confirmed / Pending</div>
+                    <div class="stat-value">{{.MiningRewards.ConfirmedBlocks}} / {{.MiningRewards.PendingBlocks}}</div>
+                </div>
+            </div>
+        </div>
+        {{end}}
+
+        {{if not .Customer.BCH2Address}}
+        <div class="alert alert-warning mb-30">
+            <strong>BCH2 Address Required:</strong> Please <a href="/settings" style="color: inherit; text-decoration: underline;">set your BCH2 payout address</a> before placing orders.
+        </div>
+        {{end}}
+
+        <!-- Quick Actions -->
+        <div class="card mb-30">
+            <div class="card-header">
+                <h2 class="card-title">Quick Actions</h2>
+            </div>
+            <div class="quick-actions">
+                <a href="/order/new" class="btn btn-primary">Rent Hashpower</a>
+                <a href="/deposit" class="btn btn-secondary">Deposit BTC</a>
+                <a href="/withdraw" class="btn btn-secondary">Withdraw</a>
+                <a href="/blocks" class="btn btn-secondary">My Blocks</a>
+                <a href="/settings" class="btn btn-secondary">Settings</a>
+                <a href="/support" class="btn btn-secondary">Support</a>
+                {{if not .TwoFAEnabled}}
+                <a href="/2fa/setup" class="btn btn-secondary" style="border-color: var(--accent);">Enable 2FA</a>
+                {{end}}
+            </div>
+        </div>
+
+        <!-- Active Order -->
+        {{if .ActiveOrder}}
+        <div class="card mb-30" style="border-color: var(--accent-green);">
+            <div class="card-header">
+                <h2 class="card-title">Active Order #{{.ActiveOrder.ID}}</h2>
+                <span class="badge badge-active">ACTIVE</span>
+            </div>
+            <div class="dashboard-grid" style="margin-bottom: 20px;">
+                <div style="min-width:0;">
+                    <div class="stat-label">Target</div>
+                    <div class="mono text-small" style="word-break:break-all;overflow-wrap:anywhere;">{{.ActiveOrder.TargetIdentity}}</div>
+                </div>
+                <div>
+                    <div class="stat-label">Mode</div>
+                    <div style="text-transform: uppercase;">{{.ActiveOrder.MiningMode}}</div>
+                </div>
+                <div>
+                    <div class="stat-label">Hashrate</div>
+                    <div>{{.ActiveOrder.SpeedLimitPH}} PH/s</div>
+                </div>
+                <div>
+                    <div class="stat-label">Budget</div>
+                    <div>{{formatBTC .ActiveOrder.BudgetSat}} BTC</div>
+                </div>
+                <div>
+                    <div class="stat-label">Spent</div>
+                    <div>{{formatBTC .ActiveOrder.AmountSpentSat}} BTC</div>
+                </div>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <a href="/mining/{{.ActiveOrder.ID}}" class="btn btn-primary btn-small">View Mining Dashboard</a>
+                <a href="/order/{{.ActiveOrder.ID}}/extend" class="btn btn-secondary btn-small">Extend Time</a>
+                <form method="POST" action="/order/{{.ActiveOrder.ID}}/cancel" style="display: inline;" id="cancel-form">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                    <button type="submit" class="btn btn-danger btn-small" id="cancel-btn">
+                        Cancel Order
+                    </button>
+                </form>
+            </div>
+        </div>
+        <script nonce="{{.CSPNonce}}">
+        document.addEventListener("DOMContentLoaded", function() { var f = document.getElementById("cancel-form"); if (f) f.addEventListener("submit", function(e) { if (!confirmCancel()) e.preventDefault(); }); });
+        function confirmCancel() {
+            return confirm('Cancel this order? Unused balance will be refunded.');
+        }
+        </script>
+        {{end}}
+
+        <!-- Recent Orders -->
+        <div class="card mb-30">
+            <div class="card-header">
+                <h2 class="card-title">Order History</h2>
+                <a href="/orders" class="btn btn-secondary btn-small">View All</a>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Target</th>
+                            <th>Hashrate</th>
+                            <th>Mode</th>
+                            <th>Status</th>
+                            <th>Date</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .RecentOrders}}
+                        <tr style="cursor: pointer;" data-href="/mining/{{.ID}}">
+                            <td class="mono"><a href="/mining/{{.ID}}" style="color: var(--accent);">#{{.ID}}</a></td>
+                            <td class="mono text-small">{{truncate .TargetIdentity 20}}</td>
+                            <td>{{.SpeedLimitPH}} PH/s</td>
+                            <td class="mono">{{.MiningMode}}</td>
+                            <td><span class="badge badge-{{.Status}}">{{upper .Status}}</span></td>
+                            <td class="text-small">{{formatTime .CreatedAt}}</td>
+                        </tr>
+                        {{else}}
+                        <tr>
+                            <td colspan="6" class="text-center text-muted">No orders yet</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Recent Transactions -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Recent Transactions</h2>
+                <a href="/transactions" class="btn btn-secondary btn-small">View All</a>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Type</th>
+                            <th>Amount</th>
+                            <th>Memo</th>
+                            <th>Date</th>
+                            <th>Balance</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .RecentTransactions}}
+                        <tr>
+                            <td><span class="badge badge-{{txTypeBadge .TxType}}">{{upper .TxType}}</span></td>
+                            <td class="mono {{if gt .AmountSat 0}}positive{{end}}">
+                                {{if gt .AmountSat 0}}+{{end}}{{formatBTC .AmountSat}}
+                            </td>
+                            <td class="text-small text-muted">{{.Memo}}</td>
+                            <td class="text-small">{{formatTime .CreatedAt}}</td>
+                            <td class="mono">{{formatBTC .RunningTotal}}</td>
+                        </tr>
+                        {{else}}
+                        <tr>
+                            <td colspan="5" class="text-center text-muted">No transactions yet</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+</section>
+
+<!-- WebSocket for real-time updates -->
+<script nonce="{{.CSPNonce}}">
+(function() {
+    var wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var wsUrl = wsProtocol + '//' + window.location.host + '/ws';
+    var ws = null;
+    var reconnectDelay = 1000;
+
+    function connect() {
+        ws = new WebSocket(wsUrl);
+        ws.onopen = function() {
+            console.log('Dashboard WebSocket connected');
+            reconnectDelay = 1000;
+        };
+        ws.onmessage = function(e) {
+            try {
+                var msg = JSON.parse(e.data);
+                if (msg.type === 'balance_update') {
+                    // Update balance display
+                    var balanceEl = document.querySelector('.stat-value.positive');
+                    if (balanceEl) {
+                        balanceEl.textContent = msg.payload.balance_btc + ' BTC';
+                    }
+                    var pendingEl = document.querySelectorAll('.stat-value')[1];
+                    if (pendingEl) {
+                        pendingEl.textContent = msg.payload.pending_btc + ' BTC';
+                    }
+                } else if (msg.type === 'order_update') {
+                    // Refresh page if order status changes (to show updated order list)
+                    if (msg.payload.status === 'completed' || msg.payload.status === 'cancelled') {
+                        window.location.reload();
+                    }
+                }
+            } catch(err) {}
+        };
+        ws.onclose = function() {
+            setTimeout(connect, reconnectDelay);
+            reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+        };
+        ws.onerror = function() { ws.close(); };
+    }
+    connect();
+})();
+</script>
+{{end}}

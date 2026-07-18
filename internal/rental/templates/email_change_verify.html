@@ -1,0 +1,29 @@
+{{define "content"}}
+<section class="dashboard">
+    <div class="container-narrow">
+        <div class="card" style="text-align: center; padding: 40px;">
+            {{if .Error}}
+            <div style="font-size: 60px; margin-bottom: 20px;">&#10060;</div>
+            <h1 class="card-title mb-20">Verification Failed</h1>
+            <p class="text-muted mb-30">{{.Error}}</p>
+            <a href="/settings/email/change" class="btn btn-secondary">Try Again</a>
+            {{else if .Completed}}
+            <div style="font-size: 60px; margin-bottom: 20px;">&#9989;</div>
+            <h1 class="card-title mb-20">Email Changed!</h1>
+            <p class="text-muted mb-30">{{.Success}}</p>
+            <a href="/dashboard" class="btn btn-primary">Go to Dashboard</a>
+            {{else if .Partial}}
+            <div style="font-size: 60px; margin-bottom: 20px;">&#128233;</div>
+            <h1 class="card-title mb-20">Almost There!</h1>
+            <p class="text-muted mb-30">{{.Success}}</p>
+            <p class="text-small text-muted">Check your other email inbox for the verification link.</p>
+            {{else}}
+            <div style="font-size: 60px; margin-bottom: 20px;">&#10067;</div>
+            <h1 class="card-title mb-20">Invalid Link</h1>
+            <p class="text-muted mb-30">This verification link is invalid or has expired.</p>
+            <a href="/settings/email/change" class="btn btn-secondary">Request New Change</a>
+            {{end}}
+        </div>
+    </div>
+</section>
+{{end}}

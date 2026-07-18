@@ -1,0 +1,30 @@
+{{define "content"}}
+<div class="auth-page">
+    <div class="auth-card">
+        {{if .Error}}
+        <h1 class="auth-title">Verification Failed</h1>
+        <div class="alert alert-error">{{.Error}}</div>
+        <p class="text-center text-muted mt-20">
+            The verification link may have expired or already been used.
+        </p>
+        <a href="/register" class="btn btn-primary btn-full mt-20">Register Again</a>
+        {{else}}
+        <h1 class="auth-title">Email Verified!</h1>
+        <div class="alert alert-success">
+            Your email has been verified. Your account is now active.
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Your BTC Deposit Address</label>
+            <div class="copy-field">
+                <input type="text" class="form-input" value="{{.BTCAddress}}" readonly id="btc-address">
+                <button type="button" class="copy-btn" data-copy="btc-address">Copy</button>
+            </div>
+            <p class="form-hint">Send BTC here to fund your account. 3 confirmations required.</p>
+        </div>
+
+        <a href="/login" class="btn btn-primary btn-full mt-20">Login to Dashboard</a>
+        {{end}}
+    </div>
+</div>
+{{end}}

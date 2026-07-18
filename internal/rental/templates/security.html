@@ -1,0 +1,77 @@
+{{define "content"}}
+<section class="dashboard">
+    <div class="container-narrow">
+        <div class="card">
+            <h1 class="card-title mb-20">Security</h1>
+
+            <div class="dashboard-grid mb-30">
+                <a href="/security/sessions" class="stat-card" style="text-decoration: none;">
+                    <div class="stat-label">Active Sessions</div>
+                    <div class="stat-sub">Manage logged-in devices</div>
+                </a>
+                <a href="/security/change-password" class="stat-card" style="text-decoration: none;">
+                    <div class="stat-label">Change Password</div>
+                    <div class="stat-sub">Update your password</div>
+                </a>
+                <a href="/2fa/setup" class="stat-card" style="text-decoration: none;">
+                    <div class="stat-label">Two-Factor Auth</div>
+                    <div class="stat-sub">Manage 2FA settings</div>
+                </a>
+                <a href="/settings/api-key" class="stat-card" style="text-decoration: none;">
+                    <div class="stat-label">API Key</div>
+                    <div class="stat-sub">View or regenerate</div>
+                </a>
+            </div>
+
+            <h2 class="card-title mb-20">Recent Activity</h2>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Event</th>
+                            <th>IP Address</th>
+                            <th>Time</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .SecurityEvents}}
+                        <tr>
+                            <td>
+                                {{if eq .EventType "login_success"}}
+                                    <span style="color: var(--accent-green);">Login successful</span>
+                                {{else if eq .EventType "login_failed"}}
+                                    <span style="color: var(--accent-red);">Failed login attempt</span>
+                                {{else if eq .EventType "password_changed"}}
+                                    <span style="color: var(--accent);">Password changed</span>
+                                {{else if eq .EventType "2fa_enabled"}}
+                                    <span style="color: var(--accent-green);">2FA enabled</span>
+                                {{else if eq .EventType "2fa_disabled"}}
+                                    <span style="color: var(--accent-red);">2FA disabled</span>
+                                {{else if eq .EventType "withdrawal_request"}}
+                                    <span>Withdrawal requested</span>
+                                {{else if eq .EventType "api_key_regenerated"}}
+                                    <span style="color: var(--accent);">API key regenerated</span>
+                                {{else if eq .EventType "session_created"}}
+                                    <span>New session</span>
+                                {{else}}
+                                    <span>{{.EventType}}</span>
+                                {{end}}
+                            </td>
+                            <td class="mono text-small">{{if .IPAddress}}{{.IPAddress}}{{else}}-{{end}}</td>
+                            <td class="text-small">{{formatTime .CreatedAt}}</td>
+                        </tr>
+                        {{else}}
+                        <tr>
+                            <td colspan="3" class="text-center text-muted">No security events</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+
+            <a href="/settings" class="btn btn-secondary btn-full mt-30">Back to Settings</a>
+        </div>
+    </div>
+</section>
+{{end}}

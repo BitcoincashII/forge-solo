@@ -1,0 +1,66 @@
+{{define "content"}}
+<div class="auth-page">
+    <div class="auth-card">
+        <h1 class="auth-title">Welcome Back</h1>
+        <p class="auth-subtitle">Login to your account</p>
+
+        {{if .Error}}
+        <div class="alert alert-error">{{.Error}}</div>
+        {{end}}
+
+        {{if .Requires2FA}}
+        <form method="POST" action="/login">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <input type="hidden" name="email" value="{{.Email}}">
+
+            <p class="text-center text-muted mb-20">Enter your password and 2FA code to continue</p>
+
+            <div class="form-group">
+                <label class="form-label">Password</label>
+                <input type="password" name="password" class="form-input" placeholder="Your password" required>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">2FA Code</label>
+                <input type="text" name="totp_code" class="form-input" placeholder="000000"
+                       pattern="[0-9A-Za-z\-]{6,9}" maxlength="9" required>
+                <p class="form-hint">Enter code from your authenticator app or a backup code.</p>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-full">Login</button>
+        </form>
+        {{else}}
+        <form method="POST" action="/login">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+            <div class="form-group">
+                <label class="form-label">Email</label>
+                <input type="email" name="email" class="form-input" placeholder="you@example.com"
+                       value="{{.Email}}" required autofocus>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Password</label>
+                <input type="password" name="password" class="form-input" placeholder="Your password" required>
+            </div>
+
+            {{if .TurnstileSiteKey}}
+            <div class="form-group">
+                <div class="cf-turnstile" data-sitekey="{{.TurnstileSiteKey}}" data-theme="dark"></div>
+            </div>
+            {{end}}
+
+            <button type="submit" class="btn btn-primary btn-full">Login</button>
+        </form>
+
+        <p class="text-center text-muted mt-20">
+            <a href="/forgot-password" style="color: var(--accent);">Forgot password?</a>
+        </p>
+
+        <p class="text-center text-muted mt-20">
+            Don't have an account? <a href="/register" style="color: var(--accent);">Register</a>
+        </p>
+        {{end}}
+    </div>
+</div>
+{{end}}

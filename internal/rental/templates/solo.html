@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Solo Mining Dashboard - Forge Pool BCH2 Mining">
+    <title>Solo Mining Dashboard - Forge Pool</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="/static/js/chart.min.js"></script>
+    <style>
+        :root{--gold:#f59e0b;--gold-dark:#d97706;--red:#ef4444;--bch-green:#0ac18e}
+        .notif-bell { position: relative; display: inline-flex; align-items: center; padding: 8px; }
+        .notif-badge { position: absolute; top: 2px; right: 2px; background: var(--accent-red); color: white; font-size: 10px; padding: 2px 5px; border-radius: 10px; min-width: 16px; text-align: center; }
+
+        .dashboard{padding:24px 0;width:100%;max-width:100%;overflow-x:hidden;box-sizing:border-box}
+        .container{width:100%;max-width:100%;box-sizing:border-box;overflow-x:hidden}
+        .miner-header{margin-bottom:32px}
+        .miner-header h1{font-size:28px;margin-bottom:8px;display:flex;align-items:center;gap:12px}
+        .miner-address-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;max-width:100%}
+        .miner-address{font-family:'JetBrains Mono',monospace;color:var(--text-secondary);font-size:14px;word-break:break-all;overflow-wrap:anywhere;max-width:100%}
+        .copy-btn{background:var(--bg-card);border:1px solid var(--border);color:var(--text-secondary);padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;transition:all 0.2s}
+        .copy-btn:hover{border-color:var(--gold);color:var(--gold)}
+        .copy-btn.copy-success{background:var(--gold);color:#000;border-color:var(--gold)}
+
+        .balance-card{background:linear-gradient(135deg,var(--bch-green),#068a65);border-radius:16px;padding:24px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;width:100%;max-width:100%;box-sizing:border-box}
+        .balance-info h2{font-size:14px;opacity:0.8;margin-bottom:8px;color:#000}
+        .balance-amount{font-size:42px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#000}
+        .balance-amount small{font-size:20px}
+        .balance-sub{font-size:14px;opacity:0.7;margin-top:4px;color:#000}
+        .balance-right{text-align:right}
+        .blocks-found{font-size:36px;font-weight:800;color:#000}
+        .blocks-label{font-size:14px;opacity:0.7;color:#000}
+
+        .stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:32px;width:100%}
+        .stat-tile{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:20px;text-align:center;transition:border-color 0.2s}
+        .stat-tile:hover{border-color:var(--gold)}
+        .stat-tile.highlight{border-color:var(--gold);background:rgba(245,158,11,0.1)}
+        .stat-value{font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--gold)}
+        .stat-tile.highlight .stat-value{font-size:24px}
+        .stat-label{font-size:11px;color:var(--text-secondary);margin-top:4px}
+
+        .main-grid{display:grid;grid-template-columns:1fr;gap:20px;margin-bottom:32px;width:100%;max-width:100%}
+        .card{background:var(--bg-card);border:1px solid var(--border);border-radius:16px;padding:24px;width:100%;max-width:100%;box-sizing:border-box;overflow:hidden}
+        .card h2{font-size:16px;margin-bottom:20px;display:flex;align-items:center;gap:8px}
+
+        .effort-bar-container{background:#1a1a1a;border-radius:8px;height:40px;position:relative;overflow:hidden;margin-bottom:12px;width:100%;max-width:100%}
+        .effort-bar{height:100%;border-radius:8px;transition:width 0.5s ease;min-width:2px}
+        .effort-100-mark{position:absolute;left:50%;top:0;bottom:0;width:2px;background:var(--bch-green)}
+        .effort-markers{display:flex;justify-content:space-between;font-size:10px;color:var(--text-secondary);font-family:'JetBrains Mono',monospace;padding:0 2px}
+
+        .effort-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center;margin-top:16px;width:100%}
+        .effort-stat-value{font-size:24px;font-weight:700;font-family:'JetBrains Mono',monospace}
+        .effort-stat-label{font-size:11px;color:var(--text-secondary);margin-top:4px}
+
+        .time-to-block{text-align:center;margin-top:16px;padding:14px;background:var(--bg-primary);border-radius:10px;width:100%;box-sizing:border-box}
+        .time-to-block .label{font-size:14px;color:var(--text-secondary);margin-bottom:8px}
+        .time-to-block .value{font-size:28px;font-weight:700;color:var(--gold)}
+
+        .workers-table{width:100%;border-collapse:collapse;min-width:500px}
+        .workers-table th,.workers-table td{padding:10px 8px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap}
+        .workers-table th{color:var(--text-secondary);font-weight:500;font-size:10px;text-transform:uppercase}
+        .workers-table td{font-family:'JetBrains Mono',monospace;font-size:12px}
+        .status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:8px}
+        .status-dot.online{background:var(--bch-green);box-shadow:0 0 8px var(--bch-green)}
+        .status-dot.offline{background:var(--red)}
+
+        .chart-container{height:200px;position:relative}
+
+        .table-scroll{max-height:300px;overflow-y:auto;overflow-x:auto;width:100%}
+        .blocks-table{width:100%;border-collapse:collapse}
+        .blocks-table th,.blocks-table td{padding:10px;text-align:left;border-bottom:1px solid var(--border);font-size:13px}
+        .blocks-table th{color:var(--text-secondary);font-weight:500;font-size:11px;text-transform:uppercase}
+
+        /* Solo mode badge */
+        .mode-badge{background:var(--gold);color:#000}
+
+        footer a{color:var(--gold)}
+
+        @media(max-width:900px){
+            .stats-row{grid-template-columns:repeat(auto-fit,minmax(100px,1fr))}
+            .main-grid{grid-template-columns:1fr}
+            .rental-info-grid{grid-template-columns:repeat(2,1fr)!important}
+        }
+        @media(max-width:600px){
+            .stats-row{grid-template-columns:repeat(2,1fr)}
+            .miner-header h1{font-size:20px}
+            .balance-card{flex-direction:column;text-align:center;padding:20px}
+            .balance-right{text-align:center}
+            .balance-amount{font-size:28px}
+            .rental-info-grid{grid-template-columns:1fr!important}
+            .container{padding:0 12px}
+            .effort-stats{grid-template-columns:repeat(3,1fr);gap:8px}
+            .effort-stat-value{font-size:18px}
+            .effort-stat-label{font-size:10px}
+            .effort-markers{font-size:9px}
+            .time-to-block .value{font-size:22px}
+            .card{padding:16px}
+            .card h2{font-size:14px;margin-bottom:14px}
+        }
+    </style>
+</head>
+<body>
+
+    <div id="offlineBanner" class="offline-banner" style="display:none" role="alert">
+        <span>You are offline. Some data may be outdated.</span>
+    </div>
+
+    <header>
+        <div class="container">
+            <a href="/" class="logo">
+                <div class="logo-icon">H</div>
+                <div class="logo-text">Hash<span>Forge</span></div>
+            </a>
+            <nav>
+                <a href="/language" title="Language" style="text-transform: uppercase; font-size: 0.85em;">&#127760; EN</a>
+                <a href="/">Home</a>
+                <a href="/dashboard">Dashboard</a>
+                <a href="/notifications" class="notif-bell" title="Notifications">&#128276;</a>
+                <a href="/logout" class="btn btn-secondary btn-small">Logout</a>
+            </nav>
+        </div>
+    </header>
+
+    <main id="main-content">
+        <div class="container dashboard">
+            <div class="miner-header">
+                <h1>Solo Mining Dashboard</h1>
+                <div class="miner-address-row">
+                    <div class="miner-address" id="minerAddress">Loading...</div>
+                    <button class="copy-btn" id="copyAddressBtn" aria-label="Copy address to clipboard">Copy</button>
+                </div>
+            </div>
+
+            <div class="balance-card" role="region" aria-label="Balance information">
+                <div class="balance-info">
+                    <h2>Mature Balance</h2>
+                    <div class="balance-amount"><span id="matureBalance">0.00</span> <small>BCH2</small></div>
+                    <div class="balance-sub">Immature: <span id="immatureBalance">0.00</span> BCH2 (waiting 100 confirms)</div>
+                </div>
+                <div class="balance-right">
+                    <div class="blocks-found" id="blocksFound">0</div>
+                    <div class="blocks-label">Your Blocks Found</div>
+                    <div style="margin-top:8px;font-size:13px;opacity:0.8;color:#000" id="totalEarned">Total: 0 BCH2</div>
+                </div>
+            </div>
+
+            <div class="stats-row" role="region" aria-label="Mining statistics">
+                <div class="stat-tile highlight">
+                    <div class="stat-value" id="hashrate5m">--</div>
+                    <div class="stat-label">Your Hashrate (5m)</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-value" id="hashrate60m">--</div>
+                    <div class="stat-label">Your Hashrate (60m)</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-value" id="networkHashrate">--</div>
+                    <div class="stat-label">Network Hashrate</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-value" id="networkDiff">--</div>
+                    <div class="stat-label">Network Diff</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-value" id="workers">--</div>
+                    <div class="stat-label">Workers</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-value" id="validShares">--</div>
+                    <div class="stat-label">Valid Shares</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-value" id="rejectRate">0%</div>
+                    <div class="stat-label">Reject %</div>
+                </div>
+            </div>
+
+            <div class="main-grid">
+                <div class="card">
+                    <h2>Round Effort</h2>
+                    <div class="effort-bar-container" role="progressbar" aria-valuemin="0" aria-valuemax="200" aria-valuenow="0" id="effortBarContainer">
+                        <div class="effort-bar" id="effortBar" style="width:0%;background:linear-gradient(90deg,var(--bch-green),var(--gold))"></div>
+                        <div class="effort-100-mark" aria-hidden="true"></div>
+                    </div>
+                    <div class="effort-markers" aria-hidden="true">
+                        <span>0%</span>
+                        <span>50%</span>
+                        <span>100%</span>
+                        <span>150%</span>
+                        <span>200%+</span>
+                    </div>
+                    <div class="effort-stats">
+                        <div>
+                            <div class="effort-stat-value" id="currentEffort" style="color:var(--gold)">--%</div>
+                            <div class="effort-stat-label">Current Effort</div>
+                        </div>
+                        <div>
+                            <div class="effort-stat-value" id="roundShares" style="color:var(--bch-green)">--</div>
+                            <div class="effort-stat-label">Round Shares</div>
+                        </div>
+                        <div>
+                            <div class="effort-stat-value" id="bestDiff" style="color:var(--text-secondary)">--</div>
+                            <div class="effort-stat-label">Best Difficulty</div>
+                        </div>
+                    </div>
+                    <div class="time-to-block">
+                        <div class="label">Estimated Time to Block</div>
+                        <div class="value" id="timeToBlock">--</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Workers</h2>
+                    <div class="table-scroll" id="workersContainer">
+                        <table class="workers-table" aria-describedby="workers-desc">
+                            <caption id="workers-desc" class="sr-only">List of connected mining workers</caption>
+                            <thead>
+                                <tr>
+                                    <th scope="col">Worker</th>
+                                    <th scope="col">Blocks</th>
+                                    <th scope="col">5m Hash</th>
+                                    <th scope="col">60m Hash</th>
+                                    <th scope="col">Round Best</th>
+                                    <th scope="col">ATH Diff</th>
+                                </tr>
+                            </thead>
+                            <tbody id="workersTable">
+                                <tr><td colspan="6"><div class="loading-state"><div class="loading-spinner"></div><span>Loading workers...</span></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card" style="margin-bottom:32px">
+                <h2>Rental Performance</h2>
+                <div style="display:flex;align-items:center;gap:20px;margin-bottom:12px;font-size:12px;">
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <span style="width:20px;height:3px;background:#0ac18e;border-radius:2px;"></span>
+                        <span style="color:var(--text-secondary);">Hashrate</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <span style="width:20px;height:0;border-top:2px dashed #ef4444;"></span>
+                        <span style="color:var(--text-secondary);">Advertised (<span id="orderedPH">--</span> PH/s)</span>
+                    </div>
+                    <div style="margin-left:auto;display:flex;gap:16px;">
+                        <span style="color:var(--text-secondary);">Current: <span id="deliveredPH" style="color:#0ac18e;font-weight:600;">--</span> PH/s</span>
+                        <span style="color:var(--text-secondary);">Delivery: <span id="deliveryPct" style="color:#0ac18e;font-weight:600;">--%</span></span>
+                    </div>
+                </div>
+                <div class="chart-container" style="height:200px;">
+                    <canvas id="rentalChart" aria-label="Rental performance chart"></canvas>
+                </div>
+            </div>
+
+            <div class="card" style="margin-bottom:32px">
+                <h2>Rental Order Information</h2>
+                <div class="rental-info-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;">
+                    <div style="text-align:center;padding:16px;background:var(--bg-primary);border-radius:10px;">
+                        <div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;margin-bottom:6px;">Speed Limit</div>
+                        <div id="rentalSpeedLimit" style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--bch-green);">--</div>
+                        <div style="font-size:11px;color:var(--text-secondary);">PH/s</div>
+                    </div>
+                    <div style="text-align:center;padding:16px;background:var(--bg-primary);border-radius:10px;">
+                        <div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;margin-bottom:6px;">Current Speed</div>
+                        <div id="rentalCurrentSpeed" style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--bch-green);">--</div>
+                        <div style="font-size:11px;color:var(--text-secondary);">PH/s</div>
+                    </div>
+                    <div style="text-align:center;padding:16px;background:var(--bg-primary);border-radius:10px;">
+                        <div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;margin-bottom:6px;">Avg Hashrate</div>
+                        <div id="rentalAvgHashrate" style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--bch-green);">--</div>
+                        <div style="font-size:11px;color:var(--text-secondary);">PH/s</div>
+                    </div>
+                    <div style="text-align:center;padding:16px;background:var(--bg-primary);border-radius:10px;">
+                        <div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;margin-bottom:6px;">Progress</div>
+                        <div id="rentalProgress" style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--bch-green);">--%</div>
+                        <div id="rentalETA" style="font-size:11px;color:var(--text-secondary);">ETA: --</div>
+                    </div>
+                </div>
+                <div class="rental-info-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-top:12px;">
+                    <div style="text-align:center;padding:16px;background:var(--bg-primary);border-radius:10px;">
+                        <div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;margin-bottom:6px;">Shares Accepted</div>
+                        <div id="rentalAccepted" style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--bch-green);">--</div>
+                    </div>
+                    <div style="text-align:center;padding:16px;background:var(--bg-primary);border-radius:10px;">
+                        <div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;margin-bottom:6px;">Shares Rejected</div>
+                        <div id="rentalRejected" style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--red);">--</div>
+                    </div>
+                    <div style="text-align:center;padding:16px;background:var(--bg-primary);border-radius:10px;">
+                        <div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;margin-bottom:6px;">Reject Ratio</div>
+                        <div id="rentalRejectRatio" style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--bch-green);">--%</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="main-grid">
+                <div class="card">
+                    <h2>Hashrate History (24h)</h2>
+                    <div class="chart-container">
+                        <canvas id="hashrateChart" aria-label="Hashrate history chart"></canvas>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Your Blocks Found</h2>
+                    <div style="margin-bottom:12px;padding:10px 14px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;font-size:12px;color:var(--text-secondary)">
+                        <strong style="color:var(--gold)">Note:</strong> Block rewards are collected by the pool, then paid to your address after 100 confirmations. Check <strong>Payout History</strong> below for your payment transactions.
+                    </div>
+                    <div class="table-scroll" id="blocksContainer">
+                        <table class="blocks-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Height</th>
+                                    <th scope="col">Block</th>
+                                    <th scope="col">Reward</th>
+                                    <th scope="col">Time</th>
+                                    <th scope="col">Status</th>
+                                    <th scope="col">Payout</th>
+                                </tr>
+                            </thead>
+                            <tbody id="blocksTable">
+                                <tr><td colspan="6"><div class="loading-state"><div class="loading-spinner"></div><span>Loading blocks...</span></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Payout History <span id="payoutCount" style="font-size:14px;color:var(--text-secondary)">(0)</span></h2>
+                <div style="margin-bottom:15px;color:var(--bch-green);font-size:18px">Total Paid: <span id="totalPaidAmount">0</span> BCH2</div>
+                <div class="table-scroll" id="payoutsContainer">
+                    <table class="blocks-table">
+                        <thead>
+                            <tr>
+                                <th scope="col">Transaction</th>
+                                <th scope="col">Amount</th>
+                                <th scope="col">Blocks</th>
+                                <th scope="col">Time</th>
+                            </tr>
+                        </thead>
+                        <tbody id="payoutsTable">
+                            <tr><td colspan="4"><div class="loading-state"><div class="loading-spinner"></div><span>Loading payouts...</span></div></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>Forge Pool 2026 | <a href="https://bch2.org" rel="noopener noreferrer">BCH2</a> | 0.5% Solo Fee</p>
+        </div>
+    </footer>
+
+    <script src="/static/js/common.js"></script>
+    <script>
+        const minerAddress = window.HASHFORGE_MINER_ADDRESS || new URLSearchParams(window.location.search).get('address') || '';
+        // Strip worker suffix for API calls (e.g., "address.worker" -> "address")
+        const minerAddressBase = minerAddress.includes('.') ? minerAddress.split('.')[0] : minerAddress;
+        document.getElementById('minerAddress').textContent = minerAddress;
+
+        // Copy address button
+        document.getElementById('copyAddressBtn').addEventListener('click', function() {
+            copyText(minerAddress, this);
+        });
+
+        let hashrateChart;
+        let rentalChart;
+        let hashrateHistory = [];
+        let rentalHashrateHistory = [];
+        let orderedHistory = [];
+        let networkDiff = 1;
+        let minerBlocksCount = 0;
+        const rental = window.HASHFORGE_RENTAL || {};
+        const orderedPH = rental.orderedPH || 0;
+        let hashrateSamples = [];
+
+        // Cache last known good values to prevent brief display of zeros
+        let lastGoodStats = {
+            hashrate5m: null,
+            hashrate60m: null,
+            workers: null,
+            validShares: null,
+            invalidShares: null,
+            bestDiff: null,
+            totalWork: null
+        };
+
+        // Initialize rental display immediately with server-injected data
+        if (orderedPH > 0) {
+            document.getElementById('orderedPH').textContent = orderedPH.toFixed(2);
+            document.getElementById('rentalSpeedLimit').textContent = orderedPH.toFixed(2);
+        }
+        if (rental.currentSpeedPH > 0) {
+            document.getElementById('rentalCurrentSpeed').textContent = rental.currentSpeedPH.toFixed(2);
+            document.getElementById('deliveredPH').textContent = rental.currentSpeedPH.toFixed(2);
+            const deliveryPct = (rental.currentSpeedPH / orderedPH) * 100;
+            const pctEl = document.getElementById('deliveryPct');
+            pctEl.textContent = deliveryPct.toFixed(1) + '%';
+            pctEl.style.color = deliveryPct >= 95 ? 'var(--bch-green)' : deliveryPct >= 80 ? 'var(--gold)' : 'var(--red)';
+            // Seed chart with initial data point
+            rentalHashrateHistory.push(rental.currentSpeedPH);
+            orderedHistory.push(orderedPH);
+        }
+        if (rental.progressPct > 0) {
+            // Use Braiins progress directly for accuracy
+            document.getElementById('rentalProgress').textContent = rental.progressPct.toFixed(1) + '%';
+        } else if (rental.budgetBTC > 0) {
+            // Fallback to calculated progress
+            const progress = (rental.spentBTC / rental.budgetBTC) * 100;
+            document.getElementById('rentalProgress').textContent = progress.toFixed(1) + '%';
+        }
+        console.log('Rental data initialized:', rental);
+
+        async function fetchStats() {
+            try {
+                const data = await apiFetch('/api/v1/stats');
+                networkDiff = data.networkDifficulty || 1;
+                document.getElementById('networkDiff').textContent = formatDiff(networkDiff);
+                document.getElementById('networkHashrate').textContent = data.networkHashrate ? formatHashrate(data.networkHashrate) : '--';
+            } catch(e) {
+                console.error('Failed to fetch stats', e);
+            }
+        }
+
+        async function fetchMinerData() {
+            try {
+                const data = await apiFetch('/api/v1/miners/' + encodeURIComponent(minerAddressBase));
+
+                // Note: Rental service handles page routing based on order mining mode
+                // No redirect needed here
+
+                // Note: Balances are calculated from solo blocks in fetchBlocks()
+                // Don't use general miner balance here as it includes PPLNS contributions
+
+                // Cache valid data to prevent brief display of zeros
+                // Only update if we got valid data (at least one non-zero stat)
+                const hasValidData = data.hashrate5m > 0 || data.workers > 0 || data.validShares > 0;
+
+                if (hasValidData || lastGoodStats.hashrate5m === null) {
+                    // Update cache with new values
+                    if (data.hashrate5m !== undefined) lastGoodStats.hashrate5m = data.hashrate5m;
+                    if (data.hashrate60m !== undefined) lastGoodStats.hashrate60m = data.hashrate60m;
+                    if (data.workers !== undefined) lastGoodStats.workers = data.workers;
+                    if (data.validShares !== undefined) lastGoodStats.validShares = data.validShares;
+                    if (data.invalidShares !== undefined) lastGoodStats.invalidShares = data.invalidShares;
+                    if (data.bestDiff !== undefined) lastGoodStats.bestDiff = data.bestDiff;
+                    if (data.totalWork !== undefined) lastGoodStats.totalWork = data.totalWork;
+                }
+
+                // Use cached values for display
+                const displayData = {
+                    hashrate5m: lastGoodStats.hashrate5m ?? data.hashrate5m ?? 0,
+                    hashrate60m: lastGoodStats.hashrate60m ?? data.hashrate60m ?? 0,
+                    workers: lastGoodStats.workers ?? data.workers ?? 0,
+                    validShares: lastGoodStats.validShares ?? data.validShares ?? 0,
+                    invalidShares: lastGoodStats.invalidShares ?? data.invalidShares ?? 0,
+                    bestDiff: lastGoodStats.bestDiff ?? data.bestDiff ?? 0,
+                    totalWork: lastGoodStats.totalWork ?? data.totalWork ?? 0
+                };
+
+                document.getElementById('hashrate5m').textContent = formatHashrate((displayData.hashrate5m || 0) * 1e12);
+                document.getElementById('hashrate60m').textContent = formatHashrate((displayData.hashrate60m || 0) * 1e12);
+                document.getElementById('workers').textContent = formatNumber(displayData.workers || 0);
+                document.getElementById('validShares').textContent = formatNumber(displayData.validShares || 0);
+                document.getElementById('roundShares').textContent = formatNumber(displayData.validShares || 0);
+                document.getElementById('bestDiff').textContent = formatDiff(displayData.bestDiff || 0);
+
+                const rejectRate = displayData.invalidShares > 0 ?
+                    ((displayData.invalidShares / (displayData.validShares + displayData.invalidShares)) * 100).toFixed(2) : '0.00';
+                document.getElementById('rejectRate').textContent = rejectRate + '%';
+
+                // Calculate effort: totalWork / network_diff * 100
+                const workDone = parseFloat(displayData.totalWork) || 0;
+                const effort = (networkDiff > 0 && !isNaN(workDone)) ? (workDone / networkDiff * 100) : 0;
+                const safeEffort = isNaN(effort) ? 0 : effort;
+
+                document.getElementById('currentEffort').textContent = safeEffort.toFixed(1) + '%';
+
+                // Effort bar (200% = full bar, so divide by 2)
+                const barWidth = Math.min(Math.max(safeEffort / 2, 0), 100);
+                const effortBar = document.getElementById('effortBar');
+                const effortBarContainer = document.getElementById('effortBarContainer');
+                const finalWidth = isNaN(barWidth) ? 0 : barWidth;
+                effortBar.style.width = finalWidth + '%';
+                effortBarContainer.setAttribute('aria-valuenow', Math.round(safeEffort));
+
+                // Color based on effort
+                if (effort < 50) {
+                    effortBar.style.background = 'linear-gradient(90deg, var(--bch-green), var(--gold))';
+                } else if (effort < 100) {
+                    effortBar.style.background = 'linear-gradient(90deg, var(--gold), var(--gold-dark))';
+                } else {
+                    effortBar.style.background = 'linear-gradient(90deg, var(--gold-dark), var(--red))';
+                }
+
+                // Estimated time to block
+                const hashrate = displayData.hashrate5m || 0;
+                if (hashrate > 0 && networkDiff > 0) {
+                    const hashesPerSecond = hashrate * 1e12;
+                    const hashesNeeded = networkDiff * 4294967296;
+                    const secondsToBlock = hashesNeeded / hashesPerSecond;
+
+                    if (secondsToBlock < 60) {
+                        document.getElementById('timeToBlock').textContent = Math.round(secondsToBlock) + ' sec';
+                    } else if (secondsToBlock < 3600) {
+                        document.getElementById('timeToBlock').textContent = Math.round(secondsToBlock / 60) + ' min';
+                    } else if (secondsToBlock < 86400) {
+                        document.getElementById('timeToBlock').textContent = (secondsToBlock / 3600).toFixed(1) + ' hours';
+                    } else {
+                        document.getElementById('timeToBlock').textContent = (secondsToBlock / 86400).toFixed(1) + ' days';
+                    }
+                } else {
+                    document.getElementById('timeToBlock').textContent = '--';
+                }
+
+                // Hashrate history
+                hashrateHistory.push(displayData.hashrate5m || 0);
+                if (hashrateHistory.length > 288) hashrateHistory.shift();
+                updateChart();
+
+                // Update rental information tiles
+                updateRentalInfo(displayData);
+
+            } catch(e) {
+                console.error('Failed to fetch miner data', e);
+            }
+        }
+
+        async function fetchWorkers() {
+            const tbody = document.getElementById('workersTable');
+
+            try {
+                const data = await apiFetch('/api/v1/miners/' + encodeURIComponent(minerAddressBase) + '/workers');
+
+                if (!data.workers || data.workers.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">No workers connected</div></td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = data.workers.map(w => `
+                    <tr>
+                        <td><span class="status-dot ${w.online ? 'online' : 'offline'}" aria-hidden="true"></span>${sanitizeHTML(w.name || 'default')}</td>
+                        <td style="color:var(--gold);font-weight:600">${formatNumber(w.blocksFound || 0)}</td>
+                        <td>${formatHashrate((w.hashrate5m || 0) * 1e12)}</td>
+                        <td>${formatHashrate((w.hashrate60m || 0) * 1e12)}</td>
+                        <td style="color:var(--gold)">${formatDiff(w.roundBestDiff || w.bestDiff || 0)}</td>
+                        <td style="color:var(--bch-green)">${formatDiff(w.athDiff || w.bestDiff || 0)}</td>
+                    </tr>
+                `).join('');
+
+            } catch(e) {
+                console.error('Failed to fetch workers', e);
+                tbody.innerHTML = '<tr><td colspan="6"><div class="error-state"><span class="error-icon">!</span><span>Failed to load workers</span></div></td></tr>';
+            }
+        }
+
+        async function fetchBlocks() {
+            const tbody = document.getElementById('blocksTable');
+
+            try {
+                // Fetch only solo blocks found by this miner (not PPLNS contributions)
+                const data = await apiFetch('/api/v1/miners/' + encodeURIComponent(minerAddressBase) + '/solo-blocks');
+
+                // Calculate solo-specific balances from blocks
+                let matureBalance = 0;
+                let immatureBalance = 0;
+
+                if (!data.blocks || data.blocks.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">No blocks found yet. Keep mining!</div></td></tr>';
+                    minerBlocksCount = 0;
+                } else {
+                    minerBlocksCount = data.blocks.length;
+
+                    // Calculate balances from solo blocks only
+                    data.blocks.forEach(b => {
+                        const reward = b.reward || 50;
+                        if (b.confirmed) {
+                            matureBalance += reward;
+                        } else {
+                            immatureBalance += reward;
+                        }
+                    });
+
+                    tbody.innerHTML = data.blocks.slice(0, 20).map(b => {
+                        const safeHash = isValidBlockHash(b.hash) ? b.hash : '';
+                        const safeTxid = b.payoutTxid && isValidBlockHash(b.payoutTxid) ? b.payoutTxid : '';
+                        let payoutCell;
+                        if (safeTxid) {
+                            payoutCell = `<a href="https://explorer.bch2.org/tx/${safeTxid}" target="_blank" rel="noopener noreferrer" class="hash-link" style="color:var(--bch-green)">${truncateHash(safeTxid, 6, 4)}</a>`;
+                        } else if (b.confirmed) {
+                            payoutCell = '<span style="color:var(--gold)">Processing</span>';
+                        } else {
+                            payoutCell = '<span style="color:var(--text-secondary)">Pending</span>';
+                        }
+                        return `
+                        <tr>
+                            <td style="color:var(--gold)">${formatNumber(b.height)}</td>
+                            <td>${safeHash ? `<a href="https://explorer.bch2.org/block/${safeHash}" target="_blank" rel="noopener noreferrer" class="hash-link" style="color:var(--text-secondary)" title="View block on explorer (coinbase goes to pool)">${truncateHash(safeHash, 8, 4)}</a>` : 'N/A'}</td>
+                            <td>${formatBCH2(b.reward || 50, 2)} BCH2</td>
+                            <td>${timeAgo(b.time)}</td>
+                            <td><span class="status-badge ${b.confirmed ? 'status-confirmed' : 'status-pending'}">${b.confirmed ? 'Confirmed' : 'Pending'}</span></td>
+                            <td>${payoutCell}</td>
+                        </tr>
+                    `}).join("");
+                }
+
+                // Update blocks found display with miner's blocks, not pool blocks
+                document.getElementById('blocksFound').textContent = formatNumber(minerBlocksCount);
+                document.getElementById('totalEarned').textContent = 'Total: ' + formatNumber(matureBalance + immatureBalance) + ' BCH2';
+
+                // Update solo-specific balances (not PPLNS)
+                document.getElementById('matureBalance').textContent = formatBCH2(matureBalance, 2);
+                document.getElementById('immatureBalance').textContent = formatBCH2(immatureBalance, 2);
+
+            } catch(e) {
+                console.error("Failed to fetch blocks", e);
+                tbody.innerHTML = '<tr><td colspan="6"><div class="error-state"><span class="error-icon">!</span><span>Failed to load blocks</span></div></td></tr>';
+            }
+        }
+
+
+        async function fetchPayouts() {
+            const tbody = document.getElementById("payoutsTable");
+
+            try {
+                const data = await apiFetch("/api/v1/miners/" + encodeURIComponent(minerAddressBase) + "/solo-payouts");
+
+                document.getElementById("payoutCount").textContent = "(" + formatNumber(data.total || 0) + ")";
+                document.getElementById("totalPaidAmount").textContent = formatNumber(data.totalPaid || 0);
+
+                if (!data.payouts || data.payouts.length === 0) {
+                    tbody.innerHTML = "<tr><td colspan=\"4\"><div class=\"empty-state\">No payouts yet</div></td></tr>";
+                    return;
+                }
+
+                tbody.innerHTML = data.payouts.slice(0, 20).map(p => {
+                    const safeTxid = isValidBlockHash(p.txid) ? p.txid : '';
+                    return `
+                    <tr>
+                        <td>${safeTxid ? `<a href="https://explorer.bch2.org/tx/${safeTxid}" target="_blank" rel="noopener noreferrer" class="hash-link" style="color:var(--gold)">${truncateHash(safeTxid, 8, 4)}</a>` : 'Pending'}</td>
+                        <td style="color:var(--bch-green)">${formatBCH2(p.amount || 0, 2)} BCH2</td>
+                        <td>${formatNumber(p.blocks || 0)}</td>
+                        <td>${timeAgo(p.paidAt)}</td>
+                    </tr>
+                `}).join("");
+            } catch(e) {
+                console.error("Failed to fetch payouts", e);
+                tbody.innerHTML = "<tr><td colspan=\"4\"><div class=\"error-state\"><span class=\"error-icon\">!</span><span>Failed to load payouts</span></div></td></tr>";
+            }
+        }
+
+        function updateChart() {
+            const ctx = document.getElementById('hashrateChart').getContext('2d');
+
+            // Generate time labels
+            const now = Date.now();
+            const labels = hashrateHistory.map((_, i) => {
+                const time = new Date(now - (hashrateHistory.length - 1 - i) * 5 * 60 * 1000);
+                return time.getHours() + ':' + time.getMinutes().toString().padStart(2, '0');
+            });
+
+            if (!hashrateChart) {
+                hashrateChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Hashrate (TH/s)',
+                            data: hashrateHistory,
+                            borderColor: '#f59e0b',
+                            backgroundColor: 'rgba(245,158,11,0.1)',
+                            fill: true,
+                            tension: 0.4,
+                            pointRadius: 0
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: {
+                                display: true,
+                                ticks: {
+                                    color: '#888',
+                                    maxTicksLimit: 6
+                                },
+                                grid: { color: '#222' }
+                            },
+                            y: {
+                                beginAtZero: true,
+                                ticks: { color: '#888' },
+                                grid: { color: '#222' }
+                            }
+                        }
+                    }
+                });
+            } else {
+                hashrateChart.data.labels = labels;
+                hashrateChart.data.datasets[0].data = hashrateHistory;
+                hashrateChart.update('none');
+            }
+        }
+
+        function updateRentalInfo(minerData) {
+            // Speed Limit
+            document.getElementById('rentalSpeedLimit').textContent = orderedPH.toFixed(2);
+
+            // Current Speed - use Braiins-reported speed from rental data
+            const currentPH = rental.currentSpeedPH || 0;
+            document.getElementById('rentalCurrentSpeed').textContent = currentPH.toFixed(2);
+
+            // Track samples for average
+            if (currentPH > 0) {
+                hashrateSamples.push(currentPH);
+                if (hashrateSamples.length > 720) hashrateSamples.shift();
+            }
+
+            // Average Hashrate
+            if (hashrateSamples.length > 0) {
+                const avg = hashrateSamples.reduce((a, b) => a + b, 0) / hashrateSamples.length;
+                document.getElementById('rentalAvgHashrate').textContent = avg.toFixed(2);
+            }
+
+            // Progress (budget spent) - use Braiins progressPct when available
+            const budgetBTC = rental.budgetBTC || 0;
+            const spentBTC = rental.spentBTC || 0;
+            let progress = 0;
+            if (rental.progressPct > 0) {
+                // Use Braiins progress directly for accuracy
+                progress = rental.progressPct;
+                document.getElementById('rentalProgress').textContent = progress.toFixed(1) + '%';
+            } else if (budgetBTC > 0) {
+                // Fallback to calculated progress
+                progress = (spentBTC / budgetBTC) * 100;
+                document.getElementById('rentalProgress').textContent = progress.toFixed(1) + '%';
+            }
+            if (budgetBTC > 0) {
+
+                // ETA calculation
+                const remaining = budgetBTC - spentBTC;
+                if (remaining > 0 && spentBTC > 0) {
+                    const hoursLeft = (remaining / spentBTC) * (hashrateSamples.length * 5 / 3600);
+                    if (hoursLeft < 1) {
+                        document.getElementById('rentalETA').textContent = 'ETA: ' + Math.round(hoursLeft * 60) + 'm';
+                    } else if (hoursLeft < 24) {
+                        document.getElementById('rentalETA').textContent = 'ETA: ' + hoursLeft.toFixed(1) + 'h';
+                    } else {
+                        document.getElementById('rentalETA').textContent = 'ETA: ' + (hoursLeft / 24).toFixed(1) + 'd';
+                    }
+                } else {
+                    document.getElementById('rentalETA').textContent = 'ETA: --';
+                }
+            }
+
+            // Shares
+            const accepted = minerData.validShares || 0;
+            const rejected = minerData.invalidShares || 0;
+            document.getElementById('rentalAccepted').textContent = formatNumber(accepted);
+            document.getElementById('rentalRejected').textContent = formatNumber(rejected);
+
+            // Reject Ratio
+            const total = accepted + rejected;
+            if (total > 0) {
+                const ratio = (rejected / total) * 100;
+                const ratioEl = document.getElementById('rentalRejectRatio');
+                ratioEl.textContent = ratio.toFixed(2) + '%';
+                ratioEl.style.color = ratio < 1 ? 'var(--bch-green)' : ratio < 5 ? 'var(--gold)' : 'var(--red)';
+            }
+        }
+
+        function updateRentalChart() {
+            const ctx = document.getElementById('rentalChart').getContext('2d');
+            const now = Date.now();
+            const labels = rentalHashrateHistory.map((_, i) => {
+                const time = new Date(now - (rentalHashrateHistory.length - 1 - i) * 5 * 60 * 1000);
+                return time.getHours() + ':' + time.getMinutes().toString().padStart(2, '0');
+            });
+
+            if (!rentalChart) {
+                rentalChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Hashrate',
+                            data: rentalHashrateHistory,
+                            borderColor: '#0ac18e',
+                            backgroundColor: 'rgba(10,193,142,0.25)',
+                            fill: true,
+                            tension: 0.3,
+                            pointRadius: 0,
+                            borderWidth: 2
+                        }, {
+                            label: 'Advertised',
+                            data: orderedHistory,
+                            borderColor: '#ef4444',
+                            borderDash: [6, 4],
+                            backgroundColor: 'transparent',
+                            fill: false,
+                            tension: 0,
+                            pointRadius: 0,
+                            borderWidth: 2
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: { intersect: false, mode: 'index' },
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                backgroundColor: 'rgba(0,0,0,0.8)',
+                                callbacks: {
+                                    label: function(ctx) {
+                                        return ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(2) + ' PH/s';
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: { ticks: { color: '#666', maxTicksLimit: 8, font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                            y: { beginAtZero: true, ticks: { color: '#666', font: { size: 10 }, callback: function(v) { return v + ' PH/s'; } }, grid: { color: 'rgba(255,255,255,0.05)' } }
+                        }
+                    }
+                });
+            } else {
+                rentalChart.data.labels = labels;
+                rentalChart.data.datasets[0].data = rentalHashrateHistory;
+                rentalChart.data.datasets[1].data = orderedHistory;
+                rentalChart.update('none');
+            }
+        }
+
+        async function fetchBraiinsSpeed() {
+            if (!rental.orderId) return;
+            try {
+                const resp = await fetch('/api/order/' + rental.orderId + '/speed');
+                if (!resp.ok) return;
+                const data = await resp.json();
+
+                rental.currentSpeedPH = data.currentSpeedPH || 0;
+                const currentPH = rental.currentSpeedPH;
+                document.getElementById('rentalCurrentSpeed').textContent = currentPH.toFixed(2);
+                document.getElementById('deliveredPH').textContent = currentPH.toFixed(2);
+
+                if (orderedPH > 0) {
+                    const deliveryPct = (currentPH / orderedPH) * 100;
+                    const pctEl = document.getElementById('deliveryPct');
+                    pctEl.textContent = deliveryPct.toFixed(1) + '%';
+                    pctEl.style.color = deliveryPct >= 95 ? 'var(--bch-green)' : deliveryPct >= 80 ? 'var(--gold)' : 'var(--red)';
+                }
+
+                rentalHashrateHistory.push(currentPH);
+                orderedHistory.push(orderedPH);
+                if (rentalHashrateHistory.length > 288) rentalHashrateHistory.shift();
+                if (orderedHistory.length > 288) orderedHistory.shift();
+                updateRentalChart();
+            } catch(e) {
+                console.error('Failed to fetch Braiins speed', e);
+            }
+        }
+
+        // Initialize chart with any seed data
+        if (rentalHashrateHistory.length > 0) {
+            updateRentalChart();
+        }
+
+        // Initial fetch
+        fetchStats();
+        fetchMinerData();
+        fetchWorkers();
+        fetchBlocks();
+        fetchPayouts();
+        fetchBraiinsSpeed();
+
+        // Poll
+        setInterval(fetchStats, 30000);
+        setInterval(fetchMinerData, 5000);
+        setInterval(fetchWorkers, 10000);
+        setInterval(fetchBlocks, 10000);  // Check for new blocks every 10s
+        setInterval(fetchPayouts, 30000);
+        setInterval(fetchBraiinsSpeed, 5000);
+    </script>
+</body>
+</html>

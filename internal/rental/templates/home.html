@@ -1,0 +1,69 @@
+{{define "content"}}
+<section class="hero">
+    <div class="container">
+        <h1>Rent <span>BCH2 Hashpower</span> Instantly</h1>
+        <p>Pay with BTC. Mine BCH2 on Forge Pool. No contracts, no minimums beyond 1 hour. Pure hashpower on demand.</p>
+
+        <a href="/register" class="btn btn-primary mt-20">Start Mining</a>
+
+        <div class="hero-stats">
+            <div class="hero-stat">
+                <div class="hero-stat-value" id="available-hash">--</div>
+                <div class="hero-stat-label">PH/s Available</div>
+            </div>
+            <div class="hero-stat">
+                <div class="hero-stat-value">1-500</div>
+                <div class="hero-stat-label">PH/s Per Order</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="features">
+    <div class="container">
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">&#9889;</div>
+                <h3>Instant Activation</h3>
+                <p>Your hashpower starts working within seconds of payment confirmation. No waiting, no delays.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">&#128274;</div>
+                <h3>Secure by Design</h3>
+                <p>2FA required for withdrawals. Your funds are protected with industry-standard security.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">&#128200;</div>
+                <h3>Real-time Monitoring</h3>
+                <p>Track your hashrate, spending, and mining progress in real-time from your dashboard.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">&#128176;</div>
+                <h3>Pay with Bitcoin</h3>
+                <p>Deposit BTC to your personal address. 3 confirmations and you're ready to rent.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">&#9881;</div>
+                <h3>Flexible Orders</h3>
+                <p>Minimum 1 hour, extend anytime. Cancel and get unused balance refunded instantly.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">&#127919;</div>
+                <h3>Earn BCH2</h3>
+                <p>Mining rewards paid in BCH2 directly to your Forge Pool account. Withdraw anytime.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<script nonce="{{.CSPNonce}}">
+document.addEventListener('DOMContentLoaded', function() {
+    fetch('/api/v1/rental/prices')
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('available-hash').textContent = Math.round(data.available_ph).toLocaleString();
+        })
+        .catch(() => {});
+});
+</script>
+{{end}}

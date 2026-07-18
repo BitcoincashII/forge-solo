@@ -1,0 +1,67 @@
+{{define "content"}}
+<section class="dashboard">
+    <div class="container-narrow">
+        <div class="card">
+            <h1 class="card-title mb-30">Frequently Asked Questions</h1>
+
+            <div class="faq-item" style="margin-bottom: 24px;">
+                <h3 style="color: var(--accent); margin-bottom: 8px;">What is HashForge?</h3>
+                <p style="color: var(--text-secondary); line-height: 1.6;">HashForge is a hashrate rental service for BCH2 mining. You can rent mining power to mine BCH2 either through PPLNS (steady payouts) or Solo mining (win entire block rewards).</p>
+            </div>
+
+            <div class="faq-item" style="margin-bottom: 24px;">
+                <h3 style="color: var(--accent); margin-bottom: 8px;">What is the difference between PPLNS and Solo mining?</h3>
+                <p style="color: var(--text-secondary); line-height: 1.6;"><strong>PPLNS (Pay Per Last N Shares):</strong> You receive steady payouts based on your share of the pool's hashrate. Lower variance, more predictable earnings.</p>
+                <p style="color: var(--text-secondary); line-height: 1.6; margin-top: 8px;"><strong>Solo:</strong> You mine independently. If your rented hashrate finds a block, you receive the entire 50 BCH2 block reward. Higher variance, potential for larger payouts.</p>
+            </div>
+
+            <div class="faq-item" style="margin-bottom: 24px;">
+                <h3 style="color: var(--accent); margin-bottom: 8px;">What is the minimum order?</h3>
+                <p style="color: var(--text-secondary); line-height: 1.6;">Minimum hashrate: 1 PH/s. Minimum budget: 0.00125 BTC (125,000 sats). Your budget must cover at least 1 hour of mining.</p>
+            </div>
+
+            <div class="faq-item" style="margin-bottom: 24px;">
+                <h3 style="color: var(--accent); margin-bottom: 8px;">How do deposits work?</h3>
+                <p style="color: var(--text-secondary); line-height: 1.6;">Send BTC to your unique deposit address. Deposits require 3 confirmations before funds are available in your account balance.</p>
+            </div>
+
+            <div class="faq-item" style="margin-bottom: 24px;">
+                <h3 style="color: var(--accent); margin-bottom: 8px;">How do withdrawals work?</h3>
+                <p style="color: var(--text-secondary); line-height: 1.6;">You must enable 2FA before withdrawing. Enter your BTC address, amount (or leave empty for full balance), and your 2FA code. Withdrawals are processed automatically.</p>
+            </div>
+
+            <div class="faq-item" style="margin-bottom: 24px;">
+                <h3 style="color: var(--accent); margin-bottom: 8px;">What happens to unused budget?</h3>
+                <p style="color: var(--text-secondary); line-height: 1.6;">If you cancel an order early, any unused budget is refunded to your account balance. You can then withdraw it or use it for another order.</p>
+            </div>
+
+            <div class="faq-item" style="margin-bottom: 24px;">
+                <h3 style="color: var(--accent); margin-bottom: 8px;">Where do my BCH2 mining rewards go?</h3>
+                <p style="color: var(--text-secondary); line-height: 1.6;">BCH2 rewards are sent directly to the BCH2 address you configure in Settings. Make sure to set your BCH2 payout address before placing orders.</p>
+            </div>
+
+            <div class="faq-item" style="margin-bottom: 24px;">
+                <h3 style="color: var(--accent); margin-bottom: 8px;">Why is 2FA required for withdrawals?</h3>
+                <p style="color: var(--text-secondary); line-height: 1.6;">Two-factor authentication protects your funds. Even if someone obtains your password, they cannot withdraw without access to your authenticator app.</p>
+            </div>
+
+            <div class="faq-item" style="margin-bottom: 24px;">
+                <h3 style="color: var(--accent); margin-bottom: 8px;">What are backup codes?</h3>
+                <p style="color: var(--text-secondary); line-height: 1.6;">When you enable 2FA, you receive 10 backup codes. Each code can be used once in place of your authenticator code if you lose access to your device. Store them securely.</p>
+            </div>
+
+            <div class="faq-item" style="margin-bottom: 24px;">
+                <h3 style="color: var(--accent); margin-bottom: 8px;">How is the rental price calculated?</h3>
+                <p style="color: var(--text-secondary); line-height: 1.6;">Prices are based on the current Braiins hashrate marketplace rates plus a small margin. The displayed price is in BTC per PH/s per day.</p>
+            </div>
+
+            <div class="faq-item" style="margin-bottom: 24px;">
+                <h3 style="color: var(--accent); margin-bottom: 8px;">Where do the profits go?</h3>
+                <p style="color: var(--text-secondary); line-height: 1.6;">All profits from this service are directly used to support infrastructure of the BCH2 network.</p>
+            </div>
+
+            <a href="/dashboard" class="btn btn-secondary btn-full mt-20">Back to Dashboard</a>
+        </div>
+    </div>
+</section>
+{{end}}

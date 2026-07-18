@@ -1,0 +1,43 @@
+{{define "content"}}
+<section class="dashboard">
+    <div class="container-narrow">
+        <div class="card" style="max-width: 400px; margin: 60px auto;">
+            <div class="text-center mb-30">
+                <div class="logo-icon" style="margin: 0 auto 15px; width: 60px; height: 60px; font-size: 28px;">H</div>
+                <h1 class="card-title">Admin Login</h1>
+            </div>
+
+            {{if .Error}}
+            <div class="alert alert-error mb-20">{{.Error}}</div>
+            {{end}}
+
+            <form method="POST" action="/admin/login">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+                <div class="form-group">
+                    <label class="form-label">Username</label>
+                    <input type="text" name="username" class="form-input" required autocomplete="username" autofocus>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Password</label>
+                    <input type="password" name="password" class="form-input" required autocomplete="current-password">
+                </div>
+
+                {{if .TurnstileSiteKey}}
+                <div class="form-group">
+                    <div class="cf-turnstile" data-sitekey="{{.TurnstileSiteKey}}" data-theme="dark"></div>
+                </div>
+                <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+                {{end}}
+
+                <button type="submit" class="btn btn-primary btn-full">Login</button>
+            </form>
+
+            <div class="text-center mt-20">
+                <a href="/" class="text-small" style="color: var(--text-muted);">Back to HashForge</a>
+            </div>
+        </div>
+    </div>
+</section>
+{{end}}

@@ -1,0 +1,107 @@
+{{define "content"}}
+<section class="legal-page">
+    <div class="container">
+        <div class="legal-content" style="max-width: 700px;">
+            <h1>How It Works</h1>
+            <p style="color: var(--text-secondary); margin-bottom: 40px;">Rent SHA-256 hashpower and mine BCH2 in minutes. No hardware required.</p>
+
+            <div class="legal-section">
+                <h2>Step 1: Create an Account</h2>
+                <div style="display: flex; gap: 20px; align-items: flex-start;">
+                    <div style="background: var(--accent); color: #000; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0;">1</div>
+                    <div>
+                        <p>Sign up with your email address and set a secure password. We recommend enabling two-factor authentication (2FA) for enhanced security.</p>
+                        <p style="margin-top: 10px;"><strong>Required:</strong> Your BCH2 payout address where mining rewards will be sent.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="legal-section">
+                <h2>Step 2: Deposit BTC</h2>
+                <div style="display: flex; gap: 20px; align-items: flex-start;">
+                    <div style="background: var(--accent); color: #000; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0;">2</div>
+                    <div>
+                        <p>Deposit Bitcoin to your unique deposit address. Deposits require 3 blockchain confirmations before funds are available.</p>
+                        <p style="margin-top: 10px;"><strong>Note:</strong> Only send BTC. Other cryptocurrencies will be lost.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="legal-section">
+                <h2>Step 3: Place an Order</h2>
+                <div style="display: flex; gap: 20px; align-items: flex-start;">
+                    <div style="background: var(--accent); color: #000; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0;">3</div>
+                    <div>
+                        <p>Choose your mining settings:</p>
+                        <ul style="margin: 15px 0;">
+                            <li><strong>Mining Mode:</strong> PPLNS (steady payouts) or Solo (full block rewards)</li>
+                            <li><strong>Hashrate:</strong> 1-500 PH/s</li>
+                            <li><strong>Budget:</strong> How much BTC to spend on hashrate</li>
+                        </ul>
+                        <p>Your budget is consumed over time as hashrate is delivered. Larger budgets = longer mining time.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="legal-section">
+                <h2>Step 4: Start Mining</h2>
+                <div style="display: flex; gap: 20px; align-items: flex-start;">
+                    <div style="background: var(--accent); color: #000; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0;">4</div>
+                    <div>
+                        <p>Once you confirm your order, hashrate is allocated immediately through the Braiins Hashpower marketplace and directed to Forge Pool mining for BCH2.</p>
+                        <p style="margin-top: 10px;"><strong>Important:</strong> Orders cannot be cancelled within the first 60 minutes.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="legal-section">
+                <h2>Step 5: Receive Rewards</h2>
+                <div style="display: flex; gap: 20px; align-items: flex-start;">
+                    <div style="background: var(--accent); color: #000; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0;">5</div>
+                    <div>
+                        <p>Mining rewards are sent directly to your BCH2 address:</p>
+                        <ul style="margin: 15px 0;">
+                            <li><strong>PPLNS Mode:</strong> Rewards distributed proportionally based on your shares</li>
+                            <li><strong>Solo Mode:</strong> Full block reward (if your hashrate finds a block)</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="legal-section" style="background: var(--bg-secondary); padding: 25px; border-radius: 12px; border: 1px solid var(--border-color);">
+                <h2 style="border: none; padding: 0; margin-bottom: 15px;">Mining Modes Explained</h2>
+
+                <h3 style="color: var(--accent);">PPLNS (Pay Per Last N Shares)</h3>
+                <p>Your rewards are based on shares submitted, smoothed over time. More predictable payouts, lower variance. Best for consistent returns.</p>
+
+                <h3 style="color: var(--accent); margin-top: 20px;">Solo Mining</h3>
+                <p>You receive the <strong>entire block reward</strong> if your hashrate finds a block. High variance - you might find nothing, or win big. Best for those seeking larger potential payouts and comfortable with risk.</p>
+            </div>
+
+            <div class="legal-section">
+                <h2>Pricing</h2>
+                <p>Hashrate prices are determined by the Braiins Hashpower marketplace in real-time. You'll see the current price before placing any order.</p>
+                <p style="margin-top: 10px;">Price is quoted in <strong>BTC per PH/day</strong> (petahash per day).</p>
+            </div>
+
+            <div class="legal-section">
+                <h2>Managing Your Order</h2>
+                <ul>
+                    <li><strong>Extend:</strong> Add more budget to keep mining longer</li>
+                    <li><strong>Cancel:</strong> Stop mining and get unused budget refunded (after 60-min lock)</li>
+                    <li><strong>Monitor:</strong> Track hashrate, spending, and rewards in your dashboard</li>
+                </ul>
+            </div>
+
+            <div style="margin-top: 40px; text-align: center;">
+                <a href="/register" class="btn btn-primary" style="margin-right: 15px;">Get Started</a>
+                <a href="/faq" class="btn btn-secondary">Read FAQ</a>
+            </div>
+
+            <div class="legal-footer">
+                <p>Questions? Check our <a href="/faq">FAQ</a> or <a href="/contact">contact support</a>.</p>
+            </div>
+        </div>
+    </div>
+</section>
+{{end}}

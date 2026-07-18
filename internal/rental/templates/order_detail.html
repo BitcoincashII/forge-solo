@@ -1,0 +1,144 @@
+{{define "content"}}
+<section class="dashboard">
+    <div class="container-narrow">
+        <div class="card">
+            <h1 class="card-title mb-20">Order #{{.Order.ID}}</h1>
+
+            <!-- Status Badge -->
+            <div class="mb-20">
+                {{if eq .Order.Status "active"}}
+                <span class="badge badge-active">Active</span>
+                {{else if eq .Order.Status "completed"}}
+                <span class="badge badge-completed">Completed</span>
+                {{else if eq .Order.Status "cancelled"}}
+                <span class="badge badge-cancelled">Cancelled</span>
+                {{else if eq .Order.Status "failed"}}
+                <span class="badge badge-failed">Failed</span>
+                {{else}}
+                <span class="badge">{{.Order.Status}}</span>
+                {{end}}
+                <span class="text-muted ml-10">{{.Order.MiningMode}} mode</span>
+            </div>
+
+            <!-- Progress (for active orders) -->
+            {{if eq .Order.Status "active"}}
+            <div class="stat-card mb-20">
+                <div class="stat-label">Progress</div>
+                <div class="progress-bar mb-10">
+                    <div class="progress-fill" style="width: {{.ProgressPct}}%"></div>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                    <span>{{formatBTC .Order.AmountSpentSat}} spent</span>
+                    <span>{{formatBTC .Remaining}} remaining</span>
+                </div>
+            </div>
+            {{end}}
+
+            <!-- Order Stats -->
+            <div class="dashboard-grid mb-30">
+                <div class="stat-card">
+                    <div class="stat-label">Hashrate</div>
+                    <div class="stat-value">{{.Order.SpeedLimitPH}} PH/s</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Budget</div>
+                    <div class="stat-value">{{formatBTC .Order.BudgetSat}} BTC</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Amount Spent</div>
+                    <div class="stat-value">{{formatBTC .Order.AmountSpentSat}} BTC</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Price Rate</div>
+                    <div class="stat-value">{{formatSats .Order.PriceSat}}/EH/day</div>
+                </div>
+            </div>
+
+            <!-- Timeline -->
+            <div class="card-section mb-20">
+                <h3 class="mb-10">Timeline</h3>
+                <div class="text-small">
+                    <p><strong>Created:</strong> {{.Order.CreatedAt.Format "Jan 02, 2006 15:04 UTC"}}</p>
+                    {{if .Order.StartedAt}}
+                    <p><strong>Started:</strong> {{.Order.StartedAt.Format "Jan 02, 2006 15:04 UTC"}}</p>
+                    {{end}}
+                    {{if .Order.CompletedAt}}
+                    <p><strong>Completed:</strong> {{.Order.CompletedAt.Format "Jan 02, 2006 15:04 UTC"}}</p>
+                    {{end}}
+                </div>
+            </div>
+
+            <!-- Mining Details -->
+            <div class="card-section mb-20">
+                <h3 class="mb-10">Mining Details</h3>
+                <div class="text-small">
+                    <p><strong>Worker:</strong> <code>{{.Order.TargetIdentity}}</code></p>
+                    <p><strong>Pool:</strong> {{.Order.TargetPoolURL}}</p>
+                    {{if .Order.BraiinsBidID}}
+                    <p><strong>Braiins Bid:</strong> {{.Order.BraiinsBidID}}</p>
+                    {{end}}
+                </div>
+            </div>
+
+            {{if .Order.ErrorMessage}}
+            <div class="alert alert-error mb-20">
+                {{.Order.ErrorMessage}}
+            </div>
+            {{end}}
+
+            <!-- Actions -->
+            {{if eq .Order.Status "active"}}
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <a href="/order/{{.Order.ID}}/extend" class="btn btn-primary">Extend Time</a>
+                <form method="POST" action="/order/{{.Order.ID}}/cancel" style="display: inline;" id="cancel-form">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                    <button type="submit" class="btn btn-danger" id="cancel-btn">Cancel Order</button>
+                </form>
+            </div>
+            {{end}}
+
+            <a href="/orders" class="btn btn-secondary btn-full mt-20">View All Orders</a>
+            <a href="/dashboard" class="btn btn-secondary btn-full mt-10">Back to Dashboard</a>
+        </div>
+    </div>
+</section>
+
+<style>
+.badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 0.85em;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+.badge-active { background: var(--accent-green); color: white; }
+.badge-completed { background: var(--accent); color: white; }
+.badge-cancelled { background: var(--text-secondary); color: white; }
+.badge-failed { background: var(--accent-red); color: white; }
+.ml-10 { margin-left: 10px; }
+.progress-bar {
+    background: var(--card-border);
+    border-radius: 4px;
+    height: 8px;
+    overflow: hidden;
+}
+.progress-fill {
+    background: var(--accent-green);
+    height: 100%;
+    transition: width 0.3s;
+}
+.card-section {
+    padding: 15px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+}
+code {
+    background: var(--card-border);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.9em;
+    word-break: break-all;
+}
+</style>
+{{end}}

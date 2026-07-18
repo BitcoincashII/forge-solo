@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Forge Pool help center — learn about PPLNS vs solo mining, BCH2 payout mechanics, ASIC configuration, difficulty settings, and frequently asked questions.">
+    <title>Forge Pool Help — BCH2 Mining FAQ & Configuration Guide</title>
+    <link rel="canonical" href="https://pool.bch2.org/help">
+    <meta property="og:title" content="Forge Pool Help — BCH2 Mining FAQ">
+    <meta property="og:description" content="Answers to common questions about mining BCH2 with Forge Pool — payouts, difficulty, ASIC configuration, and rewards.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://pool.bch2.org/help">
+    <meta property="og:site_name" content="Bitcoin Cash II">
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+            {
+                "@type": "Question",
+                "name": "What is PPLNS mining?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "PPLNS (Pay Per Last N Shares) pays miners based on their share of work submitted during the window leading up to a block find. It rewards consistent miners and reduces variance over time. This app does not offer PPLNS — it is solo-only."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "What is solo mining on Forge Pool?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Solo mining on Forge Pool means your miner competes for full block rewards independently. If you find a block, you receive the full 50 BCH2 reward with no pool fee (0%). This app is solo-only for every miner — there is no PPLNS mode to choose."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "When do I get paid for mining BCH2?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Payouts are processed automatically after 100 block confirmations, once your matured balance reaches your configured minimum payout. You can check your pending balance and payout history on the Forge Pool dashboard."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "What stratum address do I use to mine BCH2?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Connect your SHA-256 ASIC to stratum+tcp://forge.bch2.org:3333 with your BCH2 wallet address as the username. Any Bitcoin SHA-256 ASIC miner is compatible."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "What difficulty setting should I use?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Variable difficulty (vardiff) is recommended for most miners — the pool automatically adjusts to your hashrate. For large mining farms or fixed-difficulty rigs, set a static difficulty appropriate for your hashrate in the miner configuration."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "Is BCH2 mining profitable?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "BCH2 profitability depends on current difficulty, BCH2 price, and your electricity cost. BCH2 uses SHA-256 algorithm compatible with all Bitcoin ASICs. Check the current network hashrate and difficulty on the BCH2 block explorer at explorer.bch2.org/mining."
+                }
+            }
+        ]
+    }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/css/common.css">
+    <style>
+        .container{max-width:900px}
+        .page{padding:40px 0 60px}
+        h1{font-size:36px;margin-bottom:12px;text-align:center}
+        .subtitle{color:var(--text-secondary);text-align:center;margin-bottom:48px;font-size:16px}
+
+        .help-nav{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-bottom:40px;padding:0 16px}
+        .help-nav a{background:var(--bg-card);border:1px solid var(--border);padding:10px 18px;border-radius:8px;color:var(--text);text-decoration:none;font-size:14px;font-weight:500;transition:all 0.2s}
+        .help-nav a:hover{border-color:var(--bch-green);color:var(--bch-green)}
+
+        .help-section{background:var(--bg-card);border:1px solid var(--border);border-radius:16px;padding:32px;margin-bottom:24px}
+        .help-section h2{font-size:22px;margin-bottom:20px;color:var(--bch-green);display:flex;align-items:center;gap:12px}
+        .help-section h2 .icon{font-size:28px}
+        .help-section h3{font-size:16px;margin:24px 0 12px;color:var(--text)}
+        .help-section p{color:var(--text-secondary);line-height:1.7;margin-bottom:16px}
+        .help-section ul,.help-section ol{color:var(--text-secondary);line-height:1.8;margin-bottom:16px;padding-left:24px}
+        .help-section li{margin-bottom:8px}
+        .help-section strong{color:var(--text)}
+        .help-section code{background:var(--bg-primary);padding:2px 8px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--bch-green)}
+
+        .comparison-table{width:100%;border-collapse:collapse;margin:20px 0}
+        .comparison-table th,.comparison-table td{padding:14px 16px;text-align:left;border-bottom:1px solid var(--border)}
+        .comparison-table th{background:var(--bg-primary);color:var(--text);font-weight:600;font-size:14px}
+        .comparison-table td{color:var(--text-secondary);font-size:14px}
+        .comparison-table tr:last-child td{border-bottom:none}
+        .comparison-table .highlight{color:var(--bch-green);font-weight:600}
+
+        .info-box{background:rgba(10,193,142,0.1);border:1px solid var(--bch-green);border-radius:12px;padding:20px;margin:20px 0}
+        .info-box.warning{background:rgba(245,158,11,0.1);border-color:var(--gold)}
+        .info-box h4{font-size:14px;margin-bottom:8px;color:var(--bch-green)}
+        .info-box.warning h4{color:var(--gold)}
+        .info-box p{font-size:13px;color:var(--text-secondary);line-height:1.6;margin:0}
+
+        .formula{background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:16px 20px;font-family:'JetBrains Mono',monospace;font-size:14px;color:var(--text);margin:16px 0;overflow-x:auto}
+
+        .faq-item{border-bottom:1px solid var(--border);padding:20px 0}
+        .faq-item:last-child{border-bottom:none;padding-bottom:0}
+        .faq-item:first-child{padding-top:0}
+        .faq-q{font-weight:600;color:var(--text);margin-bottom:8px;font-size:15px}
+        .faq-a{color:var(--text-secondary);line-height:1.7;font-size:14px}
+
+        .step-list{counter-reset:steps}
+        .step-list li{counter-increment:steps;position:relative;padding-left:36px;margin-bottom:16px}
+        .step-list li::before{content:counter(steps);position:absolute;left:0;top:0;width:24px;height:24px;background:var(--bch-green);color:#000;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px}
+
+        @media(max-width:600px){
+            h1{font-size:28px}
+            .help-section{padding:24px 20px}
+            .help-nav{gap:6px}
+            .help-nav a{padding:8px 14px;font-size:13px}
+            .comparison-table{font-size:13px}
+            .comparison-table th,.comparison-table td{padding:10px 12px}
+        }
+    </style>
+</head>
+<body>
+    <a href="#main-content" class="skip-link" data-i18n="p_skip_to_content">Skip to main content</a>
+
+    <header>
+        <div class="container header-content" style="max-width:1200px">
+            <a href="/" class="logo" aria-label="Forge Pool Home">
+                <svg class="logo-icon" viewBox="0 0 788 788" aria-hidden="true"><defs><linearGradient id="cg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#0ac18e"/><stop offset="100%" style="stop-color:#089e74"/></linearGradient></defs><circle cx="394" cy="394" r="394" fill="url(#cg)"/><text x="400" y="580" text-anchor="middle" font-family="Times New Roman,serif" font-size="620" font-weight="bold" fill="rgba(0,0,0,0.35)">II</text><path fill="#000" d="M516.9,261.7c-19.8-44.9-65.3-54.5-121-45.2L378,147.1L335.8,158l17.6,69.2c-11.1,2.8-22.5,5.2-33.8,8.4L302,166.8l-42.2,10.9l17.9,69.4c-9.1,2.6-85.2,22.1-85.2,22.1l11.6,45.2c0,0,31-8.7,30.7-8c17.2-4.5,25.3,4.1,29.1,12.2l49.2,190.2c0.6,5.5-0.4,14.9-12.2,18.1c0.7,0.4-30.7,7.9-30.7,7.9l4.6,52.7c0,0,75.4-19.3,85.3-21.8l18.1,70.2l42.2-10.9l-18.1-70.7c11.6-2.7,22.9-5.5,33.9-8.4l18,70.3l42.2-10.9l-18.1-70.1c65-15.8,110.9-56.8,101.5-119.5c-6-37.8-47.3-68.8-81.6-72.3C519.3,324.7,530,297.4,516.9,261.7L516.9,261.7z M496.6,427.2c8.4,62.1-77.9,69.7-106.4,77.2l-24.8-92.9C394,404,482.4,372.5,496.6,427.2z M444.6,300.7c8.9,55.2-64.9,61.6-88.7,67.7l-22.6-84.3C357.2,278.2,426.5,249.6,444.6,300.7z"/></svg>
+                <div><div class="logo-text">Forge Pool</div><div class="logo-sub" data-i18n="p_logo_sub">Bitcoin Cash II Mining Pool</div></div>
+            </a>
+            <nav role="navigation" aria-label="Main navigation">
+                <a href="https://bch2.org/language.html" title="Language" id="langSwitch" style="text-transform: uppercase; font-size: 0.85em;">🌐 EN</a>
+                <a href="/" data-i18n="p_nav_dashboard">Dashboard</a>
+                <a href="/blocks" data-i18n="p_nav_blocks">Blocks</a>
+                <a href="/settings" data-i18n="p_nav_get_started">Settings</a>
+                <a href="/help" class="active" data-i18n="p_nav_help">Help</a>
+            </nav>
+        </div>
+    </header>
+
+    <main id="main-content">
+        <div class="container page">
+            <h1 data-i18n="p_help_title">Help Center</h1>
+            <p class="subtitle" data-i18n="p_help_subtitle">Everything you need to know about mining with Forge Pool</p>
+
+            <nav class="help-nav" aria-label="Help topics">
+                <a href="#mining-modes" data-i18n="p_help_nav_modes">Mining Modes</a>
+                <a href="#payouts" data-i18n="p_help_nav_payouts">Payouts</a>
+                <a href="#configuration" data-i18n="p_help_nav_config">Configuration</a>
+                <a href="#difficulty" data-i18n="p_help_nav_difficulty">Difficulty</a>
+                <a href="#getting-started" data-i18n="p_help_nav_getting_started">Getting Started</a>
+                <a href="#faq" data-i18n="p_help_nav_faq">FAQ</a>
+            </nav>
+
+            <!-- Mining Modes Section -->
+            <section class="help-section" id="mining-modes">
+                <h2><span class="icon">&#9874;</span> <span data-i18n="p_help_modes_title">Mining Modes</span></h2>
+                <p data-i18n="p_help_modes_intro">Forge Pool offers two mining modes to suit different mining strategies and risk preferences.</p>
+
+                <table class="comparison-table">
+                    <thead>
+                        <tr>
+                            <th>Feature</th>
+                            <th>PPLNS Pool</th>
+                            <th>Solo Mining</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>Pool Fee</strong></td>
+                            <td class="highlight">1%</td>
+                            <td class="highlight">0.5%</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Payout per Block</strong></td>
+                            <td>49.5 BCH2 (shared among miners)</td>
+                            <td>49.75 BCH2 (full reward to finder)</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Payout Frequency</strong></td>
+                            <td>Every block the pool finds</td>
+                            <td>Only when YOU find a block</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Variance</strong></td>
+                            <td>Low - steady income</td>
+                            <td>High - feast or famine</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Best For</strong></td>
+                            <td>Most miners, consistent returns</td>
+                            <td>Large hashrate, risk-tolerant miners</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h3 data-i18n="p_help_pplns_title">PPLNS (Pay Per Last N Shares)</h3>
+                <p data-i18n="p_help_pplns_desc">PPLNS rewards miners based on their contribution to finding blocks. When the pool finds a block, the reward is distributed proportionally among all miners who submitted valid shares during the scoring window.</p>
+                <ul>
+                    <li><strong>Fair distribution:</strong> Your payout is proportional to your hashrate contribution</li>
+                    <li><strong>Reduced variance:</strong> Get paid regularly even with smaller hashrate</li>
+                    <li><strong>Pool luck shared:</strong> Bad luck is spread across all miners</li>
+                </ul>
+
+                <h3 data-i18n="p_help_solo_title">Solo Mining</h3>
+                <p data-i18n="p_help_solo_desc">In solo mode, you mine independently using the pool's infrastructure. If you find a block, you keep the entire reward (minus 0.5% fee). However, you get nothing if someone else finds the block.</p>
+                <ul>
+                    <li><strong>Maximum reward:</strong> Keep 49.75 BCH2 per block you find</li>
+                    <li><strong>High variance:</strong> May go long periods without finding blocks</li>
+                    <li><strong>Recommended for:</strong> Miners with significant hashrate (>10% of network)</li>
+                </ul>
+
+                <div class="info-box warning">
+                    <h4>Mode Switching Cooldown</h4>
+                    <p>To prevent abuse, there is a cooldown period when switching between PPLNS and Solo modes. This ensures fair share distribution in the PPLNS pool.</p>
+                </div>
+            </section>
+
+            <!-- Payouts Section -->
+            <section class="help-section" id="payouts">
+                <h2><span class="icon">&#128176;</span> <span data-i18n="p_help_payouts_title">Payouts</span></h2>
+
+                <h3 data-i18n="p_help_payouts_how_title">How Payouts Work</h3>
+                <p>Forge Pool automatically sends payouts to your configured BCH2 wallet address. Here's how the process works:</p>
+
+                <ol class="step-list">
+                    <li><strong>Block Found:</strong> When the pool finds a block, it's broadcast to the BCH2 network.</li>
+                    <li><strong>Confirmation Period:</strong> The block must receive <strong>100 confirmations</strong> before the coinbase reward can be spent. This takes approximately 100 blocks (~16-17 hours at current block times).</li>
+                    <li><strong>Payout Processing:</strong> Once mature, payouts are automatically sent to miners' addresses.</li>
+                    <li><strong>On-Chain Confirmation:</strong> Your payout appears in your wallet after the transaction confirms.</li>
+                </ol>
+
+                <div class="info-box">
+                    <h4>Why 100 Confirmations?</h4>
+                    <p>BCH2 (like Bitcoin) requires coinbase transactions to mature for 100 blocks before they can be spent. This protects against blockchain reorganizations that could orphan blocks.</p>
+                </div>
+
+                <h3>PPLNS Payout Calculation</h3>
+                <p>Your share of each block reward is calculated based on your contribution to the pool's total shares:</p>
+
+                <div class="formula">
+                    Your Payout = (Your Shares / Total Pool Shares) × Block Reward × (1 - Pool Fee)
+                </div>
+
+                <p>For example, if you contributed 10% of the pool's shares and the pool finds a block:</p>
+                <div class="formula">
+                    Your Payout = 0.10 × 50 BCH2 × 0.99 = 4.95 BCH2
+                </div>
+
+                <h3>Minimum Payout</h3>
+                <p>The default minimum payout is <strong>5 BCH2</strong>. Matured balances below the threshold accumulate until they reach it, then pay out automatically — you don't need to request a payout.</p>
+
+                <h3>Payout Status</h3>
+                <table class="comparison-table">
+                    <thead>
+                        <tr>
+                            <th>Status</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>Pending</strong></td>
+                            <td>Block found but waiting for 100 confirmations</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Confirmed</strong></td>
+                            <td>Block mature, payout sent to your address</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- Configuration Section -->
+            <section class="help-section" id="configuration">
+                <h2><span class="icon">&#9881;</span> <span data-i18n="p_help_config_title">Configuration</span></h2>
+
+                <h3>Get Started Page Options</h3>
+                <p>The <a href="/start">Get Started</a> page lets you configure your mining settings before connecting your miner.</p>
+
+                <h3>Step 1: Wallet Address</h3>
+                <p>Enter your BCH2 wallet address. This is where your mining rewards will be sent. The address must be a valid BCH2 CashAddr format starting with <code>q</code> (or <code>bitcoincashii:q</code> with prefix).</p>
+                <ul>
+                    <li>Your address is your unique identifier on the pool</li>
+                    <li>Recently used addresses are saved for convenience</li>
+                    <li>The pool validates your address before saving</li>
+                </ul>
+
+                <h3>Step 2: Mining Mode</h3>
+                <p>Choose between PPLNS and Solo mining (see <a href="#mining-modes">Mining Modes</a> above for details).</p>
+
+                <h3>Step 3: Difficulty Settings</h3>
+                <p>Configure how the pool assigns work difficulty to your miner (see <a href="#difficulty">Difficulty</a> section for details).</p>
+
+                <h3>Step 4: Miner Configuration</h3>
+                <p>Use these settings in your mining software:</p>
+                <table class="comparison-table">
+                    <tbody>
+                        <tr>
+                            <td><strong>Stratum URL</strong></td>
+                            <td><code>stratum+tcp://forge.bch2.org:3333</code></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Username</strong></td>
+                            <td><code>YOUR_BCH2_ADDRESS.workername</code></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Password</strong></td>
+                            <td>Choose your own (not <code>x</code>) — see note below</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="info-box">
+                    <h4>Your Miner Password</h4>
+                    <p>Any password lets your miner connect and mine. But to change your settings — mining mode, difficulty, or minimum payout — here on the website, you must enter the same password you set in your miner. This proves you control the miner, so no one else can change your settings for you. Choose a real password (not the default <code>x</code>) and connect once; the pool remembers it. If your miner still uses <code>x</code>, set a password in its config and reconnect before changing settings.</p>
+                </div>
+
+                <div class="info-box">
+                    <h4>Worker Names</h4>
+                    <p>Add a worker name after your address (separated by a dot) to identify different mining rigs. Example: <code>bitcoincashii:qz...abc.rig1</code></p>
+                </div>
+            </section>
+
+            <!-- Difficulty Section -->
+            <section class="help-section" id="difficulty">
+                <h2><span class="icon">&#128200;</span> <span data-i18n="p_help_diff_title">Difficulty Settings</span></h2>
+
+                <h3>What is Mining Difficulty?</h3>
+                <p>Difficulty determines how hard the mathematical puzzles are that your miner must solve. Higher difficulty means fewer shares submitted but each share represents more work.</p>
+
+                <h3>Variable Difficulty (Recommended)</h3>
+                <p>The pool automatically adjusts difficulty based on your miner's hashrate. This ensures:</p>
+                <ul>
+                    <li>Optimal share submission rate (not too fast, not too slow)</li>
+                    <li>Reduced network overhead</li>
+                    <li>Accurate hashrate measurement</li>
+                </ul>
+                <p>The pool targets approximately <strong>1 share every 10-15 seconds</strong> per worker.</p>
+
+                <h3>Static Difficulty</h3>
+                <p>Advanced users can set a fixed difficulty value. This is useful if:</p>
+                <ul>
+                    <li>You have very consistent hashrate</li>
+                    <li>You want to control share submission rate precisely</li>
+                    <li>You're troubleshooting miner issues</li>
+                </ul>
+
+                <div class="info-box warning">
+                    <h4>Choosing Static Difficulty</h4>
+                    <p>If difficulty is too low, you'll submit shares too frequently (wasted bandwidth). If too high, share submission will be slow and hashrate estimation inaccurate. When in doubt, use Variable.</p>
+                </div>
+
+                <h3>Difficulty Guidelines</h3>
+                <table class="comparison-table">
+                    <thead>
+                        <tr>
+                            <th>Hashrate</th>
+                            <th>Suggested Difficulty</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>< 100 TH/s</td>
+                            <td>32,768 (pool minimum)</td>
+                        </tr>
+                        <tr>
+                            <td>100 - 500 TH/s</td>
+                            <td>32,000 - 128,000</td>
+                        </tr>
+                        <tr>
+                            <td>500 TH/s - 1 PH/s</td>
+                            <td>128,000 - 512,000</td>
+                        </tr>
+                        <tr>
+                            <td>> 1 PH/s</td>
+                            <td>512,000+</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p>The pool's minimum difficulty for regular miners is <strong>32,768</strong>; a lower request is automatically raised to this minimum.</p>
+            </section>
+
+            <!-- Getting Started Section -->
+            <section class="help-section" id="getting-started">
+                <h2><span class="icon">&#128640;</span> <span data-i18n="p_help_started_title">Getting Started</span></h2>
+
+                <h3>Quick Start Guide</h3>
+                <ol class="step-list">
+                    <li><strong>Get a BCH2 Wallet:</strong> You need a BCH2 wallet address to receive payouts. You can use the official BCH2 wallet or any compatible wallet.</li>
+                    <li><strong>Configure on Pool:</strong> Visit the <a href="/start">Get Started</a> page, enter your address, select your mining mode, and save settings.</li>
+                    <li><strong>Configure Your Miner:</strong> Enter the stratum URL, your address as username, and a password of your choice (not <code>x</code>) in your mining software — you'll use that same password to manage your settings on this site.</li>
+                    <li><strong>Start Mining:</strong> Power on your miner and verify it connects. Check your <a href="/miner/">miner dashboard</a> to see stats.</li>
+                    <li><strong>Get Paid:</strong> Payouts are automatic after blocks mature (100 confirmations).</li>
+                </ol>
+
+                <h3>Compatible Mining Hardware</h3>
+                <p>BCH2 uses the SHA-256 mining algorithm. Compatible hardware includes:</p>
+                <ul>
+                    <li>Bitmain Antminer S19, S19 Pro, S19 XP series</li>
+                    <li>MicroBT WhatsMiner M30S, M50 series</li>
+                    <li>Canaan AvalonMiner series</li>
+                    <li>Any SHA-256 ASIC miner</li>
+                </ul>
+
+                <h3>Viewing Your Stats</h3>
+                <p>After connecting, view your mining statistics at:</p>
+                <ul>
+                    <li><strong>PPLNS miners:</strong> <code>/miner/YOUR_ADDRESS</code></li>
+                    <li><strong>Solo miners:</strong> <code>/solo/YOUR_ADDRESS</code></li>
+                </ul>
+            </section>
+
+            <!-- FAQ Section -->
+            <section class="help-section" id="faq">
+                <h2><span class="icon">&#10067;</span> <span data-i18n="p_help_faq_title">Frequently Asked Questions</span></h2>
+
+                <div class="faq-item">
+                    <div class="faq-q">Why haven't I received my payout yet?</div>
+                    <div class="faq-a">Block rewards require 100 confirmations before they can be paid out. This takes approximately 16-17 hours after a block is found. Check the block status on your dashboard - if it shows "Pending", the confirmations are still accumulating.</div>
+                </div>
+
+                <div class="faq-item">
+                    <div class="faq-q">What is "Pool Luck" and why does it matter?</div>
+                    <div class="faq-a">Pool luck measures how many shares were needed to find a block compared to the statistical expectation. 100% luck means we found the block exactly when expected. Lower is better (found faster), higher means it took longer. Over time, luck averages out to 100%.</div>
+                </div>
+
+                <div class="faq-item">
+                    <div class="faq-q">Why is my hashrate different on the pool vs my miner?</div>
+                    <div class="faq-a">The pool estimates hashrate based on submitted shares, which naturally varies. The 5-minute average fluctuates more than longer averages. Hardware hashrate is theoretical; actual rates depend on network conditions, share luck, and miner efficiency.</div>
+                </div>
+
+                <div class="faq-item">
+                    <div class="faq-q">Can I mine with multiple rigs to the same address?</div>
+                    <div class="faq-a">Yes! Use different worker names for each rig (e.g., <code>address.rig1</code>, <code>address.rig2</code>). All workers' hashrate combines, and payouts go to the same address.</div>
+                </div>
+
+                <div class="faq-item">
+                    <div class="faq-q">What happens if my miner disconnects?</div>
+                    <div class="faq-a">Shares you've already submitted still count. When you reconnect, mining continues. Workers are marked "offline" after 5 minutes without shares, but your accumulated shares remain.</div>
+                </div>
+
+                <div class="faq-item">
+                    <div class="faq-q">How is the pool fee deducted?</div>
+                    <div class="faq-a">The pool fee (1% for PPLNS, 0.5% for Solo) is deducted from block rewards before distribution. For a 50 BCH2 block reward, PPLNS miners share 49.5 BCH2, and solo miners receive 49.75 BCH2.</div>
+                </div>
+
+                <div class="faq-item">
+                    <div class="faq-q">Why can't I switch mining modes immediately?</div>
+                    <div class="faq-a">There's a cooldown period to prevent abuse. Frequently switching between solo and PPLNS could be used to unfairly benefit from pool shares while taking solo rewards. The cooldown ensures fair participation.</div>
+                </div>
+
+                <div class="faq-item">
+                    <div class="faq-q">What is "Effort" shown on the dashboard?</div>
+                    <div class="faq-a">Effort shows how much work has gone into the current round as a percentage of expected work. 100% effort means you've submitted statistically enough shares to find one block. Effort resets when a block is found.</div>
+                </div>
+
+                <div class="faq-item">
+                    <div class="faq-q">Is there a minimum hashrate requirement?</div>
+                    <div class="faq-a">No minimum hashrate is required. However, very low hashrates may result in infrequent share submissions and less accurate statistics. ASIC miners are recommended for meaningful BCH2 mining.</div>
+                </div>
+            </section>
+
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p data-i18n="p_footer_help">Forge Pool 2026 | <a href="https://bch2.org" rel="noopener noreferrer">BCH2</a> | <a href="https://github.com/bch2" rel="noopener noreferrer">GitHub</a></p>
+        </div>
+    </footer>
+
+    <script src="/js/common.js"></script>
+    <script src="/lang/pool-en.js"></script>
+    <script src="/js/pool-i18n.js"></script>
+    <script src="/js/pool-help-inline.js"></script>
+    <script src="/js/announce-1175.js?v=20260717"></script>
+</body>
+</html>

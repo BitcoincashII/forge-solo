@@ -1,0 +1,55 @@
+{{define "content"}}
+<section class="dashboard">
+    <div class="container-narrow">
+        <div class="card">
+            <h1 class="card-title mb-20">API Key</h1>
+
+            {{if .Error}}
+            <div class="alert alert-error mb-20">{{.Error}}</div>
+            {{end}}
+
+            {{if .Success}}
+            <div class="alert alert-success mb-20">{{.Success}}</div>
+            {{end}}
+
+            <p class="form-hint mb-20">Your API key allows programmatic access to your HashForge account. Keep it secret.</p>
+
+            <div class="stat-card mb-20">
+                <div class="stat-label">Current API Key</div>
+                {{if .NewAPIKey}}
+                <div class="mono" style="word-break: break-all; background: var(--bg-dark); padding: 15px; border-radius: 8px; margin-top: 10px;">
+                    {{.NewAPIKey}}
+                </div>
+                <p class="form-hint mt-10" style="color: var(--accent);">Copy this key now. It won't be shown again.</p>
+                {{else}}
+                <div class="mono text-muted" style="margin-top: 10px;">{{.APIKeyMasked}}</div>
+                {{end}}
+            </div>
+
+            <div class="alert alert-warning mb-20">
+                <strong>Warning:</strong> Regenerating your API key will invalidate the current key immediately. Any applications using the old key will stop working.
+            </div>
+
+            <form method="POST" action="/settings/api-key">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <input type="hidden" name="action" value="regenerate">
+                <button type="submit" class="btn btn-danger btn-full" data-confirm="Are you sure? This will invalidate your current API key.">
+                    Regenerate API Key
+                </button>
+            </form>
+
+            <a href="/settings" class="btn btn-secondary btn-full mt-20">Back to Settings</a>
+
+            <hr style="margin: 30px 0; border-color: var(--border);">
+
+            <h2 class="card-title mb-20">API Documentation</h2>
+            <p class="form-hint mb-10">Use your API key in the <code>X-API-Key</code> header for all requests.</p>
+            <div style="background: var(--bg-dark); padding: 15px; border-radius: 8px; font-family: monospace; font-size: 13px;">
+                <div style="color: var(--text-muted);"># Example: Get balance</div>
+                <div>curl -H "X-API-Key: YOUR_KEY" \</div>
+                <div style="padding-left: 20px;">https://hashforge.bch2.org/api/balance</div>
+            </div>
+        </div>
+    </div>
+</section>
+{{end}}

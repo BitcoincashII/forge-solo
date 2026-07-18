@@ -1,0 +1,71 @@
+# Forge Solo Miner — stratum config (rendered from env by entrypoint.sh via envsubst).
+# SOLO ONLY: no PPLNS, no rental/Braiins ports, no Stratum V2. Merge-mines 1175 (ESF).
+
+pool:
+  name: "Forge Solo Miner"
+  coin: "Bitcoin Cash II"
+  coin_symbol: "BCH2"
+  address: "${POOL_ADDRESS}"
+  solo_fee: 0.0                 # home miner keeps 100% — no pool fee
+  block_reward: 50.0
+  halving_interval: 210000
+  payout_scheme: "solo"
+  min_payout: ${MIN_PAYOUT}
+  payout_interval: "1h"
+  coinbase_tag: "${COINBASE_TAG}"
+
+stratum:
+  host: "0.0.0.0"
+  port: 3333
+  max_connections: 256          # home use — a handful of miners
+  ban_duration: "10m"
+  max_shares_per_second: 100
+  extranonce1_size: 2
+  extranonce2_size: 8
+  vardiff:
+    enabled: true
+    min_diff: 1024              # low floor so small ASICs (e.g. Bitaxe) submit steadily
+    max_diff: 1000000000000
+    target_time: 10
+    retarget_time: 30
+    variance_percent: 25
+
+# Disabled — not applicable to a single-household solo miner.
+stratum_braiins:
+  enabled: false           # off by default: home miners point their own hardware at :3333. Enable + publish port 3335 in docker-compose to accept rented (Braiins) hashpower.
+  host: "127.0.0.1"
+  port: 3335
+  max_connections: 1000
+  extranonce1_size: 2
+  extranonce2_size: 8
+  vardiff:
+    enabled: true
+    min_diff: 500000       # high floor for PH/s rentals (ramps from here)
+    max_diff: 1000000000000
+    target_time: 5
+    retarget_time: 10
+stratumv2:
+  enabled: false
+
+node:
+  host: "${NODE_HOST}"
+  port: ${NODE_PORT}
+  use_ssl: false
+  zmq_endpoint: "${ZMQ_ENDPOINT}"
+
+# Merge-mining 1175 (ESF) via AuxPoW — inert until the 1175 chain activates AuxPoW,
+# then automatically engages. Set your 1175 (esf1...) address in the app settings.
+mergemining:
+  enabled: true
+  payout_address: "${PAYOUT_ADDRESS_1175}"
+  min_payout: ${MIN_PAYOUT}
+  aux_node:
+    host: "${AUX1175_HOST}"
+    port: ${AUX1175_PORT}
+    user: "${AUX1175_USER}"
+    pass: "${AUX1175_PASSWORD}"
+    wallet: "${AUX1175_WALLET}"
+
+logging:
+  level: "info"
+  format: "json"

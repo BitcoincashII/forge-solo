@@ -1,0 +1,223 @@
+{{define "content"}}
+<section class="dashboard">
+    <div class="container">
+        <div class="card-header" style="margin-bottom: 30px;">
+            <h1>Order Analytics</h1>
+            <div style="display: flex; gap: 10px;">
+                <a href="/orders" class="btn btn-secondary btn-small">View Orders</a>
+                <a href="/dashboard" class="btn btn-secondary btn-small">Dashboard</a>
+            </div>
+        </div>
+
+        <!-- Summary Stats -->
+        <div class="dashboard-grid mb-30">
+            <div class="stat-card">
+                <div class="stat-label">Total Orders</div>
+                <div class="stat-value">{{.Analytics.TotalOrders}}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Spent</div>
+                <div class="stat-value">{{.TotalSpentBTC}} BTC</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Hashrate Rented</div>
+                <div class="stat-value">{{printf "%.1f" .Analytics.TotalHashratePH}} PH</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Avg Order Size</div>
+                <div class="stat-value">{{.AvgOrderBTC}} BTC</div>
+            </div>
+        </div>
+
+        {{if .Analytics.TotalOrders}}
+        <!-- Charts Row -->
+        <div class="dashboard-grid mb-30" style="grid-template-columns: 2fr 1fr;">
+            <!-- Monthly Spending Chart -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Monthly Spending</h2>
+                </div>
+                <div style="height: 300px; position: relative;">
+                    <canvas id="spendingChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Orders by Status Pie Chart -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Orders by Status</h2>
+                </div>
+                <div style="height: 300px; position: relative;">
+                    <canvas id="statusChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Orders by Mining Mode -->
+        <div class="card mb-30">
+            <div class="card-header">
+                <h2 class="card-title">Orders by Mining Mode</h2>
+            </div>
+            <div style="height: 250px; position: relative;">
+                <canvas id="modeChart"></canvas>
+            </div>
+        </div>
+
+        {{else}}
+        <div class="card">
+            <div class="text-center text-muted" style="padding: 60px;">
+                <p style="font-size: 1.2em; margin-bottom: 20px;">No order data available yet</p>
+                <a href="/order/new" class="btn btn-primary">Place Your First Order</a>
+            </div>
+        </div>
+        {{end}}
+    </div>
+</section>
+
+{{if .Analytics.TotalOrders}}
+<script src="/static/js/chart.min.js"></script>
+<script nonce="{{.CSPNonce}}">
+(function() {
+    // Color palette
+    const colors = {
+        primary: '#2563eb',
+        green: '#0ac18e',
+        yellow: '#f59e0b',
+        red: '#ef4444',
+        purple: '#8b5cf6',
+        gray: '#6b7280'
+    };
+
+    // Monthly Spending Bar Chart
+    const monthlyData = [
+        {{range .Analytics.MonthlySpending}}
+        { month: "{{.Month}}", amount: {{.AmountSat}} },
+        {{end}}
+    ];
+
+    if (monthlyData.length > 0) {
+        new Chart(document.getElementById('spendingChart'), {
+            type: 'bar',
+            data: {
+                labels: monthlyData.map(d => d.month),
+                datasets: [{
+                    label: 'Spending (BTC)',
+                    data: monthlyData.map(d => d.amount / 100000000),
+                    backgroundColor: colors.primary,
+                    borderColor: colors.primary,
+                    borderWidth: 1,
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: 'rgba(255,255,255,0.1)' },
+                        ticks: { color: '#9ca3af' }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { color: '#9ca3af' }
+                    }
+                }
+            }
+        });
+    }
+
+    // Orders by Status Doughnut Chart
+    const statusData = {
+        {{range $status, $count := .Analytics.OrdersByStatus}}
+        "{{$status}}": {{$count}},
+        {{end}}
+    };
+
+    const statusColors = {
+        'completed': colors.green,
+        'active': colors.primary,
+        'pending': colors.yellow,
+        'cancelled': colors.red,
+        'failed': colors.gray
+    };
+
+    const statusLabels = Object.keys(statusData);
+    const statusValues = Object.values(statusData);
+
+    if (statusLabels.length > 0) {
+        new Chart(document.getElementById('statusChart'), {
+            type: 'doughnut',
+            data: {
+                labels: statusLabels.map(s => s.charAt(0).toUpperCase() + s.slice(1)),
+                datasets: [{
+                    data: statusValues,
+                    backgroundColor: statusLabels.map(s => statusColors[s] || colors.gray),
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { color: '#9ca3af', padding: 15 }
+                    }
+                },
+                cutout: '60%'
+            }
+        });
+    }
+
+    // Orders by Mode Bar Chart
+    const modeData = {
+        {{range $mode, $count := .Analytics.OrdersByMode}}
+        "{{$mode}}": {{$count}},
+        {{end}}
+    };
+
+    const modeLabels = Object.keys(modeData);
+    const modeValues = Object.values(modeData);
+
+    if (modeLabels.length > 0) {
+        new Chart(document.getElementById('modeChart'), {
+            type: 'bar',
+            data: {
+                labels: modeLabels.map(m => m.toUpperCase()),
+                datasets: [{
+                    label: 'Orders',
+                    data: modeValues,
+                    backgroundColor: [colors.primary, colors.green, colors.purple, colors.yellow],
+                    borderWidth: 0,
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        grid: { color: 'rgba(255,255,255,0.1)' },
+                        ticks: { color: '#9ca3af', stepSize: 1 }
+                    },
+                    y: {
+                        grid: { display: false },
+                        ticks: { color: '#9ca3af' }
+                    }
+                }
+            }
+        });
+    }
+})();
+</script>
+{{end}}
+{{end}}

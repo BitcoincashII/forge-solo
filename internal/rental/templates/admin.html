@@ -1,0 +1,172 @@
+{{define "content"}}
+<section class="dashboard">
+    <div class="container">
+        <h1 class="mb-30">Admin Dashboard</h1>
+
+        {{if .Error}}
+        <div class="alert alert-error">{{.Error}}</div>
+        {{end}}
+
+        {{if .Success}}
+        <div class="alert alert-success">{{.Success}}</div>
+        {{end}}
+
+        <!-- Overview Stats -->
+        <div class="dashboard-grid mb-30">
+            <div class="stat-card">
+                <div class="stat-label">Total Customers</div>
+                <div class="stat-value">{{.Stats.TotalCustomers}}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Active Orders</div>
+                <div class="stat-value">{{.Stats.ActiveOrders}}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Volume (BTC)</div>
+                <div class="stat-value">{{.Stats.TotalVolumeBTC}}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Pending Withdrawals</div>
+                <div class="stat-value" style="{{if gt .Stats.PendingWithdrawals 0}}color: var(--accent);{{end}}">{{.Stats.PendingWithdrawals}}</div>
+            </div>
+        </div>
+
+        <!-- Braiins Balance -->
+        <div class="card mb-30">
+            <h2 class="card-title mb-20">Braiins Account</h2>
+            <div class="dashboard-grid">
+                <div class="stat-card">
+                    <div class="stat-label">Available Balance</div>
+                    <div class="stat-value positive">{{.BraiinsBalance}} BTC</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Active Bids</div>
+                    <div class="stat-value">{{.BraiinsActiveBids}}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pending Withdrawals -->
+        <div class="card mb-30">
+            <div class="card-header">
+                <h2 class="card-title">Pending Withdrawals</h2>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Customer</th>
+                            <th>Amount</th>
+                            <th>Address</th>
+                            <th>Requested</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .PendingWithdrawals}}
+                        <tr>
+                            <td class="mono">#{{.ID}}</td>
+                            <td class="mono text-small">{{.CustomerEmail}}</td>
+                            <td class="mono">{{formatBTC .AmountSat}} BTC</td>
+                            <td class="mono text-small">{{truncate .BTCAddress 20}}</td>
+                            <td class="text-small">{{formatTime .CreatedAt}}</td>
+                            <td>
+                                <form method="POST" action="/admin/withdrawal/{{.ID}}/approve" style="display: inline;">
+                                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                                    <button type="submit" class="btn btn-primary btn-small">Approve</button>
+                                </form>
+                                <form method="POST" action="/admin/withdrawal/{{.ID}}/reject" style="display: inline;">
+                                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                                    <button type="submit" class="btn btn-danger btn-small" data-confirm="Reject this withdrawal?">Reject</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {{else}}
+                        <tr>
+                            <td colspan="6" class="text-center text-muted">No pending withdrawals</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Recent Orders -->
+        <div class="card mb-30">
+            <div class="card-header">
+                <h2 class="card-title">Recent Orders</h2>
+                <a href="/admin/orders" class="btn btn-secondary btn-small">View All</a>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Customer</th>
+                            <th>Hashrate</th>
+                            <th>Budget</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .RecentOrders}}
+                        <tr>
+                            <td class="mono">#{{.ID}}</td>
+                            <td class="mono text-small">{{.CustomerEmail}}</td>
+                            <td>{{.SpeedLimitPH}} PH/s</td>
+                            <td class="mono">{{formatBTC .BudgetSat}} BTC</td>
+                            <td><span class="badge badge-{{.Status}}">{{upper .Status}}</span></td>
+                            <td class="text-small">{{formatTime .CreatedAt}}</td>
+                        </tr>
+                        {{else}}
+                        <tr>
+                            <td colspan="6" class="text-center text-muted">No orders yet</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Recent Customers -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Recent Customers</h2>
+                <a href="/admin/customers" class="btn btn-secondary btn-small">View All</a>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Email</th>
+                            <th>Balance</th>
+                            <th>Orders</th>
+                            <th>2FA</th>
+                            <th>Joined</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .RecentCustomers}}
+                        <tr>
+                            <td class="mono">#{{.ID}}</td>
+                            <td class="mono text-small">{{.Email}}</td>
+                            <td class="mono">{{.BalanceBTC}} BTC</td>
+                            <td>{{.OrderCount}}</td>
+                            <td>{{if .TwoFAEnabled}}<span style="color: var(--accent-green);">Yes</span>{{else}}<span class="text-muted">No</span>{{end}}</td>
+                            <td class="text-small">{{formatTime .CreatedAt}}</td>
+                        </tr>
+                        {{else}}
+                        <tr>
+                            <td colspan="6" class="text-center text-muted">No customers yet</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+{{end}}

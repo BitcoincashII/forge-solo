@@ -1,0 +1,105 @@
+{{define "content"}}
+<section class="dashboard">
+    <div class="container-narrow">
+        <div class="card">
+            <h1 class="card-title mb-20">Extend Order #{{.Order.ID}}</h1>
+
+            {{if .Error}}
+            <div class="alert alert-error">{{.Error}}</div>
+            {{end}}
+
+            {{if .Success}}
+            <div class="alert alert-success">{{.Success}}</div>
+            {{end}}
+
+            <!-- Current Order Status -->
+            <div class="stat-card mb-20">
+                <div class="stat-label">Current Budget</div>
+                <div class="stat-value">{{formatBTC .Order.BudgetSat}} BTC</div>
+            </div>
+
+            <div class="dashboard-grid mb-30">
+                <div class="stat-card">
+                    <div class="stat-label">Amount Spent</div>
+                    <div class="stat-value">{{formatBTC .Order.AmountSpentSat}} BTC</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Remaining</div>
+                    <div class="stat-value positive">{{formatBTC .Remaining}} BTC</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Hashrate</div>
+                    <div class="stat-value">{{.Order.SpeedLimitPH}} PH/s</div>
+                </div>
+            </div>
+
+            <div class="stat-card mb-30">
+                <div class="stat-label">Your Available Balance</div>
+                <div class="stat-value">{{.BalanceBTC}} BTC</div>
+            </div>
+
+            <form method="POST" action="/order/{{.Order.ID}}/extend" id="extend-form">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+                <div class="form-group">
+                    <label class="form-label">Additional Budget (BTC)</label>
+                    <input type="number" name="additional_btc" class="form-input"
+                           min="0.0001" max="{{.MaxBudgetBTC}}" step="0.00000001" required id="budget-input"
+                           placeholder="0.001">
+                    <p class="form-hint">
+                        Add more budget to extend mining time.
+                        <br>Estimated additional runtime: <strong id="runtime-estimate">--</strong>
+                    </p>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-full" {{if eq .BalanceSat 0}}disabled{{end}}>
+                    Extend Order
+                </button>
+            </form>
+
+            <a href="/dashboard" class="btn btn-secondary btn-full mt-20">Back to Dashboard</a>
+        </div>
+    </div>
+</section>
+
+<script nonce="{{.CSPNonce}}">
+const speedLimitPH = {{.Order.SpeedLimitPH}};
+let pricePerPHDay = 0;
+
+document.addEventListener('DOMContentLoaded', function() {
+    fetch('/api/v1/rental/prices')
+        .then(r => r.json())
+        .then(data => {
+            // Convert sat/EH/day to BTC/PH/day
+            pricePerPHDay = (data.best_ask_sat / 1000) / 100000000;
+            updateEstimate();
+        });
+
+    document.getElementById('budget-input').addEventListener('input', updateEstimate);
+});
+
+function updateEstimate() {
+    const budget = parseFloat(document.getElementById('budget-input').value) || 0;
+
+    if (pricePerPHDay > 0 && budget > 0) {
+        const costPerDay = pricePerPHDay * speedLimitPH;
+        const days = budget / costPerDay;
+        const hours = days * 24;
+
+        if (hours < 1) {
+            document.getElementById('runtime-estimate').textContent = Math.round(hours * 60) + ' minutes';
+            document.getElementById('runtime-estimate').style.color = 'var(--accent)';
+        } else if (hours < 24) {
+            document.getElementById('runtime-estimate').textContent = hours.toFixed(1) + ' hours';
+            document.getElementById('runtime-estimate').style.color = 'var(--accent-green)';
+        } else {
+            document.getElementById('runtime-estimate').textContent = days.toFixed(1) + ' days';
+            document.getElementById('runtime-estimate').style.color = 'var(--accent-green)';
+        }
+    } else {
+        document.getElementById('runtime-estimate').textContent = '--';
+        document.getElementById('runtime-estimate').style.color = '';
+    }
+}
+</script>
+{{end}}

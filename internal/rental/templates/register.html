@@ -1,0 +1,78 @@
+{{define "content"}}
+<div class="auth-page">
+    <div class="auth-card">
+        <h1 class="auth-title">Create Account</h1>
+        <p class="auth-subtitle">Get your API key and deposit address instantly</p>
+
+        {{if .Error}}
+        <div class="alert alert-error">{{.Error}}</div>
+        {{end}}
+
+        {{if .Success}}
+        <div class="alert alert-success">
+            {{if .Resent}}
+            <strong>Verification email resent!</strong> Check your inbox for <strong>{{.Email}}</strong>.
+            {{else}}
+            <strong>Check your email!</strong> We've sent a verification link to <strong>{{.Email}}</strong>.
+            {{end}}
+        </div>
+
+        <p class="text-center text-muted mt-20">
+            Click the link in the email to verify your account and get your API key.
+        </p>
+
+        <p class="text-center text-muted mt-20">
+            Didn't receive the email? <a href="/resend-verification?email={{.Email}}" style="color: var(--accent);">Resend verification email</a>
+        </p>
+
+        <a href="/login" class="btn btn-secondary btn-full mt-20">Back to Login</a>
+        {{else}}
+        <form method="POST" action="/register">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+            <div class="form-group">
+                <label class="form-label">Email</label>
+                <input type="email" name="email" class="form-input" placeholder="you@example.com" required>
+                <p class="form-hint">Required for account verification and recovery.</p>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Password</label>
+                <input type="password" name="password" id="password" class="form-input" placeholder="Create a password" required minlength="12">
+                <p class="form-hint">Min 12 characters with uppercase, lowercase, number, and special character (!@#$%^&*).</p>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Confirm Password</label>
+                <input type="password" name="password_confirm" id="password_confirm" class="form-input" placeholder="Confirm your password" required minlength="12">
+            </div>
+
+            {{if .TurnstileSiteKey}}
+            <div class="form-group">
+                <div class="cf-turnstile" data-sitekey="{{.TurnstileSiteKey}}" data-theme="dark"></div>
+            </div>
+            {{end}}
+
+            <button type="submit" class="btn btn-primary btn-full" id="register-submit">Create Account</button>
+
+            <script nonce="{{.CSPNonce}}">
+            document.addEventListener("DOMContentLoaded", function() { var b = document.getElementById("register-submit"); if (b) b.closest("form").addEventListener("submit", function(e) { if (!validatePasswords()) e.preventDefault(); }); });
+            function validatePasswords() {
+                var pw = document.getElementById('password').value;
+                var confirm = document.getElementById('password_confirm').value;
+                if (pw !== confirm) {
+                    alert('Passwords do not match');
+                    return false;
+                }
+                return true;
+            }
+            </script>
+        </form>
+
+        <p class="text-center text-muted mt-20">
+            Already have an account? <a href="/login" style="color: var(--accent);">Login</a>
+        </p>
+        {{end}}
+    </div>
+</div>
+{{end}}

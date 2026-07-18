@@ -1,0 +1,61 @@
+{{define "content"}}
+<section class="dashboard">
+    <div class="container">
+        <div class="card-header" style="margin-bottom: 30px;">
+            <h1>Support Tickets</h1>
+            <div style="display: flex; gap: 10px;">
+                <a href="/support/new" class="btn btn-primary btn-small">New Ticket</a>
+                <a href="/dashboard" class="btn btn-secondary btn-small">Dashboard</a>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Subject</th>
+                            <th>Category</th>
+                            <th>Status</th>
+                            <th>Last Update</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Tickets}}
+                        <tr style="cursor: pointer;" data-href="/support/ticket/{{.ID}}">
+                            <td class="mono"><a href="/support/ticket/{{.ID}}" style="color: var(--accent);">#{{.ID}}</a></td>
+                            <td>{{.Subject}}</td>
+                            <td class="mono text-small">{{upper .Category}}</td>
+                            <td>
+                                <span class="badge {{if eq .Status "open"}}badge-active{{else if eq .Status "pending"}}badge-pending{{else}}badge-completed{{end}}">
+                                    {{upper .Status}}
+                                </span>
+                            </td>
+                            <td class="text-small">{{formatTime .UpdatedAt}}</td>
+                        </tr>
+                        {{else}}
+                        <tr>
+                            <td colspan="5" class="text-center text-muted" style="padding: 40px;">
+                                No support tickets yet. <a href="/support/new" style="color: var(--accent);">Create one</a> if you need help.
+                            </td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Help Section -->
+        <div class="card mt-30">
+            <h2 class="card-title mb-20">Need Help?</h2>
+            <p class="text-muted mb-20">Before creating a ticket, you might find your answer in our resources:</p>
+            <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+                <a href="/faq" class="btn btn-secondary">FAQ</a>
+                <a href="/how-it-works" class="btn btn-secondary">How It Works</a>
+                <a href="/contact" class="btn btn-secondary">Contact Us</a>
+            </div>
+        </div>
+    </div>
+</section>
+{{end}}

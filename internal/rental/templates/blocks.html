@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="HashForge - Your mined blocks">
+    <title>Your Blocks - HashForge</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/common.css">
+    <style>
+        .container{width:100%;max-width:1200px;margin:0 auto;padding:0 16px;box-sizing:border-box}
+        .page-header{padding:24px 0;border-bottom:1px solid var(--border)}
+        .page-title{font-size:24px;font-weight:700;margin-bottom:6px}
+        .page-subtitle{color:var(--text-secondary);font-size:14px}
+
+        .stats-bar{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:16px;padding:20px 0}
+        .stats-item{text-align:center;background:var(--bg-card);padding:16px 12px;border-radius:10px;border:1px solid var(--border)}
+        .stats-value{font-size:22px;font-weight:700;color:var(--bch-green);font-family:'JetBrains Mono',monospace}
+        .stats-label{font-size:11px;color:var(--text-secondary);margin-top:4px}
+
+        .blocks-section{padding:20px 0}
+        .table-wrapper{overflow-x:auto;width:100%;-webkit-overflow-scrolling:touch}
+        table{width:100%;min-width:550px;border-collapse:collapse}
+        th,td{padding:12px 10px;text-align:left;border-bottom:1px solid var(--border);font-size:13px;white-space:nowrap}
+        th{font-size:11px;color:var(--text-secondary);text-transform:uppercase}
+
+        .pagination{display:flex;justify-content:center;gap:6px;padding:20px 0;flex-wrap:wrap}
+        .page-btn{background:var(--bg-card);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:12px;transition:all 0.2s}
+        .page-btn:hover:not(:disabled){border-color:var(--bch-green)}
+        .page-btn.active{background:var(--bch-green);color:#000;border-color:var(--bch-green)}
+        .page-btn:disabled{opacity:0.5;cursor:not-allowed}
+
+        .height{color:var(--bch-green);font-weight:600}
+        .reward{color:var(--gold);font-weight:600}
+
+        .type-select{background:var(--bg-card);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;margin-left:4px}
+        .type-select:hover{border-color:var(--bch-green)}
+        .type-select:focus{outline:none;border-color:var(--bch-green)}
+        .th-with-filter{display:flex;align-items:center;gap:4px}
+        .type-badge{padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase}
+        .type-pplns{background:rgba(10,193,142,0.15);color:var(--bch-green)}
+        .type-solo{background:rgba(255,193,7,0.15);color:var(--gold)}
+
+        header{background:var(--bg-secondary);border-bottom:1px solid var(--border);padding:12px 0}
+        .header-content{display:flex;justify-content:space-between;align-items:center}
+        .logo{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text)}
+        .logo-icon{width:36px;height:36px;background:linear-gradient(135deg,#0ac18e,#089e74);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;color:#000}
+        .logo-text{font-size:18px;font-weight:700}
+        .logo-sub{font-size:11px;color:var(--text-secondary)}
+        nav{display:flex;gap:16px;align-items:center}
+        nav a{color:var(--text-secondary);text-decoration:none;font-size:13px}
+        nav a:hover,nav a.active{color:var(--bch-green)}
+
+        .mobile-menu-btn{display:none;flex-direction:column;gap:4px;padding:8px;background:none;border:none;cursor:pointer}
+        .mobile-menu-btn span{display:block;width:20px;height:2px;background:var(--text)}
+
+        @media(max-width:768px){
+            .page-title{font-size:20px}
+            .stats-bar{grid-template-columns:repeat(2,1fr);gap:10px}
+            .stats-item{padding:12px 8px}
+            .stats-value{font-size:18px}
+            .stats-label{font-size:10px}
+            .mobile-menu-btn{display:flex}
+            nav{position:fixed;top:0;right:-100%;width:240px;height:100vh;background:var(--bg-secondary);flex-direction:column;padding:60px 20px 20px;gap:0;transition:right 0.3s;z-index:100;border-left:1px solid var(--border)}
+            nav.open{right:0}
+            nav a{padding:14px 0;border-bottom:1px solid var(--border);font-size:15px}
+            th,td{padding:10px 6px;font-size:12px}
+            th{font-size:10px}
+            .page-btn{padding:6px 10px;font-size:11px}
+        }
+    </style>
+</head>
+<body>
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
+    <div id="offlineBanner" class="offline-banner" style="display:none" role="alert">
+        <span>You are offline. Some data may be outdated.</span>
+    </div>
+
+    <header>
+        <div class="container header-content">
+            <a href="/dashboard" class="logo" aria-label="HashForge Home">
+                <div class="logo-icon">H</div>
+                <div><div class="logo-text">HashForge</div><div class="logo-sub">BCH2 Rental</div></div>
+            </a>
+            <button class="mobile-menu-btn" id="blocks-nav-toggle" aria-label="Menu">
+                <span></span><span></span><span></span>
+            </button>
+            <nav id="nav" role="navigation" aria-label="Main navigation">
+                <a href="/dashboard">Dashboard</a>
+                <a href="/blocks" class="active" aria-current="page">My Blocks</a>
+                <a href="/settings">Settings</a>
+                <a href="/logout">Logout</a>
+            </nav>
+        </div>
+    </header>
+
+    <main id="main-content">
+        <section class="page-header" aria-labelledby="page-title">
+            <div class="container">
+                <h1 id="page-title" class="page-title">Your Blocks</h1>
+                <p class="page-subtitle"><span class="live-indicator"><span class="pulse-dot" aria-hidden="true"></span><span class="sr-only">Live updates enabled</span>Live</span> | Blocks found with your BCH2 address</p>
+            </div>
+        </section>
+
+        <div class="container">
+            <div class="stats-bar" role="region" aria-label="Block statistics">
+                <div class="stats-item">
+                    <div class="stats-value" id="totalBlocks" aria-live="polite">--</div>
+                    <div class="stats-label">Blocks</div>
+                </div>
+                <div class="stats-item">
+                    <div class="stats-value" id="totalReward" aria-live="polite">--</div>
+                    <div class="stats-label">Total BCH2</div>
+                </div>
+                <div class="stats-item">
+                    <div class="stats-value" id="avgLuck" aria-live="polite">--</div>
+                    <div class="stats-label">Avg Share</div>
+                </div>
+                <div class="stats-item">
+                    <div class="stats-value" id="lastBlock" aria-live="polite">--</div>
+                    <div class="stats-label">Last Block</div>
+                </div>
+            </div>
+
+            <section class="blocks-section" aria-labelledby="blocks-heading">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+                    <h2 id="blocks-heading" style="font-size:16px;margin:0;">Block Contributions</h2>
+                    <select id="typeFilter" class="type-select" aria-label="Filter by type" style="padding:8px 12px;font-size:13px;">
+                        <option value="pplns" selected>PPLNS Blocks</option>
+                        <option value="solo">Solo Blocks</option>
+                        <option value="all">All Blocks</option>
+                    </select>
+                </div>
+                <div class="table-wrapper">
+                    <table aria-describedby="blocks-desc">
+                        <caption id="blocks-desc" class="sr-only">List of blocks found by your address</caption>
+                        <thead id="tableHead">
+                            <tr>
+                                <th scope="col">Block</th>
+                                <th scope="col">Your Share</th>
+                                <th scope="col">Your Reward</th>
+                                <th scope="col">Time</th>
+                                <th scope="col">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="blocksTable">
+                            <tr><td colspan="5"><div class="loading-state"><div class="loading-spinner"></div><span>Loading blocks...</span></div></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <nav class="pagination" id="pagination" role="navigation" aria-label="Block pages"></nav>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>HashForge by Forge Pool | <a href="https://bch2.org" rel="noopener noreferrer">BCH2</a> | Powered by Braiins</p>
+        </div>
+    </footer>
+
+    <script src="/static/js/common.js?v=2"></script>
+    <script>
+        const minerAddress = window.HASHFORGE_MINER_ADDRESS || '';
+        let currentPage = 1;
+        const perPage = 25;
+        let pplnsBlocks = [];
+        let soloBlocks = [];
+        let displayBlocks = [];
+        let currentFilter = 'pplns';
+
+        async function fetchAllBlocks() {
+            const tbody = document.getElementById('blocksTable');
+
+            if (!minerAddress) {
+                tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state">Please set your BCH2 address in <a href="/settings" style="color:var(--bch-green)">Settings</a> to view your blocks.</div></td></tr>';
+                return;
+            }
+
+            try {
+                // Fetch both PPLNS and Solo blocks in parallel
+                const [pplnsData, soloData] = await Promise.all([
+                    apiFetch('/api/v1/miners/' + encodeURIComponent(minerAddress) + '/blocks'),
+                    apiFetch('/api/v1/miners/' + encodeURIComponent(minerAddress) + '/solo-blocks')
+                ]);
+
+                pplnsBlocks = (pplnsData.blocks || []).map(b => ({ ...b, type: 'pplns' }));
+                soloBlocks = (soloData.blocks || []).map(b => ({ ...b, type: 'solo', share_pct: 100, is_paid: b.confirmed }));
+
+                applyFilter();
+            } catch (e) {
+                console.error('Failed to fetch blocks:', e);
+                tbody.innerHTML = '<tr><td colspan="5"><div class="error-state"><span class="error-icon">!</span><span>Failed to load blocks.</span></div></td></tr>';
+            }
+        }
+
+        function setFilter(filter) {
+            currentFilter = filter;
+            currentPage = 1;
+            applyFilter();
+        }
+
+        function applyFilter() {
+            if (currentFilter === 'pplns') {
+                displayBlocks = pplnsBlocks;
+            } else if (currentFilter === 'solo') {
+                displayBlocks = soloBlocks;
+            } else {
+                // Merge and sort by time
+                displayBlocks = [...pplnsBlocks, ...soloBlocks].sort((a, b) => b.time - a.time);
+            }
+
+            updateTableHeader();
+            updateStats();
+            renderBlocks();
+            renderPagination();
+        }
+
+        function updateTableHeader() {
+            const thead = document.getElementById('tableHead');
+            if (currentFilter === 'solo') {
+                thead.innerHTML = `<tr>
+                    <th>Block</th>
+                    <th>Hash</th>
+                    <th>Reward</th>
+                    <th>Time</th>
+                    <th>Status</th>
+                </tr>`;
+            } else if (currentFilter === 'all') {
+                thead.innerHTML = `<tr>
+                    <th>Block</th>
+                    <th>Type</th>
+                    <th>Reward</th>
+                    <th>Time</th>
+                    <th>Status</th>
+                </tr>`;
+            } else {
+                thead.innerHTML = `<tr>
+                    <th>Block</th>
+                    <th>Your Share</th>
+                    <th>Your Reward</th>
+                    <th>Time</th>
+                    <th>Status</th>
+                </tr>`;
+            }
+        }
+
+        function updateStats() {
+            document.getElementById('totalBlocks').textContent = formatNumber(displayBlocks.length);
+
+            const totalReward = displayBlocks.reduce((sum, b) => sum + (b.reward || 0), 0);
+            document.getElementById('totalReward').textContent = totalReward.toFixed(2);
+
+            if (displayBlocks.length > 0) {
+                if (currentFilter === 'pplns') {
+                    const avgShare = displayBlocks.reduce((sum, b) => sum + (b.share_pct || 0), 0) / displayBlocks.length;
+                    document.getElementById('avgLuck').textContent = avgShare.toFixed(1) + '%';
+                } else {
+                    document.getElementById('avgLuck').textContent = '--';
+                }
+                document.getElementById('lastBlock').textContent = timeAgo(displayBlocks[0].time);
+            } else {
+                document.getElementById('avgLuck').textContent = '--';
+                document.getElementById('lastBlock').textContent = '--';
+            }
+        }
+
+        function renderBlocks() {
+            const tbody = document.getElementById('blocksTable');
+
+            if (displayBlocks.length === 0) {
+                const msg = currentFilter === 'pplns' ? 'No PPLNS contributions yet.' :
+                           currentFilter === 'solo' ? 'No solo blocks found yet.' : 'No blocks found.';
+                tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state">' + msg + '</div></td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = displayBlocks.map(block => {
+                if (currentFilter === 'solo') {
+                    const safeHash = block.hash && block.hash.length === 64 ? block.hash : '';
+                    return `<tr>
+                        <td class="height">${formatNumber(block.height)}</td>
+                        <td>${safeHash ? '<a href="https://explorer.bch2.org/block/' + safeHash + '" target="_blank" class="hash-link">' + safeHash.substring(0,12) + '...</a>' : '--'}</td>
+                        <td class="reward">${(block.reward || 50).toFixed(2)} BCH2</td>
+                        <td>${timeAgo(block.time)}</td>
+                        <td><span class="status-badge ${block.confirmed ? 'status-confirmed' : 'status-pending'}">${block.confirmed ? 'Confirmed' : 'Pending'}</span></td>
+                    </tr>`;
+                } else if (currentFilter === 'all') {
+                    return `<tr>
+                        <td class="height">${formatNumber(block.height)}</td>
+                        <td><span class="type-badge type-${block.type}">${block.type.toUpperCase()}</span></td>
+                        <td class="reward">${(block.reward || 0).toFixed(2)} BCH2</td>
+                        <td>${timeAgo(block.time)}</td>
+                        <td><span class="status-badge ${block.is_paid ? 'status-confirmed' : 'status-pending'}">${block.is_paid ? 'Paid' : 'Pending'}</span></td>
+                    </tr>`;
+                } else {
+                    return `<tr>
+                        <td class="height">${formatNumber(block.height)}</td>
+                        <td>${(block.share_pct || 0).toFixed(2)}%</td>
+                        <td class="reward">${(block.reward || 0).toFixed(4)} BCH2</td>
+                        <td>${timeAgo(block.time)}</td>
+                        <td><span class="status-badge ${block.is_paid ? 'status-confirmed' : 'status-pending'}">${block.is_paid ? 'Paid' : 'Pending'}</span></td>
+                    </tr>`;
+                }
+            }).join('');
+        }
+
+        function renderPagination() {
+            const totalPages = Math.ceil(displayBlocks.length / perPage);
+            const pagination = document.getElementById('pagination');
+
+            if (totalPages <= 1) {
+                pagination.innerHTML = '';
+                return;
+            }
+
+            let html = '';
+            html += `<button class="page-btn" data-page="1" ${currentPage === 1 ? 'disabled' : ''} aria-label="First">&laquo;</button>`;
+            html += `<button class="page-btn" data-page="${currentPage - 1}" ${currentPage === 1 ? 'disabled' : ''} aria-label="Previous">&lsaquo;</button>`;
+
+            const start = Math.max(1, currentPage - 2);
+            const end = Math.min(totalPages, currentPage + 2);
+
+            for (let i = start; i <= end; i++) {
+                html += `<button class="page-btn ${i === currentPage ? 'active' : ''}" data-page="${i}">${i}</button>`;
+            }
+
+            html += `<button class="page-btn" data-page="${currentPage + 1}" ${currentPage === totalPages ? 'disabled' : ''} aria-label="Next">&rsaquo;</button>`;
+            html += `<button class="page-btn" data-page="${totalPages}" ${currentPage === totalPages ? 'disabled' : ''} aria-label="Last">&raquo;</button>`;
+
+            pagination.innerHTML = html;
+        }
+
+        function goToPage(page) {
+            currentPage = page;
+            renderBlocks();
+            window.scrollTo(0, 0);
+        }
+
+        // CSP-safe event wiring (replaces former inline on* handlers)
+        var navToggle = document.getElementById("blocks-nav-toggle");
+        if (navToggle) navToggle.addEventListener("click", function() { document.getElementById("nav").classList.toggle("open"); });
+        var typeFilter = document.getElementById("typeFilter");
+        if (typeFilter) typeFilter.addEventListener("change", function() { setFilter(this.value); });
+        var pag = document.getElementById("pagination");
+        if (pag) pag.addEventListener("click", function(e) { var b = e.target.closest("button[data-page]"); if (b && !b.disabled) goToPage(Number(b.dataset.page)); });
+
+        // Initial fetch
+        fetchAllBlocks();
+
+        // Auto refresh
+        setInterval(fetchAllBlocks, 30000);
+    </script>
+</body>
+</html>

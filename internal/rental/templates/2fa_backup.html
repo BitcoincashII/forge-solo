@@ -1,0 +1,66 @@
+{{define "content"}}
+<div class="auth-page">
+    <div class="auth-card">
+        <h1 class="auth-title">Backup Codes</h1>
+        <p class="auth-subtitle">Save these codes in a safe place</p>
+
+        {{if .BackupCodes}}
+        <div class="alert alert-warning">
+            <strong>Important:</strong> Each code can only be used once. Store them securely - they won't be shown again.
+        </div>
+
+        <div class="card mb-20" style="background: var(--bg-input);">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-family: var(--font-mono);">
+                {{range .BackupCodes}}
+                <div style="padding: 10px; background: var(--bg-secondary); border-radius: 4px; text-align: center;">
+                    {{.}}
+                </div>
+                {{end}}
+            </div>
+        </div>
+
+        <button id="print-codes-btn" class="btn btn-secondary btn-full mb-20">Print Codes</button>
+        <a href="/dashboard" class="btn btn-primary btn-full">Done - Back to Dashboard</a>
+
+        <script nonce="{{.CSPNonce}}">
+        document.addEventListener("DOMContentLoaded", function() { var b = document.getElementById("print-codes-btn"); if (b) b.addEventListener("click", printCodes); });
+        function printCodes() {
+            const codes = [{{range .BackupCodes}}"{{.}}",{{end}}];
+            const win = window.open('', '_blank');
+            win.document.write('<html><head><title>HashForge Backup Codes</title></head><body>');
+            win.document.write('<h1>HashForge 2FA Backup Codes</h1>');
+            win.document.write('<p>Each code can only be used once. Keep these safe!</p>');
+            win.document.write('<ul style="font-family: monospace; font-size: 18px;">');
+            codes.forEach(c => win.document.write('<li>' + c + '</li>'));
+            win.document.write('</ul>');
+            win.document.write('<p>Generated: ' + new Date().toISOString() + '</p>');
+            win.document.write('</body></html>');
+            win.document.close();
+            win.print();
+        }
+        </script>
+
+        {{else}}
+        <p class="text-muted mb-20">Enter your 2FA code to regenerate backup codes. This will invalidate all previous codes.</p>
+
+        {{if .Error}}
+        <div class="alert alert-error">{{.Error}}</div>
+        {{end}}
+
+        <form method="POST" action="/2fa/backup-codes">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+            <div class="form-group">
+                <label class="form-label">2FA Code</label>
+                <input type="text" name="code" class="form-input" placeholder="000000"
+                       pattern="[0-9A-Za-z\-]{6,9}" maxlength="9" required>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-full">Generate New Codes</button>
+        </form>
+
+        <a href="/dashboard" class="btn btn-secondary btn-full mt-20">Cancel</a>
+        {{end}}
+    </div>
+</div>
+{{end}}

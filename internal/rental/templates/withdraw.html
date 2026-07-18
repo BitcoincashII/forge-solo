@@ -1,0 +1,90 @@
+{{define "content"}}
+<section class="dashboard">
+    <div class="container-narrow">
+        <div class="card">
+            <h1 class="card-title mb-20">Withdraw BTC</h1>
+
+            {{if .Error}}
+            <div class="alert alert-error">{{.Error}}</div>
+            {{end}}
+
+            {{if .Success}}
+            <div class="alert alert-success">{{.Success}}</div>
+            <a href="/dashboard" class="btn btn-primary btn-full">Back to Dashboard</a>
+            {{else}}
+
+            {{if not .TwoFAEnabled}}
+            <div class="alert alert-warning">
+                You must <a href="/2fa/setup" style="color: inherit; text-decoration: underline;">enable 2FA</a> before you can withdraw.
+            </div>
+            {{else}}
+
+            <div class="stat-card mb-30">
+                <div class="stat-label">Available Balance</div>
+                <div class="stat-value">{{.BalanceBTC}} BTC</div>
+                <div class="stat-sub">Fee: {{formatBTC .WithdrawalFee}} BTC</div>
+            </div>
+
+            <form method="POST" action="/withdraw">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+                <div class="form-group">
+                    <label class="form-label">BTC Address</label>
+                    <input type="text" name="btc_address" class="form-input"
+                           placeholder="bc1q..." required>
+                    <p class="form-hint">Native SegWit (bc1q), SegWit (3), or Legacy (1) addresses accepted.</p>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Amount (BTC)</label>
+                    <input type="number" name="amount_btc" class="form-input"
+                           step="0.00000001" min="0.0001"
+                           placeholder="Leave empty to withdraw all">
+                    <p class="form-hint">
+                        Min: {{formatBTC .MinWithdrawal}} BTC.
+                        Leave empty to withdraw full balance minus fee.
+                    </p>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">2FA Code</label>
+                    <input type="text" name="totp_code" class="form-input" placeholder="000000"
+                           pattern="[0-9A-Za-z\-]{6,9}" maxlength="9" required>
+                    <p class="form-hint">Enter code from your authenticator or a backup code.</p>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-full">Request Withdrawal</button>
+            </form>
+
+            {{end}}
+
+            <a href="/dashboard" class="btn btn-secondary btn-full mt-20">Cancel</a>
+            {{end}}
+        </div>
+
+        {{if .PendingWithdrawals}}
+        <div class="card mt-20">
+            <h2 class="card-title mb-20">Pending Withdrawals</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Amount</th>
+                        <th>Address</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .PendingWithdrawals}}
+                    <tr>
+                        <td class="mono">{{formatBTC .AmountSat}} BTC</td>
+                        <td class="mono text-small">{{truncate .BTCAddress 20}}</td>
+                        <td><span class="badge badge-{{.Status}}">{{upper .Status}}</span></td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+        {{end}}
+    </div>
+</section>
+{{end}}
