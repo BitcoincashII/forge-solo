@@ -1,5 +1,5 @@
 manifestVersion: 1
-id: forge-solo
+id: bch2-apps-forge-solo
 name: Forge Solo
 tagline: Solo-mine BCH2 at home and merge-mine 1175
 icon: https://raw.githubusercontent.com/BitcoincashII/BCH2-Graphics/main/bch2_logo.png
