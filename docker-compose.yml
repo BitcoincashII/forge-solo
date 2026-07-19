@@ -10,11 +10,11 @@ version: "3.8"
 # private forge_network and are pinned to that subnet via -rpcallowip.
 
 x-forge-images:
-  node: &node-image ghcr.io/bitcoincashii/forge-solo-node:${APP_VERSION:-1.0.0}
-  node1175: &node1175-image ghcr.io/bitcoincashii/forge-solo-node1175:${APP_VERSION:-1.0.0}
-  stratum: &stratum-image ghcr.io/bitcoincashii/forge-solo-stratum:${APP_VERSION:-1.0.0}
-  api: &api-image ghcr.io/bitcoincashii/forge-solo-api:${APP_VERSION:-1.0.0}
-  web: &web-image ghcr.io/bitcoincashii/forge-solo-web:${APP_VERSION:-1.0.0}
+  node: &node-image ghcr.io/bitcoincashii/forge-solo-node:1.0.0@sha256:889f32f050cc356db7965975120ae6bb13181d5dd1cab5f39426588ff569b789
+  node1175: &node1175-image ghcr.io/bitcoincashii/forge-solo-node1175:1.0.0@sha256:55829ddb3f3418cdaf481d007752021851e01099c0a839eff7544f1e8f9dc325
+  stratum: &stratum-image ghcr.io/bitcoincashii/forge-solo-stratum:1.0.0@sha256:ae6add3b7cd7ab6b97a3c6ff07b90bde949889db433f9d84402b7bcf8ec074ed
+  api: &api-image ghcr.io/bitcoincashii/forge-solo-api:1.0.0@sha256:d34b0ab91f1f34b4f219eddd6a18dcf7a349662ef78c6043e9df8aaf89f549f0
+  web: &web-image ghcr.io/bitcoincashii/forge-solo-web:1.0.0@sha256:391a8690dd06090cb3d73a4a2446677c202f18dc294d9067755a71239cacc845
 
 services:
   # BCH2 full node (primary chain) — auto-syncs on first run, pruned for home use.
