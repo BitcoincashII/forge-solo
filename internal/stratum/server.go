@@ -66,6 +66,9 @@ type Server struct {
 	submittedShares sync.Map // map[shareKey]time.Time
 	shareCleanupMu  sync.Mutex
 
+	// auxMu guards auxClient + onAuxBlock, which the pool_config watcher sets at runtime
+	// (EnableMergeMining / SetAuxBlockHandler) while connection goroutines read them.
+	auxMu sync.RWMutex
 	// Merge mining: aux-chain (1175) submission client. nil unless enabled.
 	auxClient *mergemining.Client
 	// onAuxBlock, if set, is invoked when a 1175 aux block is accepted so the pool
@@ -78,13 +81,31 @@ type Server struct {
 // accepted share whose parent (BCH2) header hash also meets the aux target for
 // the job's committed aux work is submitted to the aux node via submitauxblock.
 func (s *Server) EnableMergeMining(client *mergemining.Client) {
+	s.auxMu.Lock()
 	s.auxClient = client
+	s.auxMu.Unlock()
+}
+
+// getAuxClient returns the aux submission client under the guard (nil if merge mining off).
+func (s *Server) getAuxClient() *mergemining.Client {
+	s.auxMu.RLock()
+	defer s.auxMu.RUnlock()
+	return s.auxClient
 }
 
 // SetAuxBlockHandler registers a callback invoked when a 1175 aux block is
 // accepted, so the pool can distribute its reward to miners.
 func (s *Server) SetAuxBlockHandler(fn func(height int64, hash string, coinbaseValueSat int64, finder string, isSolo bool)) {
+	s.auxMu.Lock()
 	s.onAuxBlock = fn
+	s.auxMu.Unlock()
+}
+
+// getOnAuxBlock returns the aux-block callback under the guard (nil if none set).
+func (s *Server) getOnAuxBlock() func(height int64, hash string, coinbaseValueSat int64, finder string, isSolo bool) {
+	s.auxMu.RLock()
+	defer s.auxMu.RUnlock()
+	return s.onAuxBlock
 }
 
 // shareKey uniquely identifies a submitted share
@@ -429,7 +450,11 @@ func (s *Server) submitAux(job *Job, en1, en2, ntime, nonce, versionBits, finder
 		s.logger.Warn("aux: assemble failed", zap.Error(err))
 		return
 	}
-	accepted, err := s.auxClient.SubmitAuxBlock(job.AuxWork.Hash, auxHex)
+	ac := s.getAuxClient()
+	if ac == nil {
+		return
+	}
+	accepted, err := ac.SubmitAuxBlock(job.AuxWork.Hash, auxHex)
 	if err != nil {
 		s.logger.Warn("aux: submitauxblock error",
 			zap.String("aux_hash", job.AuxWork.Hash), zap.Error(err))
@@ -439,8 +464,8 @@ func (s *Server) submitAux(job *Job, en1, en2, ntime, nonce, versionBits, finder
 		s.logger.Info("🎉 AUX (1175) BLOCK FOUND",
 			zap.Int64("aux_height", job.AuxWork.Height),
 			zap.String("aux_hash", job.AuxWork.Hash))
-		if s.onAuxBlock != nil {
-			s.onAuxBlock(job.AuxWork.Height, job.AuxWork.Hash, job.AuxWork.CoinbaseValue, finder, isSolo)
+		if cb := s.getOnAuxBlock(); cb != nil {
+			cb(job.AuxWork.Height, job.AuxWork.Hash, job.AuxWork.CoinbaseValue, finder, isSolo)
 		}
 	} else {
 		s.logger.Warn("aux: block rejected (likely stale aux tip)",
@@ -1448,7 +1473,7 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	// Merge mining: if this share's parent hash also meets the aux (1175) target,
 	// submit the AuxPoW. The target check is cheap and inline; the rebuild+submit
 	// runs async only on a winner, so BCH2 share handling is never delayed.
-	if s.auxClient != nil && job.AuxWork != nil && auxHashMeetsTarget(blockHash, job.AuxWork.Target) {
+	if job.AuxWork != nil && auxHashMeetsTarget(blockHash, job.AuxWork.Target) && s.getAuxClient() != nil {
 		go s.submitAux(job, extranonce1, extranonce2, ntime, nonce, versionBits, minerID, soloMining)
 	}
 

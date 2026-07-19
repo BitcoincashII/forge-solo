@@ -52,6 +52,7 @@ var (
 	soloFee              float64           = 0.5 // Solo fee percentage
 	blockReward          float64           = 50.0
 	minPayout            float64           = 5.0
+	minPayoutMu          sync.RWMutex // guards minPayout: pool_config watcher writes vs payout processor reads
 	pplnsWindow          int               = 100000 // PPLNS window size (shares)
 	stratumServer        *stratum.Server            // Global reference for API handlers
 	stratumBraiinsServer *stratum.Server            // Second stratum for Braiins (8-byte extranonce2)
@@ -119,6 +120,20 @@ func getLatestCoinbaseBTC() float64 {
 	networkDiffMu.RLock()
 	defer networkDiffMu.RUnlock()
 	return latestCoinbaseBTC
+}
+
+// Thread-safe access to minPayout. The runtime pool_config watcher mutates it while the
+// payout processor reads it, so route both through this guard (mirrors the networkDiff pair).
+func getMinPayout() float64 {
+	minPayoutMu.RLock()
+	defer minPayoutMu.RUnlock()
+	return minPayout
+}
+
+func setMinPayout(v float64) {
+	minPayoutMu.Lock()
+	defer minPayoutMu.Unlock()
+	minPayout = v
 }
 
 // ---- 1175 merge-mining payout ----
@@ -346,37 +361,45 @@ func startPayoutProcessor() {
 		// Orphan reconciliation: void payouts for pool blocks no longer on the
 		// active chain BEFORE selecting anyone for payment. The first pass is a
 		// full historical scan; subsequent passes only check the recent frontier.
-		if !orphanFullScanDone {
-			reconcileOrphanHeights(currentHeight, true)
-			orphanFullScanDone = true
-		} else {
-			reconcileOrphanHeights(currentHeight, false)
+		fullScan := !orphanFullScanDone
+		reconcileOrphanHeights(currentHeight, fullScan)
+		// Solo blocks are coinbase-direct: their payout row is already 'paid', so the payout-row
+		// orphan reconciler above skips them. Reconcile them on their own — within the reorg-
+		// plausible band, confirm blocks still on the active chain and orphan (void) any reorged
+		// out — BEFORE ConfirmMatureSoloBlocks confirms the deep remainder. Without this a
+		// reorged-out solo block would be blindly confirmed and overstate earnings.
+		reconcileSoloBlocks(currentHeight, fullScan)
+		orphanFullScanDone = true
+
+		// Confirm solo blocks buried BELOW the reorg-plausible band unconditionally (too deep to
+		// reorg — no active-chain check needed). In-band blocks were just confirmed or orphaned by
+		// reconcileSoloBlocks after checking blocks.hash against getblockhash(height).
+		if soloConfirmHeight := currentHeight - int64(stats.COINBASE_MATURITY) - orphanCheckBand; soloConfirmHeight >= 0 {
+			if cErr := stats.ConfirmMatureSoloBlocks(soloConfirmHeight); cErr != nil {
+				log.Printf("Confirm mature solo blocks: %v", cErr)
+			}
 		}
 
-		// Solo blocks are paid on-chain by the coinbase; flip their status to confirmed once
-		// buried past coinbase maturity (display only — no send).
-		if cErr := stats.ConfirmMatureSoloBlocks(currentHeight - int64(stats.COINBASE_MATURITY)); cErr != nil {
-			log.Printf("Confirm mature solo blocks: %v", cErr)
-		}
+		mp := getMinPayout()
 
 		// Periodic dust balance logging
 		dustLogCounter++
 		if dustLogCounter >= 10 {
 			dustLogCounter = 0
-			totalDust := stats.GetTotalDust(currentHeight, minPayout)
+			totalDust := stats.GetTotalDust(currentHeight, mp)
 			if totalDust > 0 {
-				dustCount := len(stats.GetDustBalances(currentHeight, minPayout))
+				dustCount := len(stats.GetDustBalances(currentHeight, mp))
 				log.Printf("Dust balances: %.8f BCH2 across %d miners (below %.2f min payout)",
-					totalDust, dustCount, minPayout)
+					totalDust, dustCount, mp)
 			}
 		}
 
 		// Get ready payouts using global minPayout config
 		// Use DB-based query for reliable payout detection (survives restarts)
-		ready := stats.GetReadyPayoutsDB(currentHeight, minPayout)
+		ready := stats.GetReadyPayoutsDB(currentHeight, mp)
 		if ready == nil {
 			// Fall back to in-memory if DB query fails
-			ready = stats.GetReadyPayouts(currentHeight, minPayout)
+			ready = stats.GetReadyPayouts(currentHeight, mp)
 		}
 		if len(ready) == 0 {
 			continue
@@ -393,7 +416,7 @@ func startPayoutProcessor() {
 			// DB before broadcasting, sends in row-aligned chunks, and finalizes each
 			// chunk to its real txid. It never re-broadcasts and never releases a
 			// chunk that was already sent, so it cannot double-pay.
-			txids, sent, err := payMiner(address, matureHeight, minPayout)
+			txids, sent, err := payMiner(address, matureHeight, mp)
 			if err != nil {
 				failedPayouts[address]++
 				log.Printf("Payout failed for %s (attempt %d/%d): %v",
@@ -672,6 +695,49 @@ func reconcileOrphanHeights(currentHeight int64, full bool) {
 	}
 }
 
+// reconcileSoloBlocks reconciles still-pending solo blocks against the active chain. Solo
+// blocks are coinbase-direct (their payout row is already 'paid'), so the payout-row orphan
+// reconciler (reconcileOrphanHeights) skips them; without this a reorged-out solo block would
+// be blindly confirmed and overstate earnings. Within the reorg-plausible band it confirms
+// blocks still on the active chain and orphans (voids) those that are not. full=true scans
+// every pending solo height (a one-time startup reconciliation).
+func reconcileSoloBlocks(currentHeight int64, full bool) {
+	matureHeight := currentHeight - int64(stats.COINBASE_MATURITY)
+	if matureHeight < 0 {
+		return
+	}
+	minHeight := int64(0)
+	if !full {
+		minHeight = matureHeight - orphanCheckBand
+		if minHeight < 0 {
+			minHeight = 0
+		}
+	}
+	heights, err := stats.PendingSoloHeights(matureHeight, minHeight)
+	if err != nil {
+		log.Printf("Solo reconcile: failed to list pending solo heights: %v", err)
+		return
+	}
+	for _, h := range heights {
+		orphaned, known := heightIsOrphaned(h)
+		if !known {
+			continue // node blip / undecidable: leave pending, retry next cycle
+		}
+		if orphaned {
+			n, oerr := stats.OrphanSoloBlock(h)
+			if oerr != nil {
+				log.Printf("Solo reconcile: failed to orphan height %d: %v", h, oerr)
+				continue
+			}
+			if n > 0 {
+				log.Printf("ORPHAN VOID (solo): block at height %d is not on the active chain; marked orphaned (coinbase-direct — nothing was sent; excluded from confirmed earnings)", h)
+			}
+		} else if cErr := stats.ConfirmSoloBlock(h); cErr != nil {
+			log.Printf("Solo reconcile: failed to confirm height %d: %v", h, cErr)
+		}
+	}
+}
+
 // bitsToDifficulty converts compact "bits" from block template to difficulty
 func bitsToDifficulty(bitsHex string) float64 {
 	bits, err := strconv.ParseUint(bitsHex, 16, 32)
@@ -805,6 +871,20 @@ func startZMQListener(zmqEndpoint string, logger *zap.Logger) {
 // configures the job manager + the aux1175* globals and is safe to call at startup or at
 // runtime (from watchPoolConfig). Server wiring + the 1175 payout processor are the caller's
 // responsibility. The 1175 node is the authoritative address validator (via getauxblock).
+// enableJobManagerAuxMergeMining points the job manager at the aux (1175) node so each new
+// BCH2 job carries aux work. Call this ONLY after every stratum server's aux fields are wired
+// (EnableMergeMining/SetAuxBlockHandler), so no aux job reaches a connection goroutine before
+// a server is ready to submit its solved aux block.
+func enableJobManagerAuxMergeMining(cfg *viper.Viper, auxPayout string) {
+	auxURL := fmt.Sprintf("http://%s:%d",
+		cfg.GetString("mergemining.aux_node.host"),
+		cfg.GetInt("mergemining.aux_node.port"))
+	jobManager.EnableMergeMining(auxURL,
+		cfg.GetString("mergemining.aux_node.user"),
+		cfg.GetString("mergemining.aux_node.pass"),
+		auxPayout)
+}
+
 func enableMergeMining1175(cfg *viper.Viper, auxPayout string) *mergemining.Client {
 	auxURL := fmt.Sprintf("http://%s:%d",
 		cfg.GetString("mergemining.aux_node.host"),
@@ -816,7 +896,6 @@ func enableMergeMining1175(cfg *viper.Viper, auxPayout string) *mergemining.Clie
 	} else {
 		logger.Info("💠 1175 (ESF) block rewards will be paid on-chain DIRECTLY to your configured address", zap.String("payout_address_1175", auxPayout))
 	}
-	jobManager.EnableMergeMining(auxURL, auxUser, auxPass, auxPayout)
 	ac := mergemining.NewClient(auxURL, auxUser, auxPass)
 	auxWallet := cfg.GetString("mergemining.aux_node.wallet")
 	if auxWallet == "" {
@@ -864,7 +943,7 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 			continue
 		}
 		if minP > 0 {
-			minPayout = minP
+			setMinPayout(minP)
 		}
 		if pool != lastPool && pool != "" {
 			if serr := jm.SetPoolAddress(pool); serr != nil {
@@ -890,6 +969,9 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 					stratumBraiinsServer.EnableMergeMining(ac)
 					stratumBraiinsServer.SetAuxBlockHandler(aux1175BlockHandler)
 				}
+				// Enable aux work on the job manager LAST — only after the stratum servers' aux
+				// fields are wired — so a produced aux job always has a server ready to submit it.
+				enableJobManagerAuxMergeMining(cfg, p1175)
 				if stats.IsDBConnected() {
 					go start1175PayoutProcessor()
 				}
@@ -983,7 +1065,7 @@ func main() {
 	poolFee = config.GetFloat64("pool.fee")
 	soloFee = config.GetFloat64("pool.solo_fee")
 	blockReward = config.GetFloat64("pool.block_reward")
-	minPayout = config.GetFloat64("pool.min_payout")
+	setMinPayout(config.GetFloat64("pool.min_payout"))
 	pplnsWindow = config.GetInt("pool.pplns_window")
 	if pplnsWindow <= 0 {
 		pplnsWindow = 100000 // Default PPLNS window
@@ -1015,7 +1097,7 @@ func main() {
 				effectiveCoinbaseTag = dbTag
 			}
 			if dbMin > 0 {
-				minPayout = dbMin
+				setMinPayout(dbMin)
 			}
 		} else {
 			logger.Warn("could not read dashboard pool_config; using env/config values", zap.Error(cErr))
@@ -1077,6 +1159,9 @@ func main() {
 	if auxClient != nil {
 		stratumServer.EnableMergeMining(auxClient)
 		stratumServer.SetAuxBlockHandler(aux1175BlockHandler)
+		// Wire the job manager only AFTER the server aux fields are set so no aux job is
+		// produced before a server can submit its solved block.
+		enableJobManagerAuxMergeMining(config, effective1175Payout)
 	}
 
 	if err := stratumServer.Start(); err != nil {

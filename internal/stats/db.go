@@ -352,20 +352,98 @@ func SaveSoloBlockCoinbaseDirect(minerID string, blockHeight int64, amount float
 	return nil
 }
 
-// ConfirmMatureSoloBlocks marks solo BCH2 blocks confirmed once buried at least
-// COINBASE_MATURITY deep (height <= matureHeight), mirroring how 1175 blocks confirm at
-// maturity. A reorg is only possible far shallower than coinbase maturity, so a block this
-// deep is safely on the active chain. Purely a status/display transition — solo rewards are
-// already delivered on-chain by the coinbase.
-func ConfirmMatureSoloBlocks(matureHeight int64) error {
+// ConfirmMatureSoloBlocks marks pending solo BCH2 blocks at height <= confirmHeight as
+// confirmed. The stratum passes a confirmHeight BELOW the reorg-plausible band, so these
+// blocks are buried too deep to reorganize and are safely on the active chain with no RPC
+// check. Blocks still inside the reorg band are reconciled by reconcileSoloBlocks (an
+// active-chain hash check) which confirms or orphans each, so an orphaned solo block is
+// never blindly confirmed (which would overstate earnings). Rewards are already delivered
+// on-chain by the coinbase; this is purely a status/display transition.
+func ConfirmMatureSoloBlocks(confirmHeight int64) error {
 	dbMu.RLock()
 	defer dbMu.RUnlock()
 	if db == nil {
 		return ErrDatabaseNotInitialized
 	}
 	_, err := db.Exec(`UPDATE blocks SET status = 'confirmed', confirmed_at = NOW()
-		WHERE is_solo = true AND status = 'pending' AND height <= $1`, matureHeight)
+		WHERE is_solo = true AND status = 'pending' AND height <= $1`, confirmHeight)
 	return err
+}
+
+// PendingSoloHeights returns the heights of still-pending solo blocks within
+// [minHeight, matureHeight]. The stratum active-chain-checks each one before it is
+// confirmed: solo blocks skip the payout-row orphan reconciler (their coinbase-direct
+// payout row is already 'paid'), so they need their own reconciliation pass.
+func PendingSoloHeights(matureHeight, minHeight int64) ([]int64, error) {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return nil, ErrDatabaseNotInitialized
+	}
+	rows, err := db.Query(`
+		SELECT height FROM blocks
+		WHERE is_solo = true AND status = 'pending'
+		  AND height <= $1 AND height >= $2
+		ORDER BY height`, matureHeight, minHeight)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var heights []int64
+	for rows.Next() {
+		var h int64
+		if err := rows.Scan(&h); err != nil {
+			continue
+		}
+		heights = append(heights, h)
+	}
+	return heights, rows.Err()
+}
+
+// ConfirmSoloBlock marks a single pending solo block confirmed. Called only after the
+// stratum has verified the recorded block is the one on the active chain at that height.
+func ConfirmSoloBlock(height int64) error {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return ErrDatabaseNotInitialized
+	}
+	_, err := db.Exec(`UPDATE blocks SET status = 'confirmed', confirmed_at = NOW()
+		WHERE height = $1 AND is_solo = true AND status = 'pending'`, height)
+	return err
+}
+
+// OrphanSoloBlock marks a solo block (and its coinbase-direct payout row) orphaned when the
+// block the pool recorded at that height is no longer on the active chain. Fund-safe: solo
+// rewards are coinbase-direct, so nothing was ever sent — this only stops a reorged-out
+// block from overstating confirmed earnings. Atomic. Returns the number of block rows voided.
+func OrphanSoloBlock(height int64) (int64, error) {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return 0, ErrDatabaseNotInitialized
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), DBTimeout)
+	defer cancel()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `UPDATE blocks SET status = 'orphaned'
+		WHERE height = $1 AND is_solo = true AND status = 'pending'`, height)
+	if err != nil {
+		return 0, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE payouts SET status = 'orphaned', txid = 'orphaned', confirmed = false, paid_at = NOW()
+		WHERE block_height = $1 AND txid = 'coinbase-direct'`, height); err != nil {
+		return 0, err
+	}
+	if err = tx.Commit(); err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 // SavePayout saves a payout to the database

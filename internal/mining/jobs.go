@@ -263,7 +263,10 @@ func cashaddrPolymod(v []byte) uint64 {
 // node authoritatively rejected — mining to a wrong/unspendable script would burn the
 // block reward. The CashAddr checksum covers the prefix, so a prefix is required.
 func parseAddressToPubkeyHash(address string) []byte {
-	prefixes := []string{"bitcoincashii", "bitcoincash", "bchtest", "bchreg"}
+	// Mainnet-only: accept ONLY the BCH2 mainnet prefix. Dropping bchtest/bchreg (and the
+	// BCHN bitcoincash: prefix) keeps this local backstop consistent with the API validator and
+	// the node, so a testnet/other-chain address can never resolve to a same-hash mainnet script.
+	prefixes := []string{"bitcoincashii"}
 	var prefix, addr string
 	for _, p := range prefixes {
 		if len(address) > len(p)+1 && address[:len(p)+1] == p+":" {

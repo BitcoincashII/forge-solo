@@ -123,76 +123,70 @@ func isValid1175Address(address string) bool {
 	return true
 }
 
-// isValidBCH2Address validates a BCH2/Bitcoin Cash address format with full checksum
+// isValidBCH2Address validates a BCH2 mainnet payout address exactly the way the
+// stratum resolves it, so the API never accepts an address the stratum then silently
+// rejects (which would leave mining paused while the dashboard reports success). The
+// address MUST carry the explicit BCH2 mainnet prefix "bitcoincashii:", its CashAddr
+// checksum must verify against THAT prefix, and it must decode to a P2PKH (type 0)
+// 20-byte hash -- mirroring mining.parseAddressToPubkeyHash and the node's validateaddress
+// P2PKH requirement.
+//
+// FAIL-CLOSED and mainnet-only: a missing/other prefix, a bad checksum, P2SH (p.../type 1),
+// legacy 1.../3..., prefix-less input, and every testnet/regtest prefix (bchtest/bchreg) are
+// rejected. A testnet address shares its 20-byte hash with a mainnet address the user may
+// not control, so accepting it would mine the reward to the wrong place.
 func isValidBCH2Address(address string) bool {
-	if address == "" {
+	const prefix = "bitcoincashii"
+	address = strings.ToLower(strings.TrimSpace(address))
+	if len(address) <= len(prefix)+1 || address[:len(prefix)+1] != prefix+":" {
+		return false
+	}
+	addr := address[len(prefix)+1:]
+
+	// Decode the CashAddr payload to 5-bit symbols.
+	data := make([]int, 0, len(addr))
+	for _, ch := range addr {
+		idx := strings.IndexRune(cashAddrCharset, ch)
+		if idx < 0 {
+			return false // invalid character
+		}
+		data = append(data, idx)
+	}
+	if len(data) < 8 {
 		return false
 	}
 
-	// Check for valid prefixes and extract prefix + payload
-	validPrefixes := []string{
-		"bitcoincashii:",
-		"bitcoincash:",
-		"bchtest:",
-	}
-
-	var prefix string
-	var payload string
-	hasValidPrefix := false
-
-	for _, p := range validPrefixes {
-		if len(address) > len(p) && address[:len(p)] == p {
-			hasValidPrefix = true
-			prefix = p[:len(p)-1] // Remove colon for checksum calculation
-			payload = address[len(p):]
-			break
-		}
-	}
-
-	// Also accept addresses without prefix (legacy format starts with q, p, 1, or 3)
-	if !hasValidPrefix {
-		if len(address) > 0 {
-			first := address[0]
-			if first == 'q' || first == 'p' {
-				// CashAddr without prefix - assume bitcoincash
-				prefix = "bitcoincash"
-				payload = address
-				hasValidPrefix = true
-			} else if first == '1' || first == '3' {
-				// Legacy Bitcoin address - basic validation only
-				if len(address) >= 26 && len(address) <= 35 {
-					return true // Legacy addresses use Base58Check, not CashAddr
-				}
-				return false
-			} else {
-				return false
-			}
-		}
-	}
-
-	// Basic length check (CashAddr payload is typically 42 chars)
-	if len(payload) < 30 || len(payload) > 60 {
+	// Verify the checksum against the bitcoincashii prefix. This rejects typos and any
+	// address whose checksum was computed for a different prefix (bitcoincash:/bchtest:).
+	chk := append(prefixToValues(prefix), data...)
+	if cashAddrPolymod(chk) != 0 {
 		return false
 	}
 
-	// Decode payload to 5-bit values
-	payloadValues := make([]int, len(payload))
-	for i, c := range payload {
-		idx := -1
-		for j, ch := range cashAddrCharset {
-			if ch == c {
-				idx = j
-				break
-			}
+	// Drop the 8-symbol (40-bit) checksum and convert the 5-bit payload to bytes.
+	payload := data[:len(data)-8]
+	var result []byte
+	acc, bits := 0, 0
+	for _, d := range payload {
+		acc = (acc << 5) | d
+		bits += 5
+		for bits >= 8 {
+			bits -= 8
+			result = append(result, byte(acc>>bits))
+			acc &= (1 << bits) - 1
 		}
-		if idx == -1 {
-			return false // Invalid character
-		}
-		payloadValues[i] = idx
 	}
 
-	// Verify checksum
-	return verifyCashAddrChecksum(prefix, payloadValues)
+	// version byte: bit7 reserved (0); bits6..3 = type; bits2..0 = size. Require type 0
+	// (P2PKH) and a 20-byte (160-bit) hash. Rejects P2SH (type 1) and any other type.
+	if len(result) != 21 {
+		return false
+	}
+	version := result[0]
+	if version&0x80 != 0 || (version>>3)&0x1f != 0 {
+		return false
+	}
+	return true
 }
 
 // normalizeAddress strips the prefix from a BCH2 address for comparison
@@ -1204,7 +1198,7 @@ func savePoolConfig(c *fiber.Ctx) error {
 	poolAddr := strings.TrimSpace(input.PoolAddress)
 	if poolAddr != "" {
 		if !isValidBCH2Address(poolAddr) {
-			return c.Status(400).JSON(fiber.Map{"success": false, "error": "Invalid BCH2 payout address"})
+			return c.Status(400).JSON(fiber.Map{"success": false, "error": "Invalid BCH2 payout address — must be a mainnet bitcoincashii: P2PKH address (starts with bitcoincashii:q)"})
 		}
 	} else {
 		poolAddr = curPool

@@ -1,5 +1,5 @@
 /**
- * Forge Pool - Common JavaScript Utilities
+ * Forge Solo - Common JavaScript Utilities
  * Shared functions used across all pages
  */
 

@@ -1,4 +1,4 @@
-/* Forge Pool - Common Styles */
+/* Forge Solo - Common Styles */
 /* Version: 1.0.0 */
 
 /* CSS Reset */
@@ -217,11 +217,6 @@ nav a.active {
     border-radius: var(--radius-full);
     font-weight: 600;
     font-size: 13px;
-}
-
-.mode-badge.pplns {
-    background: var(--bch-green);
-    color: #000;
 }
 
 .mode-badge.solo {

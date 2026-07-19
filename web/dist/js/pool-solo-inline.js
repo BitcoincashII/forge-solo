@@ -48,7 +48,7 @@
         async function fetchMinerData() {
             try {
                 const data = await apiFetch('/api/v1/miners/' + encodeURIComponent(minerAddress));
-                // Solo-only home app: always render this dashboard (no PPLNS /miner redirect).
+                // Solo-only home app: always render this dashboard.
                 document.getElementById('matureBalance').textContent = formatBCH2(data.matureBalance || 0, 2);
                 document.getElementById('immatureBalance').textContent = formatBCH2(data.immatureBalance || 0, 2);
                 document.getElementById('hashrate5m').textContent = formatHashrate((data.hashrate5m || 0) * 1e12);
@@ -152,7 +152,7 @@
                         let blockCell;
                         if (!safeHash) blockCell = 'N/A';
                         else if (is1175) blockCell = `<span style="color:var(--text-secondary)" title="1175 block">${truncateHash(safeHash, 8, 4)}</span>`;
-                        else blockCell = `<a href="https://explorer.bch2.org/block/${safeHash}" target="_blank" rel="noopener noreferrer" class="hash-link" style="color:var(--text-secondary)" title="View block on explorer (coinbase goes to pool)">${truncateHash(safeHash, 8, 4)}</a>`;
+                        else blockCell = `<a href="https://explorer.bch2.org/block/${safeHash}" target="_blank" rel="noopener noreferrer" class="hash-link" title="View this block on the BCH2 explorer">${truncateHash(safeHash, 8, 4)}</a>`;
                         // Payout cell: BCH2 links to the tx; 1175 shows status text (BCH2 explorer would be wrong).
                         let payoutCell;
                         if (is1175) {
