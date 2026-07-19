@@ -288,7 +288,7 @@ func main() {
 
 	// Initialize database connection for settings persistence
 	dbConnStr := stats.GetDBConnStr()
-	if err := stats.InitDB(dbConnStr); err != nil {
+	if err := stats.InitDBWithRetry(dbConnStr, 30, 2*time.Second); err != nil {
 		zapLogger.Warn("Database not available, settings will not persist", zap.Error(err))
 	} else {
 		zapLogger.Info("✅ Connected to PostgreSQL database")
@@ -1137,35 +1137,42 @@ func updateConfigFile(updates map[string]map[string]interface{}) error {
 }
 
 func getPoolConfig(c *fiber.Ctx) error {
-	cfg, err := loadConfigFile()
+	// Dashboard-managed config is the source of truth (DB pool_config). Env vars provide the
+	// initial defaults until the miner saves settings from the UI (so a fresh install shows
+	// whatever was seeded in the Umbrel app config, then the DB value once configured).
+	poolAddr, payout1175, tag, minPayout, err := stats.GetPoolConfig()
 	if err != nil {
-		// Return defaults if config doesn't exist
-		return c.JSON(fiber.Map{
-			"stratum_port":     3333,
-			"pool_wallet":      "",
-			"pool_name":        "My Forge Pool",
-			"pool_fee":         0.0,
-			"solo_fee":         0.0,
-			"min_payout":       5.0,
-			"vardiff_min_diff": 32768,
-			"pool_address":     os.Getenv("POOL_ADDRESS"),
-			"coinbase_tag":     "Forge",
-		})
+		poolAddr, payout1175, tag, minPayout = "", "", "", 0
 	}
-	tag := cfg.Pool.CoinbaseTag
+	if poolAddr == "" {
+		poolAddr = os.Getenv("POOL_ADDRESS")
+	}
+	if payout1175 == "" {
+		payout1175 = os.Getenv("PAYOUT_ADDRESS_1175")
+	}
+	if tag == "" {
+		tag = os.Getenv("COINBASE_TAG")
+	}
 	if tag == "" {
 		tag = "Forge"
 	}
+	if minPayout <= 0 {
+		if v, perr := strconv.ParseFloat(os.Getenv("MIN_PAYOUT"), 64); perr == nil && v > 0 {
+			minPayout = v
+		} else {
+			minPayout = 1.0
+		}
+	}
 	return c.JSON(fiber.Map{
-		"stratum_port":     cfg.Stratum.Port,
-		"pool_wallet":      cfg.Pool.Wallet,
-		"pool_name":        cfg.Pool.Name,
-		"pool_fee":         cfg.Pool.Fee,
-		"solo_fee":         cfg.Pool.Fee,
-		"min_payout":       cfg.Pool.MinPayout,
-		"vardiff_min_diff": cfg.Stratum.VardiffMin,
-		"pool_address":     os.Getenv("POOL_ADDRESS"),
-		"coinbase_tag":     tag,
+		"stratum_port":        3333,
+		"pool_name":           "Forge Solo",
+		"pool_fee":            0.0,
+		"solo_fee":            0.0,
+		"min_payout":          minPayout,
+		"pool_address":        poolAddr,
+		"payout_address_1175": payout1175,
+		"coinbase_tag":        tag,
+		"configured":          poolAddr != "",
 	})
 }
 
@@ -1180,61 +1187,56 @@ func savePoolConfig(c *fiber.Ctx) error {
 	}
 
 	var input struct {
-		StratumPort    int      `json:"stratum_port"`
-		PoolWallet     string   `json:"pool_wallet"`
-		PoolName       string   `json:"pool_name"`
-		PoolFee        *float64 `json:"pool_fee"`
-		MinPayout      *float64 `json:"min_payout"`
-		VardiffMinDiff int      `json:"vardiff_min_diff"`
-		CoinbaseTag    string   `json:"coinbase_tag"`
+		PoolAddress       string   `json:"pool_address"`
+		PayoutAddress1175 string   `json:"payout_address_1175"`
+		CoinbaseTag       string   `json:"coinbase_tag"`
+		MinPayout         *float64 `json:"min_payout"`
 	}
 	if err := c.BodyParser(&input); err != nil {
 		return c.Status(400).JSON(fiber.Map{"success": false, "error": "Invalid request body"})
 	}
 
-	// Field-preserving update: only touch keys the user actually sent, so the payout
-	// address, payout_scheme, and mergemining config are never wiped.
-	pool := map[string]interface{}{}
-	if input.PoolName != "" {
-		pool["name"] = input.PoolName
-	}
-	if input.PoolWallet != "" {
-		pool["wallet"] = input.PoolWallet
-	}
-	if input.PoolFee != nil {
-		if *input.PoolFee < 0 || *input.PoolFee > 10 {
-			return c.Status(400).JSON(fiber.Map{"success": false, "error": "Pool fee must be 0-10%"})
+	// Load current DB values so a partial save (e.g. only the coinbase tag) preserves the rest.
+	curPool, cur1175, curTag, curMin, _ := stats.GetPoolConfig()
+
+	// BCH2 payout address: validate with the full CashAddr checksum validator. Blank keeps
+	// the current value (does NOT clear a configured address).
+	poolAddr := strings.TrimSpace(input.PoolAddress)
+	if poolAddr != "" {
+		if !isValidBCH2Address(poolAddr) {
+			return c.Status(400).JSON(fiber.Map{"success": false, "error": "Invalid BCH2 payout address"})
 		}
-		pool["fee"] = *input.PoolFee
-	}
-	if input.MinPayout != nil && *input.MinPayout > 0 {
-		pool["min_payout"] = *input.MinPayout
-	}
-	if input.CoinbaseTag != "" {
-		pool["coinbase_tag"] = sanitizeTagAPI(input.CoinbaseTag)
-	}
-	updates := map[string]map[string]interface{}{}
-	if len(pool) > 0 {
-		updates["pool"] = pool
-	}
-	stratum := map[string]interface{}{}
-	if input.StratumPort > 0 {
-		stratum["port"] = input.StratumPort
-	}
-	if input.VardiffMinDiff > 0 {
-		stratum["vardiff_min"] = input.VardiffMinDiff
-	}
-	if len(stratum) > 0 {
-		updates["stratum"] = stratum
-	}
-	if len(updates) == 0 {
-		return c.JSON(fiber.Map{"success": true, "message": "Nothing to update."})
+	} else {
+		poolAddr = curPool
 	}
 
-	if err := updateConfigFile(updates); err != nil {
+	// 1175 (ESF) merge-mining payout address: validate as bech32 esf1…. Blank keeps current.
+	payout1175 := strings.TrimSpace(input.PayoutAddress1175)
+	if payout1175 != "" {
+		if !isValid1175Address(payout1175) {
+			return c.Status(400).JSON(fiber.Map{"success": false, "error": "Invalid 1175 (ESF) address — must be a valid esf1… address"})
+		}
+	} else {
+		payout1175 = cur1175
+	}
+
+	tag := curTag
+	if input.CoinbaseTag != "" {
+		tag = sanitizeTagAPI(input.CoinbaseTag)
+	}
+
+	minPayout := curMin
+	if input.MinPayout != nil && *input.MinPayout > 0 {
+		minPayout = *input.MinPayout
+	}
+	if minPayout <= 0 {
+		minPayout = 1.0
+	}
+
+	if err := stats.SavePoolConfig(poolAddr, payout1175, tag, minPayout); err != nil {
 		return c.Status(500).JSON(fiber.Map{"success": false, "error": "Failed to save config: " + err.Error()})
 	}
-	return c.JSON(fiber.Map{"success": true, "message": "Settings saved. Restart the app for changes to take effect."})
+	return c.JSON(fiber.Map{"success": true, "message": "Settings saved. Mining picks up the new payout address within a few seconds — no restart needed."})
 }
 
 // loadMinerSettingsFromDB loads all miner settings from database into memory

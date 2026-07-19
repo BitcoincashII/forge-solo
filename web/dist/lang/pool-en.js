@@ -342,7 +342,7 @@ var PT = {
   p_solo_th_round_best: "Round Best",
   p_solo_th_ath_diff: "ATH Diff",
   p_solo_no_workers: "No workers connected",
-  p_solo_hashrate_history: "Hashrate History (24h)",
+  p_solo_hashrate_history: "Hashrate History (~24 min)",
   p_solo_your_blocks: "Your Blocks Found",
   p_solo_blocks_note: "<strong style=\"color:var(--gold)\">Note:</strong> Block rewards are collected by the pool, then paid to your address after 100 confirmations. Check <strong>Payout History</strong> below for your payment transactions.",
   p_solo_th_height: "Height",

@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -36,6 +37,12 @@ type JobManager struct {
 	rpcURL      string
 	rpcUser     string
 	rpcPassword string
+
+	// mu guards the fields that can be reconfigured at runtime from the dashboard
+	// (payout pubkeyHash, coinbaseTag) and the merge-mining enable state. buildCoinbase
+	// / fetchAuxWork read them under RLock; SetPoolAddress / SetCoinbaseTag /
+	// EnableMergeMining write them under Lock.
+	mu          sync.RWMutex
 	pubkeyHash  []byte
 	coinbaseTag []byte
 	jobCounter  uint64
@@ -53,9 +60,11 @@ type JobManager struct {
 func (jm *JobManager) EnableMergeMining(nodeURL, user, pass, payoutAddr string) {
 	c := mergemining.NewClient(nodeURL, user, pass)
 	c.HTTP.Timeout = 3 * time.Second
+	jm.mu.Lock()
 	jm.auxClient = c
 	jm.auxPayout = payoutAddr
 	jm.auxEnabled = true
+	jm.mu.Unlock()
 	fmt.Printf("Merge mining ENABLED: aux node %s, payout %s\n", nodeURL, payoutAddr)
 }
 
@@ -63,10 +72,15 @@ func (jm *JobManager) EnableMergeMining(nodeURL, user, pass, payoutAddr string) 
 // if merge mining is off or the aux node has no work (e.g. not yet activated).
 // Never returns an error to the caller: BCH2 mining must proceed regardless.
 func (jm *JobManager) fetchAuxWork() (*mergemining.AuxWork, []byte) {
-	if !jm.auxEnabled || jm.auxClient == nil {
+	jm.mu.RLock()
+	enabled := jm.auxEnabled
+	client := jm.auxClient
+	payout := jm.auxPayout
+	jm.mu.RUnlock()
+	if !enabled || client == nil {
 		return nil, nil
 	}
-	w, err := jm.auxClient.GetAuxBlock(jm.auxPayout)
+	w, err := client.GetAuxBlock(payout)
 	if err != nil {
 		if err.Error() != jm.auxLastErr { // log only when the error changes
 			jm.auxLastErr = err.Error()
@@ -84,30 +98,39 @@ func (jm *JobManager) fetchAuxWork() (*mergemining.AuxWork, []byte) {
 }
 
 func NewJobManager(rpcURL, rpcUser, rpcPassword, poolAddress, coinbaseTag string) *JobManager {
-	// Try to get pubkey hash from node's validateaddress RPC with retries
+	// Resolve the payout address to a pubkey hash. Unlike the public pool, the home
+	// solo app can start with NO payout address configured: the miner sets it later in
+	// the dashboard. In that case pubkeyHash stays nil, mining is PAUSED (never mined to
+	// a null/burn script), and SetPoolAddress activates it at runtime — no crash-loop.
 	var pkh []byte
-	for i := 0; i < 10; i++ {
-		pkh = getPubkeyHashFromNode(rpcURL, rpcUser, rpcPassword, poolAddress)
-		if pkh != nil {
-			break
+	if poolAddress != "" {
+		// Try to get pubkey hash from node's validateaddress RPC with retries
+		for i := 0; i < 10; i++ {
+			pkh = getPubkeyHashFromNode(rpcURL, rpcUser, rpcPassword, poolAddress)
+			if pkh != nil {
+				break
+			}
+			if i < 9 {
+				fmt.Printf("Waiting for node RPC to be ready... (attempt %d/10)\n", i+1)
+				time.Sleep(2 * time.Second)
+			}
 		}
-		if i < 9 {
-			fmt.Printf("Waiting for node RPC to be ready... (attempt %d/10)\n", i+1)
-			time.Sleep(2 * time.Second)
+		if pkh == nil {
+			// Fallback to local parsing if RPC fails
+			pkh = parseAddressToPubkeyHash(poolAddress)
+			if pkh != nil {
+				fmt.Printf("Pool address pubkey hash (from local parser): %s\n", hex.EncodeToString(pkh))
+			}
 		}
-	}
-	if pkh == nil {
-		// Fallback to local parsing if RPC fails
-		pkh = parseAddressToPubkeyHash(poolAddress)
-		if pkh != nil {
-			fmt.Printf("Pool address pubkey hash (from local parser): %s\n", hex.EncodeToString(pkh))
+		if pkh == nil {
+			// A configured-but-unparseable address is a mistake we must NOT silently mine
+			// past (rewards would burn), but we no longer crash the process — warn and pause
+			// until a valid address is set in the dashboard.
+			log.Printf("WARNING: pool payout address %q could not be resolved to a pubkey hash - "+
+				"mining paused until a valid payout address is set in the dashboard", poolAddress)
 		}
-	}
-	if pkh == nil {
-		// FAIL CLOSED: never mine to a null/burn address. An empty or unparseable
-		// payout address would send every block reward to an unspendable script.
-		log.Fatalf("FATAL: pool payout address %q could not be resolved to a pubkey hash "+
-			"- refusing to mine (block rewards would be permanently burned). Set a valid payout address.", poolAddress)
+	} else {
+		log.Printf("WARNING: no payout address configured - mining paused until set in the dashboard")
 	}
 
 	return &JobManager{
@@ -117,6 +140,43 @@ func NewJobManager(rpcURL, rpcUser, rpcPassword, poolAddress, coinbaseTag string
 		pubkeyHash:  pkh,
 		coinbaseTag: sanitizeCoinbaseTag(coinbaseTag),
 	}
+}
+
+// SetPoolAddress resolves addr to a P2PKH pubkey hash (node RPC first, local CashAddr
+// parser as backstop) and, on success, atomically installs it as the coinbase payout
+// target. On failure it returns an error and leaves any existing pubkeyHash untouched
+// (so a bad dashboard entry never disables an already-working miner).
+func (jm *JobManager) SetPoolAddress(addr string) error {
+	if addr == "" {
+		return fmt.Errorf("empty payout address")
+	}
+	pkh := getPubkeyHashFromNode(jm.rpcURL, jm.rpcUser, jm.rpcPassword, addr)
+	if pkh == nil {
+		pkh = parseAddressToPubkeyHash(addr)
+	}
+	if pkh == nil {
+		return fmt.Errorf("payout address %q could not be resolved to a P2PKH pubkey hash", addr)
+	}
+	jm.mu.Lock()
+	jm.pubkeyHash = pkh
+	jm.mu.Unlock()
+	return nil
+}
+
+// IsConfigured reports whether a payout address is set. When false the job manager
+// produces no jobs, so the node accepts stratum connections but pauses mining.
+func (jm *JobManager) IsConfigured() bool {
+	jm.mu.RLock()
+	defer jm.mu.RUnlock()
+	return jm.pubkeyHash != nil
+}
+
+// SetCoinbaseTag atomically updates the coinbase tag used for newly built jobs.
+func (jm *JobManager) SetCoinbaseTag(tag string) {
+	t := sanitizeCoinbaseTag(tag)
+	jm.mu.Lock()
+	jm.coinbaseTag = t
+	jm.mu.Unlock()
 }
 
 // getPubkeyHashFromNode extracts pubkey hash via node RPC validateaddress
@@ -273,6 +333,12 @@ func parseAddressToPubkeyHash(address string) []byte {
 }
 
 func (jm *JobManager) GetBlockTemplate() (*BlockTemplate, error) {
+	// Mining is paused until a payout address is configured (see IsConfigured):
+	// skip the template fetch so an unconfigured node stays idle instead of building
+	// jobs that would pay a null script.
+	if !jm.IsConfigured() {
+		return nil, nil
+	}
 	// Acknowledge the segwit rule. BCH2 mainnet has segwit inactive, so this is a
 	// no-op there (verified: identical template to empty params), but a node with
 	// segwit active in getblocktemplate (e.g. regtest) rejects an empty rule set
@@ -319,6 +385,9 @@ func (jm *JobManager) GetBlockTemplate() (*BlockTemplate, error) {
 }
 
 func (jm *JobManager) CreateJob(template *BlockTemplate) *Job {
+	if template == nil || !jm.IsConfigured() {
+		return nil
+	}
 	jobID := fmt.Sprintf("%x", atomic.AddUint64(&jm.jobCounter, 1))
 
 	// Merge mining: fetch aux work and embed its commitment in the coinbase.
@@ -381,8 +450,12 @@ const CoinbaseExtranonceReserve = 10
 // Total scriptSig stays well under the 100-byte limit (height ~4 + reserve 10 +
 // tag 5 + commitment 44 = ~63).
 func (jm *JobManager) buildCoinbase(template *BlockTemplate, commitment []byte) (string, string) {
-	heightBytes := makeHeightScript(template.Height)
+	jm.mu.RLock()
+	pkh := jm.pubkeyHash
 	poolMsg := jm.coinbaseTag
+	jm.mu.RUnlock()
+
+	heightBytes := makeHeightScript(template.Height)
 	if len(poolMsg) == 0 {
 		poolMsg = []byte("Forge")
 	}
@@ -409,7 +482,7 @@ func (jm *JobManager) buildCoinbase(template *BlockTemplate, commitment []byte) 
 	cb2.WriteByte(0x76)
 	cb2.WriteByte(0xa9)
 	cb2.WriteByte(0x14)
-	cb2.Write(jm.pubkeyHash)
+	cb2.Write(pkh)
 	cb2.WriteByte(0x88)
 	cb2.WriteByte(0xac)
 	binary.Write(&cb2, binary.LittleEndian, uint32(0))

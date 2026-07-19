@@ -139,6 +139,15 @@ CREATE TABLE IF NOT EXISTS pool_stats (
     block_height BIGINT DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS pool_config (
+    id INT PRIMARY KEY DEFAULT 1,
+    pool_address TEXT DEFAULT '',
+    payout_address_1175 TEXT DEFAULT '',
+    coinbase_tag TEXT DEFAULT '',
+    min_payout DOUBLE PRECISION DEFAULT 1,
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_blocks_height ON blocks(height);
 CREATE INDEX IF NOT EXISTS idx_blocks_miner ON blocks(miner_address);
 CREATE INDEX IF NOT EXISTS idx_payouts_miner ON payouts(miner_address);
@@ -205,6 +214,12 @@ func InitDB(connStr string) error {
 	if _, mErr := db.Exec(`ALTER TABLE miners ADD COLUMN IF NOT EXISTS settings_pin_hash TEXT`); mErr != nil {
 		log.Printf("Warning: settings_pin_hash column migration: %v", mErr)
 	}
+	// Idempotent additive migration: payouts.status lifecycle column. The core schema and
+	// init-db.sql predate it, yet several payout upserts/queries (and the solo coinbase-direct
+	// settle) reference payouts.status, so a fresh Postgres install must have it.
+	if _, mErr := db.Exec(`ALTER TABLE payouts ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'pending'`); mErr != nil {
+		log.Printf("Warning: payouts.status column migration: %v", mErr)
+	}
 	// 1175 merge-mining payout ledger tables.
 	Init1175Schema()
 
@@ -231,6 +246,126 @@ func IsDBConnected() bool {
 		return false
 	}
 	return db.Ping() == nil
+}
+
+// InitDBWithRetry calls InitDB, retrying transient failures (e.g. a Postgres that is
+// still starting up) up to `attempts` times, `delay` apart. A briefly-unready database
+// must not permanently disable DB-backed features for the whole process lifetime.
+func InitDBWithRetry(connStr string, attempts int, delay time.Duration) error {
+	if attempts < 1 {
+		attempts = 1
+	}
+	var err error
+	for i := 0; i < attempts; i++ {
+		if err = InitDB(connStr); err == nil {
+			return nil
+		}
+		if i < attempts-1 {
+			log.Printf("DB init attempt %d/%d failed (%v); retrying in %s", i+1, attempts, err, delay)
+			time.Sleep(delay)
+		}
+	}
+	return err
+}
+
+// GetPoolConfig returns the single-row dashboard-managed pool configuration
+// (pool_config id=1). A missing row yields empty strings + min_payout 1 and a nil error.
+func GetPoolConfig() (poolAddr, payout1175, tag string, minPayout float64, err error) {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return "", "", "", 0, ErrDatabaseNotInitialized
+	}
+	row := db.QueryRow(`SELECT COALESCE(pool_address,''), COALESCE(payout_address_1175,''), COALESCE(coinbase_tag,''), COALESCE(min_payout,1) FROM pool_config WHERE id = 1`)
+	err = row.Scan(&poolAddr, &payout1175, &tag, &minPayout)
+	if err == sql.ErrNoRows {
+		return "", "", "", 1, nil
+	}
+	if err != nil {
+		return "", "", "", 0, err
+	}
+	return poolAddr, payout1175, tag, minPayout, nil
+}
+
+// SavePoolConfig upserts the single-row pool configuration (id=1). Empty strings are
+// stored verbatim (an empty pool_address means "not configured — mining paused").
+func SavePoolConfig(poolAddr, payout1175, tag string, minPayout float64) error {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return ErrDatabaseNotInitialized
+	}
+	_, err := db.Exec(`
+		INSERT INTO pool_config (id, pool_address, payout_address_1175, coinbase_tag, min_payout, updated_at)
+		VALUES (1, $1, $2, $3, $4, now())
+		ON CONFLICT (id) DO UPDATE
+		SET pool_address = EXCLUDED.pool_address,
+		    payout_address_1175 = EXCLUDED.payout_address_1175,
+		    coinbase_tag = EXCLUDED.coinbase_tag,
+		    min_payout = EXCLUDED.min_payout,
+		    updated_at = now()`,
+		poolAddr, payout1175, tag, minPayout)
+	return err
+}
+
+// SaveSoloBlockCoinbaseDirect records a solo-found block and settles its reward DB-only.
+// In SOLO mode the block reward is paid on-chain DIRECTLY by the coinbase to POOL_ADDRESS,
+// so there is NO secondary sendtoaddress (that path targets a nonexistent wallet, would
+// fail forever, and risks a double-pay). The payout row is therefore inserted already
+// settled (txid='coinbase-direct', status='paid'), which the BCH2 payout processor —
+// selecting only rows WHERE txid IS NULL OR txid='' — never touches. Mirrors
+// Settle1175ByCoinbase; reorg-aware via recordBlockRow.
+func SaveSoloBlockCoinbaseDirect(minerID string, blockHeight int64, amount float64, blockHash string) error {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return ErrDatabaseNotInitialized
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Record the block (reorg-aware: a superseded height voids its prior unpaid rows).
+	if err = recordBlockRow(tx, blockHeight, blockHash, minerID, amount, true); err != nil {
+		return fmt.Errorf("failed to insert solo block: %w", err)
+	}
+
+	// Insert the payout row already settled as coinbase-direct. ON CONFLICT only overwrites
+	// an unpaid/orphaned row (never a genuinely paid one), so re-records are idempotent.
+	_, err = tx.Exec(`
+		INSERT INTO payouts (miner_address, block_height, amount, confirmed, txid, status, created_at, paid_at)
+		VALUES ($1, $2, $3, true, 'coinbase-direct', 'paid', NOW(), NOW())
+		ON CONFLICT (miner_address, block_height) DO UPDATE
+		SET amount = EXCLUDED.amount, confirmed = true, txid = 'coinbase-direct', status = 'paid', paid_at = NOW()
+		WHERE payouts.txid IS NULL OR payouts.txid = '' OR payouts.status = 'orphaned'`,
+		minerID, blockHeight, amount)
+	if err != nil {
+		return fmt.Errorf("failed to insert solo coinbase-direct payout: %w", err)
+	}
+
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit solo block: %w", err)
+	}
+	log.Printf("✅ Solo block %d recorded; %.8f BCH2 paid on-chain by coinbase to POOL_ADDRESS (settled DB-only)", blockHeight, amount)
+	return nil
+}
+
+// ConfirmMatureSoloBlocks marks solo BCH2 blocks confirmed once buried at least
+// COINBASE_MATURITY deep (height <= matureHeight), mirroring how 1175 blocks confirm at
+// maturity. A reorg is only possible far shallower than coinbase maturity, so a block this
+// deep is safely on the active chain. Purely a status/display transition — solo rewards are
+// already delivered on-chain by the coinbase.
+func ConfirmMatureSoloBlocks(matureHeight int64) error {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return ErrDatabaseNotInitialized
+	}
+	_, err := db.Exec(`UPDATE blocks SET status = 'confirmed', confirmed_at = NOW()
+		WHERE is_solo = true AND status = 'pending' AND height <= $1`, matureHeight)
+	return err
 }
 
 // SavePayout saves a payout to the database

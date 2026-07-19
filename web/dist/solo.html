@@ -101,7 +101,6 @@
                 <div><div class="logo-text">Forge Pool</div><div class="logo-sub" data-i18n="p_logo_sub">Bitcoin Cash II Mining Pool</div></div>
             </a>
             <nav role="navigation" aria-label="Main navigation">
-                <a href="https://bch2.org/language.html?return=https://pool.bch2.org" title="Language" id="langSwitch" style="text-transform: uppercase; font-size: 0.85em;">🌐 EN</a>
                 <a href="/" data-i18n="p_nav_dashboard">Dashboard</a>
                 <a href="/help" data-i18n="p_nav_help">Help</a>
                 <a href="/settings" data-i18n="p_nav_settings">Settings</a>
@@ -227,7 +226,7 @@
 
             <div class="main-grid">
                 <div class="card">
-                    <h2 data-i18n="p_solo_hashrate_history">Hashrate History (24h)</h2>
+                    <h2 data-i18n="p_solo_hashrate_history">Hashrate History (~24 min)</h2>
                     <div class="chart-container">
                         <canvas id="hashrateChart" aria-label="Hashrate history chart"></canvas>
                     </div>
@@ -236,7 +235,7 @@
                 <div class="card">
                     <h2 data-i18n="p_solo_your_blocks">Your Blocks Found</h2>
                     <div style="margin-bottom:12px;padding:10px 14px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;font-size:12px;color:var(--text-secondary)">
-                        <strong style="color:var(--gold)">Note:</strong> Block rewards are collected by the pool, then paid to your address after 100 confirmations. Check <strong>Payout History</strong> below for your payment transactions.
+                        <strong style="color:var(--gold)">Note:</strong> In solo mode the full block reward is paid <strong>on-chain directly by the coinbase</strong> to your configured BCH2 payout address — there is no separate payout transaction. Rewards become spendable after <strong>100 confirmations</strong> (the block then shows "Confirmed").
                     </div>
                     <div class="table-scroll" id="blocksContainer">
                         <table class="blocks-table">

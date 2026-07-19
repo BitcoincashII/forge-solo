@@ -284,12 +284,12 @@
                 <h3>Get Started Page Options</h3>
                 <p>The <a href="/start">Get Started</a> page lets you configure your mining settings before connecting your miner.</p>
 
-                <h3>Step 1: Wallet Address</h3>
-                <p>Enter your BCH2 wallet address. This is where your mining rewards will be sent. The address must be a valid BCH2 CashAddr format starting with <code>q</code> (or <code>bitcoincashii:q</code> with prefix).</p>
+                <h3>Step 1: Set your BCH2 payout address</h3>
+                <p>Open the <a href="/settings">Settings</a> page and enter your BCH2 payout address. In this solo app there is <strong>one</strong> payout address: every block you solo-mine pays it directly through the coinbase, on-chain. The address must be a valid BCH2 CashAddr starting with <code>q</code> (or <code>bitcoincashii:q</code> with prefix).</p>
                 <ul>
-                    <li>Your address is your unique identifier on the pool</li>
-                    <li>Recently used addresses are saved for convenience</li>
-                    <li>The pool validates your address before saving</li>
+                    <li>The worker username you set in your miner is only a <strong>label</strong> for this dashboard — it is <em>not</em> a payout address.</li>
+                    <li>All BCH2 rewards go to the single payout address configured in Settings.</li>
+                    <li>The app validates the address before saving; a valid-but-wrong address is unrecoverable, so double-check it.</li>
                 </ul>
 
                 <h3>Step 2: Mining Mode</h3>
@@ -308,7 +308,7 @@
                         </tr>
                         <tr>
                             <td><strong>Username</strong></td>
-                            <td><code>YOUR_BCH2_ADDRESS.workername</code></td>
+                            <td><code>workername</code> — any label (BCH2 rewards go to the payout address set in <a href="/settings">Settings</a>, not the username)</td>
                         </tr>
                         <tr>
                             <td><strong>Password</strong></td>

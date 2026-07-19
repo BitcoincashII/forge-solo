@@ -11,40 +11,58 @@
  .row:last-child{border-bottom:none}
  .row .k{color:var(--text-secondary)} .row .v{font-family:'JetBrains Mono',monospace;word-break:break-all;text-align:right}
  code{background:#000;padding:2px 8px;border-radius:6px;font-family:'JetBrains Mono',monospace}
- .cta{display:inline-block;background:var(--bch-green,#0ac18e);color:#000;padding:10px 18px;border-radius:8px;font-weight:700;text-decoration:none;margin-top:8px}
+ .cta{display:inline-block;background:var(--bch-green,#0ac18e);color:#000;padding:10px 18px;border-radius:8px;font-weight:700;text-decoration:none;margin-top:8px;border:none;cursor:pointer;font-size:14px}
  .note{color:var(--text-secondary);font-size:13px;line-height:1.6;margin-top:8px}
+ label.fld{display:block;margin:14px 0 6px;font-size:13px;color:var(--text-secondary)}
+ input.txt{width:100%;box-sizing:border-box;background:#000;border:1px solid var(--border);border-radius:8px;color:var(--text,#fff);padding:10px 12px;font-family:'JetBrains Mono',monospace;font-size:14px}
+ .banner{background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.45);border-radius:12px;padding:14px 18px;margin-bottom:20px;color:#f59e0b;font-size:14px;font-weight:600}
+ .status{margin-left:12px;font-size:13px}
+ .ok{color:var(--bch-green,#0ac18e)} .err{color:#ef4444}
+ .mm-off{color:#f59e0b}
 </style></head><body>
 <header><div class="container header-content">
   <a href="/solo" class="logo" aria-label="Home"><div><div class="logo-text">Forge Solo</div><div class="logo-sub">BCH2 + 1175 merge-mining</div></div></a>
   <nav role="navigation"><a href="/solo">Dashboard</a><a href="/help">Help</a><a href="/settings" class="active">Settings</a></nav>
 </div></header>
 <main class="wrap">
+
+  <div class="banner" id="notConfiguredBanner" style="display:none">
+    Not configured — set your BCH2 payout address below to start mining. Until then the node accepts miner connections but mining is paused.
+  </div>
+
+  <div class="card">
+    <h2>Payout &amp; mining setup</h2>
+    <label class="fld" for="poolAddr">BCH2 payout address (required)</label>
+    <input class="txt" id="poolAddr" type="text" spellcheck="false" autocapitalize="none" placeholder="bitcoincashii:q…">
+    <label class="fld" for="esfAddr">1175 (ESF) merge-mining payout address (optional)</label>
+    <input class="txt" id="esfAddr" type="text" spellcheck="false" autocapitalize="none" placeholder="esf1…">
+    <label class="fld" for="cbTag">Coinbase tag (optional, ≤24 chars)</label>
+    <input class="txt" id="cbTag" type="text" maxlength="24" placeholder="Forge">
+    <label class="fld" for="minPayout">Minimum payout (BCH2)</label>
+    <input class="txt" id="minPayout" type="number" min="0" step="0.01" placeholder="1">
+    <div style="margin-top:16px">
+      <button class="cta" id="saveBtn">Save settings</button>
+      <span class="status" id="saveStatus"></span>
+    </div>
+    <p class="note">Your <strong>BCH2 payout address</strong> receives every block you solo-mine — the block's coinbase pays it directly on-chain (no separate payout transaction). Changes apply within a few seconds; <strong>no restart needed</strong>. A valid-but-wrong address is unrecoverable, so double-check it.</p>
+  </div>
+
   <div class="card">
     <h2>Connect your miner</h2>
     <div class="row"><span class="k">Stratum URL</span><span class="v" id="stratumUrl">stratum+tcp://…:3333</span></div>
-    <div class="row"><span class="k">Worker username</span><span class="v">your BCH2 address</span></div>
+    <div class="row"><span class="k">Worker username</span><span class="v">any label (e.g. rig1)</span></div>
     <div class="row"><span class="k">Password</span><span class="v">x (anything)</span></div>
-    <p class="note">Solo mining: whoever's miner finds a block keeps the full reward (minus nothing — 0% fee).
-    Set your miner's worker/username to the BCH2 address you want paid. Every share also merge-mines
-    <strong>1175 (ESF)</strong> for free.</p>
-    <a class="cta" id="openDash" href="/solo">Open dashboard →</a>
+    <p class="note">The worker <strong>username is only a label</strong> for the stats on this dashboard. All BCH2 block rewards go to the single <strong>payout address you set above</strong> — <em>not</em> to the worker username. Every share also merge-mines <strong>1175 (ESF)</strong> for free when a 1175 address is set.</p>
+    <a class="cta" href="/solo">Open dashboard →</a>
   </div>
+
   <div class="card">
-    <h2>Payout &amp; merge-mining</h2>
-    <div class="row"><span class="k">1175 (ESF) payout address</span><span class="v" id="esfAddr">— set in Umbrel app settings —</span></div>
-    <div class="row"><span class="k">Minimum payout</span><span class="v" id="minPayout">—</span></div>
+    <h2>Merge-mining (1175 / ESF)</h2>
+    <div class="row"><span class="k">1175 (ESF) payout address</span><span class="v" id="esfStatus">—</span></div>
+    <div class="row"><span class="k">Minimum payout</span><span class="v" id="minPayoutView">—</span></div>
     <div class="row"><span class="k">Network difficulty</span><span class="v" id="netDiff">—</span></div>
     <div class="row"><span class="k">Pool hashrate</span><span class="v" id="poolHr">—</span></div>
-    <p class="note">Your <strong>1175 payout address</strong> and <strong>minimum payout</strong> are set in the
-    Umbrel app's settings for this app (they take effect on restart). BCH2 payouts always go to the address
-    you use as your miner's worker username.</p>
-  </div>
-  <div class="card">
-    <h2>Block signature (coinbase tag)</h2>
-    <div class="row"><span class="k">Coinbase tag</span><span class="v"><input id="cbTag" type="text" maxlength="24" placeholder="Forge" style="background:#000;border:1px solid var(--border);border-radius:6px;color:var(--text,#fff);padding:6px 10px;font-family:'JetBrains Mono',monospace;width:190px;text-align:right"></span></div>
-    <p class="note">A short label embedded in the coinbase of every block you solo-mine, so your blocks are identifiable on-chain (e.g. <code>Forge</code>). Printable ASCII, up to 24 characters. <strong>Takes effect after the miner service restarts.</strong></p>
-    <button class="cta" id="saveTag" style="border:none;cursor:pointer">Save tag</button>
-    <span class="note" id="tagStatus" style="margin-left:12px"></span>
+    <p class="note">1175 (ESF) is merge-mined at no extra hashrate cost. Its reward is paid on-chain directly to the ESF address above. Set that address in <strong>Payout &amp; mining setup</strong> to turn merge-mining on.</p>
   </div>
 </main>
 <script src="/js/common.js"></script>
@@ -52,22 +70,53 @@
  (function(){
    var host=window.location.hostname||'your-umbrel';
    document.getElementById('stratumUrl').textContent='stratum+tcp://'+host+':3333';
+
    fetch('/api/v1/stats').then(function(r){return r.json()}).then(function(d){
      if(d.networkDifficulty!=null) document.getElementById('netDiff').textContent=Number(d.networkDifficulty).toLocaleString();
      if(d.hashrate!=null) document.getElementById('poolHr').textContent=d.hashrate;
    }).catch(function(){});
-   fetch('/api/v1/pool/config').then(function(r){return r.json()}).then(function(d){
-     if(d.coinbase_tag!=null){ document.getElementById('cbTag').value=d.coinbase_tag; }
-     if(d.min_payout!=null){ document.getElementById('minPayout').textContent=d.min_payout; }
-   }).catch(function(){});
-   document.getElementById('saveTag').addEventListener('click', function(){
-     var tag=document.getElementById('cbTag').value;
-     var st=document.getElementById('tagStatus');
-     st.textContent='Saving...';
-     fetch('/api/v1/pool/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({coinbase_tag:tag})})
+
+   function applyConfig(d){
+     d=d||{};
+     var pool=d.pool_address||'';
+     var esf=d.payout_address_1175||'';
+     document.getElementById('poolAddr').value=pool;
+     document.getElementById('esfAddr').value=esf;
+     if(d.coinbase_tag!=null) document.getElementById('cbTag').value=d.coinbase_tag;
+     if(d.min_payout!=null){
+       document.getElementById('minPayout').value=d.min_payout;
+       document.getElementById('minPayoutView').textContent=d.min_payout+' BCH2';
+     }
+     // Not-configured banner (#1): shown only when no BCH2 payout address is set.
+     document.getElementById('notConfiguredBanner').style.display = pool ? 'none' : 'block';
+     // Merge-mining status (#9): the ESF address, or an explicit "OFF" when empty.
+     var es=document.getElementById('esfStatus');
+     if(esf){ es.textContent=esf; es.className='v'; }
+     else { es.textContent='not configured — merge-mining OFF'; es.className='v mm-off'; }
+   }
+
+   fetch('/api/v1/pool/config').then(function(r){return r.json()}).then(applyConfig).catch(function(){});
+
+   document.getElementById('saveBtn').addEventListener('click', function(){
+     var st=document.getElementById('saveStatus');
+     st.className='status'; st.textContent='Saving…';
+     var body={
+       pool_address:document.getElementById('poolAddr').value.trim(),
+       payout_address_1175:document.getElementById('esfAddr').value.trim(),
+       coinbase_tag:document.getElementById('cbTag').value
+     };
+     var mp=parseFloat(document.getElementById('minPayout').value);
+     if(!isNaN(mp) && mp>0) body.min_payout=mp;
+     fetch('/api/v1/pool/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
        .then(function(r){return r.json()}).then(function(d){
-         st.textContent = d.success ? 'Saved - restart the app to apply' : ('Error: '+(d.error||'failed'));
-       }).catch(function(e){ st.textContent='Error: '+String(e); });
+         if(d.success){
+           st.className='status ok'; st.textContent=d.message||'Saved';
+           // Re-pull so the banner/merge-mining status reflect what was stored.
+           fetch('/api/v1/pool/config').then(function(r){return r.json()}).then(applyConfig).catch(function(){});
+         } else {
+           st.className='status err'; st.textContent='Error: '+(d.error||'failed');
+         }
+       }).catch(function(e){ st.className='status err'; st.textContent='Error: '+String(e); });
    });
  })();
 </script>

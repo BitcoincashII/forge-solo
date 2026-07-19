@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -350,6 +351,12 @@ func startPayoutProcessor() {
 			orphanFullScanDone = true
 		} else {
 			reconcileOrphanHeights(currentHeight, false)
+		}
+
+		// Solo blocks are paid on-chain by the coinbase; flip their status to confirmed once
+		// buried past coinbase maturity (display only — no send).
+		if cErr := stats.ConfirmMatureSoloBlocks(currentHeight - int64(stats.COINBASE_MATURITY)); cErr != nil {
+			log.Printf("Confirm mature solo blocks: %v", cErr)
 		}
 
 		// Periodic dust balance logging
@@ -793,6 +800,114 @@ func startZMQListener(zmqEndpoint string, logger *zap.Logger) {
 	}
 }
 
+// enableMergeMining1175 turns on 1175 (ESF) merge mining for the given esf1 payout address
+// and returns an aux client the stratum servers use to submit solved aux blocks. It
+// configures the job manager + the aux1175* globals and is safe to call at startup or at
+// runtime (from watchPoolConfig). Server wiring + the 1175 payout processor are the caller's
+// responsibility. The 1175 node is the authoritative address validator (via getauxblock).
+func enableMergeMining1175(cfg *viper.Viper, auxPayout string) *mergemining.Client {
+	auxURL := fmt.Sprintf("http://%s:%d",
+		cfg.GetString("mergemining.aux_node.host"),
+		cfg.GetInt("mergemining.aux_node.port"))
+	auxUser := cfg.GetString("mergemining.aux_node.user")
+	auxPass := cfg.GetString("mergemining.aux_node.pass")
+	if !strings.HasPrefix(auxPayout, "esf1") || len(auxPayout) < 42 {
+		logger.Warn("⚠️  PAYOUT_ADDRESS_1175 does not look like a valid esf1… address — 1175 rewards may be rejected by the node, or if it decodes to a different valid address, mined to the WRONG place. Double-check it.", zap.String("configured", auxPayout))
+	} else {
+		logger.Info("💠 1175 (ESF) block rewards will be paid on-chain DIRECTLY to your configured address", zap.String("payout_address_1175", auxPayout))
+	}
+	jobManager.EnableMergeMining(auxURL, auxUser, auxPass, auxPayout)
+	ac := mergemining.NewClient(auxURL, auxUser, auxPass)
+	auxWallet := cfg.GetString("mergemining.aux_node.wallet")
+	if auxWallet == "" {
+		auxWallet = "pool"
+	}
+	min1175Payout = cfg.GetFloat64("mergemining.min_payout")
+	if min1175Payout <= 0 {
+		min1175Payout = 1.0
+	}
+	merge1175Enabled = true
+	aux1175NodeURL = auxURL
+	aux1175WalletURL = fmt.Sprintf("%s/wallet/%s", auxURL, auxWallet)
+	aux1175User = auxUser
+	aux1175Pass = auxPass
+	logger.Info("⛏️  Merge mining enabled", zap.String("aux_node", auxURL), zap.String("payout", auxPayout))
+	return ac
+}
+
+// watchPoolConfig polls the dashboard-managed pool_config (DB) and applies changes to the
+// running stratum WITHOUT a restart: a new/changed BCH2 payout address activates mining, a
+// changed coinbase tag re-tags new jobs, and a first-time 1175 (esf1) address turns on merge
+// mining (wiring the servers + starting its payout processor). SetPoolAddress fails soft, so
+// a bad new value never clears an already-working address.
+func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
+	ticker := time.NewTicker(8 * time.Second)
+	defer ticker.Stop()
+	var lastPool, lastTag, last1175 string
+	// Seed with the values already applied at startup so we only act on real changes.
+	if stats.IsDBConnected() {
+		if p, p1175, t, _, err := stats.GetPoolConfig(); err == nil {
+			lastPool, last1175, lastTag = p, p1175, t
+		}
+	}
+	for {
+		select {
+		case <-shutdownCh:
+			return
+		case <-ticker.C:
+		}
+		if !stats.IsDBConnected() {
+			continue
+		}
+		pool, p1175, tag, minP, err := stats.GetPoolConfig()
+		if err != nil {
+			continue
+		}
+		if minP > 0 {
+			minPayout = minP
+		}
+		if pool != lastPool && pool != "" {
+			if serr := jm.SetPoolAddress(pool); serr != nil {
+				logger.Warn("dashboard payout address rejected — keeping previous", zap.String("address", pool), zap.Error(serr))
+			} else {
+				logger.Info("✅ payout address updated from dashboard — mining active", zap.String("address", pool))
+				lastPool = pool
+			}
+		}
+		if tag != lastTag && tag != "" {
+			jm.SetCoinbaseTag(tag)
+			logger.Info("coinbase tag updated from dashboard", zap.String("tag", tag))
+			lastTag = tag
+		}
+		if p1175 != last1175 && p1175 != "" {
+			if !merge1175Enabled {
+				ac := enableMergeMining1175(cfg, p1175)
+				if stratumServer != nil {
+					stratumServer.EnableMergeMining(ac)
+					stratumServer.SetAuxBlockHandler(aux1175BlockHandler)
+				}
+				if stratumBraiinsServer != nil {
+					stratumBraiinsServer.EnableMergeMining(ac)
+					stratumBraiinsServer.SetAuxBlockHandler(aux1175BlockHandler)
+				}
+				if stats.IsDBConnected() {
+					go start1175PayoutProcessor()
+				}
+				logger.Info("💠 1175 merge-mining enabled from dashboard", zap.String("payout_address_1175", p1175))
+			} else {
+				// Already mining 1175: just re-point the aux coinbase payout to the new address.
+				jm.EnableMergeMining(
+					fmt.Sprintf("http://%s:%d", cfg.GetString("mergemining.aux_node.host"), cfg.GetInt("mergemining.aux_node.port")),
+					cfg.GetString("mergemining.aux_node.user"),
+					cfg.GetString("mergemining.aux_node.pass"),
+					p1175)
+				logger.Info("💠 1175 payout address updated from dashboard", zap.String("payout_address_1175", p1175))
+			}
+			last1175 = p1175
+		}
+	}
+}
+
 func main() {
 	configPath := flag.String("config", "config.yaml", "Path to config file")
 	flag.Parse()
@@ -808,7 +923,7 @@ func main() {
 
 	// Initialize database with credentials from environment
 	dbConnStr := stats.GetDBConnStr()
-	if dbErr := stats.InitDB(dbConnStr); dbErr != nil {
+	if dbErr := stats.InitDBWithRetry(dbConnStr, 30, 2*time.Second); dbErr != nil {
 		logger.Warn("Database not available, using memory only", zap.Error(dbErr))
 	} else {
 		logger.Info("✅ Connected to PostgreSQL database")
@@ -882,6 +997,32 @@ func main() {
 		zap.Float64("min_payout", minPayout),
 		zap.Int("pplns_window", pplnsWindow))
 
+	// Dashboard-managed config (DB pool_config) OVERRIDES the env-derived values when set,
+	// so the whole app is configurable from the web UI with no SSH/restart. Falls back to
+	// the env/config values when the DB row is empty or the DB is unavailable.
+	effectivePoolAddr := poolAddress
+	effectiveCoinbaseTag := config.GetString("pool.coinbase_tag")
+	effective1175Payout := config.GetString("mergemining.payout_address")
+	if stats.IsDBConnected() {
+		if dbPool, db1175, dbTag, dbMin, cErr := stats.GetPoolConfig(); cErr == nil {
+			if dbPool != "" {
+				effectivePoolAddr = dbPool
+			}
+			if db1175 != "" {
+				effective1175Payout = db1175
+			}
+			if dbTag != "" {
+				effectiveCoinbaseTag = dbTag
+			}
+			if dbMin > 0 {
+				minPayout = dbMin
+			}
+		} else {
+			logger.Warn("could not read dashboard pool_config; using env/config values", zap.Error(cErr))
+		}
+	}
+	poolAddress = effectivePoolAddr
+
 	// Start payout processor now that config is loaded
 	if stats.IsDBConnected() {
 		go startPayoutProcessor()
@@ -896,54 +1037,22 @@ func main() {
 		zap.Int("target_time", serverConfig.TargetShareTime),
 		zap.Int("retarget_time", serverConfig.RetargetTime))
 
-	jobManager = mining.NewJobManager(rpcURL, rpcUser, rpcPass, poolAddress, config.GetString("pool.coinbase_tag"))
+	jobManager = mining.NewJobManager(rpcURL, rpcUser, rpcPass, effectivePoolAddr, effectiveCoinbaseTag)
 
 	// Merge mining (aux chain, e.g. 1175): the job manager fetches aux work and
 	// embeds the commitment in the coinbase; the stratum servers submit solved
 	// aux blocks. Entirely inert unless mergemining.enabled — BCH2 is unaffected.
 	var auxClient *mergemining.Client
 	// Merge-mining requires a 1175 (esf1…) payout address — the aux coinbase pays it
-	// directly (wallet-free). With it blank, getauxblock("") is rejected by the node
-	// every cycle and 1175 is never mined, so enable ONLY when it's set and warn loudly
-	// otherwise. BCH2 mining is unaffected either way. (The BCH2 coinbase path
-	// fail-closes on the same mistake; the aux path is best-effort so it warns instead.)
-	if config.GetBool("mergemining.enabled") && config.GetString("mergemining.payout_address") == "" {
-		logger.Warn("⚠️  Merge mining is enabled but PAYOUT_ADDRESS_1175 (your esf1… address) is not set — 1175 merge-mining is OFF until you set it. BCH2 mining continues normally.")
+	// directly (wallet-free). With it blank, getauxblock("") is rejected by the node every
+	// cycle and 1175 is never mined, so enable ONLY when it's set and warn loudly otherwise.
+	// BCH2 mining is unaffected either way. When it is later set in the dashboard,
+	// watchPoolConfig turns merge mining on at runtime via the same enableMergeMining1175 path.
+	if config.GetBool("mergemining.enabled") && effective1175Payout == "" {
+		logger.Warn("⚠️  Merge mining is enabled but PAYOUT_ADDRESS_1175 (your esf1… address) is not set — 1175 merge-mining is OFF until you set it in the dashboard. BCH2 mining continues normally.")
 	}
-	if config.GetBool("mergemining.enabled") && config.GetString("mergemining.payout_address") != "" {
-		auxURL := fmt.Sprintf("http://%s:%d",
-			config.GetString("mergemining.aux_node.host"),
-			config.GetInt("mergemining.aux_node.port"))
-		auxUser := config.GetString("mergemining.aux_node.user")
-		auxPass := config.GetString("mergemining.aux_node.pass")
-		auxPayout := config.GetString("mergemining.payout_address")
-		// Surface the configured 1175 payout address prominently so the miner can verify it:
-		// 1175 is coinbase-direct, so rewards go straight to this address on-chain and a
-		// valid-but-wrong typo is unrecoverable. Sanity-check the esf1 shape and warn loudly on an
-		// obviously-malformed value (the 1175 node is the authoritative validator via getauxblock).
-		if !strings.HasPrefix(auxPayout, "esf1") || len(auxPayout) < 42 {
-			logger.Warn("⚠️  PAYOUT_ADDRESS_1175 does not look like a valid esf1… address — 1175 rewards may be rejected by the node, or if it decodes to a different valid address, mined to the WRONG place. Double-check it.", zap.String("configured", auxPayout))
-		} else {
-			logger.Info("💠 1175 (ESF) block rewards will be paid on-chain DIRECTLY to your configured address", zap.String("payout_address_1175", auxPayout))
-		}
-		jobManager.EnableMergeMining(auxURL, auxUser, auxPass, auxPayout)
-		auxClient = mergemining.NewClient(auxURL, auxUser, auxPass)
-		// 1175 payout distribution state.
-		auxWallet := config.GetString("mergemining.aux_node.wallet")
-		if auxWallet == "" {
-			auxWallet = "pool"
-		}
-		min1175Payout = config.GetFloat64("mergemining.min_payout")
-		if min1175Payout <= 0 {
-			min1175Payout = 1.0
-		}
-		merge1175Enabled = true
-		aux1175NodeURL = auxURL
-		aux1175WalletURL = fmt.Sprintf("%s/wallet/%s", auxURL, auxWallet)
-		aux1175User = auxUser
-		aux1175Pass = auxPass
-		logger.Info("⛏️  Merge mining enabled",
-			zap.String("aux_node", auxURL), zap.String("payout", auxPayout))
+	if config.GetBool("mergemining.enabled") && effective1175Payout != "" {
+		auxClient = enableMergeMining1175(config, effective1175Payout)
 	}
 
 	shareProcessor := &BlockFindingShareProcessor{logger: logger}
@@ -1056,6 +1165,10 @@ func main() {
 
 	go startStatsServer()
 
+	// Watch the dashboard-managed pool_config (DB) and apply changes live — payout address,
+	// coinbase tag, and first-time 1175 merge-mining enable — with no restart or SSH.
+	go watchPoolConfig(jobManager, config)
+
 	// 1175 merge-mining payout processor (pays miners their accrued 1175).
 	if merge1175Enabled && stats.IsDBConnected() {
 		go start1175PayoutProcessor()
@@ -1098,9 +1211,18 @@ func main() {
 				// Regular polling (fallback)
 			}
 
+			// No payout address configured yet: accept stratum connections but PAUSE mining
+			// (never build a job that would pay a null script). Set it in the dashboard.
+			if !jobManager.IsConfigured() {
+				continue
+			}
+
 			template, err := jobManager.GetBlockTemplate()
 			if err != nil {
 				logger.Error("Failed to get block template", zap.Error(err))
+				continue
+			}
+			if template == nil {
 				continue
 			}
 
@@ -1123,6 +1245,9 @@ func main() {
 
 			if isNewBlock || needPeriodicUpdate {
 				job := jobManager.CreateJob(template)
+				if job == nil {
+					continue
+				}
 				setCurrentJob(job)
 
 				// Store job in history for block submission lookup
@@ -1465,12 +1590,15 @@ func (p *BlockFindingShareProcessor) submitBlock(share *stratum.Share) {
 		})
 
 		if share.IsSolo {
-			// SOLO MODE: Pay only the block finder
-			stats.AddPendingPayout(share.MinerID, job.Height, payoutAmount)
-			if err := stats.SavePayoutAtomicWithSolo(share.MinerID, job.Height, payoutAmount, hashStr, true); err != nil {
-				p.logger.Error("Failed to save solo payout", zap.Error(err))
+			// SOLO MODE: the block reward is paid on-chain DIRECTLY by the coinbase to the
+			// configured POOL_ADDRESS. Settle DB-only (txid='coinbase-direct') and never
+			// create a sendable payout row: the wallet sendtoaddress path targets a
+			// nonexistent wallet, would fail forever, and risks a double-pay. Mirrors the
+			// 1175 coinbase-direct settle.
+			if err := stats.SaveSoloBlockCoinbaseDirect(share.MinerID, job.Height, payoutAmount, hashStr); err != nil {
+				p.logger.Error("Failed to record solo block", zap.Error(err))
 			}
-			p.logger.Info("💰 Solo block payout credited",
+			p.logger.Info("💰 Solo block reward settled (paid on-chain by coinbase)",
 				zap.String("miner", share.MinerID),
 				zap.Float64("amount", payoutAmount))
 		} else {
@@ -1773,24 +1901,10 @@ func submitBlockToNode(blockHex string) (string, error) {
 // SECURITY: Token is REQUIRED for sensitive endpoints (trigger-payout, etc.)
 func internalAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Get real client IP, handling reverse proxies
-		remoteIP := r.RemoteAddr
-		// Don't trust X-Forwarded-For - could be spoofed
-		// Extract just the IP without port
-		if colonIdx := strings.LastIndex(remoteIP, ":"); colonIdx != -1 {
-			remoteIP = remoteIP[:colonIdx]
-		}
-		remoteIP = strings.Trim(remoteIP, "[]") // Remove IPv6 brackets
-
-		// Strict localhost check
-		isLocalhost := remoteIP == "127.0.0.1" || remoteIP == "::1" || remoteIP == "localhost"
-		if !isLocalhost {
-			log.Printf("⚠️ SECURITY: Blocked internal API access from external IP: %s (path: %s)", remoteIP, r.URL.Path)
-			http.Error(w, "Forbidden", http.StatusForbidden)
-			return
-		}
-
-		// SECURITY: ALWAYS require token for internal APIs
+		// The internal stats port is NOT published to the host (compose only exposes it on
+		// the private app network), so the api container must be able to reach it by service
+		// name over that network. A hard localhost check would 403 the api container, so we
+		// gate SOLELY on a constant-time match of the required internal token.
 		token := os.Getenv("INTERNAL_API_TOKEN")
 		if token == "" {
 			log.Printf("🚫 SECURITY: INTERNAL_API_TOKEN not set - blocking all internal API access")
@@ -1799,8 +1913,8 @@ func internalAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		authHeader := r.Header.Get("X-Internal-Token")
-		if authHeader != token {
-			log.Printf("⚠️ SECURITY: Invalid internal API token from: %s (path: %s)", remoteIP, r.URL.Path)
+		if subtle.ConstantTimeCompare([]byte(authHeader), []byte(token)) != 1 {
+			log.Printf("⚠️ SECURITY: Invalid internal API token (path: %s)", r.URL.Path)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -2048,12 +2162,18 @@ func startStatsServer() {
 		})
 	}))
 
-	// Listen only on localhost for internal endpoints
+	// Internal endpoints: bind host defaults to localhost but is overridable so compose can
+	// expose them to the api container over the private app network (INTERNAL_STATS_HOST).
+	// The port is never published to the host; auth is the constant-time internal-token check.
 	statsPort := os.Getenv("INTERNAL_STATS_PORT")
 	if statsPort == "" {
 		statsPort = "3337"
 	}
-	statsAddr := "127.0.0.1:" + statsPort
+	statsHost := os.Getenv("INTERNAL_STATS_HOST")
+	if statsHost == "" {
+		statsHost = "127.0.0.1"
+	}
+	statsAddr := statsHost + ":" + statsPort
 	log.Printf("Internal stats server starting on %s", statsAddr)
 	if err := http.ListenAndServe(statsAddr, nil); err != nil {
 		log.Printf("ERROR: Internal stats server failed: %v", err)
