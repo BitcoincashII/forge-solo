@@ -1,8 +1,8 @@
-# Forge Solo Miner — stratum config (rendered from env by entrypoint.sh via envsubst).
+# Forge Solo — stratum config (rendered from env by entrypoint.sh via envsubst).
 # SOLO ONLY: no PPLNS, no rental/Braiins ports, no Stratum V2. Merge-mines 1175 (ESF).
 
 pool:
-  name: "Forge Solo Miner"
+  name: "Forge Solo"
   coin: "Bitcoin Cash II"
   coin_symbol: "BCH2"
   address: "${POOL_ADDRESS}"

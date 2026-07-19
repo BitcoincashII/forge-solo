@@ -1,6 +1,6 @@
 version: "3.8"
 
-# Forge Solo Miner — a self-hosted SOLO mining app for home miners.
+# Forge Solo — a self-hosted SOLO mining app for home miners.
 # Mine BCH2 solo to your OWN address (you keep the full block reward minus a tiny
 # solo fee), and merge-mine 1175 (ESF) at no extra hashrate cost. This is NOT a
 # production/PPLNS pool — it is meant for one household's miners.
@@ -78,7 +78,7 @@ services:
       start_period: 180s
 
   postgres:
-    image: timescale/timescaledb:2.17.2-pg16
+    image: timescale/timescaledb:2.17.2-pg16@sha256:4e459e217f00cbb09920c34d245501e63427e6767a495de57ce76823ff280f12
     container_name: forge_solo_postgres
     restart: unless-stopped
     stop_grace_period: 1m

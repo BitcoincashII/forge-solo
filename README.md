@@ -1,4 +1,4 @@
-# Forge Solo Miner (Umbrel)
+# Forge Solo (Umbrel)
 
 Solo-mine **BCH2** at home and **merge-mine 1175 (ESF)** at no extra hashrate cost.
 Built on the hardened Forge Pool engine, packaged for a single household — **solo only,

@@ -1,4 +1,4 @@
--- Forge Solo Miner — core schema, applied on fresh Postgres init.
+-- Forge Solo — core schema, applied on fresh Postgres init.
 -- The Go services (internal/stats/db.go InitDB) also create this idempotently on
 -- every start, so this file is a belt-and-suspenders guarantee that a brand-new
 -- install has the full schema before any service connects. Kept in sync with

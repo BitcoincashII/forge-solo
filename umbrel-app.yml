@@ -1,8 +1,8 @@
 manifestVersion: 1
-id: forge-solo-miner
-name: Forge Solo Miner
+id: forge-solo
+name: Forge Solo
 tagline: Solo-mine BCH2 at home and merge-mine 1175
-icon: https://hashforge.bch2.org/logo.png
+icon: https://raw.githubusercontent.com/BitcoincashII/BCH2-Graphics/main/bch2_logo.png
 category: bitcoin
 version: "1.0.0"
 port: 3080
@@ -27,14 +27,14 @@ description: >-
 
 developer: BCH2 Team
 website: https://hashforge.bch2.org
-repo: https://github.com/BitcoincashII/forge-solo-miner
-support: https://github.com/BitcoincashII/forge-solo-miner/issues
+repo: https://github.com/BitcoincashII/forge-solo
+support: https://github.com/BitcoincashII/forge-solo/issues
 gallery:
   - https://hashforge.bch2.org/screenshots/solo-dashboard.png
   - https://hashforge.bch2.org/screenshots/solo-effort.png
   - https://hashforge.bch2.org/screenshots/settings.png
 releaseNotes: >-
-  First release of Forge Solo Miner: solo-only home mining for BCH2 with 1175
+  First release of Forge Solo: solo-only home mining for BCH2 with 1175
   merge-mining, built on the hardened Forge Pool engine, with per-install
   generated secrets and no host-exposed node RPC.
 dependencies: []

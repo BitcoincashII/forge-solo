@@ -917,6 +917,15 @@ func main() {
 		auxUser := config.GetString("mergemining.aux_node.user")
 		auxPass := config.GetString("mergemining.aux_node.pass")
 		auxPayout := config.GetString("mergemining.payout_address")
+		// Surface the configured 1175 payout address prominently so the miner can verify it:
+		// 1175 is coinbase-direct, so rewards go straight to this address on-chain and a
+		// valid-but-wrong typo is unrecoverable. Sanity-check the esf1 shape and warn loudly on an
+		// obviously-malformed value (the 1175 node is the authoritative validator via getauxblock).
+		if !strings.HasPrefix(auxPayout, "esf1") || len(auxPayout) < 42 {
+			logger.Warn("⚠️  PAYOUT_ADDRESS_1175 does not look like a valid esf1… address — 1175 rewards may be rejected by the node, or if it decodes to a different valid address, mined to the WRONG place. Double-check it.", zap.String("configured", auxPayout))
+		} else {
+			logger.Info("💠 1175 (ESF) block rewards will be paid on-chain DIRECTLY to your configured address", zap.String("payout_address_1175", auxPayout))
+		}
 		jobManager.EnableMergeMining(auxURL, auxUser, auxPass, auxPayout)
 		auxClient = mergemining.NewClient(auxURL, auxUser, auxPass)
 		// 1175 payout distribution state.

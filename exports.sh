@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Umbrel runs exports.sh before starting the app. We generate a UNIQUE random
-# secret per install for every credential (node RPC, 1175 node RPC, database, and
-# the internal-API token) and persist them so they are stable across restarts.
-# Nothing is ever hardcoded or shared between installs.
+# Umbrel runs exports.sh before starting the app. We generate a UNIQUE random secret per
+# install for every credential (node RPC, 1175 node RPC, database, internal-API token) and
+# persist them so they are stable across restarts. Nothing is ever hardcoded or shared.
+set -eo pipefail
+umask 077   # the secrets file is created 0600 from the start — no world-readable window
 
 APP_SECRETS_FILE="${APP_DATA_DIR}/.secrets.env"
 

@@ -372,6 +372,15 @@ func ConfirmedPendingMiners1175() ([]string, error) {
 	return out, rows.Err()
 }
 
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// QUARANTINE — the send pipeline below (Process1175PayoutAtomic, Finalize1175Payout,
+// Revert1175PayoutMark, StuckSending1175, Get1175PayoutAddress) is a pool-style
+// reserve→send→finalize path that is NOT used by the SOLO app. Solo 1175 is COINBASE-DIRECT:
+// getauxblock builds the aux coinbase paying PAYOUT_ADDRESS_1175 on-chain, and run1175PayoutCycle
+// settles the ledger via Settle1175ByCoinbase ONLY — there is no sendtoaddress for 1175.
+// ⛔ DO NOT wire these into the 1175 cycle: a secondary send on top of the coinbase payment would
+// DOUBLE-PAY. Any 1175 send path must go through an explicit design review first.
+// ─────────────────────────────────────────────────────────────────────────────────────────
 // Process1175PayoutAtomic locks and sums a miner's payable credits (pending rows on
 // CONFIRMED blocks — the confirmation gate replaces the old height arithmetic) and, if
 // they meet minPayout, marks them 'sending' under a batch id. Returns (batch, amount).
