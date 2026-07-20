@@ -4,6 +4,14 @@ Solo-mine **BCH2** at home and **merge-mine 1175 (ESF)** at no extra hashrate co
 Built on the hardened Forge Pool engine, packaged for a single household — **solo only,
 no PPLNS, no pool fee**.
 
+## Install on Umbrel
+
+1. In Umbrel: **Settings → App Store → Community App Stores → Add**, and paste:
+   `https://github.com/BitcoincashII/umbrel-app-store`
+   ⚠️ Add the **app-store** repo — **not** `bitcoincashII-core` (that is the node/wallet source code, not an app store; Umbrel will fail to load it).
+2. Open **BCH2 Community Apps** and install **Forge Solo**.
+3. Set your BCH2 payout address in the app's Settings, then point your miner at `stratum+tcp://<your-umbrel-ip>:3333`.
+
 ## What's inside
 - `node` — BCH2 full node (pruned, auto-syncs)
 - `node1175` — 1175 (ESF) node for AuxPoW merge-mining (fetched + SHA256-verified)
