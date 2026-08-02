@@ -8,6 +8,8 @@
         let hashrateChart;
         let hashrateHistory = [];
         let networkDiff = 1;
+        let nodeSynced = false;   // set by updateStatusBanner; gates network stats during IBD
+        let minerHashing = false; // set by fetchMinerData; true once a worker is actually hashing
         let minerBlocksCount = 0;
         let currentHashrateTH = 0;   // latest 5m hashrate (TH/s), for the stable avg-effort estimate
 
@@ -34,18 +36,85 @@
             el.style.color = avgEffort <= 130 ? 'var(--bch-green)' : (avgEffort <= 180 ? 'var(--gold)' : 'var(--red)');
         }
 
+        // Status banner: shows "set your payout address" or live node-sync progress,
+        // so a fresh install (empty address / still-syncing node) reads as a clear state
+        // instead of a frozen spinner. Injected here so no HTML edit is required.
+        (function ensureBanner(){
+            if (document.getElementById('syncBanner')) return;
+            var b = document.createElement('div');
+            b.id = 'syncBanner';
+            b.style.cssText = 'display:none;margin:0 0 16px;padding:11px 15px;border-radius:8px;background:rgba(224,179,65,0.12);color:#e0b341;border:1px solid rgba(224,179,65,0.35);font-size:14px;line-height:1.45;text-align:center';
+            var dash = document.querySelector('.container.dashboard') || document.body;
+            dash.insertBefore(b, dash.firstChild);
+        })();
+
+        async function updateStatusBanner() {
+            var el = document.getElementById('syncBanner');
+            if (!el) return;
+            // Pick up a payout address saved in Settings without needing a page reload.
+            if (!minerAddress) {
+                try {
+                    const cfg = await apiFetch('/api/v1/pool/config');
+                    if (cfg && cfg.pool_address) {
+                        minerAddress = cfg.pool_address;
+                        var a = document.getElementById('minerAddress');
+                        if (a) a.textContent = minerAddress;
+                    }
+                } catch (e) {}
+            }
+            var msg = '', tone = 'gold';   // gold = needs attention, green = ready / mining
+            try {
+                const s = await apiFetch('/api/v1/node-status');
+                nodeSynced = (s.status === 'synced');
+                if (s.status === 'syncing') {
+                    const pct = (s.progress != null ? (s.progress * 100) : 0);
+                    msg = '⏳ <b>BCH2 node syncing — ' + pct.toFixed(2) + '%</b> (block ' + (Number(s.blocks) || 0) + ' / ' + (Number(s.headers) || 0) + '). You can mine once it reaches 100%.'
+                        + '<div style="margin-top:7px;height:7px;background:rgba(255,255,255,0.18);border-radius:4px;overflow:hidden">'
+                        + '<div style="height:100%;width:' + pct.toFixed(1) + '%;background:#0ac18e;transition:width .6s"></div></div>';
+                    if (!minerAddress) msg += '<div style="height:8px"></div>⚙️ Meanwhile, set your <a href="/settings" style="color:inherit;font-weight:600;text-decoration:underline">payout address</a> in Settings.';
+                } else if (s.status === 'offline') {
+                    msg = '⏳ <b>Starting the BCH2 node…</b> first launch can take a minute.';
+                } else if (!minerAddress) {
+                    msg = '✅ <b>Node synced.</b> Now set your <a href="/settings" style="color:inherit;font-weight:600;text-decoration:underline">payout address</a> in Settings to start mining.';
+                } else if (minerHashing) {
+                    tone = 'green';
+                    msg = '⛏️ <b>Mining</b> — node synced and a miner is connected. Good luck!';
+                } else {
+                    tone = 'green';
+                    msg = '✅ <b>Node synced — ready to mine.</b> Point a miner at <b>port 3333</b> (this PC: 127.0.0.1:3333 · a Bitaxe: your PC LAN IP, port 3333).';
+                }
+            } catch (e) {
+                if (!minerAddress) msg = '⚙️ Set your payout address in Settings to mine.';
+            }
+            if (!msg) { el.style.display = 'none'; return; }
+            var c = (tone === 'green')
+                ? ['rgba(10,193,142,0.12)', '#0ac18e', 'rgba(10,193,142,0.35)']
+                : ['rgba(224,179,65,0.12)', '#e0b341', 'rgba(224,179,65,0.35)'];
+            el.style.background = c[0]; el.style.color = c[1]; el.style.borderColor = c[2];
+            el.innerHTML = msg;
+            el.style.display = 'block';
+        }
+
         async function fetchStats() {
             try {
                 const data = await apiFetch('/api/v1/stats');
                 networkDiff = data.networkDifficulty || 1;
-                document.getElementById('networkDiff').textContent = formatDiff(networkDiff);
-                document.getElementById('networkHashrate').textContent = data.networkHashrate ? formatHashrate(data.networkHashrate) : '--';
+                // Until the node reaches the chain tip, getdifficulty/getnetworkhashps report the
+                // value at the CURRENT (low) sync height — wildly off — so show "syncing…" instead.
+                if (nodeSynced) {
+                    document.getElementById('networkDiff').textContent = formatDiff(networkDiff);
+                    document.getElementById('networkHashrate').textContent = data.networkHashrate ? formatHashrate(data.networkHashrate) : '--';
+                } else {
+                    document.getElementById('networkDiff').textContent = 'syncing…';
+                    document.getElementById('networkHashrate').textContent = 'syncing…';
+                }
             } catch(e) {
                 console.error('Failed to fetch stats', e);
             }
         }
 
         async function fetchMinerData() {
+            if (!minerAddress) return;   // no address yet -> don't hit /miners/ (404 spam)
             try {
                 const data = await apiFetch('/api/v1/miners/' + encodeURIComponent(minerAddress));
                 // Solo-only home app: always render this dashboard.
@@ -77,6 +146,7 @@
                 }
                 const hashrate = data.hashrate5m || 0;
                 currentHashrateTH = hashrate;
+                minerHashing = hashrate > 0 || (data.workers || 0) > 0;
                 if (hashrate > 0 && networkDiff > 0) {
                     const hashesPerSecond = hashrate * 1e12;
                     const hashesNeeded = networkDiff * 4294967296;
@@ -103,6 +173,7 @@
 
         async function fetchWorkers() {
             const tbody = document.getElementById('workersTable');
+            if (!minerAddress) { tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">Set your payout address in Settings to begin.</div></td></tr>'; return; }
             try {
                 const data = await apiFetch('/api/v1/miners/' + encodeURIComponent(minerAddress) + '/workers');
                 if (!data.workers || data.workers.length === 0) {
@@ -127,6 +198,7 @@
 
         async function fetchBlocks() {
             const tbody = document.getElementById('blocksTable');
+            if (!minerAddress) { tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">Set your payout address in Settings to begin.</div></td></tr>'; return; }
             try {
                 const data = await apiFetch('/api/v1/miners/' + encodeURIComponent(minerAddress) + '/solo-blocks');
                 if (!data.blocks || data.blocks.length === 0) {
@@ -192,6 +264,7 @@
 
         async function fetchPayouts() {
             const tbody = document.getElementById("payoutsTable");
+            if (!minerAddress) { tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state">Set your payout address in Settings to begin.</div></td></tr>'; return; }
             try {
                 const data = await apiFetch("/api/v1/miners/" + encodeURIComponent(minerAddress) + "/solo-payouts");
                 document.getElementById("payoutCount").textContent = "(" + formatNumber(data.total || 0) + ")";
@@ -264,11 +337,13 @@
                 var _el = document.getElementById('minerAddress');
                 if (_el) _el.textContent = minerAddress || '(configure payout address)';
             }
+            await updateStatusBanner();
             fetchStats();
             fetchMinerData();
             fetchWorkers();
             fetchBlocks();
             fetchPayouts();
+            setInterval(updateStatusBanner, 5000);
             setInterval(fetchStats, 30000);
             setInterval(fetchMinerData, 5000);
             setInterval(fetchWorkers, 10000);
