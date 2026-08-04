@@ -509,17 +509,31 @@ pool_uptime_seconds %.0f
 	app.Get("/blocks", func(c *fiber.Ctx) error {
 		return c.SendFile(webRoot + "/blocks.html")
 	})
+	app.Get("/solo", func(c *fiber.Ctx) error {
+		return c.SendFile(webRoot + "/solo.html")
+	})
 
 	// Static files - serve from web directory
 	app.Static("/", webRoot)
 
-	// Fallback - serve index.html for SPA routing
+	// Fallback for "/" and unknown paths.
+	//
+	// On Umbrel an nginx container fronts this API with `index solo.html`, so this never
+	// runs. On Windows the API IS the web server, and the Forge Solo dist ships solo.html
+	// with NO index.html -- so sending index.html unconditionally 404s the dashboard root
+	// for every Windows user. Probe in order and serve whichever the shipped dist actually
+	// contains, rather than assuming a filename.
 	app.Use(func(c *fiber.Ctx) error {
 		// Don't override API routes
 		if len(c.Path()) > 4 && c.Path()[:4] == "/api" {
 			return c.Status(404).JSON(fiber.Map{"error": "Not found"})
 		}
-		return c.SendFile(webRoot + "/index.html")
+		for _, page := range []string{"/solo.html", "/index.html"} {
+			if _, err := os.Stat(webRoot + page); err == nil {
+				return c.SendFile(webRoot + page)
+			}
+		}
+		return c.Status(404).SendString("web UI not found in " + webRoot)
 	})
 
 	listenPort := os.Getenv("API_LISTEN_PORT")
@@ -1053,9 +1067,9 @@ var configFilePath = "config.yaml"
 // ConfigFile represents the config.yaml structure
 type ConfigFile struct {
 	Pool struct {
-		Name      string  `yaml:"name"`
-		Fee       float64 `yaml:"fee"`
-		MinPayout float64 `yaml:"min_payout"`
+		Name        string  `yaml:"name"`
+		Fee         float64 `yaml:"fee"`
+		MinPayout   float64 `yaml:"min_payout"`
 		Wallet      string  `yaml:"wallet"`
 		CoinbaseTag string  `yaml:"coinbase_tag"`
 	} `yaml:"pool"`
