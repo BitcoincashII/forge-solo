@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -146,10 +147,40 @@ func createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_shares_miner ON shares(miner_address);
 	CREATE INDEX IF NOT EXISTS idx_shares_id_desc ON shares(id DESC);
 	CREATE INDEX IF NOT EXISTS idx_miners_address ON miners(address);
+
+	-- Dashboard-managed single-row pool configuration. Postgres has carried this
+	-- table for as long as GetPoolConfig/SavePoolConfig have existed; SQLite never
+	-- gained it, so those calls would have failed at runtime even once they linked.
+	CREATE TABLE IF NOT EXISTS pool_config (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		pool_address TEXT DEFAULT '',
+		payout_address_1175 TEXT DEFAULT '',
+		coinbase_tag TEXT DEFAULT '',
+		min_payout REAL DEFAULT 1,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
 	`
 
-	_, err := db.Exec(schema)
-	return err
+	if _, err := db.Exec(schema); err != nil {
+		return err
+	}
+
+	// Additive migrations. CREATE TABLE IF NOT EXISTS cannot add a column to a
+	// database that already exists, and SQLite has no ADD COLUMN IF NOT EXISTS, so a
+	// duplicate-column error here is the expected no-op on an already-migrated file.
+	for _, stmt := range []string{
+		`ALTER TABLE blocks ADD COLUMN confirmed_at DATETIME`,
+		// Matches postgres (database/schema.sql UNIQUE(miner_address, block_height)).
+		// Without it the INSERT OR IGNORE above ignores nothing and a re-recorded block
+		// double-credits. Fails loudly-but-nonfatally if an existing file already holds
+		// duplicates, which must then be reconciled by hand rather than silently indexed.
+		`CREATE UNIQUE INDEX IF NOT EXISTS uq_payouts_miner_height ON payouts(miner_address, block_height)`,
+	} {
+		if _, err := db.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			log.Printf("Warning: schema migration %q: %v", stmt, err)
+		}
+	}
+	return nil
 }
 
 func CloseDB() {
@@ -1017,4 +1048,477 @@ func SetSettingsPinHash(address, hash string) error {
 		ON CONFLICT(address) DO UPDATE SET settings_pin_hash = excluded.settings_pin_hash, updated_at = CURRENT_TIMESTAMP`,
 		address, hash)
 	return err
+}
+
+// ---------------------------------------------------------------------------
+// Symbols the postgres backend (db.go, //go:build !sqlite) has and this file did
+// not, which is why `go build -tags sqlite` -- i.e. every Windows build -- failed
+// to link. Semantics match postgres; dialect and, for the reservation, the
+// concurrency strategy differ. See ReserveMaturePayouts.
+// ---------------------------------------------------------------------------
+
+// PayoutRow is a single mature, reserved payout ledger row.
+type PayoutRow struct {
+	ID          int64
+	Amount      float64
+	BlockHeight int64
+}
+
+// idPlaceholders renders "?,?,?" plus the matching args for an IN clause.
+// Postgres can say `id = ANY($1)` with pq.Array; SQLite has no array type.
+func idPlaceholders(ids []int64) (string, []interface{}) {
+	ph := make([]byte, 0, len(ids)*2)
+	args := make([]interface{}, 0, len(ids))
+	for i, id := range ids {
+		if i > 0 {
+			ph = append(ph, ',')
+		}
+		ph = append(ph, '?')
+		args = append(args, id)
+	}
+	return string(ph), args
+}
+
+// ReserveMaturePayouts atomically reserves every mature unpaid payout row for a
+// miner, stamps them with a unique placeholder txid, and returns them ordered.
+// Reserved rows carry a non-empty txid so GetReadyPayoutsDB no longer selects them --
+// this is what stops the auto processor and a concurrent manual request from both
+// paying the same balance.
+//
+// DIFFERS FROM POSTGRES BY DESIGN. Postgres reserves with SELECT ... FOR UPDATE then
+// UPDATEs the same predicate in one transaction. SQLite has no row locks, and a plain
+// BEGIN is DEFERRED -- it takes no write lock until the first write -- so a literal
+// translation would leave a window where another writer claims the same rows between
+// the SELECT and the UPDATE, and both callers would pay them. A faithful-looking port
+// would have been the dangerous one.
+//
+// The order is inverted instead: CLAIM first with a single UPDATE (atomic on its own),
+// then read back exactly the rows carrying our unique pendingID. Nothing else can
+// produce that ID, so no row can be claimed twice and no lock is needed.
+//
+// A crash between the two steps leaves rows reserved with no in-flight payment: the
+// same state postgres reaches if it dies after commit, and the safe direction --
+// unpaid, never double-paid.
+func ReserveMaturePayouts(minerID string, matureHeight int64) (pendingID string, rows []PayoutRow, total float64, err error) {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return "", nil, 0, ErrDatabaseNotInitialized
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), DBTimeout)
+	defer cancel()
+
+	suffix := minerID
+	if len(suffix) > 8 {
+		suffix = suffix[:8]
+	}
+	pendingID = fmt.Sprintf("pending_%d_%s", time.Now().UnixNano(), suffix)
+
+	res, err := db.ExecContext(ctx, `
+		UPDATE payouts SET txid = ?, status = 'processing', paid_at = ?
+		WHERE miner_address = ? AND (txid IS NULL OR txid = '') AND block_height <= ?`,
+		pendingID, time.Now(), minerID, matureHeight)
+	if err != nil {
+		return "", nil, 0, err
+	}
+	if n, e := res.RowsAffected(); e == nil && n == 0 {
+		return "", nil, 0, nil
+	}
+
+	r, err := db.QueryContext(ctx, `
+		SELECT id, amount, block_height FROM payouts
+		WHERE txid = ?
+		ORDER BY block_height, id`, pendingID)
+	if err != nil {
+		// The rows ARE claimed but we cannot report them. Release rather than strand a
+		// miner's balance behind a pendingID nobody holds.
+		_, _ = db.ExecContext(ctx, `
+			UPDATE payouts SET txid = NULL, status = 'pending', paid_at = NULL
+			WHERE txid = ?`, pendingID)
+		return "", nil, 0, err
+	}
+	defer r.Close()
+	for r.Next() {
+		var pr PayoutRow
+		if err := r.Scan(&pr.ID, &pr.Amount, &pr.BlockHeight); err != nil {
+			return "", nil, 0, err
+		}
+		rows = append(rows, pr)
+		total += pr.Amount
+	}
+	if err := r.Err(); err != nil {
+		return "", nil, 0, err
+	}
+	return pendingID, rows, total, nil
+}
+
+// RevertPayoutRows releases the given rows back to unpaid. Only ever used for rows
+// reserved but definitively NOT broadcast.
+func RevertPayoutRows(ids []int64) error {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return ErrDatabaseNotInitialized
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	ph, args := idPlaceholders(ids)
+	_, err := db.Exec(`
+		UPDATE payouts SET txid = NULL, status = 'pending', paid_at = NULL
+		WHERE id IN (`+ph+`)`, args...)
+	return err
+}
+
+// FinalizePayoutRows stamps the given payout rows with the real broadcast txid, so the
+// amount sent on-chain always equals the amount marked paid in the ledger.
+func FinalizePayoutRows(ids []int64, actualTxid string) error {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return ErrDatabaseNotInitialized
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	ph, args := idPlaceholders(ids)
+
+	stampArgs := append([]interface{}{actualTxid}, args...)
+	if _, err := db.Exec(`
+		UPDATE payouts SET txid = ?, confirmed = 1, status = 'paid'
+		WHERE id IN (`+ph+`)`, stampArgs...); err != nil {
+		return err
+	}
+
+	// Best-effort refresh, exactly as postgres: the ledger is the source of truth and
+	// these columns cache it, so a failure must not turn a completed payment into an
+	// error the caller might retry.
+	refreshArgs := append([]interface{}{time.Now()}, args...)
+	db.Exec(`
+		UPDATE miners SET
+			balance = COALESCE((SELECT SUM(amount) FROM payouts
+				WHERE miner_address = miners.address AND (txid IS NULL OR txid = '')), 0),
+			total_paid = COALESCE((SELECT SUM(amount) FROM payouts
+				WHERE miner_address = miners.address AND confirmed = 1), 0),
+			updated_at = ?
+		WHERE address IN (SELECT DISTINCT miner_address FROM payouts WHERE id IN (`+ph+`))`,
+		refreshArgs...)
+	return nil
+}
+
+// GetRecordedBlockHash returns the block hash this pool recorded for the given height.
+// ok is false if no block is recorded there, in which case the caller must not make an
+// orphan decision.
+func GetRecordedBlockHash(height int64) (string, bool) {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return "", false
+	}
+	var hash string
+	err := db.QueryRow(`SELECT hash FROM blocks WHERE height = ?`, height).Scan(&hash)
+	if err != nil || hash == "" {
+		return "", false
+	}
+	return hash, true
+}
+
+// GetUnpaidMatureHeights returns the distinct block heights that still have unpaid
+// mature payout rows, bounded to [minHeight, matureHeight].
+func GetUnpaidMatureHeights(matureHeight, minHeight int64) ([]int64, error) {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return nil, ErrDatabaseNotInitialized
+	}
+	rows, err := db.Query(`
+		SELECT DISTINCT block_height FROM payouts
+		WHERE (txid IS NULL OR txid = '')
+		  AND block_height <= ? AND block_height >= ?
+		ORDER BY block_height`, matureHeight, minHeight)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var heights []int64
+	for rows.Next() {
+		var h int64
+		if err := rows.Scan(&h); err != nil {
+			continue
+		}
+		heights = append(heights, h)
+	}
+	return heights, rows.Err()
+}
+
+// VoidOrphanedPayouts marks every unpaid payout row at the given height as orphaned so
+// it is permanently excluded from payout selection: the pool never received that
+// coinbase and must not pay miners for it. Returns rows voided and amount voided.
+func VoidOrphanedPayouts(height int64) (int64, float64, error) {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return 0, 0, ErrDatabaseNotInitialized
+	}
+	var amount float64
+	_ = db.QueryRow(`SELECT COALESCE(SUM(amount),0) FROM payouts
+		WHERE block_height = ? AND (txid IS NULL OR txid = '')`, height).Scan(&amount)
+	res, err := db.Exec(`
+		UPDATE payouts SET txid = 'orphaned', status = 'orphaned', paid_at = ?
+		WHERE block_height = ? AND (txid IS NULL OR txid = '')`, time.Now(), height)
+	if err != nil {
+		return 0, 0, err
+	}
+	db.Exec(`UPDATE blocks SET status = 'orphaned' WHERE height = ?`, height)
+	n, _ := res.RowsAffected()
+	return n, amount, nil
+}
+
+// ConfirmMatureSoloBlocks marks pending solo BCH2 blocks at height <= confirmHeight as
+// confirmed. The caller passes a height BELOW the reorg-plausible band, so these blocks
+// are buried too deep to reorganize. Blocks still inside that band are reconciled by an
+// active-chain hash check instead, so an orphaned solo block is never blindly confirmed.
+// Purely a status/display transition -- rewards arrive on-chain via the coinbase.
+func ConfirmMatureSoloBlocks(confirmHeight int64) error {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return ErrDatabaseNotInitialized
+	}
+	// is_solo is INTEGER here, not boolean.
+	_, err := db.Exec(`UPDATE blocks SET status = 'confirmed', confirmed_at = ?
+		WHERE is_solo = 1 AND status = 'pending' AND height <= ?`, time.Now(), confirmHeight)
+	return err
+}
+
+// GetPoolConfig returns the single-row dashboard-managed pool configuration
+// (pool_config id=1). A missing row yields empty strings + min_payout 1 and a nil error.
+func GetPoolConfig() (poolAddr, payout1175, tag string, minPayout float64, err error) {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return "", "", "", 0, ErrDatabaseNotInitialized
+	}
+	row := db.QueryRow(`SELECT COALESCE(pool_address,''), COALESCE(payout_address_1175,''), COALESCE(coinbase_tag,''), COALESCE(min_payout,1) FROM pool_config WHERE id = 1`)
+	err = row.Scan(&poolAddr, &payout1175, &tag, &minPayout)
+	if err == sql.ErrNoRows {
+		return "", "", "", 1, nil
+	}
+	if err != nil {
+		return "", "", "", 0, err
+	}
+	return poolAddr, payout1175, tag, minPayout, nil
+}
+
+// SavePoolConfig upserts the single-row pool configuration (id=1). Empty strings are
+// stored verbatim (an empty pool_address means "not configured -- mining paused").
+func SavePoolConfig(poolAddr, payout1175, tag string, minPayout float64) error {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return ErrDatabaseNotInitialized
+	}
+	_, err := db.Exec(`
+		INSERT INTO pool_config (id, pool_address, payout_address_1175, coinbase_tag, min_payout, updated_at)
+		VALUES (1, ?, ?, ?, ?, ?)
+		ON CONFLICT (id) DO UPDATE
+		SET pool_address = excluded.pool_address,
+		    payout_address_1175 = excluded.payout_address_1175,
+		    coinbase_tag = excluded.coinbase_tag,
+		    min_payout = excluded.min_payout,
+		    updated_at = excluded.updated_at`,
+		poolAddr, payout1175, tag, minPayout, time.Now())
+	return err
+}
+
+// InitDBWithRetry calls InitDB, retrying transient failures up to `attempts` times,
+// `delay` apart. A briefly-unready database must not permanently disable DB-backed
+// features for the whole process lifetime.
+func InitDBWithRetry(connStr string, attempts int, delay time.Duration) error {
+	if attempts < 1 {
+		attempts = 1
+	}
+	var err error
+	for i := 0; i < attempts; i++ {
+		if err = InitDB(connStr); err == nil {
+			return nil
+		}
+		if i < attempts-1 {
+			log.Printf("DB init attempt %d/%d failed (%v); retrying in %s", i+1, attempts, err, delay)
+			time.Sleep(delay)
+		}
+	}
+	return err
+}
+
+// PPLNSShare represents a miner's share contribution in the PPLNS window
+type PPLNSShare struct {
+	MinerAddress string
+	TotalWork    float64
+}
+
+// blockRowExecer is satisfied by both *sql.DB and *sql.Tx.
+type blockRowExecer interface {
+	Exec(query string, args ...interface{}) (sql.Result, error)
+}
+
+// recordBlockRow records a found block idempotently and reorg-aware. blocks has
+// UNIQUE(height), so if a DIFFERENT block already occupies this height it was reorged
+// out (only possible while immature, since the reorg cap is far below coinbase
+// maturity) and we replace it with the block the node just accepted as canonical. A
+// re-record of the same hash is a no-op.
+func recordBlockRow(ex blockRowExecer, height int64, hash, miner string, reward float64, isSolo bool) error {
+	solo := 0
+	if isSolo {
+		solo = 1
+	}
+	now := time.Now()
+	// Positional placeholders: postgres reuses $2 for hash in both SET and WHERE, so
+	// hash is passed twice here.
+	res, err := ex.Exec(`
+		UPDATE blocks
+		SET hash = ?, miner_address = ?, reward = ?, is_solo = ?, status = 'pending', created_at = ?
+		WHERE height = ? AND hash <> ?`,
+		hash, miner, reward, solo, now, height, hash)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		// Superseded a reorged-out block at this height. The orphan reconciler keys on
+		// the now-overwritten recorded hash, so it can no longer void the prior block's
+		// distribution. Void every still-unpaid payout row at this height HERE, before
+		// the new distribution is credited: a contributor from the orphaned block who is
+		// not in the new distribution stays orphaned/unpayable, while overlapping
+		// contributors are re-credited by the payout upsert. Safe against double-pay
+		// because an orphaned block is always immature, so these rows were never paid.
+		_, err = ex.Exec(`
+			UPDATE payouts SET status = 'orphaned', txid = 'orphaned', paid_at = ?
+			WHERE block_height = ? AND (txid IS NULL OR txid = '')`, now, height)
+		return err
+	}
+	_, err = ex.Exec(`
+		INSERT INTO blocks (height, hash, miner_address, reward, is_solo, status, created_at)
+		VALUES (?, ?, ?, ?, ?, 'pending', ?)
+		ON CONFLICT DO NOTHING`,
+		height, hash, miner, reward, solo, now)
+	return err
+}
+
+// PendingSoloHeights returns the heights of still-pending solo blocks within
+// [minHeight, matureHeight]. Solo blocks skip the payout-row orphan reconciler (their
+// coinbase-direct payout row is already 'paid'), so they need their own pass.
+func PendingSoloHeights(matureHeight, minHeight int64) ([]int64, error) {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return nil, ErrDatabaseNotInitialized
+	}
+	rows, err := db.Query(`
+		SELECT height FROM blocks
+		WHERE is_solo = 1 AND status = 'pending'
+		  AND height <= ? AND height >= ?
+		ORDER BY height`, matureHeight, minHeight)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var heights []int64
+	for rows.Next() {
+		var h int64
+		if err := rows.Scan(&h); err != nil {
+			continue
+		}
+		heights = append(heights, h)
+	}
+	return heights, rows.Err()
+}
+
+// OrphanSoloBlock marks a solo block (and its coinbase-direct payout row) orphaned when
+// the block recorded at that height is no longer on the active chain. Fund-safe: solo
+// rewards are coinbase-direct, so nothing was ever sent -- this only stops a reorged-out
+// block from overstating confirmed earnings. Atomic. Returns block rows voided.
+func OrphanSoloBlock(height int64) (int64, error) {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return 0, ErrDatabaseNotInitialized
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), DBTimeout)
+	defer cancel()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `UPDATE blocks SET status = 'orphaned'
+		WHERE height = ? AND is_solo = 1 AND status = 'pending'`, height)
+	if err != nil {
+		return 0, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE payouts SET status = 'orphaned', txid = 'orphaned', confirmed = 0, paid_at = ?
+		WHERE block_height = ? AND txid = 'coinbase-direct'`, time.Now(), height); err != nil {
+		return 0, err
+	}
+	if err = tx.Commit(); err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
+// ConfirmSoloBlock marks a single pending solo block confirmed. Called only after the
+// stratum has verified the recorded block is the one on the active chain at that height.
+func ConfirmSoloBlock(height int64) error {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return ErrDatabaseNotInitialized
+	}
+	_, err := db.Exec(`UPDATE blocks SET status = 'confirmed', confirmed_at = ?
+		WHERE height = ? AND is_solo = 1 AND status = 'pending'`, time.Now(), height)
+	return err
+}
+
+// SaveSoloBlockCoinbaseDirect records a solo-found block and settles its reward DB-only.
+// In SOLO mode the block reward is paid on-chain DIRECTLY by the coinbase to
+// POOL_ADDRESS, so there is NO secondary sendtoaddress (that path targets a nonexistent
+// wallet, would fail forever, and risks a double-pay). The payout row is therefore
+// inserted already settled (txid='coinbase-direct', status='paid'), which the payout
+// processor -- selecting only rows WHERE txid IS NULL OR txid=” -- never touches.
+// Reorg-aware via recordBlockRow.
+func SaveSoloBlockCoinbaseDirect(minerID string, blockHeight int64, amount float64, blockHash string) error {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return ErrDatabaseNotInitialized
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if err = recordBlockRow(tx, blockHeight, blockHash, minerID, amount, true); err != nil {
+		return fmt.Errorf("failed to insert solo block: %w", err)
+	}
+
+	// ON CONFLICT only overwrites an unpaid/orphaned row (never a genuinely paid one),
+	// so re-records are idempotent. Requires uq_payouts_miner_height.
+	now := time.Now()
+	_, err = tx.Exec(`
+		INSERT INTO payouts (miner_address, block_height, amount, confirmed, txid, status, created_at, paid_at)
+		VALUES (?, ?, ?, 1, 'coinbase-direct', 'paid', ?, ?)
+		ON CONFLICT (miner_address, block_height) DO UPDATE
+		SET amount = excluded.amount, confirmed = 1, txid = 'coinbase-direct', status = 'paid', paid_at = excluded.paid_at
+		WHERE payouts.txid IS NULL OR payouts.txid = '' OR payouts.status = 'orphaned'`,
+		minerID, blockHeight, amount, now, now)
+	if err != nil {
+		return fmt.Errorf("failed to insert solo coinbase-direct payout: %w", err)
+	}
+
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit solo block: %w", err)
+	}
+	log.Printf("✅ Solo block %d recorded; %.8f BCH2 paid on-chain by coinbase to POOL_ADDRESS (settled DB-only)", blockHeight, amount)
+	return nil
 }
