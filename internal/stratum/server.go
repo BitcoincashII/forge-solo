@@ -126,6 +126,7 @@ type ServerConfig struct {
 	MaxSharesPerSecond int
 	VardiffEnabled     bool
 	MinDiff            float64
+	AbsoluteMinDiff    float64 // Lowest difficulty a non-rental client may be ASSIGNED
 	RentalMinDiff      float64 // Minimum difficulty for NiceHash/MRR (they require 500k+)
 	RentalMaxDiff      float64 // Maximum difficulty for NiceHash/MRR (cap to prevent issues)
 	MaxDiff            float64
@@ -175,9 +176,7 @@ func NewServer(config *ServerConfig, logger *zap.Logger, sp ShareProcessor, ms M
 	if config.HighHashDiff == 0 {
 		config.HighHashDiff = 1000000
 	}
-	if config.MinDiff == 0 {
-		config.MinDiff = 32768
-	}
+	normalizeDifficultyFloors(config)
 	if config.RentalMinDiff == 0 {
 		config.RentalMinDiff = 500000 // NiceHash/MRR require 500k+
 	}
@@ -199,18 +198,134 @@ func NewServer(config *ServerConfig, logger *zap.Logger, sp ShareProcessor, ms M
 	return s
 }
 
-// getMinDiffForClient returns the appropriate minimum difficulty based on client type
-// Rental services (NiceHash/MRR) require higher minimum difficulty
+// getMinDiffForClient returns the lowest difficulty this client may be ASSIGNED
+// (i.e. told to work at), based on client type. Rental services (NiceHash/MRR) require a
+// much higher minimum difficulty. Takes client.mu.RLock, so never call it from a path
+// that already holds client.mu -- compute the floor inline there instead.
 func (s *Server) getMinDiffForClient(client *Client) float64 {
 	client.mu.RLock()
 	rental := client.RentalService
 	client.mu.RUnlock()
 
-	if rental != RentalNone {
+	return s.vardiffFloor(rental != RentalNone)
+}
+
+// vardiffFloor is the lowest difficulty vardiff may ASSIGN a client of this kind.
+//
+// Deliberately AbsoluteMinDiff, not MinDiff. They are equal in the shipped config, but
+// keeping them distinct means the assignment floor can be lowered independently later
+// (small solo hardware benefits from a low starting target: at a high floor merely
+// COLLECTING the VardiffMinShares=10 samples needed for the first adjustment can take
+// tens of minutes). Starting LOW is the self-correcting direction -- shares arrive
+// quickly, so the pool measures the miner's real rate within seconds and ramps it up.
+// Starting HIGH cannot self-correct, because the evidence needed to correct it is exactly
+// what is missing. Assigning below MinDiff is safe only because shareFloorFor() judges a
+// share against min(assigned, MinDiff) -- without that, this would be the 55-miner outage
+// all over again.
+//
+// Lock-free by design: most callers already hold client.mu.
+func (s *Server) vardiffFloor(isRental bool) float64 {
+	if isRental {
 		return s.config.RentalMinDiff
 	}
-	return s.config.MinDiff
+	return s.config.AbsoluteMinDiff
 }
+
+// normalizeDifficultyFloors applies defaults and enforces the ordering the whole difficulty
+// design rests on: the floor a miner may be ASSIGNED must be positive, and must never exceed
+// the floor its shares are JUDGED against.
+//
+// AbsoluteMinDiff is the ASSIGNMENT floor; MinDiff is the JUDGING floor. This app already
+// ships min_diff: 1024 (low enough for Bitaxe/Qaxe-class hardware to submit steadily), so
+// there is no gap to close and the default deliberately mirrors MinDiff: an operator who
+// raised min_diff to cut share spam must not have the assignment floor silently dropped out
+// from under them on hardware we cannot observe. The knob exists so a lower assignment floor
+// CAN be set, and setting one is safe only because shareFloorFor() judges a share against
+// min(assigned, MinDiff).
+//
+// Both guards test <= 0 rather than == 0. A negative value from a config typo would otherwise
+// survive: vardiffFloor would hand back a negative assignment floor, while shareFloorFor
+// treats a non-positive assigned difficulty as "unset" and falls back to MinDiff -- telling
+// the miner a negative target and judging it above that. That is the outage this whole file
+// exists to prevent, reachable by one bad character in a YAML file.
+//
+// Deliberately a named function rather than inline setup, so a test can exercise the real
+// code instead of restating it; a test that restates the rule passes even when the rule is
+// deleted.
+func normalizeDifficultyFloors(config *ServerConfig) {
+	if config.MinDiff <= 0 {
+		config.MinDiff = 32768
+	}
+	if config.AbsoluteMinDiff <= 0 {
+		config.AbsoluteMinDiff = config.MinDiff
+	}
+	if config.AbsoluteMinDiff > config.MinDiff {
+		config.AbsoluteMinDiff = config.MinDiff
+	}
+}
+
+// effectiveJudgingDifficulty returns the target a submitted share should actually be
+// measured against.
+//
+// Work begun before a difficulty RAISE was computed against the old target, and
+// mining.set_difficulty only governs work the miner starts AFTER it arrives. Judging that
+// in-flight work at the new, harder target rejects correct shares -- on the reference pool
+// that was 252 rejects in two minutes the moment the judging floor began tracking each
+// client. So for a short window after a raise, the previous (lower) target still counts.
+//
+// A LOWER change needs no window: the old target was harder, so work against it clears the
+// new one anyway. And this can only ever return something <= assigned, which is what keeps
+// the judged<=assigned invariant intact.
+//
+// Safe against inflation because an accepted share is credited min(assigned, proved), so a
+// share that only proves the old target is credited only what it proved.
+//
+// `now` is a parameter, and this is a named function rather than an inline expression, so a
+// test can drive the real decision deterministically. The previous test carried a copy of
+// this logic and a comment promising to keep it in sync by review -- a copy stays green when
+// the original is deleted.
+func (s *Server) effectiveJudgingDifficulty(assigned, previous float64, changedAt time.Time, now time.Time) float64 {
+	if previous > 0 && previous < assigned && now.Sub(changedAt) < difficultyGracePeriod {
+		return previous
+	}
+	return assigned
+}
+
+// shareFloorFor returns the difficulty a submitted share must actually meet.
+//
+// INVARIANT: the pool must never judge a share against a HARDER target than the one it
+// told the miner to work at. Breaking that invariant fails silently and totally -- the
+// miner produces correct work at its assigned target, the pool refuses it, and the
+// automatic vardiff remedy cannot fire because it is gated on manualDiff == 0 and on
+// client.Difficulty > floor, both of which are false in exactly this situation. On the
+// main pool that was 55 miners, every one of them carrying a stored manual_diff below
+// MinDiff and mining into a black hole from the moment it next reconnected.
+//
+// This is checked against the ASSIGNED value rather than at each assignment site on
+// purpose: it is robust to every path that can hand out a difficulty, including
+// adjustVardiff's post-rejection ceiling (DifficultyReducedFrom * 0.8), which can legally
+// land below the vardiff floor and would otherwise open a silent rejection band.
+//
+// ABOVE the assigned difficulty the pool stays deliberately generous: a share clearing
+// MinDiff is accepted even if the client's vardiff target has since ramped past it, so
+// ramping never discards work already in flight.
+func (s *Server) shareFloorFor(assigned float64) float64 {
+	floor := s.config.MinDiff
+	if assigned > 0 && assigned < floor {
+		floor = assigned
+	}
+	return floor
+}
+
+// difficultyGracePeriod is how long after a difficulty change the PREVIOUS (lower) target
+// is still accepted. It covers work the miner had already begun when the new target
+// arrived: mining.set_difficulty only governs work STARTED after it is received, so
+// judging in-flight shares at the new, harder target rejects correct work (measured live
+// at 252 rejects in 2 minutes on the main pool before this was added).
+// Generous on purpose: accepting one of these costs nothing, because credit is
+// min(assigned, proved), while rejecting it discards correct work and shows up on the
+// miner's own dashboard as a fault the pool caused.
+const difficultyGracePeriod = 60 * time.Second
 
 // idleResetAfter is how long a connection may hold an above-floor difficulty without
 // producing a single accepted share before it is reset to its floor. Longer than the
@@ -240,10 +355,8 @@ func (s *Server) idleDifficultyLoop() {
 				return true
 			}
 			c.mu.Lock()
-			floor := s.config.MinDiff
-			if c.RentalService != RentalNone {
-				floor = s.config.RentalMinDiff
-			}
+			// vardiffFloor is lock-free, so it is safe to call with c.mu held.
+			floor := s.vardiffFloor(c.RentalService != RentalNone)
 			prevDiff := c.Difficulty
 			connFor := now.Sub(c.ConnectedAt)
 			stuck := c.Authorized && c.ValidShares == 0 &&
@@ -688,7 +801,7 @@ func (s *Server) handleClient(conn net.Conn) {
 		ID:          fmt.Sprintf("%d", time.Now().UnixNano()),
 		Conn:        conn,
 		IP:          conn.RemoteAddr().String(),
-		Difficulty:  s.config.MinDiff,
+		Difficulty:  s.config.AbsoluteMinDiff, // assignment floor, not the judging floor
 		ConnectedAt: time.Now(),
 		ShareTimes:  make([]time.Time, 0, 100),
 	}
@@ -831,6 +944,18 @@ func (s *Server) handleMessage(client *Client, data []byte) {
 				suggestedDiff = s.config.MaxDiff
 			}
 			client.mu.Lock()
+			// Record the outgoing target when this RAISES the client, so the grace window in
+			// handleSubmit has something to fall back to. Without this the machinery is present
+			// but never populated on this path, so the protection silently does not apply --
+			// and mining.suggest_difficulty is precisely what Bitaxe/AxeOS-class firmware uses,
+			// i.e. this app's entire audience. Unlike subscribe/authorize (which run before the
+			// client has submitted anything) this fires mid-session, so there IS work in flight
+			// against the old target. A lowering suggestion needs no grace: the old target was
+			// harder, so that work still clears the new one.
+			if suggestedDiff > client.Difficulty {
+				client.PreviousDifficulty = client.Difficulty
+				client.DifficultyChangedAt = time.Now()
+			}
 			client.Difficulty = suggestedDiff
 			client.mu.Unlock()
 			s.logger.Info("Miner suggested difficulty accepted",
@@ -1091,6 +1216,17 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 		if s.config.MaxDiff > 0 && client.Difficulty > s.config.MaxDiff {
 			client.Difficulty = s.config.MaxDiff
 		}
+		// ...and up to the assignment floor, so a stored d=1 cannot turn one miner into a
+		// share flood. Anything at or above the floor is honoured exactly as requested.
+		// Computed inline from the in-scope `rental`: client.mu is already held here, and
+		// getMinDiffForClient takes RLock -- calling it would deadlock.
+		assignFloor := s.config.AbsoluteMinDiff
+		if rental != RentalNone {
+			assignFloor = s.config.RentalMinDiff
+		}
+		if client.Difficulty < assignFloor {
+			client.Difficulty = assignFloor
+		}
 	} else if client.Difficulty <= s.config.MinDiff {
 		// Vardiff mode with no client-suggested difficulty above the floor. Resume the
 		// miner's recently-ramped level (or the rental floor) instead of restarting at
@@ -1098,10 +1234,8 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 		// proxy that cycles connections) from flooding the pool with low-difficulty,
 		// often-stale shares while vardiff slowly ramps back up. The value is sent to the
 		// miner via sendDifficulty right after authorize, so there is no diff mismatch.
-		floor := s.config.MinDiff
-		if rental != RentalNone {
-			floor = s.config.RentalMinDiff
-		}
+		// vardiffFloor is lock-free, so it is safe to call with client.mu held.
+		floor := s.vardiffFloor(rental != RentalNone)
 		ceil := s.config.MaxDiff
 		if rental != RentalNone && s.config.RentalMaxDiff > 0 {
 			ceil = s.config.RentalMaxDiff
@@ -1213,6 +1347,10 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	minerID := client.MinerID
 	workerName := client.WorkerName
 	difficulty := client.Difficulty
+	// Grace-period state, captured under the lock the handler already holds. Both fields
+	// are written on every difficulty change; validation simply never read them before.
+	prevDifficulty := client.PreviousDifficulty
+	difficultyChangedAt := client.DifficultyChangedAt
 	soloMining := client.SoloMining
 	manualDiff := client.ManualDiff
 	extranonce1 := client.ExtraNonce1
@@ -1339,9 +1477,11 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	job := jobInterface.(*Job)
 
 	// Validate the share - verify proof of work
-	// Accept any share that meets min_diff - don't waste miner's work
+	// Accept any share that meets the share floor - don't waste miner's work
 	// Target difficulty is for rate limiting/vardiff, not rejection
-	isValid, actualDiff, blockHash, err := s.validateShare(job, extranonce1, extranonce2, ntime, nonce, versionBits, s.config.MinDiff)
+	effectiveDiff := s.effectiveJudgingDifficulty(difficulty, prevDifficulty, difficultyChangedAt, time.Now())
+	shareFloor := s.shareFloorFor(effectiveDiff)
+	isValid, actualDiff, blockHash, err := s.validateShare(job, extranonce1, extranonce2, ntime, nonce, versionBits, shareFloor)
 	if err != nil {
 		s.logger.Warn("Share validation error",
 			zap.String("miner", minerID),
@@ -1352,9 +1492,13 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	}
 
 	if !isValid {
+		// Report the floor ACTUALLY applied plus what the miner was assigned. Logging
+		// s.config.MinDiff here would hide exactly the mismatch this fix exists to
+		// prevent: an operator debugging a 100%-reject miner needs to see both numbers.
 		s.logger.Warn("Share below minimum difficulty",
 			zap.String("miner", minerID),
-			zap.Float64("required", s.config.MinDiff),
+			zap.Float64("required", shareFloor),
+			zap.Float64("assigned", difficulty),
 			zap.Float64("actual", actualDiff))
 		atomic.AddInt64(&s.stats.InvalidShares, 1)
 		atomic.AddInt64(&client.InvalidShares, 1)
@@ -1374,11 +1518,9 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 				}
 			}
 			rejectionRate := float64(rejections) / float64(len(client.RecentSubmissions))
-			// Use appropriate min_diff based on client type (rental vs regular)
-			minDiff := s.config.MinDiff
-			if client.RentalService != RentalNone {
-				minDiff = s.config.RentalMinDiff
-			}
+			// Use appropriate assignment floor based on client type (rental vs regular).
+			// vardiffFloor is lock-free, so it is safe to call with client.mu held.
+			minDiff := s.vardiffFloor(client.RentalService != RentalNone)
 			if rejectionRate > MaxRejectionRate && client.Difficulty > minDiff {
 				// Use more aggressive reduction (2x) to settle faster
 				oldDiff := client.Difficulty
@@ -1618,11 +1760,9 @@ func (s *Server) adjustVardiff(client *Client) {
 		newDiff = client.Difficulty - maxDelta
 	}
 
-	// Use appropriate min_diff based on client type (rental vs regular)
-	minDiff := s.config.MinDiff
-	if client.RentalService != RentalNone {
-		minDiff = s.config.RentalMinDiff
-	}
+	// Use appropriate assignment floor based on client type (rental vs regular).
+	// vardiffFloor is lock-free, so it is safe to call with client.mu held.
+	minDiff := s.vardiffFloor(client.RentalService != RentalNone)
 	if newDiff < minDiff {
 		newDiff = minDiff
 	}
@@ -1636,7 +1776,18 @@ func (s *Server) adjustVardiff(client *Client) {
 	}
 
 	// If we recently reduced difficulty due to high rejection rate,
-	// don't increase above 80% of the ceiling that caused the rejection
+	// don't increase above 80% of the ceiling that caused the rejection.
+	//
+	// NOTE: this ceiling is applied AFTER the floor clamp above and can legitimately land
+	// BELOW the floor (DifficultyReducedFrom is only ever set to a value above the floor,
+	// so the ceiling bottoms out at 0.8x the floor). That is deliberate -- backing off is
+	// the correct response to rejections -- and it is only safe because shareFloorFor()
+	// judges the share at min(assigned, MinDiff). Before that existed, this line handed
+	// the miner a sub-floor target while still judging at MinDiff, i.e. a silent rejection
+	// band that could not self-heal: the remedy above is gated on
+	// client.Difficulty > floor, which this very line had just made false.
+	// Do NOT "fix" this by clamping the ceiling back up to the floor -- that re-imposes
+	// the difficulty that was causing rejections in the first place.
 	if client.DifficultyReducedFrom > 0 && time.Since(client.DifficultyReducedAt) < DifficultyReductionCooldown {
 		ceiling := client.DifficultyReducedFrom * 0.8
 		if newDiff > ceiling {

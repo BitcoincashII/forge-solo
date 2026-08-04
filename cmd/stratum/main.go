@@ -52,7 +52,7 @@ var (
 	soloFee              float64           = 0.5 // Solo fee percentage
 	blockReward          float64           = 50.0
 	minPayout            float64           = 5.0
-	minPayoutMu          sync.RWMutex // guards minPayout: pool_config watcher writes vs payout processor reads
+	minPayoutMu          sync.RWMutex               // guards minPayout: pool_config watcher writes vs payout processor reads
 	pplnsWindow          int               = 100000 // PPLNS window size (shares)
 	stratumServer        *stratum.Server            // Global reference for API handlers
 	stratumBraiinsServer *stratum.Server            // Second stratum for Braiins (8-byte extranonce2)
@@ -1027,17 +1027,22 @@ func main() {
 		MaxSharesPerSecond: config.GetInt("stratum.max_shares_per_second"),
 		VardiffEnabled:     config.GetBool("stratum.vardiff.enabled"),
 		MinDiff:            config.GetFloat64("stratum.vardiff.min_diff"),
-		RentalMinDiff:      config.GetFloat64("stratum.vardiff.rental_min_diff"),
-		RentalMaxDiff:      config.GetFloat64("stratum.vardiff.rental_max_diff"),
-		MaxDiff:            config.GetFloat64("stratum.vardiff.max_diff"),
-		TargetShareTime:    config.GetInt("stratum.vardiff.target_time"),
-		RetargetTime:       config.GetInt("stratum.vardiff.retarget_time"),
-		HighHashThreshold:  config.GetInt("stratum.high_hash_threshold"),
-		HighHashDiff:       config.GetFloat64("stratum.high_hash_diff"),
-		ExtraNonce1Size:    config.GetInt("stratum.extranonce1_size"),
-		ExtraNonce2Size:    config.GetInt("stratum.extranonce2_size"),
-		ServerName:         "main",
-		SoloOnly:           config.GetString("pool.payout_scheme") == "solo",
+		// Optional. Lowest difficulty a non-rental miner may be ASSIGNED; unset (0) means
+		// "same as min_diff", which is what the shipped config wants. Values ABOVE min_diff
+		// are clamped down in NewServer, because the assignment floor must never exceed the
+		// judging floor.
+		AbsoluteMinDiff:   config.GetFloat64("stratum.vardiff.absolute_min_diff"),
+		RentalMinDiff:     config.GetFloat64("stratum.vardiff.rental_min_diff"),
+		RentalMaxDiff:     config.GetFloat64("stratum.vardiff.rental_max_diff"),
+		MaxDiff:           config.GetFloat64("stratum.vardiff.max_diff"),
+		TargetShareTime:   config.GetInt("stratum.vardiff.target_time"),
+		RetargetTime:      config.GetInt("stratum.vardiff.retarget_time"),
+		HighHashThreshold: config.GetInt("stratum.high_hash_threshold"),
+		HighHashDiff:      config.GetFloat64("stratum.high_hash_diff"),
+		ExtraNonce1Size:   config.GetInt("stratum.extranonce1_size"),
+		ExtraNonce2Size:   config.GetInt("stratum.extranonce2_size"),
+		ServerName:        "main",
+		SoloOnly:          config.GetString("pool.payout_scheme") == "solo",
 	}
 
 	// Build RPC URL from config
@@ -1111,14 +1116,6 @@ func main() {
 		logger.Info("💰 Payout processor started")
 	}
 
-	logger.Info("Vardiff configuration",
-		zap.Bool("enabled", serverConfig.VardiffEnabled),
-		zap.Float64("min_diff", serverConfig.MinDiff),
-		zap.Float64("rental_min_diff", serverConfig.RentalMinDiff),
-		zap.Float64("max_diff", serverConfig.MaxDiff),
-		zap.Int("target_time", serverConfig.TargetShareTime),
-		zap.Int("retarget_time", serverConfig.RetargetTime))
-
 	jobManager = mining.NewJobManager(rpcURL, rpcUser, rpcPass, effectivePoolAddr, effectiveCoinbaseTag)
 
 	// Merge mining (aux chain, e.g. 1175): the job manager fetches aux work and
@@ -1156,6 +1153,20 @@ func main() {
 			zap.Int("required", mining.CoinbaseExtranonceReserve))
 	}
 	stratumServer = stratum.NewServer(serverConfig, logger, shareProcessor, minerSettings)
+
+	// Logged AFTER NewServer so it reports the RESOLVED values: NewServer fills in the
+	// defaults and clamps absolute_min_diff down to min_diff. min_diff is the floor a
+	// share is JUDGED against; absolute_min_diff is the lowest a miner may be ASSIGNED.
+	// If these two ever print with absolute > min, the ordering invariant has been broken.
+	logger.Info("Vardiff configuration",
+		zap.Bool("enabled", serverConfig.VardiffEnabled),
+		zap.Float64("min_diff", serverConfig.MinDiff),
+		zap.Float64("absolute_min_diff", serverConfig.AbsoluteMinDiff),
+		zap.Float64("rental_min_diff", serverConfig.RentalMinDiff),
+		zap.Float64("max_diff", serverConfig.MaxDiff),
+		zap.Int("target_time", serverConfig.TargetShareTime),
+		zap.Int("retarget_time", serverConfig.RetargetTime))
+
 	if auxClient != nil {
 		stratumServer.EnableMergeMining(auxClient)
 		stratumServer.SetAuxBlockHandler(aux1175BlockHandler)
