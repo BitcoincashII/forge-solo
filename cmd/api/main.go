@@ -654,18 +654,62 @@ func isActiveMiner(address string) bool {
 	return false
 }
 
+// Network-stats last-good cache. getdifficulty / getnetworkhashps occasionally fail (RPC
+// timeout on a busy home node, node warming up) — the old code discarded the error and returned
+// 0, which flashed "0" / "0 H/s" on the dashboard tiles. Hold the last good reading, only
+// overwrite it with a fresh value that is actually > 0, and serve it from cache for a few seconds
+// so the dashboard's frequent polling doesn't hammer the node RPC with four calls every cycle.
+var (
+	netStatsMu     sync.RWMutex
+	lastGoodDiff   float64
+	lastGoodNetHps float64
+	netStatsAt     time.Time
+)
+
+const netStatsTTL = 15 * time.Second
+
+// fetchNetStats returns network difficulty + hashrate, never regressing to 0 once a good value
+// has been seen. A value <= 0 or an RPC failure falls back to the last good reading.
+func fetchNetStats() (difficulty, networkHashrate float64) {
+	netStatsMu.RLock()
+	difficulty, networkHashrate = lastGoodDiff, lastGoodNetHps
+	fresh := difficulty > 0 && time.Since(netStatsAt) < netStatsTTL
+	netStatsMu.RUnlock()
+	if fresh {
+		return
+	}
+	if r, err := rpcCall("getdifficulty", []interface{}{}); err == nil {
+		var d float64
+		if json.Unmarshal(r, &d) == nil && d > 0 {
+			difficulty = d
+		}
+	}
+	if r, err := rpcCall("getnetworkhashps", []interface{}{}); err == nil {
+		var h float64
+		if json.Unmarshal(r, &h) == nil && h > 0 {
+			networkHashrate = h
+		}
+	}
+	netStatsMu.Lock()
+	if difficulty > 0 {
+		lastGoodDiff = difficulty
+	}
+	if networkHashrate > 0 {
+		lastGoodNetHps = networkHashrate
+	}
+	difficulty, networkHashrate = lastGoodDiff, lastGoodNetHps
+	netStatsAt = time.Now()
+	netStatsMu.Unlock()
+	return
+}
+
 func getPoolStats(c *fiber.Ctx) error {
 	heightResult, _ := rpcCall("getblockcount", []interface{}{})
 	var height int64
 	json.Unmarshal(heightResult, &height)
 
-	diffResult, _ := rpcCall("getdifficulty", []interface{}{})
-	var difficulty float64
-	json.Unmarshal(diffResult, &difficulty)
-
-	nethashResult, _ := rpcCall("getnetworkhashps", []interface{}{})
-	var networkHashrate float64
-	json.Unmarshal(nethashResult, &networkHashrate)
+	// Network difficulty + hashrate with last-good fallback (never flash 0 on an RPC hiccup).
+	difficulty, networkHashrate := fetchNetStats()
 
 	infoResult, _ := rpcCall("getblockchaininfo", []interface{}{})
 	var info struct {
