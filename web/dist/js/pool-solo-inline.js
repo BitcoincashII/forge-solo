@@ -20,6 +20,12 @@
         }
 
         let minerAddress = new URLSearchParams(window.location.search).get('address') || decodeURIComponent(window.location.pathname.split('/solo/')[1] || '');
+        // True when the address came from the URL rather than from this install's own
+        // configuration. The stratum's authorized count is process-wide, so it only
+        // describes the miner being viewed when that miner IS this install's payout
+        // address -- which is the normal case for a solo dashboard, but not when
+        // someone opens /solo?address=<someone else>.
+        const addressFromUrl = !!minerAddress;
         document.getElementById('minerAddress').textContent = minerAddress;
 
         document.getElementById('copyAddressBtn').addEventListener('click', function() {
@@ -31,6 +37,13 @@
         let networkDiff = 0;   // 0 until a real value arrives; last-good is then held across polls
         let nodeSynced = false;   // set by updateStatusBanner; gates network stats during IBD
         let minerHashing = false; // set by fetchMinerData; true once a worker is actually hashing
+        // Last /api/v1/mining-status payload and when it landed. The Workers tile needs the
+        // stratum's LIVE connection count: "online" in the miner payload means "submitted a
+        // share in the last 5 minutes", so an unplugged rig left the tile reading 1 for five
+        // minutes underneath a banner correctly saying no miner was connected -- two true
+        // statements that read as a contradiction on one screen.
+        let lastMiningStatus = null;
+        let lastMiningStatusAt = 0;
         let minerBlocksCount = 0;
         let currentHashrateTH = 0;   // latest 5m hashrate (TH/s), for the stable avg-effort estimate
 
@@ -79,6 +92,23 @@
             return '3333 (stratum+tcp://' + host + ':3333)';
         }
 
+        // How many workers are attached RIGHT NOW.
+        //
+        // The stratum's authorized count is the live truth, but it is a process-wide figure,
+        // so it is only used when the page is showing this install's own payout address (no
+        // ?address= override). Falls back to the miner payload's recent-share count when the
+        // status is missing or stale, so a mining-status outage degrades rather than reading
+        // a confident zero.
+        const MINING_STATUS_MAX_AGE_MS = 30000;
+        function workersConnectedNow(data) {
+            const fresh = lastMiningStatus
+                && (Date.now() - lastMiningStatusAt) < MINING_STATUS_MAX_AGE_MS;
+            if (fresh && !addressFromUrl && lastMiningStatus.authorized != null) {
+                return Number(lastMiningStatus.authorized) || 0;
+            }
+            return Number((data && data.onlineWorkers) || 0);
+        }
+
         function escapeHtml(v) {
             return String(v == null ? '' : v).replace(/[&<>"']/g, function (ch) {
                 return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
@@ -120,7 +150,14 @@
                     // is connected and receiving nothing is the one failure that used to
                     // render here as a cheerful "ready to mine".
                     let ms = null;
-                    try { ms = await apiFetch('/api/v1/mining-status'); } catch (e) {}
+                    try {
+                        ms = await apiFetch('/api/v1/mining-status');
+                        lastMiningStatus = ms;
+                        lastMiningStatusAt = Date.now();
+                    } catch (e) {
+                        // Stale status must not keep driving the Workers tile.
+                        lastMiningStatus = null;
+                    }
                     if (ms && ms.reason === 'no_miners') {
                         // Not a fault: the node is synced and work is ready, there is
                         // simply nothing attached. Rendering this in the alarming
@@ -196,14 +233,20 @@
                 document.getElementById('immatureBalance').textContent = formatBCH2(data.immatureBalance || 0, 2);
                 document.getElementById('hashrate5m').textContent = formatHashrate((data.hashrate5m || 0) * 1e12);
                 document.getElementById('hashrate60m').textContent = formatHashrate((data.hashrate60m || 0) * 1e12);
-                // onlineWorkers, NOT workers. `workers` counts every worker ever seen: the
-                // stats manager never deletes from its map (SetWorkerOffline and
-                // MarkStaleWorkersOffline only flip a bool), so the tile stayed >= 1 for
-                // the life of the stratum process. An unplugged rig, a rig moved to
-                // another pool, a renamed worker or rotating rental worker names all left
-                // it reading 1 next to a hashrate of 0 -- and the same app answered 0 on
-                // /api/v1/stats for the same moment.
-                document.getElementById('workers').textContent = formatNumber(data.onlineWorkers || 0);
+                // Never data.workers: that counts every worker ever seen. The stats manager
+                // never deletes from its map (SetWorkerOffline and MarkStaleWorkersOffline
+                // only flip a bool), so it stays >= 1 for the life of the stratum process --
+                // an unplugged rig, a rig moved to another pool, a renamed worker or
+                // rotating rental worker names all left the tile reading 1 next to a
+                // hashrate of 0, while the same app answered 0 on /api/v1/stats.
+                //
+                // Prefer the stratum's LIVE authorized count over data.onlineWorkers.
+                // "online" there means "submitted a share in the last 5 minutes", so a rig
+                // that is switched off still counts for five minutes -- underneath a banner
+                // correctly reporting no miner connected. Both were true; together they read
+                // as a contradiction, and on a solo dashboard "Workers" means what is
+                // attached right now.
+                document.getElementById('workers').textContent = formatNumber(workersConnectedNow(data));
                 document.getElementById('validShares').textContent = formatNumber(data.validShares || 0);
                 // roundShares, NOT validShares. validShares is all-time and is never reset --
                 // it is the same field the "Valid Shares" tile uses, so the two tiles were
