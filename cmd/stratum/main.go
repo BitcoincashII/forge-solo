@@ -1344,10 +1344,11 @@ func main() {
 		Host:               config.GetString("stratum.host"),
 		Port:               config.GetInt("stratum.port"),
 		MaxConnections:     config.GetInt("stratum.max_connections"),
-		BanDuration:        config.GetDuration("stratum.ban_duration"),
 		MaxSharesPerSecond: config.GetInt("stratum.max_shares_per_second"),
 		VardiffEnabled:     config.GetBool("stratum.vardiff.enabled"),
 		MinDiff:            config.GetFloat64("stratum.vardiff.min_diff"),
+		// Accepted as a percentage in the config (25) and used as a fraction (0.25).
+		VariancePercent: config.GetFloat64("stratum.vardiff.variance_percent") / 100.0,
 		// Optional. Lowest difficulty a non-rental miner may be ASSIGNED; unset (0) means
 		// "same as min_diff", which is what the shipped config wants. Values ABOVE min_diff
 		// are clamped down in NewServer, because the assignment floor must never exceed the

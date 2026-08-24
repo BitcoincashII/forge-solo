@@ -139,22 +139,26 @@ type ServerConfig struct {
 	Host               string
 	Port               int
 	MaxConnections     int
-	BanDuration        time.Duration
 	MaxSharesPerSecond int
 	VardiffEnabled     bool
 	MinDiff            float64
-	AbsoluteMinDiff    float64 // Lowest difficulty a non-rental client may be ASSIGNED
-	RentalMinDiff      float64 // Minimum difficulty for NiceHash/MRR (they require 500k+)
-	RentalMaxDiff      float64 // Maximum difficulty for NiceHash/MRR (cap to prevent issues)
-	MaxDiff            float64
-	TargetShareTime    int
-	RetargetTime       int // Seconds between vardiff adjustments
-	HighHashThreshold  int
-	HighHashDiff       float64
-	ExtraNonce2Size    int    // Size of extranonce2 in bytes (default 4, Braiins needs 8)
-	ExtraNonce1Size    int    // Size of extranonce1 in bytes (default 6)
-	ServerName         string // Name for logging (e.g., "main", "braiins")
-	SoloOnly           bool   // Force every miner to SOLO regardless of settings (solo-only deployments)
+	// VariancePercent is the dead-band around the target share time, as a fraction (0.30 =
+	// 30%). Zero means "use VardiffVariancePercent". This was a shipped config key that
+	// nothing read -- an operator whose miner settled at the wrong difficulty turned it and
+	// nothing happened.
+	VariancePercent   float64
+	AbsoluteMinDiff   float64 // Lowest difficulty a non-rental client may be ASSIGNED
+	RentalMinDiff     float64 // Minimum difficulty for NiceHash/MRR (they require 500k+)
+	RentalMaxDiff     float64 // Maximum difficulty for NiceHash/MRR (cap to prevent issues)
+	MaxDiff           float64
+	TargetShareTime   int
+	RetargetTime      int // Seconds between vardiff adjustments
+	HighHashThreshold int
+	HighHashDiff      float64
+	ExtraNonce2Size   int    // Size of extranonce2 in bytes (default 4, Braiins needs 8)
+	ExtraNonce1Size   int    // Size of extranonce1 in bytes (default 6)
+	ServerName        string // Name for logging (e.g., "main", "braiins")
+	SoloOnly          bool   // Force every miner to SOLO regardless of settings (solo-only deployments)
 }
 
 type ServerStats struct {
@@ -1961,8 +1965,12 @@ func (s *Server) adjustVardiff(client *Client) {
 
 	// Only adjust if outside variance window (miningcore style)
 	// This prevents constant small adjustments
-	varianceLow := 1.0 - VardiffVariancePercent
-	varianceHigh := 1.0 + VardiffVariancePercent
+	variance := s.config.VariancePercent
+	if variance <= 0 {
+		variance = VardiffVariancePercent
+	}
+	varianceLow := 1.0 - variance
+	varianceHigh := 1.0 + variance
 	if ratio >= varianceLow && ratio <= varianceHigh {
 		client.mu.Unlock()
 		return

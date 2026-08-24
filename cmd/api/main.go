@@ -111,6 +111,16 @@ func verifyCashAddrChecksum(prefix string, payload []int) bool {
 // isValid1175Address validates a 1175 payout address: a bech32 address with the
 // mainnet HRP "esf" and a valid checksum (esf1...). This is the address a miner
 // supplies to receive merge-mined 1175 rewards.
+// poolNameFromEnv honours POOL_NAME, which .env.example has always advertised and which
+// nothing read: it is not substituted into the stratum config template either, so setting
+// it in the Umbrel app config changed nothing anywhere.
+func poolNameFromEnv() string {
+	if v := strings.TrimSpace(os.Getenv("POOL_NAME")); v != "" {
+		return v
+	}
+	return "Forge Solo"
+}
+
 // poolFeeFromConfig reports the pool fee actually in effect. Solo takes none; the value is
 // read rather than assumed so a future non-solo build cannot silently publish a wrong number.
 func poolFeeFromConfig() float64 {
@@ -1269,7 +1279,7 @@ func getPoolConfig(c *fiber.Ctx) error {
 	}
 	return c.JSON(fiber.Map{
 		"stratum_port":        3333,
-		"pool_name":           "Forge Solo",
+		"pool_name":           poolNameFromEnv(),
 		"pool_fee":            0.0,
 		"solo_fee":            0.0,
 		"min_payout":          minPayout,

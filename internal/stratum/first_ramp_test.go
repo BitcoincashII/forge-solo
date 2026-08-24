@@ -191,3 +191,43 @@ func TestFirstRampDoesNotApplyAboveTheFloor(t *testing.T) {
 			assigned, s.config.MinDiff*4)
 	}
 }
+
+// variance_percent is a shipped config knob that nothing read: the code used the hardcoded
+// VardiffVariancePercent, so an operator whose miner settled at the wrong difficulty could
+// turn the one dial the config offered them and watch nothing happen.
+//
+// A miner 20% off target sits INSIDE the default 30% dead-band (no adjustment) and OUTSIDE
+// a configured 10% one (adjust), so the same input must produce different behaviour.
+func TestVariancePercentIsHonoured(t *testing.T) {
+	// 12.5s between shares against a 10s target: ratio 0.8, i.e. 20% off.
+	const interval = 12.5
+
+	wide := NewServer(&ServerConfig{
+		MinDiff: 1024, MaxDiff: 1e12, RentalMinDiff: 500000,
+		VardiffEnabled: true, TargetShareTime: 10, RetargetTime: 30,
+	}, zap.NewNop(), nil, nil) // VariancePercent unset -> default 30%
+	c1, done1 := rampClient(t, wide, 4096, interval)
+	defer done1()
+	wide.adjustVardiff(c1)
+	c1.mu.RLock()
+	unchanged := c1.Difficulty
+	c1.mu.RUnlock()
+	if unchanged != 4096 {
+		t.Errorf("with the default 30 percent dead-band a 20-percent-off miner was adjusted to %v; it should sit inside the band", unchanged)
+	}
+
+	narrow := NewServer(&ServerConfig{
+		MinDiff: 1024, MaxDiff: 1e12, RentalMinDiff: 500000,
+		VardiffEnabled: true, TargetShareTime: 10, RetargetTime: 30,
+		VariancePercent: 0.10,
+	}, zap.NewNop(), nil, nil)
+	c2, done2 := rampClient(t, narrow, 4096, interval)
+	defer done2()
+	narrow.adjustVardiff(c2)
+	c2.mu.RLock()
+	adjusted := c2.Difficulty
+	c2.mu.RUnlock()
+	if adjusted == 4096 {
+		t.Error("with a configured 10 percent dead-band the same 20-percent-off miner was NOT adjusted; variance_percent is being ignored")
+	}
+}

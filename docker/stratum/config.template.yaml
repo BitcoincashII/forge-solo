@@ -24,7 +24,6 @@ stratum:
   host: "0.0.0.0"
   port: 3333
   max_connections: 256          # home use — a handful of miners
-  ban_duration: "10m"
   max_shares_per_second: 100
   extranonce1_size: 2
   extranonce2_size: 8
@@ -34,7 +33,7 @@ stratum:
     max_diff: 1000000000000
     target_time: 10
     retarget_time: 30
-    variance_percent: 25
+    variance_percent: 25         # dead-band around target_time: vardiff only adjusts outside +/-this
 
 # Disabled — not applicable to a single-household solo miner.
 stratum_braiins:
