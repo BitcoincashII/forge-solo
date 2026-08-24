@@ -245,7 +245,10 @@
                     document.getElementById('totalEarned').textContent = 'Total: 0 BCH2';
                 } else {
                     const sorted = data.blocks.slice().sort((a, b) => (b.time || 0) - (a.time || 0));
-                    minerBlocksCount = sorted.length;
+                    // data.total is the BCH2 count the API already computed. sorted.length
+                    // merged in the merge-mined 1175 rows, so the tile read 10 while the
+                    // same page's own workers table and /api/v1/stats both said 7.
+                    minerBlocksCount = (data.total != null) ? data.total : sorted.filter(b => b.coin !== '1175').length;
                     var confirmedText = typeof PT !== 'undefined' && PT.p_status_confirmed ? PT.p_status_confirmed : 'Confirmed';
                     var pendingText = typeof PT !== 'undefined' && PT.p_status_pending ? PT.p_status_pending : 'Pending';
                     var processingText = typeof PT !== 'undefined' && PT.p_status_processing ? PT.p_status_processing : 'Processing';
@@ -264,12 +267,19 @@
                         else blockCell = `<a href="https://explorer.bch2.org/block/${safeHash}" target="_blank" rel="noopener noreferrer" class="hash-link" title="View this block on the BCH2 explorer">${truncateHash(safeHash, 8, 4)}</a>`;
                         // Payout cell: BCH2 links to the tx; 1175 shows status text (BCH2 explorer would be wrong).
                         let payoutCell;
+                        // An orphaned block paid nothing: the chain discarded it. It used to
+                        // render as found and "Paid by coinbase" and count toward the totals,
+                        // because the renderer never looked at b.status and treated every
+                        // 1175 row as paid unconditionally.
+                        const isOrphaned = b.status === 'orphaned';
                         // Solo rewards are paid by the block's OWN coinbase on both chains, so
                         // there is no payout transaction to wait for and no "Processing" state
                         // to pass through. Without this every solo block sat at Pending, then
                         // Processing, forever -- next to a Total Paid that already counted it.
-                        const paidByCoinbase = b.payoutTxid === 'coinbase-direct' || is1175;
-                        if (paidByCoinbase) {
+                        const paidByCoinbase = !isOrphaned && (b.payoutTxid === 'coinbase-direct' || is1175);
+                        if (isOrphaned) {
+                            payoutCell = '<span style="color:var(--red)" title="This block was superseded on the chain and paid nothing">Orphaned</span>';
+                        } else if (paidByCoinbase) {
                             payoutCell = '<span style="color:var(--bch-green)" title="Paid directly by this block\u2019s coinbase — there is no separate payout transaction">Paid by coinbase</span>';
                         } else if (is1175) {
                             payoutCell = b.confirmed ? '<span style="color:var(--gold)">' + processingText + '</span>' : '<span style="color:var(--text-secondary)">' + pendingText + '</span>';
@@ -281,7 +291,9 @@
                             payoutCell = '<span style="color:var(--text-secondary)">' + pendingText + '</span>';
                         }
                         const reward = (b.reward != null ? b.reward : (is1175 ? 0 : 50));
-                        if (is1175) { esfReward += reward; esfCount++; } else { bch2Reward += reward; }
+                        if (!isOrphaned) {
+                            if (is1175) { esfReward += reward; esfCount++; } else { bch2Reward += reward; }
+                        }
                         const rewardDisplay = formatBCH2(reward, is1175 ? 4 : 2) + (is1175 ? ' ESF' : ' BCH2');
                         return `
                         <tr>

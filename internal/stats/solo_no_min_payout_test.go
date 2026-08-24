@@ -125,3 +125,46 @@ func TestSoloEarningsSplitsByMaturity(t *testing.T) {
 		t.Error("both zero — this is the bug the card had: nothing owed is not the same as nothing mined")
 	}
 }
+
+// An orphaned payout must not count as confirmed, and must not sit inside "Total Paid".
+//
+// The confirmation flag was derived by pattern-matching the txid STRING
+// (CASE WHEN txid LIKE 'pending_%' THEN false ELSE true), which ignores the
+// status='orphaned', confirmed=false that OrphanSoloBlock writes -- and the orphan txid is
+// the literal 'orphaned', so it fell through to "confirmed". The dashboard therefore kept a
+// voided reward inside Total Paid while the balance card beside it, which does filter
+// orphans, disagreed.
+func TestOrphanedPayoutIsNotCountedAsPaid(t *testing.T) {
+	if err := InitDB(filepath.Join(t.TempDir(), "orphan.db")); err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+	defer CloseDB()
+
+	const miner = "bitcoincashii:qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzse6qye33q"
+
+	// Two solo blocks settled coinbase-direct, then one of them orphaned.
+	if err := SaveSoloBlockCoinbaseDirect(miner, 10, 50, "aaa"); err != nil {
+		t.Fatalf("record 10: %v", err)
+	}
+	if err := SaveSoloBlockCoinbaseDirect(miner, 11, 50, "bbb"); err != nil {
+		t.Fatalf("record 11: %v", err)
+	}
+	if _, err := db.Exec(`UPDATE payouts SET status='orphaned', txid='orphaned', confirmed=0
+		WHERE miner_address=? AND block_height=?`, miner, 11); err != nil {
+		t.Fatalf("orphan 11: %v", err)
+	}
+
+	rows, count, totalPaid := GetMinerSoloPayoutsDB(miner)
+	if totalPaid != 50 {
+		t.Errorf("totalPaid = %v, want 50 — the orphaned block's 50 is still being counted as paid", totalPaid)
+	}
+	// PayoutRecord carries no height, so identify the orphan by its txid.
+	for _, r := range rows {
+		if r.TxID == "orphaned" && r.Confirmed {
+			t.Error("the orphaned payout reports confirmed; the chain discarded that block")
+		}
+	}
+	if count == 0 {
+		t.Fatal("no payout rows returned at all")
+	}
+}

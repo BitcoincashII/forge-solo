@@ -69,6 +69,15 @@ type JobManager struct {
 	auxCommitment    []byte
 	auxWorkAt        time.Time
 	auxRefreshActive bool
+	// auxGen increments on every enable/disable. A poll that started before a re-point
+	// carries the old generation and its result is discarded, so work fetched for the
+	// PREVIOUS payout address can never be written back over the new one -- a window of
+	// the RPC duration plus one poll interval, and the value at stake is where a 1175
+	// block pays.
+	auxGen uint64
+
+	// auxRefreshNow lets a caller ask for an immediate poll (buffered, non-blocking).
+	auxRefreshNow chan struct{}
 }
 
 // auxRefreshInterval is how often the aux node is polled in the background.
@@ -86,7 +95,11 @@ const auxRefreshInterval = 15 * time.Second
 // aux work whose parent has moved on does not cost a BCH2 block -- the commitment is just
 // extra coinbase bytes -- but the aux submission would be rejected, so there is nothing to
 // gain by using it.
-const auxWorkMaxAge = 20 * time.Second
+const auxWorkMaxAge = AuxWorkMaxAge
+
+// AuxWorkMaxAge is exported so the status ladder can key its "merge mining is stale"
+// threshold to the same number the job path enforces, instead of drifting from it.
+const AuxWorkMaxAge = 20 * time.Second
 
 // AuxHealth is a snapshot of whether merge mining is actually producing work.
 type AuxHealth struct {
@@ -123,6 +136,7 @@ func (jm *JobManager) DisableMergeMining() {
 	jm.auxWork = nil
 	jm.auxCommitment = nil
 	jm.auxWorkAt = time.Time{}
+	jm.auxGen++    // invalidate any in-flight poll
 	jm.mu.Unlock() // auxRefreshLoop sees auxEnabled false on its next tick and exits
 }
 
@@ -141,13 +155,18 @@ func (jm *JobManager) EnableMergeMining(nodeURL, user, pass, payoutAddr string) 
 	jm.auxWork = nil
 	jm.auxCommitment = nil
 	jm.auxWorkAt = time.Time{}
+	jm.auxGen++
+	gen := jm.auxGen
+	if jm.auxRefreshNow == nil {
+		jm.auxRefreshNow = make(chan struct{}, 1)
+	}
 	start := !jm.auxRefreshActive
 	jm.auxRefreshActive = true
 	jm.mu.Unlock()
 	// Prime the cache once, inline. This is the enable path (startup, or the dashboard
 	// watcher's 8s loop), never the job-build path, so a slow aux node costs at most the
 	// client's 3s timeout here and cannot delay a BCH2 job.
-	jm.refreshAuxOnce(c, payoutAddr)
+	jm.refreshAuxOnce(c, payoutAddr, gen)
 	if start {
 		go jm.auxRefreshLoop()
 	}
@@ -194,25 +213,58 @@ func (jm *JobManager) auxRefreshLoop() {
 			return
 		}
 
-		jm.refreshAuxOnce(client, payout)
-		time.Sleep(auxRefreshInterval)
+		jm.mu.RLock()
+		gen := jm.auxGen
+		wake := jm.auxRefreshNow
+		jm.mu.RUnlock()
+
+		jm.refreshAuxOnce(client, payout, gen)
+
+		select {
+		case <-time.After(auxRefreshInterval):
+		case <-wake: // RefreshAuxNow: poll again immediately
+		}
+	}
+}
+
+// RefreshAuxNow asks the background poller to fetch again at once, without blocking the
+// caller. Used after a solved aux block is accepted: the aux tip has just moved, so the
+// cached work now names a parent that has been superseded and every job built until the
+// next scheduled poll would commit to it.
+func (jm *JobManager) RefreshAuxNow() {
+	jm.mu.RLock()
+	wake := jm.auxRefreshNow
+	jm.mu.RUnlock()
+	if wake == nil {
+		return
+	}
+	select {
+	case wake <- struct{}{}:
+	default: // a refresh is already pending
 	}
 }
 
 // refreshAuxOnce performs one aux fetch and updates the cache and the health record.
 // Called by the background loop, and once inline by EnableMergeMining so that aux work is
 // available to the very next job rather than only after the first tick.
-func (jm *JobManager) refreshAuxOnce(client *mergemining.Client, payout string) {
+func (jm *JobManager) refreshAuxOnce(client *mergemining.Client, payout string, gen uint64) {
 	w, err := client.GetAuxBlock(payout)
 	if err != nil {
 		jm.mu.Lock()
-		jm.auxLastErr = err.Error()
-		jm.auxLastErrAt = time.Now()
+		if jm.auxGen == gen {
+			jm.auxLastErr = err.Error()
+			jm.auxLastErrAt = time.Now()
+		}
 		jm.mu.Unlock()
 		return
 	}
 	commitment, cerr := mergemining.BuildCommitment(w.Hash)
 	jm.mu.Lock()
+	if jm.auxGen != gen {
+		// The payout address changed while this was in flight. Discard it.
+		jm.mu.Unlock()
+		return
+	}
 	if cerr != nil {
 		jm.auxLastErr = fmt.Sprintf("bad aux child hash %q: %v", w.Hash, cerr)
 		jm.auxLastErrAt = time.Now()

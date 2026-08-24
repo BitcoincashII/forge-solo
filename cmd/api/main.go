@@ -807,7 +807,19 @@ func getPoolStats(c *fiber.Ctx) error {
 	} else if totalHashrate >= 1 {
 		hashrateStr = fmt.Sprintf("%.1f TH/s", totalHashrate)
 	} else if totalHashrate > 0 {
-		hashrateStr = fmt.Sprintf("%.2f TH/s", totalHashrate)
+		// Below 1 TH/s, scale down instead of printing "0.00 TH/s". A NerdMiner or a lone
+		// Bitaxe is well under a terahash, and the settings page prints this string
+		// verbatim -- so the one page a new user checks told them they were doing nothing.
+		switch h := totalHashrate * 1e12; {
+		case h >= 1e9:
+			hashrateStr = fmt.Sprintf("%.2f GH/s", h/1e9)
+		case h >= 1e6:
+			hashrateStr = fmt.Sprintf("%.2f MH/s", h/1e6)
+		case h >= 1e3:
+			hashrateStr = fmt.Sprintf("%.2f KH/s", h/1e3)
+		default:
+			hashrateStr = fmt.Sprintf("%.0f H/s", h)
+		}
 	}
 
 	return c.JSON(fiber.Map{
@@ -1270,7 +1282,16 @@ func getPoolConfig(c *fiber.Ctx) error {
 		}
 	}
 	if payout1175 == "" {
-		payout1175 = os.Getenv("PAYOUT_ADDRESS_1175")
+		// Validated, like the POOL_ADDRESS fallback beside it. Unvalidated, one typo in the
+		// Umbrel app config pre-filled the form with a bad address and then 400'd EVERY
+		// save -- including the save that sets the BCH2 address and un-pauses mining.
+		if env := strings.TrimSpace(os.Getenv("PAYOUT_ADDRESS_1175")); env != "" {
+			if isValid1175Address(env) {
+				payout1175 = env
+			} else {
+				log.Printf("WARNING: PAYOUT_ADDRESS_1175 is set but is not a valid esf1… address (%q); ignoring it", env)
+			}
+		}
 	}
 	if tag == "" {
 		tag = os.Getenv("COINBASE_TAG")
@@ -1286,11 +1307,14 @@ func getPoolConfig(c *fiber.Ctx) error {
 		}
 	}
 	return c.JSON(fiber.Map{
-		"stratum_port":        3333,
-		"pool_name":           poolNameFromEnv(),
-		"pool_fee":            0.0,
-		"solo_fee":            0.0,
-		"min_payout":          minPayout,
+		"stratum_port": 3333,
+		"pool_name":    poolNameFromEnv(),
+		"pool_fee":     0.0,
+		"solo_fee":     0.0,
+		// Always 0: a solo block pays its finder in its own coinbase, so there is no
+		// minimum to cross. Publishing the stored value here reported 1 while /api/stats on
+		// the same server reported 0 and the UI said there is no minimum at all.
+		"min_payout":          0.0,
 		"pool_address":        poolAddr,
 		"payout_address_1175": payout1175,
 		"coinbase_tag":        tag,
@@ -1798,7 +1822,11 @@ func getMinerSoloBlocks(c *fiber.Ctx) error {
 				"reward":    b.Reward,
 				"time":      b.Time,
 				"confirmed": b.Status == "confirmed",
-				"coin":      "1175",
+				// Carried so the dashboard can distinguish an orphaned aux block from a
+				// won one. Without it the renderer showed a block the chain had discarded
+				// as found, "Paid by coinbase", and counted its reward in the total.
+				"status": b.Status,
+				"coin":   "1175",
 			})
 		}
 	}

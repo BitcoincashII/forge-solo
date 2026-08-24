@@ -6,7 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Forge Solo BCH2 Mining">
     <title>Forge Solo</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!-- No webfont fetch: an Umbrel with no outbound access hung/fell back here while
+         settings.html (which never fetched one) rendered fine, so the two pages disagreed. -->
     <link rel="stylesheet" href="/css/common.css">
     <script src="/js/chart.min.js"></script>
     <style>
@@ -65,7 +66,12 @@
 
         .chart-container{height:200px;position:relative}
 
-        .table-scroll{max-height:300px;overflow-y:auto}
+        /* overflow-x too: a grid child defaults to min-width:auto, so a wide table forced
+           the whole page to ~604px and pushed the Time/Status/Payout columns off a phone
+           screen instead of scrolling inside its own box. */
+        .table-scroll{max-height:300px;overflow-y:auto;overflow-x:auto}
+        .stats-row>*,.main-grid>*,.effort-stats>*{min-width:0}
+        .card{min-width:0}
         .blocks-table{width:100%;border-collapse:collapse}
         .blocks-table th,.blocks-table td{padding:10px;text-align:left;border-bottom:1px solid var(--border);font-size:13px}
         .blocks-table th{color:var(--text-secondary);font-weight:500;font-size:11px;text-transform:uppercase}
@@ -81,6 +87,8 @@
         }
         @media(max-width:600px){
             .stats-row{grid-template-columns:repeat(2,1fr)}
+            .effort-stats{grid-template-columns:repeat(2,1fr)}
+            body,.container{overflow-x:hidden}
             .miner-header h1{font-size:22px}
             .balance-card{flex-direction:column;text-align:center}
             .balance-right{text-align:center}

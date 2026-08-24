@@ -530,7 +530,8 @@ func GetMinerPayoutsDB(minerID string) ([]PayoutRecord, int, float64) {
 
 	rows, err := db.Query(`
 		SELECT txid, SUM(amount) as amount, MAX(paid_at) as paid_at, COUNT(*) as blocks,
-		       CASE WHEN txid LIKE 'pending_%' THEN 0 ELSE 1 END as is_confirmed
+		       CASE WHEN COALESCE(status,'') = 'orphaned' THEN 0
+		            WHEN txid LIKE 'pending_%' THEN 0 ELSE 1 END as is_confirmed
 		FROM payouts
 		WHERE miner_address = ?
 		  AND txid IS NOT NULL
@@ -584,7 +585,12 @@ func GetMinerSoloPayoutsDB(minerID string) ([]PayoutRecord, int, float64) {
 
 	rows, err := db.Query(`
 		SELECT p.txid, p.amount, p.paid_at, 1 as blocks,
-		       CASE WHEN p.txid LIKE 'pending_%' THEN 0 ELSE 1 END as is_confirmed
+		       -- Read the ledger's own columns. Deriving this from the txid STRING treated an
+		       -- orphaned payout (status='orphaned', confirmed=false, txid='orphaned') as
+		       -- confirmed, so a voided reward stayed inside Total Paid -- contradicting the
+		       -- balance card on the same screen, which does filter orphans out.
+		       CASE WHEN COALESCE(p.status,'') = 'orphaned' THEN 0
+		            WHEN p.txid LIKE 'pending_%' THEN 0 ELSE 1 END as is_confirmed
 		FROM payouts p
 		JOIN blocks b ON b.height = p.block_height AND b.miner_address = p.miner_address
 		WHERE p.miner_address = ?

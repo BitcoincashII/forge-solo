@@ -10,14 +10,12 @@ pool:
   address: "${POOL_ADDRESS}"
   solo_fee: 0.0                 # home miner keeps 100% — no pool fee
   block_reward: 50.0
-  halving_interval: 210000
   payout_scheme: "solo"
   # INERT in solo. A solo block is paid by its own coinbase and the settle stamps the payout
   # row txid='coinbase-direct', while the sender only ever considers rows with a NULL/empty
   # txid -- so no solo balance can reach the threshold this would gate, and payMiner is
   # unreachable. Kept only so the template still renders MIN_PAYOUT.
   min_payout: ${MIN_PAYOUT}
-  payout_interval: "1h"
   coinbase_tag: "${COINBASE_TAG}"
 
 stratum:

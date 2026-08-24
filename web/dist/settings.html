@@ -50,7 +50,7 @@
     <div class="row"><span class="k">Stratum URL</span><span class="v" id="stratumUrl">stratum+tcp://…:3333</span></div>
     <div class="row"><span class="k">Worker username</span><span class="v">any label (e.g. rig1)</span></div>
     <div class="row"><span class="k">Password</span><span class="v">x (anything)</span></div>
-    <p class="note">So there is <strong>no minimum payout and no payout schedule</strong> — nothing accumulates, and nothing is waiting to be sent. A block's reward is spendable after the usual 100-block coinbase maturity.</p>
+    <p class="note">Because each block pays you directly, there is <strong>no minimum payout and no payout schedule</strong> — nothing accumulates, and nothing is waiting to be sent. A block's reward is spendable after the usual 100-block coinbase maturity.</p>
     <p class="note">The worker <strong>username is only a label</strong> for the stats on this dashboard. All BCH2 block rewards go to the single <strong>payout address you set above</strong> — <em>not</em> to the worker username. Every share also merge-mines <strong>1175 (ESF)</strong> for free when a 1175 address is set.</p>
     <p class="note"><strong>Rented hashpower</strong> (Braiins and other marketplaces) uses this same URL and port — there is no separate rental port. Two things to know: the address above is a <em>local</em> one, so a marketplace can only reach it through a port forward or a tunnel; and you can pin the difficulty by putting <code>d=2000000</code> in the password field if you want to skip the automatic ramp.</p>
     <a class="cta" href="/solo">Open dashboard →</a>
@@ -127,7 +127,12 @@
            // Re-pull so the banner/merge-mining status reflect what was stored.
            fetch('/api/v1/pool/config').then(function(r){return r.json()}).then(applyConfig).catch(function(){});
          } else {
-           st.className='status err'; st.textContent='Error: '+(d.error||'failed');
+           st.className='status err'; st.textContent='Error: '+(d.error||'failed')+' — nothing was saved; the fields below have been reset to what is stored.';
+           // Re-pull on failure too. The save is all-or-nothing across all three fields, so
+           // a user who corrected their BCH2 address and mistyped the optional ESF address
+           // got an ESF-only error while the corrected address sat in its input looking
+           // saved -- and every block kept paying the old one.
+           fetch('/api/v1/pool/config').then(function(r){return r.json()}).then(applyConfig).catch(function(){});
          }
        }).catch(function(e){ st.className='status err'; st.textContent='Error: '+String(e); });
    });

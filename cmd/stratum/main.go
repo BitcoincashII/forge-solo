@@ -30,6 +30,8 @@ import (
 	"github.com/go-zeromq/zmq4"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -235,7 +237,10 @@ func buildMiningStatus() miningStatusSnapshot {
 // auxStaleAfter is how long without a successful getauxblock before merge mining counts as
 // failing rather than merely quiet. The aux node is polled on every job build, so this is
 // many missed fetches, not one.
-const auxStaleAfter = 2 * time.Minute
+// Tied to the freshness rule the job path actually applies. It used to be two minutes while
+// fetchAuxWork stopped using cached work after twenty seconds, so for ~100s the dashboard
+// showed merge mining green while every job was built with no aux commitment at all.
+const auxStaleAfter = 2 * mining.AuxWorkMaxAge
 
 // auxStatusFrom reduces aux health to something a dashboard can render and a user can act
 // on. "never_worked" is deliberately distinct from "failing": on a fresh Umbrel install the
@@ -446,6 +451,15 @@ const aux1175Maturity = 100
 // submit goroutine) only when submitauxblock is accepted.
 func aux1175BlockHandler(height int64, hash string, coinbaseValueSat int64, finder string, isSolo bool) {
 	gross := float64(coinbaseValueSat) / 1e8
+
+	// The aux tip just moved. Cached aux work now names a parent that has been superseded,
+	// and every job built until the next scheduled poll would commit to it -- on 1175's
+	// ~600s mainnet spacing that is a few percent of merge-mined blocks committing to a
+	// dead parent and forfeiting the aux reward. Ask for a poll immediately; it is
+	// non-blocking and never touches the job-build path.
+	if jobManager != nil {
+		jobManager.RefreshAuxNow()
+	}
 
 	// Two candidates for one aux height is not a reorg -- it is the ordinary case of this
 	// pool solving two siblings on the same parent, which happened in testing. The ledger's
@@ -1344,12 +1358,46 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 	}
 }
 
+// buildLogger honours logging.level and logging.format ("console" or "json"). Both were
+// shipped config keys read by nothing.
+func buildLogger(configPath string) (*zap.Logger, error) {
+	level, format := "info", "json"
+	if raw, err := os.ReadFile(configPath); err == nil {
+		var doc struct {
+			Logging struct {
+				Level  string `yaml:"level"`
+				Format string `yaml:"format"`
+			} `yaml:"logging"`
+		}
+		if yaml.Unmarshal(raw, &doc) == nil {
+			if doc.Logging.Level != "" {
+				level = doc.Logging.Level
+			}
+			if doc.Logging.Format != "" {
+				format = doc.Logging.Format
+			}
+		}
+	}
+	cfg := zap.NewProductionConfig()
+	if format == "console" {
+		cfg.Encoding = "console"
+		cfg.EncoderConfig = zap.NewDevelopmentEncoderConfig()
+	}
+	if lv, err := zapcore.ParseLevel(level); err == nil {
+		cfg.Level = zap.NewAtomicLevelAt(lv)
+	}
+	return cfg.Build()
+}
+
 func main() {
 	configPath := flag.String("config", "config.yaml", "Path to config file")
 	flag.Parse()
 
+	// Honour logging.level / logging.format from the config, which were shipped keys that
+	// nothing read: the logger was hardcoded to zap.NewProduction() regardless. Read before
+	// loadConfig runs properly, so this uses a minimal early read of the same file.
 	var logErr error
-	logger, logErr = zap.NewProduction()
+	logger, logErr = buildLogger(*configPath)
 	if logErr != nil {
 		log.Fatalf("Failed to initialize logger: %v", logErr)
 	}

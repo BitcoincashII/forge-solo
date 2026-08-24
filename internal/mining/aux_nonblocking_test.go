@@ -87,3 +87,52 @@ func TestHangingAuxNodeYieldsNoCommitment(t *testing.T) {
 		t.Error("aux health records no error after a hanging fetch; the fault would be invisible")
 	}
 }
+
+// Re-pointing the 1175 payout address must not be overwritten by a poll that started for the
+// OLD address. The window is the RPC duration plus one poll interval, and what is at stake
+// is where a 1175 block pays -- so a generation counter invalidates in-flight work.
+func TestRepointDiscardsWorkFetchedForTheOldAddress(t *testing.T) {
+	var served string
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(300 * time.Millisecond) // in flight while the address changes
+		served = "old"
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"result":{"hash":"` + repeatStr("a", 64) + `","chainid":1175,"target":"7f"},"error":null,"id":1}`))
+	}))
+	hang := make(chan struct{})
+	newSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-hang }))
+
+	jm := &JobManager{pubkeyHash: make([]byte, 20)}
+	defer func() {
+		jm.DisableMergeMining()
+		close(hang)
+		slow.CloseClientConnections()
+		newSrv.CloseClientConnections()
+		slow.Close()
+		newSrv.Close()
+	}()
+
+	jm.EnableMergeMining(slow.URL, "u", "p", "esf1old")
+	// Immediately re-point at a different node/address. Any work still in flight for the
+	// old one must be discarded rather than written back over the new generation.
+	jm.EnableMergeMining(newSrv.URL, "u", "p", "esf1new")
+
+	time.Sleep(700 * time.Millisecond) // let the old in-flight request land
+
+	if h := jm.AuxHealth(); h.Payout != "esf1new" {
+		t.Fatalf("payout = %q, want the re-pointed address", h.Payout)
+	}
+	if work, _ := jm.fetchAuxWork(); work != nil {
+		t.Errorf("aux work is being served after a re-point (%v); it was fetched for the previous address (served=%q)", work, served)
+	}
+}
+
+// repeatStr, not named "strings": a helper shadowing a stdlib package name breaks the next
+// person who adds an import to this file.
+func repeatStr(c string, n int) string {
+	out := ""
+	for i := 0; i < n; i++ {
+		out += c
+	}
+	return out
+}
