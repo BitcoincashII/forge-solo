@@ -1,7 +1,9 @@
 # Forge Solo — stratum config (rendered from env by entrypoint.sh via envsubst).
 # SOLO ONLY: no PPLNS, no Stratum V2 (it is refused at startup -- see cmd/stratum).
-# Merge-mines 1175 (ESF). Rented hashpower uses the SAME port as your own hardware, 3333:
-# it already ships the 2 + 8 extranonce sizing marketplaces require.
+# Merge-mines 1175 (ESF). Two stratum ports: 3333 for your own hardware and for Braiins
+# (which connects each miner individually), 3335 for NiceHash / MiningRigRentals (which
+# put a whole order behind one connection). Both ship the 4 + 8 extranonce sizing
+# marketplaces require.
 
 pool:
   name: "Forge Solo"

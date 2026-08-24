@@ -38,7 +38,7 @@
   </div>
 
   <div class="banner" id="notConfiguredBanner" style="display:none">
-    Not configured — set your BCH2 payout address below to start mining. Until then the node accepts miner connections but mining is paused.
+    Not configured — set your BCH2 payout address below to start mining. Until then a miner cannot log in at all: with no address there is nothing to credit, so the stratum refuses every worker and your rig will sit in a reconnect loop at 0 H/s.
   </div>
 
   <div class="card">
@@ -64,7 +64,7 @@
     <div class="row"><span class="k">Password</span><span class="v">x (anything)</span></div>
     <p class="note">Because each block pays you directly, there is <strong>no minimum payout and no payout schedule</strong> — nothing accumulates, and nothing is waiting to be sent. A block's reward is spendable after the usual 100-block coinbase maturity.</p>
     <p class="note">The worker <strong>username is only a label</strong> for the stats on this dashboard. All BCH2 block rewards go to the single <strong>payout address you set above</strong> — <em>not</em> to the worker username. Every share also merge-mines <strong>1175 (ESF)</strong> for free when a 1175 address is set.</p>
-    <p class="note"><strong>Rented hashpower</strong> uses a port that depends on how the marketplace connects. <strong>Braiins</strong> connects each miner <em>individually</em>, so it uses the same port as your own hardware — <strong>3333</strong> — and every connection finds its own difficulty. <strong>NiceHash</strong> and <strong>MiningRigRentals</strong> put the whole order behind one connection, so they use <strong>port 3335</strong>, which starts at a much higher difficulty to suit an aggregated order.</p>
+    <p class="note"><strong>Rented hashpower</strong> uses a port that depends on how the marketplace connects. <strong>Braiins</strong> connects each miner <em>individually</em>, so it uses the same port as your own hardware — <strong>3333</strong> — and every connection finds its own difficulty. <strong>NiceHash</strong> and <strong>MiningRigRentals</strong> put the whole order behind one connection, so they use <strong>port 3335</strong>, whose difficulty <em>floor</em> is much higher to suit an aggregated order. That is a floor, not a starting point: a connection on 3335 is never assigned less, so point a single small rig at 3333 instead.</p>
     <p class="note">Two things to know either way: the address above is a <em>local</em> one, so a marketplace can only reach it through a port forward or a tunnel; and you can set the <em>starting</em> difficulty by putting <code>d=2000000</code> in the password field to skip the automatic ramp. It is a starting point, not a lock: vardiff still adjusts from there once your real share rate is known, and a connection that has not landed a share in 3 minutes drops back to the port’s floor.</p>
     <a class="cta" href="/solo">Open dashboard →</a>
   </div>
@@ -72,7 +72,7 @@
   <div class="card">
     <h2>Merge-mining (1175 / ESF)</h2>
     <div class="row"><span class="k">1175 (ESF) payout address</span><span class="v" id="esfStatus">—</span></div>
-    <div class="row"><span class="k">Network difficulty</span><span class="v" id="netDiff">—</span></div>
+    <div class="row"><span class="k">BCH2 network difficulty</span><span class="v" id="netDiff">—</span></div>
     <div class="row"><span class="k">Your hashrate</span><span class="v" id="poolHr">—</span></div>
     <p class="note">BCH2 mining is never affected by 1175: if the 1175 node is unreachable or still syncing, this app keeps mining BCH2 normally and simply stops adding the 1175 commitment until it recovers.</p>
     <p class="note">1175 (ESF) is merge-mined at no extra hashrate cost. Its reward is paid on-chain directly to the ESF address above. Set that address in <strong>Payout &amp; mining setup</strong> to turn merge-mining on.</p>

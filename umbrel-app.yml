@@ -17,7 +17,7 @@ description: >-
   - A built-in BCH2 full node (auto-syncs, pruned for home use)
   - A built-in 1175 (ESF) node for AuxPoW merge-mining
   - A simple solo dashboard: hashrate, effort, your blocks, payouts
-  - Automatic solo payouts to your address
+  - Block rewards paid straight to your address by the coinbase — no payout wallet
   - Variable difficulty (works with small ASICs like the Bitaxe)
 
   To accept inbound peers, forward TCP 8339 (BCH2) and 25360 (1175) in your router. To
@@ -26,16 +26,19 @@ description: >-
   Set your BCH2 payout address on the app's Settings page — every block's reward is
   paid there; the miner's worker name is just a label. Then point your miner at
   stratum+tcp://<your-umbrel-ip>:3333 , set your 1175 payout address, and you're
-  mining. Rented hashpower uses the same port.
+  mining. Braiins connects each miner individually, so it uses 3333 like your own hardware;
+  NiceHash and MiningRigRentals put the whole order behind one connection, so they use 3335.
 
 developer: BCH2 Team
 website: https://hashforge.bch2.org
 repo: https://github.com/BitcoincashII/forge-solo
 support: https://github.com/BitcoincashII/forge-solo/issues
-gallery:
-  - https://hashforge.bch2.org/screenshots/solo-dashboard.png
-  - https://hashforge.bch2.org/screenshots/solo-effort.png
-  - https://hashforge.bch2.org/screenshots/settings.png
+# gallery: all three screenshot URLs returned 404 and rendered as broken images in the
+# store listing. Re-add them once the files are actually uploaded to hashforge.bch2.org.
+# gallery:
+#   - https://hashforge.bch2.org/screenshots/solo-dashboard.png
+#   - https://hashforge.bch2.org/screenshots/solo-effort.png
+#   - https://hashforge.bch2.org/screenshots/settings.png
 releaseNotes: >-
   The dashboard's Network Difficulty and Network Hashrate tiles no longer flash
   0 during brief node-RPC hiccups — they now hold the last good reading, and the

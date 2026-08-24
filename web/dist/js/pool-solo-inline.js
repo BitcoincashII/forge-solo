@@ -307,7 +307,18 @@
                     var pendingText = typeof PT !== 'undefined' && PT.p_status_pending ? PT.p_status_pending : 'Pending';
                     var processingText = typeof PT !== 'undefined' && PT.p_status_processing ? PT.p_status_processing : 'Processing';
                     let bch2Reward = 0, esfReward = 0, esfCount = 0;
-                    tbody.innerHTML = sorted.slice(0, 20).map(b => {
+                    // Sum over EVERY row the API returned, not just the 20 rendered below.
+                    // The total was accumulated inside the .slice(0,20).map(), while the
+                    // count printed beside it is the server-side figure -- so past 20 rows
+                    // (about 10 BCH2 blocks, since merge-mining adds a 1175 row to each)
+                    // the page showed a total that silently stopped growing.
+                    const shownLimit = 20;
+                    for (const b of sorted) {
+                        if (b.status === 'orphaned') continue;   // paid nothing
+                        const r = (b.reward != null ? b.reward : (b.coin === '1175' ? 0 : 50));
+                        if (b.coin === '1175') { esfReward += r; esfCount++; } else { bch2Reward += r; }
+                    }
+                    tbody.innerHTML = sorted.slice(0, shownLimit).map(b => {
                         const is1175 = b.coin === '1175';
                         const coinBadge = is1175
                             ? '<span style="background:rgba(224,179,65,0.15);color:#e0b341;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:700">1175</span>'
@@ -345,9 +356,6 @@
                             payoutCell = '<span style="color:var(--text-secondary)">' + pendingText + '</span>';
                         }
                         const reward = (b.reward != null ? b.reward : (is1175 ? 0 : 50));
-                        if (!isOrphaned) {
-                            if (is1175) { esfReward += reward; esfCount++; } else { bch2Reward += reward; }
-                        }
                         const rewardDisplay = formatBCH2(reward, is1175 ? 4 : 2) + (is1175 ? ' ESF' : ' BCH2');
                         return `
                         <tr>
@@ -361,8 +369,9 @@
                         </tr>
                     `}).join("");
                     document.getElementById('blocksFound').textContent = formatNumber(minerBlocksCount);
-                    let totalStr = 'Total: ' + formatBCH2(bch2Reward, 2) + ' BCH2';
-                    if (esfCount > 0) totalStr += ' + ' + formatBCH2(esfReward, 4) + ' ESF';
+                    let totalStr = 'Total: ' + formatBCH2(bch2Reward, 8) + ' BCH2';
+                    if (esfCount > 0) totalStr += ' + ' + formatBCH2(esfReward, 8) + ' ESF';
+                    if (sorted.length > shownLimit) totalStr += ' (latest ' + shownLimit + ' shown)';
                     document.getElementById('totalEarned').textContent = totalStr;
                 }
                 updateAvgEffort(data.blocks || []);
@@ -378,7 +387,11 @@
             try {
                 const data = await apiFetch("/api/v1/miners/" + encodeURIComponent(minerAddress) + "/solo-payouts");
                 document.getElementById("payoutCount").textContent = "(" + formatNumber(data.total || 0) + ")";
-                document.getElementById("totalPaidAmount").textContent = formatNumber(data.totalPaid || 0);
+                // formatBCH2, not formatNumber. formatNumber is toLocaleString(), which caps
+                // at 3 fraction digits and ROUNDS: 200.99999999 rendered as "201". On mainnet
+                // a coinbase is subsidy plus fees, so this figure essentially always has 8
+                // decimals -- and it is the one number a user checks against their wallet.
+                document.getElementById("totalPaidAmount").textContent = formatBCH2(data.totalPaid || 0, 8);
                 if (!data.payouts || data.payouts.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state" data-i18n="p_solo_no_payouts">' + (typeof PT !== 'undefined' && PT.p_solo_no_payouts ? PT.p_solo_no_payouts : 'No payouts yet') + '</div></td></tr>';
                     return;
