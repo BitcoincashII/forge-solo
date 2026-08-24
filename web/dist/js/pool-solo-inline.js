@@ -177,7 +177,13 @@
                 }
                 const hashrate = data.hashrate5m || 0;
                 currentHashrateTH = hashrate;
-                minerHashing = hashrate > 0 || (data.workers || 0) > 0;
+                // onlineWorkers, NOT workers: `workers` counts every worker ever seen and is
+                // never pruned, so it stays >= 1 for the life of the stratum process. Using it
+                // made the "a miner is connected" banner latch on permanently after a rig was
+                // unplugged -- and because the accurate rung above requires authorized > 0,
+                // this branch is only ever REACHED when nothing is connected, so it could
+                // never once describe a live miner correctly.
+                minerHashing = hashrate > 0 || (data.onlineWorkers || 0) > 0;
                 if (hashrate > 0 && networkDiff > 0) {
                     const hashesPerSecond = hashrate * 1e12;
                     const hashesNeeded = networkDiff * 4294967296;
@@ -258,7 +264,14 @@
                         else blockCell = `<a href="https://explorer.bch2.org/block/${safeHash}" target="_blank" rel="noopener noreferrer" class="hash-link" title="View this block on the BCH2 explorer">${truncateHash(safeHash, 8, 4)}</a>`;
                         // Payout cell: BCH2 links to the tx; 1175 shows status text (BCH2 explorer would be wrong).
                         let payoutCell;
-                        if (is1175) {
+                        // Solo rewards are paid by the block's OWN coinbase on both chains, so
+                        // there is no payout transaction to wait for and no "Processing" state
+                        // to pass through. Without this every solo block sat at Pending, then
+                        // Processing, forever -- next to a Total Paid that already counted it.
+                        const paidByCoinbase = b.payoutTxid === 'coinbase-direct' || is1175;
+                        if (paidByCoinbase) {
+                            payoutCell = '<span style="color:var(--bch-green)" title="Paid directly by this block\u2019s coinbase — there is no separate payout transaction">Paid by coinbase</span>';
+                        } else if (is1175) {
                             payoutCell = b.confirmed ? '<span style="color:var(--gold)">' + processingText + '</span>' : '<span style="color:var(--text-secondary)">' + pendingText + '</span>';
                         } else if (safeTxid) {
                             payoutCell = `<a href="https://explorer.bch2.org/tx/${safeTxid}" target="_blank" rel="noopener noreferrer" class="hash-link" style="color:var(--bch-green)">${truncateHash(safeTxid, 6, 4)}</a>`;
@@ -306,9 +319,14 @@
                 }
                 tbody.innerHTML = data.payouts.slice(0, 20).map(p => {
                     const safeTxid = isValidBlockHash(p.txid) ? p.txid : '';
+                    // A solo reward is paid by the block's own coinbase, so its "txid" is the
+                    // literal 'coinbase-direct' rather than a 64-hex hash. Falling through to
+                    // the hash check rendered every settled solo payout as "Pending" forever,
+                    // directly beside a "Total Paid" that already counted it.
+                    const paidByCoinbase = p.txid === 'coinbase-direct';
                     return `
                     <tr>
-                        <td>${safeTxid ? `<a href="https://explorer.bch2.org/tx/${safeTxid}" target="_blank" rel="noopener noreferrer" class="hash-link" style="color:var(--gold)">${truncateHash(safeTxid, 8, 4)}</a>` : (typeof PT !== 'undefined' && PT.p_status_pending ? PT.p_status_pending : 'Pending')}</td>
+                        <td>${safeTxid ? `<a href="https://explorer.bch2.org/tx/${safeTxid}" target="_blank" rel="noopener noreferrer" class="hash-link" style="color:var(--gold)">${truncateHash(safeTxid, 8, 4)}</a>` : (paidByCoinbase ? '<span style="color:var(--bch-green)">Paid by coinbase</span>' : (typeof PT !== 'undefined' && PT.p_status_pending ? PT.p_status_pending : 'Pending'))}</td>
                         <td style="color:var(--bch-green)">${formatBCH2(p.amount || 0, 2)} BCH2</td>
                         <td>${formatNumber(p.blocks || 0)}</td>
                         <td>${timeAgo(p.paidAt)}</td>

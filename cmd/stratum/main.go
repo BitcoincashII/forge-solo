@@ -1936,8 +1936,15 @@ func (p *BlockFindingShareProcessor) submitBlock(share *stratum.Share) {
 		// Cap the reward at the block's live coinbase value so a stale block_reward
 		// config (e.g. after a subsidy halving) can never pay out more than the coinbase
 		// actually contains. No-op while the config matches the live coinbase.
+		// The template's coinbasevalue is the truth: subsidy PLUS the block's transaction
+		// fees. Preferring it in BOTH directions matters -- the old code only ever adjusted
+		// DOWNWARD (a guard against a stale block_reward after a halving), so on mainnet,
+		// where coinbasevalue exceeds the 50.0 default by the fee total, every solo block
+		// was recorded, reported and webhooked as exactly 50.0 and under-stated its own
+		// reward by its fees. Invisible on an empty regtest chain, where every block is
+		// subsidy-only.
 		effectiveReward := blockReward
-		if cbv := getLatestCoinbaseBTC(); cbv > 0 && cbv < effectiveReward {
+		if cbv := getLatestCoinbaseBTC(); cbv > 0 && cbv != effectiveReward {
 			p.logger.Error("block_reward config exceeds live coinbase value; capping payout (update pool.block_reward after a halving)",
 				zap.Float64("configured_reward", blockReward),
 				zap.Float64("coinbase_value", cbv),

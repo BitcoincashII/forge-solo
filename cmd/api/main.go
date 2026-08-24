@@ -111,6 +111,17 @@ func verifyCashAddrChecksum(prefix string, payload []int) bool {
 // isValid1175Address validates a 1175 payout address: a bech32 address with the
 // mainnet HRP "esf" and a valid checksum (esf1...). This is the address a miner
 // supplies to receive merge-mined 1175 rewards.
+// poolFeeFromConfig reports the pool fee actually in effect. Solo takes none; the value is
+// read rather than assumed so a future non-solo build cannot silently publish a wrong number.
+func poolFeeFromConfig() float64 {
+	if v := os.Getenv("POOL_FEE"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
+			return f
+		}
+	}
+	return 0.0
+}
+
 func isValid1175Address(address string) bool {
 	address = strings.TrimSpace(address)
 	if address == "" {
@@ -793,15 +804,21 @@ func getPoolStats(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"hashrate":          hashrateStr,
-		"hashrateRaw":       totalHashrate * 1e12,
-		"workers":           onlineWorkers,
-		"miners":            len(minerSet),
-		"blocksFound":       blocksFound,
-		"blocksPending":     0,
-		"poolFee":           1.0,
+		"hashrate":      hashrateStr,
+		"hashrateRaw":   totalHashrate * 1e12,
+		"workers":       onlineWorkers,
+		"miners":        len(minerSet),
+		"blocksFound":   blocksFound,
+		"blocksPending": 0,
+		// Read from the live config, never hardcoded. These literals said poolFee 1% and
+		// minPayout 5 BCH2 on an app that charges no fee and has no minimum -- and this
+		// route is deliberately aliased at /api/stats for miningpoolstats and other
+		// aggregators, so those two numbers were the ones the outside world saw. The
+		// minimum is 0 because a solo block pays its finder in its own coinbase; there is
+		// nothing to accumulate. See /api/v1/pool/config, which already reported the truth.
+		"poolFee":           poolFeeFromConfig(),
 		"soloFee":           0.0,
-		"minPayout":         5.0,
+		"minPayout":         0.0,
 		"currentHeight":     height,
 		"networkDifficulty": difficulty,
 		"networkHashrate":   networkHashrate,

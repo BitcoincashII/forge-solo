@@ -348,26 +348,26 @@ func (jm *JobManager) GetBlockTemplate() (*BlockTemplate, error) {
 	// with "must be called with the segwit rule set". Sending it is strictly more
 	// compatible and never changes the BCH2 mainnet template.
 	reqBody := `{"jsonrpc":"1.0","id":"forge","method":"getblocktemplate","params":[{"rules":["segwit"]}]}`
-	
+
 	req, err := http.NewRequest("POST", jm.rpcURL, bytes.NewBufferString(reqBody))
 	if err != nil {
 		return nil, err
 	}
 	req.SetBasicAuth(jm.rpcUser, jm.rpcPassword)
 	req.Header.Set("Content-Type", "application/json")
-	
+
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var rpcResp struct {
 		Result BlockTemplate `json:"result"`
 		Error  *struct {
@@ -375,15 +375,15 @@ func (jm *JobManager) GetBlockTemplate() (*BlockTemplate, error) {
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	
+
 	if err := json.Unmarshal(body, &rpcResp); err != nil {
 		return nil, err
 	}
-	
+
 	if rpcResp.Error != nil {
 		return nil, fmt.Errorf("rpc error: %s", rpcResp.Error.Message)
 	}
-	
+
 	return &rpcResp.Result, nil
 }
 
@@ -394,8 +394,15 @@ func (jm *JobManager) CreateJob(template *BlockTemplate) *Job {
 	jobID := fmt.Sprintf("%x", atomic.AddUint64(&jm.jobCounter, 1))
 
 	// Merge mining: fetch aux work and embed its commitment in the coinbase.
-	// commitment is nil (and the coinbase is unchanged) when merge mining is off
-	// or the aux node has no work yet — BCH2 mining is never affected.
+	// commitment is nil (and the coinbase is unchanged) when merge mining is off or the aux
+	// node has no work yet, so a REFUSING aux node cannot stop BCH2.
+	//
+	// It is NOT free, though, and the old "BCH2 mining is never affected" here was wrong: this
+	// call is synchronous on the job-build path, so an aux node that HANGS rather than
+	// refuses (mid-restart, reindex, disk stall — all routine on an Umbrel) delays every BCH2
+	// job by up to the HTTP timeout, including the job that follows a new block. That is
+	// orphan exposure. Fixing it properly means fetching aux work off the critical path and
+	// using the last known-good commitment; until then, keep that timeout short.
 	auxWork, commitment := jm.fetchAuxWork()
 
 	coinbase1, coinbase2 := jm.buildCoinbase(template, commitment)
@@ -493,7 +500,6 @@ func (jm *JobManager) buildCoinbase(template *BlockTemplate, commitment []byte) 
 	return hex.EncodeToString(cb1.Bytes()), hex.EncodeToString(cb2.Bytes())
 }
 
-
 // sanitizeCoinbaseTag keeps the coinbase scriptSig safe: printable ASCII only,
 // defaults to "Forge", capped at 24 bytes (height+reserve+tag+commitment < 100).
 func sanitizeCoinbaseTag(tag string) []byte {
@@ -558,8 +564,8 @@ type Job struct {
 	NTime            string
 	CleanJobs        bool
 	Target           string
-	Transactions     []string                // Raw transaction hex data for block building
-	AuxWork          *mergemining.AuxWork    // aux-chain work this job commits to (nil = no merge mining)
+	Transactions     []string             // Raw transaction hex data for block building
+	AuxWork          *mergemining.AuxWork // aux-chain work this job commits to (nil = no merge mining)
 }
 
 // doubleSHA256 computes double SHA256 hash
