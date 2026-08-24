@@ -1,5 +1,7 @@
 # Forge Solo — stratum config (rendered from env by entrypoint.sh via envsubst).
-# SOLO ONLY: no PPLNS, no rental/Braiins ports, no Stratum V2. Merge-mines 1175 (ESF).
+# SOLO ONLY: no PPLNS, no Stratum V2 (it is refused at startup -- see cmd/stratum).
+# Merge-mines 1175 (ESF). Rented hashpower uses the SAME port as your own hardware, 3333:
+# it already ships the 2 + 8 extranonce sizing marketplaces require.
 
 pool:
   name: "Forge Solo"
@@ -32,7 +34,11 @@ stratum:
 
 # Disabled — not applicable to a single-household solo miner.
 stratum_braiins:
-  enabled: false           # off by default: home miners point their own hardware at :3333. Enable + publish port 3335 in docker-compose to accept rented (Braiins) hashpower.
+  enabled: false           # DEAD on Umbrel and must stay that way. It cannot be turned on from an
+                           # install: this file is baked into a digest-pinned image with no volume,
+                           # entrypoint.sh only runs envsubst (which cannot touch a literal `false`),
+                           # host is 127.0.0.1, and 3335 is not published. Rented hashpower does not
+                           # need it -- port 3333 already uses the same 2 + 8 extranonce sizing.
   host: "127.0.0.1"
   port: 3335
   max_connections: 1000

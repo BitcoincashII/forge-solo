@@ -48,6 +48,12 @@
             dash.insertBefore(b, dash.firstChild);
         })();
 
+        function escapeHtml(v) {
+            return String(v == null ? '' : v).replace(/[&<>"']/g, function (ch) {
+                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+            });
+        }
+
         async function updateStatusBanner() {
             var el = document.getElementById('syncBanner');
             if (!el) return;
@@ -76,12 +82,33 @@
                     msg = '⏳ <b>Starting the BCH2 node…</b> first launch can take a minute.';
                 } else if (!minerAddress) {
                     msg = '✅ <b>Node synced.</b> Now set your <a href="/settings" style="color:inherit;font-weight:600;text-decoration:underline">payout address</a> in Settings to start mining.';
-                } else if (minerHashing) {
-                    tone = 'green';
-                    msg = '⛏️ <b>Mining</b> — node synced and a miner is connected. Good luck!';
                 } else {
-                    tone = 'green';
-                    msg = '✅ <b>Node synced — ready to mine.</b> Point a miner at <b>port 3333</b> (this PC: 127.0.0.1:3333 · a Bitaxe: your PC LAN IP, port 3333).';
+                    // Node synced and an address is set -- but neither fact proves the
+                    // mining service is actually handing out work. Ask it. A miner that
+                    // is connected and receiving nothing is the one failure that used to
+                    // render here as a cheerful "ready to mine".
+                    let ms = null;
+                    try { ms = await apiFetch('/api/v1/mining-status'); } catch (e) {}
+                    if (ms && ms.mining === false && ms.message) {
+                        // escapeHtml: ms.message can carry the node's raw JSON-RPC error
+                        // text, which is the one dynamic string on this page that does not
+                        // originate here.
+                        msg = '⚠️ <b>Not mining.</b> ' + escapeHtml(ms.message);
+                        if (ms.reason === 'miners_refused' && ms.connections > 0) {
+                            msg += '<div style="margin-top:6px">' + Number(ms.connections) + ' connection(s), 0 authorized.</div>';
+                        } else if (ms.connections > 0) {
+                            msg += '<div style="margin-top:6px">' + Number(ms.connections) + ' miner(s) connected and receiving no work.</div>';
+                        }
+                    } else if (ms && ms.mining === true && Number(ms.authorized) > 0) {
+                        tone = 'green';
+                        msg = '⛏️ <b>Mining</b> — node synced, ' + Number(ms.authorized) + ' miner(s) authorized and submitting shares. Good luck!';
+                    } else if (minerHashing) {
+                        tone = 'green';
+                        msg = '⛏️ <b>Mining</b> — node synced and a miner is connected. Good luck!';
+                    } else {
+                        tone = 'green';
+                        msg = '✅ <b>Node synced — ready to mine.</b> Point a miner at <b>port 3333</b> (this PC: 127.0.0.1:3333 · a Bitaxe: your PC LAN IP, port 3333).';
+                    }
                 }
             } catch (e) {
                 if (!minerAddress) msg = '⚙️ Set your payout address in Settings to mine.';

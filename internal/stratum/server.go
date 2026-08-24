@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/big"
 	"net"
 	"sort"
@@ -68,6 +69,13 @@ type Server struct {
 
 	// auxMu guards auxClient + onAuxBlock, which the pool_config watcher sets at runtime
 	// (EnableMergeMining / SetAuxBlockHandler) while connection goroutines read them.
+	// soloPayout is the BCH2 address the coinbase actually pays in a solo deployment.
+	// It is the stats key for every miner, because in solo there is no per-miner payout
+	// identity: the block reward goes to this one address whatever the worker calls itself.
+	// Set at startup and whenever the dashboard changes the address.
+	soloPayoutMu sync.RWMutex
+	soloPayout   string
+
 	auxMu sync.RWMutex
 	// Merge mining: aux-chain (1175) submission client. nil unless enabled.
 	auxClient *mergemining.Client
@@ -327,12 +335,20 @@ func (s *Server) shareFloorFor(assigned float64) float64 {
 // miner's own dashboard as a fault the pool caused.
 const difficultyGracePeriod = 60 * time.Second
 
+// idleResetAfter must stay BELOW the connection read deadline (see handleConnection's
+// SetReadDeadline), which is re-armed from the last INBOUND line only. When the two were
+// both 5 minutes, a silent client was disconnected at almost exactly the moment this rescue
+// was due, leaving a window about one tick wide: the rescue could essentially never fire for
+// the case its own comment describes. Keeping a margin also matters while mining is paused,
+// where every authorized miner would otherwise be dropped every 5 minutes and the user goes
+// hunting for a network fault instead of a missing payout address.
+//
 // idleResetAfter is how long a connection may hold an above-floor difficulty without
 // producing a single accepted share before it is reset to its floor. Longer than the
 // expected first-share time even for a large miner at a high difficulty, so it only
 // ever fires on a connection that genuinely cannot mine at its assigned level (e.g. a
 // resumed difficulty that is too high for this connection's hashrate).
-const idleResetAfter = 5 * time.Minute
+const idleResetAfter = 3 * time.Minute
 
 // idleDifficultyLoop resets any connection that was handed an above-floor difficulty but
 // has produced zero accepted shares within idleResetAfter, so a too-high resumed level
@@ -365,9 +381,10 @@ func (s *Server) idleDifficultyLoop() {
 				c.Difficulty = floor
 			}
 			minerID := c.MinerID
+			workerName := c.WorkerName
 			c.mu.Unlock()
 			if stuck {
-				s.rememberDifficulty(minerID, floor) // don't re-hand the too-high level next time
+				s.rememberDifficulty(minerID, workerName, floor) // don't re-hand the too-high level next time
 				s.sendDifficulty(c, floor)
 				s.logger.Info("Idle difficulty reset",
 					zap.String("miner", minerID),
@@ -603,22 +620,52 @@ func buildCoinbaseFromParts(cb1, en1, en2, cb2 string) []byte {
 }
 
 // buildBlockHeader constructs the 80-byte block header
+// VersionRollingMask is the set of nVersion bits a miner is allowed to roll (BIP310).
+var VersionRollingMask = []byte{0x1f, 0xff, 0xe0, 0x00}
+
+// RollVersion merges a miner's rolled nVersion into the job's version and returns the
+// 4-byte big-endian result.
+//
+// BIP310 version-rolling: the miner submits the FULL rolled nVersion. Keep the job's
+// non-rollable bits and take only the masked (rollable) bits from the miner. Plain XOR
+// corrupted the header for full-version submitters (NiceHash/Braiins/most ASICs), wrongly
+// rejecting their version-rolled shares.
+//
+// SINGLE SOURCE OF TRUTH, and it must stay that way. The header is assembled twice -- here
+// for every share, to decide whether it won, and again in cmd/stratum's buildBlock, to
+// submit the block that did. Those were separate copies, and they did not merely risk
+// drifting: they already disagreed on malformed input. This one tolerated undecodable
+// versionBits by ignoring it and using the job version, while buildBlock returned an error
+// and abandoned the submission. A miner that puts non-hex in the optional 6th submit
+// parameter while not actually version-rolling therefore had every share validated
+// normally and the one block it found silently discarded. Tolerating it here is the
+// correct half: the share was validated against the job version, so the block must be
+// built the same way.
+//
+// A malformed or empty versionBits means "no rolling", never an error.
+func RollVersion(jobVersionHex, versionBits string) []byte {
+	versionBytes, err := hex.DecodeString(jobVersionHex)
+	if err != nil {
+		return nil
+	}
+	if versionBits == "" {
+		return versionBytes
+	}
+	vbBytes, err := hex.DecodeString(versionBits)
+	if err != nil {
+		return versionBytes
+	}
+	for i := 0; i < len(versionBytes) && i < len(vbBytes) && i < len(VersionRollingMask); i++ {
+		versionBytes[i] = (versionBytes[i] &^ VersionRollingMask[i]) | (vbBytes[i] & VersionRollingMask[i])
+	}
+	return versionBytes
+}
+
 func buildBlockHeader(job *Job, merkleRoot []byte, ntime, nonce, versionBits string) []byte {
 	var header bytes.Buffer
 
 	// Version (4 bytes, little-endian)
-	versionBytes, _ := hex.DecodeString(job.Version)
-	if versionBits != "" {
-		vbBytes, _ := hex.DecodeString(versionBits)
-		// BIP310 version-rolling: the miner submits the FULL rolled nVersion. Keep
-		// the job's non-rollable bits and take only the masked (rollable) bits from
-		// the miner. Plain XOR corrupted the header for full-version submitters
-		// (NiceHash/Braiins/most ASICs), wrongly rejecting their version-rolled shares.
-		versionRollingMask := []byte{0x1f, 0xff, 0xe0, 0x00}
-		for i := 0; i < len(versionBytes) && i < len(vbBytes) && i < len(versionRollingMask); i++ {
-			versionBytes[i] = (versionBytes[i] &^ versionRollingMask[i]) | (vbBytes[i] & versionRollingMask[i])
-		}
-	}
+	versionBytes := RollVersion(job.Version, versionBits)
 	reverseBytes(versionBytes)
 	header.Write(versionBytes)
 
@@ -995,7 +1042,18 @@ func (s *Server) handleSubscribe(client *Client, req *Request) *Response {
 	if err := json.Unmarshal(req.Params, &params); err == nil && len(params) > 0 {
 		if ua, ok := params[0].(string); ok {
 			client.UserAgent = ua
-			client.RentalService = detectRentalService(ua)
+			// Not in a solo home app: there is no rental payout identity here, the floor it
+			// would impose (RentalMinDiff, 500000) has no operator knob in the shipped
+			// config, and nothing can climb back down from it -- vardiffFloor returns it, so
+			// the idle rescue's `prevDiff > floor` is false, suggest_difficulty clamps UP to
+			// it, and adjustVardiff is only ever reached from handleSubmit, which a miner
+			// stuck at 500000 never reaches. A stratum proxy in front of a few Bitaxes is a
+			// normal home topology and "proxy" is one of the trigger substrings; that miner
+			// would need over an hour per share. firstRamp already gets genuinely large
+			// connections off the floor in a single adjustment, so the floor buys nothing here.
+			if !s.config.SoloOnly {
+				client.RentalService = detectRentalService(ua)
+			}
 			// Bump difficulty to rental minimum if rental service detected
 			if client.RentalService != RentalNone && client.Difficulty < s.config.RentalMinDiff {
 				client.Difficulty = s.config.RentalMinDiff
@@ -1114,6 +1172,49 @@ func (s *Server) GetAuthPasswordHash(minerID string) (string, bool) {
 	return "", false
 }
 
+// CountAuthorized returns the number of clients that have completed mining.authorize.
+//
+// Deliberately distinct from ActiveConnections, which counts TCP accepts: a rig that is
+// being refused reconnects in a loop and INFLATES that number, so the one signal that
+// would reveal a pool refusing every miner reads as a healthy, busy pool.
+func (s *Server) CountAuthorized() int64 {
+	var n int64
+	s.clients.Range(func(_, v interface{}) bool {
+		c, ok := v.(*Client)
+		if !ok {
+			return true
+		}
+		c.mu.RLock()
+		if c.Authorized {
+			n++
+		}
+		c.mu.RUnlock()
+		return true
+	})
+	return n
+}
+
+// SetSoloPayoutAddress tells the server which address the coinbase pays, so a solo miner
+// may authorize with any worker name and still be credited under the address that is
+// actually being mined to. Safe to call at any time; the dashboard can change the address
+// while miners are connected.
+func (s *Server) SetSoloPayoutAddress(addr string) {
+	s.soloPayoutMu.Lock()
+	s.soloPayout = addr
+	s.soloPayoutMu.Unlock()
+}
+
+// SoloPayoutAddress returns the address set by SetSoloPayoutAddress, or "" if none.
+func (s *Server) SoloPayoutAddress() string {
+	s.soloPayoutMu.RLock()
+	defer s.soloPayoutMu.RUnlock()
+	return s.soloPayout
+}
+
+// maxWorkerLabel bounds a worker label accepted from an unauthenticated connection before
+// it reaches a database column.
+const maxWorkerLabel = 64
+
 func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 	var params []string
 	// Debug log
@@ -1124,8 +1225,41 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 	username := params[0]
 	minerID, workerName := parseUsername(username)
 
-	// Allow Braiins probe connections (used to verify pool connectivity)
-	// These use usernames like "braiinstest" which aren't valid addresses
+	// Solo: any worker name is a valid username, because the username is not a payout
+	// identity here. The coinbase pays the configured address (see SaveSoloBlockCoinbaseDirect);
+	// minerID is only the stats key. Refusing "rig1" is what the pool-derived code did, and
+	// it is exactly what this app's own Settings page, README and manifest tell the user to
+	// type -- the rig connects, is refused, receives no job, and sits at 0 H/s on a fully
+	// synced node with no error the user can see.
+	//
+	// The address is used as the minerID rather than a constant, because the dashboard looks
+	// a miner up by matching the configured payout address (getMiner in cmd/api), so a
+	// constant would render every tile empty.
+	if minerID == "" && s.config.SoloOnly {
+		if payout := s.SoloPayoutAddress(); payout != "" {
+			minerID = payout
+			workerName = username
+			if len(workerName) > maxWorkerLabel {
+				workerName = workerName[:maxWorkerLabel]
+			}
+			if workerName == "" {
+				workerName = "default"
+			}
+			s.logger.Info("Solo miner authorized by worker label",
+				zap.String("worker", workerName),
+				zap.String("credited_to", payout),
+				zap.String("ip", client.IP))
+		}
+	}
+
+	// Allow Braiins probe connections (used to verify pool connectivity).
+	// These use usernames like "braiinstest" which aren't valid addresses.
+	//
+	// Runs AFTER the solo fallback on purpose. A rented-hashpower worker label also starts
+	// "braiins", and crediting a whole rental to the fake miner "probe" would leave the
+	// dashboard blank for its entire duration. In solo the fallback has already claimed
+	// such a username under the real payout address, so only an install with no payout
+	// address set -- which cannot serve a job anyway -- still reaches this.
 	if strings.HasPrefix(strings.ToLower(username), "braiins") && minerID == "" {
 		s.logger.Info("Braiins probe connection accepted",
 			zap.String("username", username),
@@ -1143,8 +1277,14 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 		return &Response{ID: req.ID, Result: false, Error: ErrUnauthorized}
 	}
 
-	// Detect rental service from worker name patterns
-	rentalFromWorker := detectRentalFromWorker(workerName)
+	// Detect rental service from worker name patterns. Skipped in solo for the same reason
+	// as the user-agent path above -- and here the docs make it worse: they promise the
+	// worker name is "just a label", while a label containing "rental" or starting "nh_"
+	// would silently impose a 500000 floor.
+	var rentalFromWorker RentalService
+	if !s.config.SoloOnly {
+		rentalFromWorker = detectRentalFromWorker(workerName)
+	}
 
 	var soloMode bool
 	var manualDiff float64
@@ -1182,11 +1322,15 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 	// Capture the miner-chosen stratum password as a proof-of-control secret for
 	// settings changes (verified by the pool API). The "ignore" default "x" and
 	// difficulty hints ("d=...") are not treated as real passwords.
+	var hintedDiff float64
 	if len(params) >= 2 && minerID != "probe" {
 		if pw := strings.TrimSpace(params[1]); pw != "" && !strings.EqualFold(pw, "x") && !strings.HasPrefix(strings.ToLower(pw), "d=") {
 			sum := sha256.Sum256([]byte(pw))
 			s.authPasswords.Store(minerID, hex.EncodeToString(sum[:]))
 		}
+	}
+	if len(params) >= 2 {
+		hintedDiff = parsePasswordDiffHint(params[1])
 	}
 
 	client.mu.Lock()
@@ -1204,12 +1348,32 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 
 	rental := client.RentalService
 
-	if manualDiff > 0 {
+	// startDiff is the difficulty this connection opens at, from the strongest evidence
+	// available before it has submitted anything.
+	//
+	// A stored manual difficulty wins. Otherwise a difficulty pinned in the stratum
+	// password ("d=2000000") is honoured: that is the convention rented hashpower uses to
+	// declare how big it is up front, it arrives before the first share, and it is clamped
+	// to exactly the same assignment floor and maximum as every other path, so trusting it
+	// costs the operator nothing. A marketplace that sets it skips the vardiff ramp
+	// entirely.
+	//
+	// Deliberately NOT written back to client.ManualDiff: that field switches vardiff OFF
+	// for the connection (see the call site of adjustVardiff), and a password hint is a
+	// starting point, not a contract. Keeping vardiff live means a hint that turns out to
+	// be wrong self-corrects, while a stored manual difficulty -- which the operator set
+	// deliberately -- still pins the client as before.
+	startDiff := manualDiff
+	if startDiff <= 0 && hintedDiff > 0 {
+		startDiff = hintedDiff
+	}
+
+	if startDiff > 0 {
 		// For rental services, ensure manual diff meets their minimum requirement
-		if rental != RentalNone && manualDiff < s.config.RentalMinDiff {
+		if rental != RentalNone && startDiff < s.config.RentalMinDiff {
 			client.Difficulty = s.config.RentalMinDiff
 		} else {
-			client.Difficulty = manualDiff
+			client.Difficulty = startDiff
 		}
 		// Clamp to the configured maximum so a client-supplied difficulty cannot be
 		// pinned to an absurd value.
@@ -1256,7 +1420,7 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 		// miner (identified by NOT being such a marketplace) keeps the resume so it
 		// does not re-ramp from the floor on every reconnect.
 		if !isManyMinerMarketplace(client.UserAgent) {
-			if remembered, ok := s.recallDifficulty(minerID); ok && remembered > start {
+			if remembered, ok := s.recallDifficulty(minerID, workerName); ok && remembered > start {
 				start = remembered
 			}
 		}
@@ -1296,6 +1460,32 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 	return &Response{ID: req.ID, Result: true}
 }
 
+// parsePasswordDiffHint extracts a fixed difficulty from the stratum password field.
+//
+// "d=2000000" (optionally among other comma- or semicolon-separated terms, which is how
+// rental proxies and marketplace order forms commonly pass several settings at once) is the
+// de-facto convention for a client declaring the difficulty it wants. Returns 0 when there
+// is no usable hint, which every caller treats as "no opinion".
+//
+// Deliberately tolerant of the surrounding syntax and strict about the value: a malformed
+// or non-positive number is no hint at all rather than an assignment of zero, which would
+// otherwise flood the pool.
+func parsePasswordDiffHint(password string) float64 {
+	for _, term := range strings.FieldsFunc(strings.TrimSpace(password), func(r rune) bool {
+		return r == ',' || r == ';' || r == ' '
+	}) {
+		if !strings.HasPrefix(strings.ToLower(term), "d=") {
+			continue
+		}
+		v, err := strconv.ParseFloat(strings.TrimSpace(term[2:]), 64)
+		if err != nil || v <= 0 {
+			return 0
+		}
+		return v
+	}
+	return 0
+}
+
 // detectRentalFromWorker detects rental services from worker name patterns
 func detectRentalFromWorker(worker string) RentalService {
 	w := strings.ToLower(worker)
@@ -1323,6 +1513,14 @@ func detectRentalFromWorker(worker string) RentalService {
 func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	// Intake rate limit: bound submits per client per second so the live stratum
 	// cannot be flooded (invalid/duplicate submits still cost parse + dedup work).
+	//
+	// Counted here but ENFORCED after validation. Discarding a submit unvalidated throws
+	// away whatever it happened to be, and one of those submits can be a block: a large
+	// miner that has not yet ramped off the difficulty floor exceeds this limit for as long
+	// as the ramp takes, and a solution found in that window would be answered with error
+	// 26 and never looked at. A block is worth more than every share this limit protects
+	// against, so the limit drops shares, never solutions.
+	var overRate bool
 	if maxRate := s.config.MaxSharesPerSecond; maxRate > 0 {
 		client.mu.Lock()
 		now := time.Now()
@@ -1331,11 +1529,8 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 			client.submitCount = 0
 		}
 		client.submitCount++
-		over := client.submitCount > maxRate
+		overRate = client.submitCount > maxRate
 		client.mu.Unlock()
-		if over {
-			return &Response{ID: req.ID, Result: false, Error: ErrRateLimited}
-		}
 	}
 
 	client.mu.RLock()
@@ -1482,6 +1677,18 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	effectiveDiff := s.effectiveJudgingDifficulty(difficulty, prevDifficulty, difficultyChangedAt, time.Now())
 	shareFloor := s.shareFloorFor(effectiveDiff)
 	isValid, actualDiff, blockHash, err := s.validateShare(job, extranonce1, extranonce2, ntime, nonce, versionBits, shareFloor)
+
+	// Now enforce the intake limit, with the one exception it must always make.
+	if overRate {
+		netDiff := BitsToDifficulty(job.NBits)
+		if err != nil || !isValid || netDiff <= 0 || actualDiff < netDiff {
+			return &Response{ID: req.ID, Result: false, Error: ErrRateLimited}
+		}
+		s.logger.Warn("submit exceeded the intake rate limit but SOLVES A BLOCK — accepting it",
+			zap.String("miner", minerID),
+			zap.Float64("actual_diff", actualDiff),
+			zap.Float64("network_diff", netDiff))
+	}
 	if err != nil {
 		s.logger.Warn("Share validation error",
 			zap.String("miner", minerID),
@@ -1644,11 +1851,23 @@ type diffMem struct {
 // rememberDifficulty records a miner's current vardiff level. Called only after a real
 // vardiff adjustment (which is share-driven), so the remembered value reflects hashrate
 // the miner actually proved — a share-less connection cannot inflate it.
-func (s *Server) rememberDifficulty(minerID string, diff float64) {
+// diffMemoryKey identifies ONE piece of hardware.
+//
+// Keying on minerID alone is wrong wherever several miners share a payout identity, and in
+// this solo app they always do: the coinbase pays one address, so every worker authorizes
+// under it. Without the worker name, plugging an S19 and a Bitaxe into the same Umbrel
+// resumes the S19's ramped difficulty onto the Bitaxe, which then cannot submit at all --
+// adjustVardiff only runs from handleSubmit, so nothing corrects it until
+// idleDifficultyLoop notices minutes later.
+func diffMemoryKey(minerID, workerName string) string {
+	return minerID + "\x00" + workerName
+}
+
+func (s *Server) rememberDifficulty(minerID, workerName string, diff float64) {
 	if minerID == "" || diff <= 0 {
 		return
 	}
-	s.diffMemory.Store(minerID, diffMem{diff: diff, at: time.Now()})
+	s.diffMemory.Store(diffMemoryKey(minerID, workerName), diffMem{diff: diff, at: time.Now()})
 }
 
 // isManyMinerMarketplace reports whether the client's user-agent identifies a
@@ -1667,8 +1886,8 @@ func isManyMinerMarketplace(userAgent string) bool {
 }
 
 // recallDifficulty returns a miner's remembered vardiff level if it is still fresh.
-func (s *Server) recallDifficulty(minerID string) (float64, bool) {
-	v, ok := s.diffMemory.Load(minerID)
+func (s *Server) recallDifficulty(minerID, workerName string) (float64, bool) {
+	v, ok := s.diffMemory.Load(diffMemoryKey(minerID, workerName))
 	if !ok {
 		return 0, false
 	}
@@ -1709,6 +1928,9 @@ func (s *Server) adjustVardiff(client *Client) {
 
 	targetTime := float64(s.config.TargetShareTime)
 	ratio := targetTime / avgTime
+	// The measured ratio before any clamping. firstRamp below needs it: the clamps are
+	// exactly what it must bypass.
+	measuredRatio := ratio
 
 	// Check rejection rate before adjusting
 	rejections := 0
@@ -1744,25 +1966,52 @@ func (s *Server) adjustVardiff(client *Client) {
 		ratio = 1.0 / MaxDifficultyMultiplier
 	}
 
-	// Calculate new difficulty
-	newDiff := client.Difficulty * ratio
-
-	// For rental services, apply gentler MaxDelta (max 25% change)
-	maxDelta := client.Difficulty * 0.5 // 50% max change for regular miners
-	if client.RentalService != RentalNone {
-		maxDelta = client.Difficulty * 0.25 // 25% max change for NiceHash/MRR
-	}
-
-	diffDelta := newDiff - client.Difficulty
-	if diffDelta > maxDelta {
-		newDiff = client.Difficulty + maxDelta
-	} else if diffDelta < -maxDelta {
-		newDiff = client.Difficulty - maxDelta
-	}
-
 	// Use appropriate assignment floor based on client type (rental vs regular).
 	// vardiffFloor is lock-free, so it is safe to call with client.mu held.
 	minDiff := s.vardiffFloor(client.RentalService != RentalNone)
+
+	// firstRamp: let a connection that starts at the floor and immediately proves it is
+	// far bigger take the whole measured ratio in ONE step, instead of crawling up at
+	// +50% per retarget.
+	//
+	// The clamped ramp is not merely slow, it is self-harming for large hashrate. 1 PH/s
+	// of rented Braiins hashpower assigned the shipped min_diff of 1024 produces ~227
+	// shares/s against the 100/s intake cap in handleSubmit: more than half of its
+	// submissions are refused, and it takes ~20 clamped steps at 30s each -- about ten
+	// minutes -- to climb to the ~2.3M difficulty its rate actually warrants. Marketplace
+	// hashpower reconnects often, and isManyMinerMarketplace deliberately denies it the
+	// remembered-difficulty resume so each fanned miner sizes itself, which means it
+	// re-enters that ten-minute window on EVERY reconnect. A marketplace judges a pool by
+	// its reject rate; this reads as a broken pool.
+	//
+	// Deliberately bounded so it cannot become a yo-yo: once per connection, only from the
+	// floor, and only upward. Everything after it is the ordinary clamped ramp. Overshoot
+	// is the safe direction -- shareFloorFor() still judges every share at
+	// min(assigned, MinDiff), so a too-high assignment loses no work, it only slows
+	// submissions until the next adjustment corrects it. A small miner is untouched: at
+	// the floor its measured ratio sits inside the variance window and the function has
+	// already returned above.
+	firstRamp := !client.FirstRampDone && client.Difficulty <= minDiff && measuredRatio > 1.0
+
+	// Calculate new difficulty
+	newDiff := client.Difficulty * ratio
+	if firstRamp {
+		newDiff = client.Difficulty * measuredRatio
+		client.FirstRampDone = true
+	} else {
+		// For rental services, apply gentler MaxDelta (max 25% change)
+		maxDelta := client.Difficulty * 0.5 // 50% max change for regular miners
+		if client.RentalService != RentalNone {
+			maxDelta = client.Difficulty * 0.25 // 25% max change for NiceHash/MRR
+		}
+
+		diffDelta := newDiff - client.Difficulty
+		if diffDelta > maxDelta {
+			newDiff = client.Difficulty + maxDelta
+		} else if diffDelta < -maxDelta {
+			newDiff = client.Difficulty - maxDelta
+		}
+	}
 	if newDiff < minDiff {
 		newDiff = minDiff
 	}
@@ -1805,10 +2054,11 @@ func (s *Server) adjustVardiff(client *Client) {
 		client.DifficultyChangedAt = time.Now()
 		client.Difficulty = newDiff
 		minerID := client.MinerID
+		workerName := client.WorkerName
 		client.mu.Unlock()
 
 		// Remember this share-proven level so the miner resumes near it on reconnect.
-		s.rememberDifficulty(minerID, newDiff)
+		s.rememberDifficulty(minerID, workerName, newDiff)
 
 		// Send difficulty synchronously to ensure miner receives it
 		s.sendDifficulty(client, newDiff)
@@ -1853,14 +2103,21 @@ func (s *Server) sendNotification(client *Client, notif *Notification) {
 }
 
 func (s *Server) sendDifficulty(client *Client, diff float64) {
-	// Prevent sending duplicate difficulty notifications within 500ms
-	// This avoids race conditions between authorize and job broadcast
+	// Prevent sending duplicate difficulty notifications within 500ms.
+	// This avoids race conditions between authorize and job broadcast.
+	//
+	// Only an IDENTICAL value is suppressed. Every caller has already written
+	// client.Difficulty by the time it gets here, so dropping a notification that carries a
+	// DIFFERENT value leaves the pool and the miner permanently disagreeing about the
+	// target -- including swallowing the post-rejection back-off, whose whole purpose is to
+	// tell a struggling miner to work easier.
 	client.mu.Lock()
-	if time.Since(client.LastDifficultySentAt) < 500*time.Millisecond {
+	if client.LastDifficultySent == diff && time.Since(client.LastDifficultySentAt) < 500*time.Millisecond {
 		client.mu.Unlock()
 		return
 	}
 	client.LastDifficultySentAt = time.Now()
+	client.LastDifficultySent = diff
 	client.mu.Unlock()
 
 	notif := &Notification{
@@ -2230,9 +2487,56 @@ func (s *Server) handleConfigure(client *Client, req *Request) *Response {
 }
 
 // intersectMasks returns the intersection of two hex masks
+// BitsToDifficulty converts a compact nBits target to a difficulty.
+//
+// Exported and shared with cmd/stratum so the intake limiter here and the block-candidate
+// test there cannot disagree about what "solves a block" means.
+func BitsToDifficulty(bitsHex string) float64 {
+	bits, err := strconv.ParseUint(bitsHex, 16, 32)
+	if err != nil || bits == 0 {
+		return 0
+	}
+	exp := bits >> 24
+	mantissa := bits & 0xFFFFFF
+	if mantissa == 0 {
+		return 0
+	}
+	// diff1 target exponent = 0x1d (29)
+	return (float64(0xFFFF) / float64(mantissa)) * math.Pow(256, float64(29-exp))
+}
+
+// intersectMasks returns the version-rolling bits both sides support.
+//
+// fmt.Sscanf("%x") stops at the first character it cannot consume and reports success, so a
+// "0x1fffe000" mask -- which firmware does send -- parsed as 0 and the pool answered
+// version-rolling with the mask "00000000". Depending on the firmware that is either a
+// silent loss of AsicBoost or 100% rejects, and neither is distinguishable from a pool
+// fault at the miner. Parse strictly, and treat an unparseable client mask as "no opinion"
+// (use ours) rather than as zero.
 func intersectMasks(mask1, mask2 string) string {
-	var m1, m2 uint32
-	fmt.Sscanf(mask1, "%x", &m1)
-	fmt.Sscanf(mask2, "%x", &m2)
+	m1, ok1 := parseVersionMask(mask1)
+	m2, ok2 := parseVersionMask(mask2)
+	switch {
+	case !ok1 && !ok2:
+		return "00000000"
+	case !ok1:
+		return fmt.Sprintf("%08x", m2)
+	case !ok2:
+		return fmt.Sprintf("%08x", m1)
+	}
 	return fmt.Sprintf("%08x", m1&m2)
+}
+
+// parseVersionMask accepts a 32-bit hex mask, with or without an "0x" prefix.
+func parseVersionMask(mask string) (uint32, bool) {
+	m := strings.TrimSpace(mask)
+	m = strings.TrimPrefix(strings.TrimPrefix(m, "0X"), "0x")
+	if m == "" {
+		return 0, false
+	}
+	v, err := strconv.ParseUint(m, 16, 32)
+	if err != nil {
+		return 0, false
+	}
+	return uint32(v), true
 }

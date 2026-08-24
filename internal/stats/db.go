@@ -239,6 +239,19 @@ func CloseDB() {
 }
 
 // IsDBConnected returns true if the database connection is active
+// IsDBInitialized reports whether a database handle was ever successfully created.
+//
+// Deliberately distinct from IsDBConnected, which also pings: a handle that exists but
+// fails a ping is a transient outage, and database/sql reconnects that pool on its own.
+// Re-running InitDB in that case would replace a self-healing pool with a new one every
+// retry and leak the old, since InitDB overwrites the handle without closing it. Only a
+// handle that was NEVER created needs to be built.
+func IsDBInitialized() bool {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	return db != nil
+}
+
 func IsDBConnected() bool {
 	dbMu.RLock()
 	defer dbMu.RUnlock()

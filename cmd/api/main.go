@@ -284,6 +284,29 @@ func main() {
 	dbConnStr := stats.GetDBConnStr()
 	if err := stats.InitDBWithRetry(dbConnStr, 30, 2*time.Second); err != nil {
 		zapLogger.Warn("Database not available, settings will not persist", zap.Error(err))
+		// Keep trying. Without this the api runs with a nil handle for the life of the
+		// process: the dashboard reports "not configured" while the stratum mines
+		// perfectly well, and every attempt to save a payout address returns 500 with no
+		// way for the user to recover short of restarting the app.
+		//
+		// Gated on IsDBInitialized, not on a failed ping: a pool that exists heals itself,
+		// and InitDB replaces the handle without closing it, so retrying mid-outage would
+		// leak a pool every tick.
+		go func() {
+			ticker := time.NewTicker(8 * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				if stats.IsDBInitialized() {
+					return
+				}
+				if err := stats.InitDB(dbConnStr); err != nil {
+					continue
+				}
+				zapLogger.Info("✅ database connection established — settings will persist")
+				loadMinerSettingsFromDB()
+				return
+			}
+		}()
 	} else {
 		zapLogger.Info("✅ Connected to PostgreSQL database")
 		// Load miner settings from database
@@ -373,6 +396,7 @@ func main() {
 	api.Get("/validate-1175-address", validate1175Address)
 	api.Get("/health", healthCheck)
 	api.Get("/node-status", getNodeStatus)
+	api.Get("/mining-status", getMiningStatus)
 	api.Get("/pool/config", getPoolConfig)
 	api.Post("/pool/config", savePoolConfig)
 
@@ -1258,6 +1282,12 @@ func savePoolConfig(c *fiber.Ctx) error {
 		if !isValidBCH2Address(poolAddr) {
 			return c.Status(400).JSON(fiber.Map{"success": false, "error": "Invalid BCH2 payout address — must be a mainnet bitcoincashii: P2PKH address (starts with bitcoincashii:q)"})
 		}
+		// Store the canonical lowercase form. isValidBCH2Address lowercases before
+		// checking, so an upper/mixed-case CashAddr (what a QR scan or some wallets hand
+		// you) validates here -- but the stratum's local CashAddr backstop is
+		// case-sensitive and would reject the stored string, leaving mining paused with a
+		// payout address the dashboard shows as accepted.
+		poolAddr = strings.ToLower(poolAddr)
 	} else {
 		poolAddr = curPool
 	}
@@ -1885,6 +1915,50 @@ func healthCheck(c *fiber.Ctx) error {
 }
 
 // getNodeStatus returns BCH2 node sync status
+// getMiningStatus proxies the stratum's own view of whether it is producing work.
+// The dashboard cannot infer this: a synced node and a saved payout address are both
+// necessary and neither is sufficient, and the gap between them is what a user
+// experiences as "it syncs to 100% but never hashes".
+func getMiningStatus(c *fiber.Ctx) error {
+	resp, err := internalAPIGet(stratumURL + "/internal/mining-status")
+	if err != nil {
+		return c.JSON(fiber.Map{
+			"mining":  false,
+			"reason":  "stratum_unreachable",
+			"message": "The mining service is not responding. If it was just updated, give it a minute; otherwise restart the app.",
+		})
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return c.JSON(fiber.Map{
+			"mining":  false,
+			"reason":  "stratum_unreachable",
+			"message": "The mining service is not responding. If it was just updated, give it a minute; otherwise restart the app.",
+		})
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return c.JSON(fiber.Map{
+			"mining":  false,
+			"reason":  "stratum_unreachable",
+			"message": "The mining service is not responding. If it was just updated, give it a minute; otherwise restart the app.",
+		})
+	}
+	c.Set("Content-Type", "application/json")
+	return c.Send(body)
+}
+
+// syncedHeaderSlack is how many blocks behind its own header chain a node may be and still
+// count as synced.
+//
+// Strict equality flaps: headers arrive before the block is connected, so every new block
+// opens a window where blocks == headers-1 and the dashboard would announce "syncing, you
+// can mine once it reaches 100%" on a node that is mining perfectly. It also sticks
+// permanently if the node ever holds a header it never connects. One block of slack keeps
+// the check meaningful -- a genuinely catching-up node is many blocks behind -- without
+// either failure.
+const syncedHeaderSlack = 1
+
 func getNodeStatus(c *fiber.Ctx) error {
 	// Try to get blockchain info
 	result, err := rpcCall("getblockchaininfo", []interface{}{})
@@ -1908,7 +1982,15 @@ func getNodeStatus(c *fiber.Ctx) error {
 		})
 	}
 
-	if info.InitialBlockDownload || info.VerificationProgress < 0.9999 {
+	// Synced = the node itself says IBD is over AND it has connected every header it
+	// knows about. Deliberately NOT a verificationprogress threshold: that figure is an
+	// ESTIMATE derived from the hardcoded chainTxData tx-rate assumption, which on a
+	// young low-volume fork chain can sit just under 1.0 at the actual tip -- pinning the
+	// dashboard to "syncing, you can mine once it reaches 100%" on a node that is fully
+	// synced and, in fact, already mining. IBD is also exactly what the node gates
+	// getblocktemplate on, so the banner now agrees with the mining path instead of
+	// contradicting it. Progress is still reported, for the bar.
+	if info.InitialBlockDownload || info.Headers <= 0 || info.Blocks < info.Headers-syncedHeaderSlack {
 		return c.JSON(fiber.Map{
 			"status":   "syncing",
 			"blocks":   info.Blocks,

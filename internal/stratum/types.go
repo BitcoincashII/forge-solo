@@ -110,6 +110,8 @@ type Client struct {
 	DifficultyReducedAt   time.Time // When difficulty was reduced due to high rejection rate
 	DifficultyReducedFrom float64   // The difficulty level that caused high rejections
 	LastDifficultySentAt  time.Time // When difficulty notification was last sent (to avoid duplicates)
+	LastDifficultySent    float64   // The value last sent, so only an identical repeat is suppressed
+	FirstRampDone         bool      // Whether this connection has had its one unclamped escape from the floor
 	LastShareTime         time.Time
 	ShareCount            int64
 	ConnectedAt           time.Time

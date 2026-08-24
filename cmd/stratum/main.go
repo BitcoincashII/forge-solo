@@ -59,6 +59,16 @@ var (
 	stratumV2Server      *stratumv2.Server          // Stratum V2 server (optional)
 	v2JobIDCounter       uint32                     // V2 job ID counter
 
+	// miningStatus records WHY the job loop is (or is not) producing work, so the
+	// dashboard can say something truer than "ready to mine" when a miner is connected
+	// and receiving nothing. Written only by the job-broadcast loop, read by the
+	// /internal/mining-status handler.
+	miningStatusMu  sync.RWMutex
+	lastJobAt       time.Time // when a job was last built and broadcast
+	lastJobHeight   int64     // height of that job
+	lastTemplateErr string    // most recent getblocktemplate failure, "" once one succeeds
+	lastShareAt     time.Time // when a share was last ACCEPTED from any miner
+
 	// Shutdown channel for graceful termination
 	shutdownCh = make(chan struct{})
 
@@ -95,6 +105,197 @@ func setCurrentJob(job *mining.Job) {
 	currentJobMu.Lock()
 	defer currentJobMu.Unlock()
 	currentJob = job
+}
+
+// payoutProcessorOnce guards the payout processor against being started twice: main()
+// starts it when the database is up at boot, and watchPoolConfig starts it if the database
+// only becomes available later.
+var payoutProcessorOnce sync.Once
+
+func startPayoutProcessorOnce() {
+	payoutProcessorOnce.Do(func() {
+		go startPayoutProcessor()
+		logger.Info("💰 Payout processor started")
+	})
+}
+
+// applySoloPayoutAddress tells every stratum server which address the coinbase pays, so a
+// solo miner authorizing with a plain worker label ("rig1") is credited under the address
+// actually being mined to -- which is also the key the dashboard looks a miner up by.
+func applySoloPayoutAddress(addr string) {
+	if stratumServer != nil {
+		stratumServer.SetSoloPayoutAddress(addr)
+	}
+	if stratumBraiinsServer != nil {
+		stratumBraiinsServer.SetSoloPayoutAddress(addr)
+	}
+}
+
+// aux1175Payout returns the 1175 payout address currently in effect, or "" if merge mining
+// is not running.
+func aux1175Payout() string {
+	if !merge1175Enabled {
+		return ""
+	}
+	return aux1175PayoutAddr
+}
+
+// jobDifficultyFor returns the difficulty of the job a share was mined on, or 0 when
+// that job is no longer in history. This is the target the miner was actually working
+// against, which is what a block candidate must be judged by.
+func jobDifficultyFor(jobID string) float64 {
+	jobHistoryMu.RLock()
+	job, ok := jobHistory[jobID]
+	jobHistoryMu.RUnlock()
+	if !ok || job == nil {
+		return 0
+	}
+	return bitsToDifficulty(job.NBits)
+}
+
+// noteJobBroadcast records a successful job build. Freshness is the only honest proof
+// that mining is actually running: a configured job manager and a reachable node still
+// produce nothing if the template fetch fails every cycle.
+func noteJobBroadcast(height int64) {
+	miningStatusMu.Lock()
+	lastJobAt = time.Now()
+	lastJobHeight = height
+	lastTemplateErr = ""
+	miningStatusMu.Unlock()
+}
+
+// noteShareAccepted records that a miner produced accepted work. This is the only proof
+// that the whole chain -- authorize, job delivery, difficulty, validation -- is working;
+// jobs being built proves only that the pool is talking to the node.
+func noteShareAccepted() {
+	miningStatusMu.Lock()
+	lastShareAt = time.Now()
+	miningStatusMu.Unlock()
+}
+
+// noteTemplateError records a getblocktemplate failure so the dashboard can name it.
+func noteTemplateError(err error) {
+	miningStatusMu.Lock()
+	if err != nil {
+		lastTemplateErr = err.Error()
+	}
+	miningStatusMu.Unlock()
+}
+
+// miningStatusSnapshot describes, in one place, whether this stratum is producing work
+// and if not, why. Consumed by /internal/mining-status -> the api -> the dashboard banner.
+type miningStatusSnapshot struct {
+	Mining        bool   `json:"mining"`             // a job was broadcast recently
+	Configured    bool   `json:"configured"`         // payout address resolved; jobs may be built
+	DBConnected   bool   `json:"db_connected"`       // dashboard settings are readable
+	Connections   int64  `json:"connections"`        // TCP connections; a refused miner reconnecting inflates this
+	Authorized    int64  `json:"authorized"`         // miners that completed mining.authorize
+	LastShareAge  int64  `json:"last_share_age_sec"` // -1 if no share has ever been accepted
+	LastJobHeight int64  `json:"last_job_height"`    // 0 if none yet
+	LastJobAgeSec int64  `json:"last_job_age_sec"`   // -1 if no job has ever been built
+	TemplateError string `json:"template_error"`     // last getblocktemplate failure, if any
+	Reason        string `json:"reason"`             // machine-readable pause cause, "" when mining
+	Message       string `json:"message"`            // one line a home user can act on
+}
+
+// buildMiningStatus gathers the live inputs and hands them to the reason ladder.
+// The ladder itself is a separate pure function so a test can drive the real decision
+// instead of restating it -- a restated copy stays green after the original is deleted.
+func buildMiningStatus() miningStatusSnapshot {
+	miningStatusMu.RLock()
+	jobAt, jobHeight, tmplErr := lastJobAt, lastJobHeight, lastTemplateErr
+	miningStatusMu.RUnlock()
+
+	var configured bool
+	if jobManager != nil {
+		configured = jobManager.IsConfigured()
+	}
+	var connections, authorized int64
+	if stratumServer != nil {
+		connections = stratumServer.GetStats().ActiveConnections
+		authorized = stratumServer.CountAuthorized()
+	}
+	miningStatusMu.RLock()
+	shareAt := lastShareAt
+	miningStatusMu.RUnlock()
+
+	return miningStatusFrom(configured, stats.IsDBConnected(), connections, authorized, jobHeight, jobAt, shareAt, tmplErr, time.Now())
+}
+
+// jobStaleAfter is how long without a freshly built job counts as "not mining". A job is
+// rebuilt on every new block and at least every 15s regardless, so anything this old means
+// the loop has stopped producing even if it once worked.
+const jobStaleAfter = 90 * time.Second
+
+// stratumV2Supported gates the Stratum V2 server. It is false, and the block below is kept
+// only so the work is not lost: see the refusal above for what is wrong with it. Flipping
+// this to true without fixing V2 block submission means a solved block is logged and
+// discarded.
+const stratumV2Supported = false
+
+// noShareAfter is how long an authorized miner may go without an accepted share before the
+// dashboard stops calling it mining. Generous on purpose: at the 1024 floor a very small
+// miner can legitimately take minutes, and a false alarm sends the user chasing a fault
+// that does not exist.
+const noShareAfter = 10 * time.Minute
+
+// miningStatusFrom reports the CURRENT reason no work is flowing, checked in the order the
+// job loop itself hits them, so the message always names the first real blocker.
+func miningStatusFrom(configured, dbConnected bool, connections, authorized, jobHeight int64, jobAt, shareAt time.Time, tmplErr string, now time.Time) miningStatusSnapshot {
+	st := miningStatusSnapshot{
+		Configured:    configured,
+		DBConnected:   dbConnected,
+		Connections:   connections,
+		Authorized:    authorized,
+		LastJobHeight: jobHeight,
+		LastJobAgeSec: -1,
+		LastShareAge:  -1,
+		TemplateError: tmplErr,
+	}
+	if !jobAt.IsZero() {
+		st.LastJobAgeSec = int64(now.Sub(jobAt).Seconds())
+	}
+	if !shareAt.IsZero() {
+		st.LastShareAge = int64(now.Sub(shareAt).Seconds())
+	}
+
+	jobStaleAfterSec := int64(jobStaleAfter.Seconds())
+	noShareAfterSec := int64(noShareAfter.Seconds())
+	switch {
+	case !st.Configured:
+		st.Reason = "no_payout_address"
+		st.Message = "Mining is paused: no valid BCH2 payout address is in effect. Set (or re-save) it in Settings."
+		if !st.DBConnected {
+			st.Reason = "db_unavailable"
+			st.Message = "Mining is paused: the stratum cannot read your settings (database unavailable), so it has no payout address."
+		}
+	case st.LastJobAgeSec < 0:
+		st.Reason = "no_template_yet"
+		st.Message = "Waiting for the first block template from the BCH2 node."
+		if tmplErr != "" {
+			st.Message = "Cannot build work from the BCH2 node yet: " + tmplErr
+		}
+	case st.LastJobAgeSec > jobStaleAfterSec:
+		st.Reason = "stale_template"
+		st.Message = fmt.Sprintf("No new work in %ds — the BCH2 node stopped serving block templates.", st.LastJobAgeSec)
+		if tmplErr != "" {
+			st.Message += " Last error: " + tmplErr
+		}
+	case connections > 0 && authorized == 0:
+		// Jobs are being produced and miners keep arriving, but not one has got past
+		// mining.authorize. The usual cause is the worker username, and a refused miner
+		// reconnects -- so `connections` climbs while nothing works, which is exactly what
+		// "it syncs but will not hash" looks like from the outside.
+		st.Reason = "miners_refused"
+		st.Message = "Miners are connecting but none are authorizing. Check the worker username in your miner — any label works, or use your BCH2 address."
+	case authorized > 0 && (st.LastShareAge < 0 || st.LastShareAge > noShareAfterSec):
+		// Connected, authorized and receiving work, yet producing nothing.
+		st.Reason = "no_shares"
+		st.Message = "A miner is connected and receiving work but has not submitted an accepted share recently. Check that the miner is actually hashing."
+	default:
+		st.Mining = true
+	}
+	return st
 }
 
 // Thread-safe access to networkDifficulty
@@ -140,11 +341,15 @@ func setMinPayout(v float64) {
 
 var (
 	merge1175Enabled bool
-	aux1175NodeURL   string
-	aux1175WalletURL string
-	aux1175User      string
-	aux1175Pass      string
-	min1175Payout    float64
+	// aux1175PayoutAddr is the esf1… address merge mining is currently paying. Recorded so
+	// watchPoolConfig can seed itself with what actually took effect rather than with what
+	// the database says, and therefore retry an address that failed to come up.
+	aux1175PayoutAddr string
+	aux1175NodeURL    string
+	aux1175WalletURL  string
+	aux1175User       string
+	aux1175Pass       string
+	min1175Payout     float64
 )
 
 // rpcCallAuth is like rpcCall but with explicit credentials, for the aux (1175)
@@ -739,19 +944,10 @@ func reconcileSoloBlocks(currentHeight int64, full bool) {
 }
 
 // bitsToDifficulty converts compact "bits" from block template to difficulty
+// bitsToDifficulty delegates to the stratum package so the block-candidate test here and
+// the intake limiter's "solves a block" exception there can never disagree.
 func bitsToDifficulty(bitsHex string) float64 {
-	bits, err := strconv.ParseUint(bitsHex, 16, 32)
-	if err != nil || bits == 0 {
-		return 0
-	}
-	exp := bits >> 24
-	mantissa := bits & 0xFFFFFF
-	if mantissa == 0 {
-		return 0
-	}
-	// diff1 target exponent = 0x1d (29)
-	// difficulty = (0xFFFF / mantissa) * 256^(29 - exp)
-	return (float64(0xFFFF) / float64(mantissa)) * math.Pow(256, float64(29-exp))
+	return stratum.BitsToDifficulty(bitsHex)
 }
 func sendPayout(rpcURL, address string, amount float64) (string, error) {
 	result, err := rpcCall(rpcURL, "sendtoaddress", []interface{}{address, amount})
@@ -906,6 +1102,7 @@ func enableMergeMining1175(cfg *viper.Viper, auxPayout string) *mergemining.Clie
 		min1175Payout = 1.0
 	}
 	merge1175Enabled = true
+	aux1175PayoutAddr = auxPayout
 	aux1175NodeURL = auxURL
 	aux1175WalletURL = fmt.Sprintf("%s/wallet/%s", auxURL, auxWallet)
 	aux1175User = auxUser
@@ -923,20 +1120,77 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 	ticker := time.NewTicker(8 * time.Second)
 	defer ticker.Stop()
 	var lastPool, lastTag, last1175 string
-	// Seed with the values already applied at startup so we only act on real changes.
-	if stats.IsDBConnected() {
-		if p, p1175, t, _, err := stats.GetPoolConfig(); err == nil {
-			lastPool, last1175, lastTag = p, p1175, t
-		}
+	// Seed with the values that were actually APPLIED at startup, so we only act on real
+	// changes -- and so anything that failed to apply is retried on the first tick.
+	//
+	// Deliberately NOT a fresh read of the database here. Two different failures come from
+	// seeding what the DB currently says instead of what took effect:
+	//
+	//   * If startup resolution failed -- the node RPC not answering inside NewJobManager's
+	//     ~20s window on a cold restart is the common one, since the stratum container does
+	//     not wait for the node -- then seeding that address makes `pool != lastPool` false
+	//     forever and the retry below never fires. That is a permanently paused miner: node
+	//     synced, dashboard showing the address, no jobs, and no further log line.
+	//   * If the user SAVED a new address during that same window, a fresh read returns the
+	//     NEW address while the job manager is mining to the OLD one. Seeding the new value
+	//     latches the change out forever: the coinbase keeps paying the old address while
+	//     the dashboard reports the new one. Seeding the applied value instead makes the
+	//     first tick notice the difference and apply it.
+	//
+	// poolAddress holds exactly the address NewJobManager was given (main sets it from
+	// effectivePoolAddr), so it is the applied value whenever the job manager is configured.
+	if jm.IsConfigured() {
+		lastPool = poolAddress
 	}
+	// Same rule for the aux chain: seed only if merge mining actually came up, otherwise a
+	// 1175 address that failed to take effect is never retried while Settings reports it on.
+	if merge1175Enabled {
+		last1175 = aux1175Payout()
+	}
+	// lastTag is left empty on purpose: SetCoinbaseTag is idempotent, so the cost of not
+	// seeding it is one redundant call on the first tick, against the risk of latching out
+	// a tag the user changed during startup.
 	for {
 		select {
 		case <-shutdownCh:
 			return
 		case <-ticker.C:
 		}
+		// Retry the env/config address (POOL_ADDRESS) whenever mining is unconfigured.
+		// The stratum container does not depend_on the BCH2 node, and the node's own
+		// healthcheck allows it 180s to come up, so NewJobManager's ~20s RPC window
+		// routinely expires before validateaddress can answer on a cold start. This path
+		// needs no database, so it also covers an install configured purely by env.
+		if !jm.IsConfigured() && poolAddress != "" {
+			if serr := jm.SetPoolAddress(poolAddress); serr == nil {
+				applySoloPayoutAddress(poolAddress)
+				logger.Info("✅ payout address resolved on retry — mining active", zap.String("address", poolAddress))
+			}
+		}
 		if !stats.IsDBConnected() {
-			continue
+			// The DB may never have connected at all (InitDBWithRetry gives up after ~60s
+			// and main() continues "memory only"). Without this the stratum stays deaf to
+			// the dashboard for the life of the process: the payout address lives in the
+			// DB, so no DB means no address, means no jobs, means a miner that connects
+			// and never hashes while everything else looks healthy. Retry here rather than
+			// exiting so an already-mining stratum is never taken down by a DB blip.
+			//
+			// Gated on IsDBInitialized, NOT on the failed IsDBConnected ping above: a pool
+			// that exists heals itself, and InitDB replaces the handle without closing it,
+			// so retrying on a mid-outage ping failure would leak a pool every 8 seconds.
+			if stats.IsDBInitialized() {
+				continue
+			}
+			if dbErr := stats.InitDB(stats.GetDBConnStr()); dbErr != nil {
+				continue
+			}
+			logger.Info("✅ database connection established — dashboard config is live")
+			stats.LoadAllPendingPayouts()
+			// The payout processor is started from main() only when the DB was up at boot.
+			// It owns solo block reconciliation (reconcileSoloBlocks, ConfirmMatureSoloBlocks,
+			// reconcileOrphanHeights), so without this a block found after a late reconnect
+			// would sit pending forever and an orphaned one would never be voided.
+			startPayoutProcessorOnce()
 		}
 		pool, p1175, tag, minP, err := stats.GetPoolConfig()
 		if err != nil {
@@ -949,6 +1203,7 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 			if serr := jm.SetPoolAddress(pool); serr != nil {
 				logger.Warn("dashboard payout address rejected — keeping previous", zap.String("address", pool), zap.Error(serr))
 			} else {
+				applySoloPayoutAddress(pool)
 				logger.Info("✅ payout address updated from dashboard — mining active", zap.String("address", pool))
 				lastPool = pool
 			}
@@ -983,6 +1238,7 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 					cfg.GetString("mergemining.aux_node.user"),
 					cfg.GetString("mergemining.aux_node.pass"),
 					p1175)
+				aux1175PayoutAddr = p1175
 				logger.Info("💠 1175 payout address updated from dashboard", zap.String("payout_address_1175", p1175))
 			}
 			last1175 = p1175
@@ -1112,8 +1368,7 @@ func main() {
 
 	// Start payout processor now that config is loaded
 	if stats.IsDBConnected() {
-		go startPayoutProcessor()
-		logger.Info("💰 Payout processor started")
+		startPayoutProcessorOnce()
 	}
 
 	jobManager = mining.NewJobManager(rpcURL, rpcUser, rpcPass, effectivePoolAddr, effectiveCoinbaseTag)
@@ -1153,6 +1408,9 @@ func main() {
 			zap.Int("required", mining.CoinbaseExtranonceReserve))
 	}
 	stratumServer = stratum.NewServer(serverConfig, logger, shareProcessor, minerSettings)
+	if jobManager.IsConfigured() {
+		applySoloPayoutAddress(effectivePoolAddr)
+	}
 
 	// Logged AFTER NewServer so it reports the RESOLVED values: NewServer fills in the
 	// defaults and clamps absolute_min_diff down to min_diff. min_diff is the floor a
@@ -1218,6 +1476,19 @@ func main() {
 
 	// Start Stratum V2 server if enabled
 	if config.GetBool("stratumv2.enabled") {
+		// Refuse, loudly, and keep V1 mining. The V2 implementation in this tree is not
+		// fit to mine: a solved V2 block is logged and then dropped (the submission is a
+		// TODO), the bridge never reverses the prev-hash so a V2 share cannot be a valid
+		// block anyway, there is no duplicate check and no vardiff, and its job-history
+		// eviction still has the base-10 bug that cost the production pool a 2.75% reject
+		// rate. Enabling it would lose a block outright.
+		//
+		// Deliberately NOT logger.Fatal: this runs after :3333 is already listening, so
+		// aborting here turns a config typo into a crash loop in which no miner of any
+		// kind can connect. Refusing one feature is recoverable; refusing to run is not.
+		logger.Error("⛔ stratumv2.enabled is set, but Stratum V2 is NOT supported in this build and will NOT be started — a block found on it would be LOST. V1 mining on the main port continues normally.")
+	}
+	if stratumV2Supported {
 		v2Config := &stratumv2.ServerConfig{
 			Host:              config.GetString("stratumv2.host"),
 			Port:              config.GetInt("stratumv2.port"),
@@ -1292,6 +1563,7 @@ func main() {
 		var lastHeight int64
 		var lastPrevHash string
 		var lastJobTime time.Time
+		var lastPausedLog time.Time
 
 		for {
 			var zmqTriggered bool
@@ -1309,13 +1581,23 @@ func main() {
 
 			// No payout address configured yet: accept stratum connections but PAUSE mining
 			// (never build a job that would pay a null script). Set it in the dashboard.
+			//
+			// Say so periodically. Silently doing nothing here is indistinguishable from
+			// working correctly in the logs, and it is the state a miner sees as "connected
+			// but never hashing" -- the one failure a home user cannot diagnose alone.
 			if !jobManager.IsConfigured() {
+				if time.Since(lastPausedLog) >= time.Minute {
+					lastPausedLog = time.Now()
+					logger.Warn("⏸️  MINING PAUSED — no valid BCH2 payout address in effect. " +
+						"Set (or re-save) it in the dashboard Settings page; miners may connect but will receive no work.")
+				}
 				continue
 			}
 
 			template, err := jobManager.GetBlockTemplate()
 			if err != nil {
 				logger.Error("Failed to get block template", zap.Error(err))
+				noteTemplateError(err)
 				continue
 			}
 			if template == nil {
@@ -1345,6 +1627,7 @@ func main() {
 					continue
 				}
 				setCurrentJob(job)
+				noteJobBroadcast(job.Height)
 
 				// Store job in history for block submission lookup
 				jobHistoryMu.Lock()
@@ -1505,6 +1788,7 @@ func (p *BlockFindingShareProcessor) ProcessShare(ctx context.Context, share *st
 		zap.Float64("target_diff", share.Difficulty),
 		zap.Float64("actual_diff", share.ActualDiff))
 	stats.GetManager().UpdateWorker(share.MinerID, share.WorkerName, true, share.Difficulty, share.ActualDiff)
+	noteShareAccepted()
 
 	// Save share to database for PPLNS distribution
 	// Use target difficulty as the credited work amount
@@ -1525,8 +1809,21 @@ func (p *BlockFindingShareProcessor) ProcessShare(ctx context.Context, share *st
 			zap.String("job_id", share.JobID))
 	}
 
-	if share.ActualDiff >= networkDiff {
+	// Judge the candidate against the target of the job it was ACTUALLY mined on, not
+	// against whatever the network difficulty has since become. BCH2 retargets with ASERT
+	// on every block, so the global value routinely describes the NEXT block by the time a
+	// winning share for the previous one arrives -- and a solo miner that discards a valid
+	// block because the number moved has lost the entire reward. min() with the current
+	// value means this can only ever submit MORE candidates than before, never fewer; a
+	// superfluous submitblock costs one rejected RPC call.
+	submitThreshold := networkDiff
+	if jobDiff := jobDifficultyFor(share.JobID); jobDiff > 0 && jobDiff < submitThreshold {
+		submitThreshold = jobDiff
+	}
+
+	if share.ActualDiff >= submitThreshold {
 		p.logger.Info("🎉 BLOCK CANDIDATE!",
+			zap.Float64("submit_threshold", submitThreshold),
 			zap.String("miner", share.MinerID),
 			zap.Float64("actual_diff", share.ActualDiff),
 			zap.Float64("network_diff", networkDiff),
@@ -1812,24 +2109,16 @@ func buildBlock(job *mining.Job, coinbase []byte, ntime, nonce, versionBits stri
 	var block bytes.Buffer
 
 	// Version (4 bytes) - stratum sends as hex string like "20000000"
-	// For block, we need little-endian, so reverse the bytes
-	versionBytes, err := hex.DecodeString(job.Version)
-	if err != nil {
-		return "", fmt.Errorf("invalid version hex: %w", err)
-	}
-	if versionBits != "" {
-		vbBytes, err := hex.DecodeString(versionBits)
-		if err != nil {
-			return "", fmt.Errorf("invalid versionBits hex: %w", err)
-		}
-		// BIP310 version-rolling: the miner submits the FULL rolled nVersion. Keep
-		// the job's non-rollable bits and take only the masked (rollable) bits from
-		// the miner. Plain XOR corrupted the header for full-version submitters
-		// (NiceHash/Braiins/most ASICs), wrongly rejecting their version-rolled shares.
-		versionRollingMask := []byte{0x1f, 0xff, 0xe0, 0x00}
-		for i := 0; i < len(versionBytes) && i < len(vbBytes) && i < len(versionRollingMask); i++ {
-			versionBytes[i] = (versionBytes[i] &^ versionRollingMask[i]) | (vbBytes[i] & versionRollingMask[i])
-		}
+	// For block, we need little-endian, so reverse the bytes.
+	//
+	// stratum.RollVersion is the SAME function the share validator used to decide this
+	// share won. Calling it rather than repeating the merge is what guarantees the
+	// submitted header is the header that was validated -- including for malformed
+	// versionBits, which this path used to treat as a fatal error and so threw away the
+	// block for a share the validator had happily accepted.
+	versionBytes := stratum.RollVersion(job.Version, versionBits)
+	if len(versionBytes) == 0 {
+		return "", fmt.Errorf("invalid version hex: %q", job.Version)
 	}
 	reverseBytes(versionBytes)
 	block.Write(versionBytes)
@@ -2037,6 +2326,13 @@ func startStatsServer() {
 		poolStats := stats.GetManager().GetPoolStats()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(poolStats)
+	}))
+	// Why work is or is not flowing. The dashboard's own view (node synced + an address
+	// saved) cannot see a stratum that rejected that address or never got a template, and
+	// that gap is exactly what a "it syncs but will not hash" report looks like.
+	http.HandleFunc("/internal/mining-status", internalAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(buildMiningStatus())
 	}))
 	http.HandleFunc("/internal/rental-stats", internalAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		// Get rental service statistics from stratum server
