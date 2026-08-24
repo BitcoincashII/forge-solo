@@ -282,7 +282,8 @@ func (m *StatsManager) GetWorkerStats(minerID string) []*WorkerStats {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	cutoff := time.Now().Add(-5 * time.Minute)
+	now := time.Now()
+	cutoff := now.Add(-5 * time.Minute)
 
 	var result []*WorkerStats
 	for _, w := range m.workers {
@@ -301,12 +302,29 @@ func (m *StatsManager) GetAllWorkerStats() []*WorkerStats {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	cutoff := time.Now().Add(-5 * time.Minute)
+	now := time.Now()
+	cutoff := now.Add(-5 * time.Minute)
 
 	var result []*WorkerStats
 	for _, w := range m.workers {
 		wCopy := *w
 		wCopy.Online = w.LastShareAt.After(cutoff)
+
+		// Recompute the hashrate windows at READ time, not just when a share arrives.
+		//
+		// UpdateWorker is the only writer of these fields, so a worker that stopped
+		// submitting kept advertising whatever it was doing at its last share --
+		// forever. An unplugged 100 TH/s rig went on reporting "100.00 TH/s" under a
+		// column header that says "5m Hash", in a row this same function had already
+		// marked offline, directly beneath a tile (which sums only online workers)
+		// reading 0 H/s. Recomputing here lets both windows decay to 0 on their own
+		// as the shares age out of the buffer.
+		if w.ShareBuffer != nil {
+			shares := w.ShareBuffer.GetRecordsAfter(now.Add(-ShareHistoryDuration))
+			wCopy.Hashrate5m = m.calculateHashrate(shares, 5*time.Minute)
+			wCopy.Hashrate60m = m.calculateHashrate(shares, 60*time.Minute)
+		}
+
 		// Get block count for this worker
 		wCopy.BlocksFound = GetWorkerBlockCount(w.MinerID, w.WorkerName)
 		result = append(result, &wCopy)

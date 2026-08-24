@@ -1,3 +1,24 @@
+        // Whether /api/v1/pool/config has ever answered. Without this the page cannot
+        // tell "you have not set a payout address" from "the API is down": minerAddress is
+        // only ever learned from that endpoint, and apiFetch throws on a non-OK response,
+        // so both arrive as an empty address. The app serves `web` from a separate nginx
+        // container with start-only depends_on while `api` waits on postgres health, so an
+        // unreachable API is the NORMAL view during startup, an update, or a crash-loop --
+        // and telling a correctly configured user to set an address they already set
+        // invites them to overwrite it from a Settings page that shows no error either.
+        let configReachable = false;
+
+        // Message for a table body or banner when we genuinely do not know the address.
+        function noAddressNotice(forTable) {
+            if (!configReachable) {
+                return "Can't reach Forge Solo — the numbers below aren't live yet. " +
+                       "If the app just started or updated, give it a minute.";
+            }
+            return forTable
+                ? 'Set your payout address in Settings to begin.'
+                : 'Set your payout address in Settings to mine.';
+        }
+
         let minerAddress = new URLSearchParams(window.location.search).get('address') || decodeURIComponent(window.location.pathname.split('/solo/')[1] || '');
         document.getElementById('minerAddress').textContent = minerAddress;
 
@@ -71,6 +92,7 @@
             if (!minerAddress) {
                 try {
                     const cfg = await apiFetch('/api/v1/pool/config');
+                    configReachable = true;
                     if (cfg && cfg.pool_address) {
                         minerAddress = cfg.pool_address;
                         var a = document.getElementById('minerAddress');
@@ -132,7 +154,7 @@
                     }
                 }
             } catch (e) {
-                if (!minerAddress) msg = '⚙️ Set your payout address in Settings to mine.';
+                if (!minerAddress) msg = (configReachable ? '⚙️ ' : '⚠️ ') + noAddressNotice(false);
             }
             if (!msg) { el.style.display = 'none'; return; }
             var c = (tone === 'green')
@@ -174,7 +196,14 @@
                 document.getElementById('immatureBalance').textContent = formatBCH2(data.immatureBalance || 0, 2);
                 document.getElementById('hashrate5m').textContent = formatHashrate((data.hashrate5m || 0) * 1e12);
                 document.getElementById('hashrate60m').textContent = formatHashrate((data.hashrate60m || 0) * 1e12);
-                document.getElementById('workers').textContent = formatNumber(data.workers || 0);
+                // onlineWorkers, NOT workers. `workers` counts every worker ever seen: the
+                // stats manager never deletes from its map (SetWorkerOffline and
+                // MarkStaleWorkersOffline only flip a bool), so the tile stayed >= 1 for
+                // the life of the stratum process. An unplugged rig, a rig moved to
+                // another pool, a renamed worker or rotating rental worker names all left
+                // it reading 1 next to a hashrate of 0 -- and the same app answered 0 on
+                // /api/v1/stats for the same moment.
+                document.getElementById('workers').textContent = formatNumber(data.onlineWorkers || 0);
                 document.getElementById('validShares').textContent = formatNumber(data.validShares || 0);
                 document.getElementById('roundShares').textContent = formatNumber(data.validShares || 0);
                 document.getElementById('bestDiff').textContent = formatDiff(data.bestDiff || 0);
@@ -231,7 +260,7 @@
 
         async function fetchWorkers() {
             const tbody = document.getElementById('workersTable');
-            if (!minerAddress) { tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">Set your payout address in Settings to begin.</div></td></tr>'; return; }
+            if (!minerAddress) { tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">' + escapeHtml(noAddressNotice(true)) + '</div></td></tr>'; return; }
             try {
                 const data = await apiFetch('/api/v1/miners/' + encodeURIComponent(minerAddress) + '/workers');
                 if (!data.workers || data.workers.length === 0) {
@@ -240,7 +269,7 @@
                 }
                 tbody.innerHTML = data.workers.map(w => `
                     <tr>
-                        <td><span class="status-dot ${w.online ? 'online' : 'offline'}" aria-hidden="true"></span>${sanitizeHTML(w.name || 'default')}</td>
+                        <td><span class="status-dot ${w.online ? 'online' : 'offline'}" aria-hidden="true"></span>${sanitizeHTML(w.name || 'default')}${w.online ? '' : ' <span style="color:var(--text-secondary);font-size:0.85em">(offline)</span>'}</td>
                         <td style="color:var(--gold);font-weight:600">${formatNumber(w.blocksFound || 0)}</td>
                         <td>${formatHashrate((w.hashrate5m || 0) * 1e12)}</td>
                         <td>${formatHashrate((w.hashrate60m || 0) * 1e12)}</td>
@@ -256,7 +285,7 @@
 
         async function fetchBlocks() {
             const tbody = document.getElementById('blocksTable');
-            if (!minerAddress) { tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">Set your payout address in Settings to begin.</div></td></tr>'; return; }
+            if (!minerAddress) { tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">' + escapeHtml(noAddressNotice(true)) + '</div></td></tr>'; return; }
             try {
                 const data = await apiFetch('/api/v1/miners/' + encodeURIComponent(minerAddress) + '/solo-blocks');
                 if (!data.blocks || data.blocks.length === 0) {
@@ -341,7 +370,7 @@
 
         async function fetchPayouts() {
             const tbody = document.getElementById("payoutsTable");
-            if (!minerAddress) { tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state">Set your payout address in Settings to begin.</div></td></tr>'; return; }
+            if (!minerAddress) { tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state">' + escapeHtml(noAddressNotice(true)) + '</div></td></tr>'; return; }
             try {
                 const data = await apiFetch("/api/v1/miners/" + encodeURIComponent(minerAddress) + "/solo-payouts");
                 document.getElementById("payoutCount").textContent = "(" + formatNumber(data.total || 0) + ")";
@@ -430,10 +459,11 @@
             if (!minerAddress) {
                 try {
                     const cfg = await apiFetch('/api/v1/pool/config');
+                    configReachable = true;
                     if (cfg && cfg.pool_address) minerAddress = cfg.pool_address;
                 } catch (e) {}
                 var _el = document.getElementById('minerAddress');
-                if (_el) _el.textContent = minerAddress || '(configure payout address)';
+                if (_el) _el.textContent = minerAddress || (configReachable ? '(configure payout address)' : '(unavailable — cannot reach Forge Solo)');
             }
             await updateStatusBanner();
             fetchStats();

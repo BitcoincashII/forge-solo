@@ -26,6 +26,17 @@
 </div></header>
 <main class="wrap">
 
+  <!-- Shown when /api/v1/pool/config cannot be read. Without it a settings page served
+       during API startup, an update, or a crash-loop showed no error at all: the fetch's
+       .catch swallowed the failure, every input rendered blank, and the payout field --
+       marked required -- invited the user to retype an address they had already saved,
+       over the top of a correct one they simply could not see. -->
+  <div class="banner" id="apiDownBanner" style="display:none">
+    Can't reach Forge Solo — your saved settings could not be loaded, so the boxes below are
+    blank. <strong>Don't re-enter anything yet</strong>: saving now would overwrite what is
+    already stored. If the app just started or updated, give it a minute and reload.
+  </div>
+
   <div class="banner" id="notConfiguredBanner" style="display:none">
     Not configured — set your BCH2 payout address below to start mining. Until then the node accepts miner connections but mining is paused.
   </div>
@@ -74,10 +85,36 @@
    document.getElementById('stratumUrl').textContent='stratum+tcp://'+host+':3333';
    document.getElementById('stratumUrlRental').textContent='stratum+tcp://'+host+':3335';
 
-   fetch('/api/v1/stats').then(function(r){return r.json()}).then(function(d){
-     if(d.networkDifficulty!=null) document.getElementById('netDiff').textContent=Number(d.networkDifficulty).toLocaleString();
-     if(d.hashrate!=null) document.getElementById('poolHr').textContent=d.hashrate;
-   }).catch(function(){});
+   fetch('/api/v1/stats')
+     .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+     .then(function(d){
+       if(d.networkDifficulty!=null) document.getElementById('netDiff').textContent=Number(d.networkDifficulty).toLocaleString();
+       if(d.hashrate!=null) document.getElementById('poolHr').textContent=d.hashrate;
+     }).catch(function(){
+       document.getElementById('netDiff').textContent='unavailable';
+       document.getElementById('poolHr').textContent='unavailable';
+     });
+
+   function loadConfig(){
+     return fetch('/api/v1/pool/config')
+       .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+       .then(function(d){
+         document.getElementById('apiDownBanner').style.display='none';
+         applyConfig(d);
+       })
+       .catch(function(){
+         // Nothing is known about the stored config, so make no claim about it: hide the
+         // "not configured" banner, which would be a guess, and say what is actually true.
+         document.getElementById('notConfiguredBanner').style.display='none';
+         document.getElementById('apiDownBanner').style.display='block';
+         var es=document.getElementById('esfStatus');
+         if(es){ es.textContent='unknown — cannot reach Forge Solo'; es.className='v mm-off'; }
+         ['poolAddr','esfAddr','cbTag'].forEach(function(id){
+           var el=document.getElementById(id);
+           if(el){ el.placeholder='unavailable — cannot reach Forge Solo'; }
+         });
+       });
+   }
 
    function applyConfig(d){
      d=d||{};
@@ -113,7 +150,7 @@
      }).catch(function(){});
    }
 
-   fetch('/api/v1/pool/config').then(function(r){return r.json()}).then(applyConfig).catch(function(){});
+   loadConfig();
 
    document.getElementById('saveBtn').addEventListener('click', function(){
      var st=document.getElementById('saveStatus');
@@ -128,14 +165,14 @@
          if(d.success){
            st.className='status ok'; st.textContent=d.message||'Saved';
            // Re-pull so the banner/merge-mining status reflect what was stored.
-           fetch('/api/v1/pool/config').then(function(r){return r.json()}).then(applyConfig).catch(function(){});
+           loadConfig();
          } else {
            st.className='status err'; st.textContent='Error: '+(d.error||'failed')+' — nothing was saved; the fields below have been reset to what is stored.';
            // Re-pull on failure too. The save is all-or-nothing across all three fields, so
            // a user who corrected their BCH2 address and mistyped the optional ESF address
            // got an ESF-only error while the corrected address sat in its input looking
            // saved -- and every block kept paying the old one.
-           fetch('/api/v1/pool/config').then(function(r){return r.json()}).then(applyConfig).catch(function(){});
+           loadConfig();
          }
        }).catch(function(e){ st.className='status err'; st.textContent='Error: '+String(e); });
    });
