@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,7 +69,18 @@ func TestMergeMineMultiTxParent_Live(t *testing.T) {
 	// Simulate a miner's winning share: reconstruct the coinbase, fold the merkle
 	// root through the branch, build the 80-byte parent header, and grind the nonce
 	// until the parent hash meets the aux target (~2 tries at regtest difficulty).
-	en1, en2 := "010203040506", "00000001"
+	// DERIVED from the reserve, never hardcoded. The coinbase's scriptSig length byte is
+	// computed from CoinbaseExtranonceReserve, so a hardcoded split silently produces a
+	// short coinbase the moment the reserve changes -- which is exactly what happened when
+	// it widened from 10 to 12 for Braiins: the aux node rejected the submission with
+	// "AuxPoW decode failed: end of data" and CI caught it.
+	const en1Bytes = 4
+	en1 := strings.Repeat("ab", en1Bytes)
+	en2 := strings.Repeat("cd", CoinbaseExtranonceReserve-en1Bytes)
+	if len(en1)/2+len(en2)/2 != CoinbaseExtranonceReserve {
+		t.Fatalf("extranonce split %d+%d does not sum to the reserve %d",
+			len(en1)/2, len(en2)/2, CoinbaseExtranonceReserve)
+	}
 	coinbase := reconstructCoinbase(job.CoinBase1, en1, en2, job.CoinBase2)
 	merkleRoot := foldMerkle(coinbase, job.MerkleBranches)
 
