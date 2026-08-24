@@ -152,3 +152,87 @@ func TestMiningStatusNoJobEverIsNegativeAge(t *testing.T) {
 		t.Errorf("LastJobAgeSec = %d, want -1 when no job has ever been built", st.LastJobAgeSec)
 	}
 }
+
+// An idle stratum must not report that it is mining.
+//
+// There was no rung for "nothing is connected", so connections=0 fell through to
+// `default: Mining = true`. The dashboard then rendered its reassuring green
+// banner -- which, worse, read "node synced and a miner is connected", a sentence
+// only ever reachable when authorized==0 AND connections==0, i.e. false every
+// single time it appeared. A rig that drops at 3am looked exactly like one that
+// is working.
+func TestMiningStatusIsNotMiningWithNothingConnected(t *testing.T) {
+	now := time.Now()
+	st := miningStatusFrom(
+		true,                    // configured
+		true,                    // dbConnected
+		0,                       // connections
+		0,                       // authorized
+		1000,                    // jobHeight
+		now.Add(-2*time.Second), // fresh job
+		time.Time{},             // no share ever
+		"", now,
+	)
+	if st.Mining {
+		t.Error("reports mining:true with zero connections; the dashboard shows a green " +
+			"'Mining' banner while nothing is attached")
+	}
+	if st.Reason != "no_miners" {
+		t.Errorf("reason = %q, want %q", st.Reason, "no_miners")
+	}
+	if st.Message == "" {
+		t.Error("no message to show the user")
+	}
+}
+
+// The new rung must not swallow the states below it.
+func TestMiningStatusLadderKeepsItsOtherRungs(t *testing.T) {
+	now := time.Now()
+	fresh := now.Add(-2 * time.Second)
+
+	cases := []struct {
+		name                  string
+		connections, authoriz int64
+		shareAt               time.Time
+		wantReason            string
+		wantMining            bool
+	}{
+		{"connected but none authorized", 3, 0, time.Time{}, "miners_refused", false},
+		{"authorized but silent", 1, 1, now.Add(-30 * time.Minute), "no_shares", false},
+		{"authorized and hashing", 1, 1, now.Add(-5 * time.Second), "", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			st := miningStatusFrom(true, true, tc.connections, tc.authoriz, 1000, fresh, tc.shareAt, "", now)
+			if st.Reason != tc.wantReason {
+				t.Errorf("reason = %q, want %q", st.Reason, tc.wantReason)
+			}
+			if st.Mining != tc.wantMining {
+				t.Errorf("mining = %v, want %v", st.Mining, tc.wantMining)
+			}
+		})
+	}
+}
+
+// Faults that are not the miner's fault must still outrank "no miner connected" --
+// otherwise a dead node with nothing attached blames the user's rig.
+func TestMiningStatusNodeFaultsOutrankNoMiners(t *testing.T) {
+	now := time.Now()
+	for _, tc := range []struct {
+		name, want string
+		jobAt      time.Time
+		configured bool
+	}{
+		{"unconfigured", "no_payout_address", now.Add(-2 * time.Second), false},
+		{"no template yet", "no_template_yet", time.Time{}, true},
+		{"stale template", "stale_template", now.Add(-1 * time.Hour), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := miningStatusFrom(tc.configured, true, 0, 0, 1000, tc.jobAt, time.Time{}, "", now)
+			if st.Reason != tc.want {
+				t.Errorf("with nothing connected, reason = %q, want %q — the node's own "+
+					"fault is being reported as a missing miner", st.Reason, tc.want)
+			}
+		})
+	}
+}

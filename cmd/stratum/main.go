@@ -325,6 +325,13 @@ func miningStatusFrom(configured, dbConnected bool, connections, authorized, job
 		if tmplErr != "" {
 			st.Message += " Last error: " + tmplErr
 		}
+	case connections == 0:
+		// Nothing is attached. There was no rung for this, so an idle stratum fell
+		// through to `default: Mining = true` and the dashboard reported mining with
+		// nobody connected -- the one state a solo miner most needs to be told about,
+		// because a rig that dropped at 3am looks identical to one that is working.
+		st.Reason = "no_miners"
+		st.Message = "No miner is connected. The node is synced and work is ready — point a miner at the stratum port."
 	case connections > 0 && authorized == 0:
 		// Jobs are being produced and miners keep arriving, but not one has got past
 		// mining.authorize. The usual cause is the worker username, and a refused miner

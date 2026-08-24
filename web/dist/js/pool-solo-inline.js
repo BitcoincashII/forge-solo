@@ -48,6 +48,16 @@
             dash.insertBefore(b, dash.firstChild);
         })();
 
+        // The stratum address to tell the user to point a miner at. This page is served
+        // from the same host as the stratum, so its own hostname is the right answer --
+        // the old copy hardcoded "this PC: 127.0.0.1:3333 · a Bitaxe: your PC LAN IP",
+        // which is wrong for the Umbrel this app ships as, and disagreed with Settings
+        // and the README (both of which say <your-umbrel-ip>).
+        function stratumHostHint() {
+            var host = (window.location && window.location.hostname) || 'your-umbrel';
+            return '3333 (stratum+tcp://' + host + ':3333)';
+        }
+
         function escapeHtml(v) {
             return String(v == null ? '' : v).replace(/[&<>"']/g, function (ch) {
                 return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
@@ -89,7 +99,15 @@
                     // render here as a cheerful "ready to mine".
                     let ms = null;
                     try { ms = await apiFetch('/api/v1/mining-status'); } catch (e) {}
-                    if (ms && ms.mining === false && ms.message) {
+                    if (ms && ms.reason === 'no_miners') {
+                        // Not a fault: the node is synced and work is ready, there is
+                        // simply nothing attached. Rendering this in the alarming
+                        // "Not mining" style would cry wolf on an ordinary idle install,
+                        // but it must NOT be dressed up as mining either -- the previous
+                        // code said "a miner is connected" in exactly this state.
+                        tone = 'gold';
+                        msg = '⏸️ <b>No miner connected.</b> Node synced and work is ready — point a miner at <b>port ' + stratumHostHint() + '</b>.';
+                    } else if (ms && ms.mining === false && ms.message) {
                         // escapeHtml: ms.message can carry the node's raw JSON-RPC error
                         // text, which is the one dynamic string on this page that does not
                         // originate here.
@@ -103,11 +121,14 @@
                         tone = 'green';
                         msg = '⛏️ <b>Mining</b> — node synced, ' + Number(ms.authorized) + ' miner(s) authorized and submitting shares. Good luck!';
                     } else if (minerHashing) {
+                        // Reached only when mining-status is unavailable. All this branch
+                        // actually knows is that a worker submitted a share recently --
+                        // it says nothing about connections, so it must not claim one.
                         tone = 'green';
-                        msg = '⛏️ <b>Mining</b> — node synced and a miner is connected. Good luck!';
+                        msg = '⛏️ <b>Mining</b> — a worker is submitting shares. Good luck!';
                     } else {
                         tone = 'green';
-                        msg = '✅ <b>Node synced — ready to mine.</b> Point a miner at <b>port 3333</b> (this PC: 127.0.0.1:3333 · a Bitaxe: your PC LAN IP, port 3333).';
+                        msg = '✅ <b>Node synced — ready to mine.</b> Point a miner at <b>port ' + stratumHostHint() + '</b>.';
                     }
                 }
             } catch (e) {
