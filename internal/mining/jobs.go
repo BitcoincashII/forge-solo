@@ -51,7 +51,50 @@ type JobManager struct {
 	auxClient  *mergemining.Client
 	auxPayout  string
 	auxEnabled bool
-	auxLastErr string // throttle repeated aux-error logging (e.g. pre-activation)
+
+	// Aux health, guarded by mu like everything else here. Merge mining can fail for as
+	// long as the aux node is unhappy and BCH2 carries on regardless, which is the right
+	// behaviour -- but it used to be COMPLETELY invisible: one bare fmt.Printf, emitted
+	// only when the error string changed, with no level and no timestamp, and nothing on
+	// any API or UI surface. A fresh Umbrel install hits this every time (the stratum
+	// starts on service_started while the 1175 node is still in IBD) and the dashboard
+	// went on telling the user they were earning 1175.
+	auxLastErr   string
+	auxLastErrAt time.Time
+	auxLastOKAt  time.Time
+}
+
+// AuxHealth is a snapshot of whether merge mining is actually producing work.
+type AuxHealth struct {
+	Enabled   bool
+	Payout    string
+	LastErr   string    // "" when the last fetch succeeded
+	LastErrAt time.Time // zero if never failed
+	LastOKAt  time.Time // zero if it has NEVER succeeded, which is the state to shout about
+}
+
+// AuxHealth reports the current merge-mining state for logging and for the dashboard.
+func (jm *JobManager) AuxHealth() AuxHealth {
+	jm.mu.RLock()
+	defer jm.mu.RUnlock()
+	return AuxHealth{
+		Enabled:   jm.auxEnabled,
+		Payout:    jm.auxPayout,
+		LastErr:   jm.auxLastErr,
+		LastErrAt: jm.auxLastErrAt,
+		LastOKAt:  jm.auxLastOKAt,
+	}
+}
+
+// DisableMergeMining stops embedding aux commitments. Used when the dashboard clears the
+// 1175 payout address: without it, clearing the field left the previous address mining.
+func (jm *JobManager) DisableMergeMining() {
+	jm.mu.Lock()
+	jm.auxEnabled = false
+	jm.auxClient = nil
+	jm.auxPayout = ""
+	jm.auxLastErr = ""
+	jm.mu.Unlock()
 }
 
 // EnableMergeMining turns on aux-chain merge mining. Each CreateJob then fetches
@@ -82,16 +125,25 @@ func (jm *JobManager) fetchAuxWork() (*mergemining.AuxWork, []byte) {
 	}
 	w, err := client.GetAuxBlock(payout)
 	if err != nil {
-		if err.Error() != jm.auxLastErr { // log only when the error changes
-			jm.auxLastErr = err.Error()
-			fmt.Printf("Merge mining: aux work unavailable (%v) — mining BCH2 only for now\n", err)
-		}
+		// Recorded, not printed. The caller owns the logging so it happens at a real level
+		// through the real logger, throttled, and repeated while the fault persists rather
+		// than once per distinct error string.
+		jm.mu.Lock()
+		jm.auxLastErr = err.Error()
+		jm.auxLastErrAt = time.Now()
+		jm.mu.Unlock()
 		return nil, nil
 	}
+	jm.mu.Lock()
 	jm.auxLastErr = ""
+	jm.auxLastOKAt = time.Now()
+	jm.mu.Unlock()
 	commitment, cerr := mergemining.BuildCommitment(w.Hash)
 	if cerr != nil {
-		fmt.Printf("Merge mining: bad aux child hash %q: %v\n", w.Hash, cerr)
+		jm.mu.Lock()
+		jm.auxLastErr = fmt.Sprintf("bad aux child hash %q: %v", w.Hash, cerr)
+		jm.auxLastErrAt = time.Now()
+		jm.mu.Unlock()
 		return nil, nil
 	}
 	return w, commitment

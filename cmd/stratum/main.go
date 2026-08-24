@@ -185,17 +185,20 @@ func noteTemplateError(err error) {
 // miningStatusSnapshot describes, in one place, whether this stratum is producing work
 // and if not, why. Consumed by /internal/mining-status -> the api -> the dashboard banner.
 type miningStatusSnapshot struct {
-	Mining        bool   `json:"mining"`             // a job was broadcast recently
-	Configured    bool   `json:"configured"`         // payout address resolved; jobs may be built
-	DBConnected   bool   `json:"db_connected"`       // dashboard settings are readable
-	Connections   int64  `json:"connections"`        // TCP connections; a refused miner reconnecting inflates this
-	Authorized    int64  `json:"authorized"`         // miners that completed mining.authorize
-	LastShareAge  int64  `json:"last_share_age_sec"` // -1 if no share has ever been accepted
-	LastJobHeight int64  `json:"last_job_height"`    // 0 if none yet
-	LastJobAgeSec int64  `json:"last_job_age_sec"`   // -1 if no job has ever been built
-	TemplateError string `json:"template_error"`     // last getblocktemplate failure, if any
-	Reason        string `json:"reason"`             // machine-readable pause cause, "" when mining
-	Message       string `json:"message"`            // one line a home user can act on
+	Mining        bool   `json:"mining"`              // a job was broadcast recently
+	Configured    bool   `json:"configured"`          // payout address resolved; jobs may be built
+	DBConnected   bool   `json:"db_connected"`        // dashboard settings are readable
+	Connections   int64  `json:"connections"`         // TCP connections; a refused miner reconnecting inflates this
+	Authorized    int64  `json:"authorized"`          // miners that completed mining.authorize
+	LastShareAge  int64  `json:"last_share_age_sec"`  // -1 if no share has ever been accepted
+	MergeMining   string `json:"merge_mining"`        // off | ok | failing | never_worked
+	AuxError      string `json:"aux_error"`           // last aux fetch failure, "" when healthy
+	AuxLastOKAge  int64  `json:"aux_last_ok_age_sec"` // -1 if aux work has NEVER been fetched
+	LastJobHeight int64  `json:"last_job_height"`     // 0 if none yet
+	LastJobAgeSec int64  `json:"last_job_age_sec"`    // -1 if no job has ever been built
+	TemplateError string `json:"template_error"`      // last getblocktemplate failure, if any
+	Reason        string `json:"reason"`              // machine-readable pause cause, "" when mining
+	Message       string `json:"message"`             // one line a home user can act on
 }
 
 // buildMiningStatus gathers the live inputs and hands them to the reason ladder.
@@ -219,7 +222,43 @@ func buildMiningStatus() miningStatusSnapshot {
 	shareAt := lastShareAt
 	miningStatusMu.RUnlock()
 
-	return miningStatusFrom(configured, stats.IsDBConnected(), connections, authorized, jobHeight, jobAt, shareAt, tmplErr, time.Now())
+	var aux mining.AuxHealth
+	if jobManager != nil {
+		aux = jobManager.AuxHealth()
+	}
+
+	st := miningStatusFrom(configured, stats.IsDBConnected(), connections, authorized, jobHeight, jobAt, shareAt, tmplErr, time.Now())
+	st.MergeMining, st.AuxError, st.AuxLastOKAge = auxStatusFrom(aux, time.Now())
+	return st
+}
+
+// auxStaleAfter is how long without a successful getauxblock before merge mining counts as
+// failing rather than merely quiet. The aux node is polled on every job build, so this is
+// many missed fetches, not one.
+const auxStaleAfter = 2 * time.Minute
+
+// auxStatusFrom reduces aux health to something a dashboard can render and a user can act
+// on. "never_worked" is deliberately distinct from "failing": on a fresh Umbrel install the
+// stratum starts while the 1175 node is still doing IBD, so merge mining has never once
+// produced work -- and the user needs to be told that rather than shown an address and left
+// to assume it is earning.
+func auxStatusFrom(a mining.AuxHealth, now time.Time) (state, errText string, lastOKAge int64) {
+	if !a.Enabled {
+		return "off", "", -1
+	}
+	lastOKAge = -1
+	if !a.LastOKAt.IsZero() {
+		lastOKAge = int64(now.Sub(a.LastOKAt).Seconds())
+	}
+	switch {
+	case a.LastOKAt.IsZero():
+		return "never_worked", a.LastErr, lastOKAge
+	case a.LastErr != "" && lastOKAge > int64(auxStaleAfter.Seconds()):
+		return "failing", a.LastErr, lastOKAge
+	case a.LastErr != "":
+		return "ok", a.LastErr, lastOKAge // a blip; work is still recent
+	}
+	return "ok", "", lastOKAge
 }
 
 // jobStaleAfter is how long without a freshly built job counts as "not mining". A job is
@@ -997,6 +1036,7 @@ func sendWebhookAlert(event string, data map[string]interface{}) {
 // startZMQListener subscribes to ZMQ block notifications for instant block detection
 // This reduces orphan rate by getting new block notifications in milliseconds vs 1-second polling
 func startZMQListener(zmqEndpoint string, logger *zap.Logger) {
+	var lastZMQWarn time.Time
 	ctx := context.Background()
 
 	for {
@@ -1009,9 +1049,16 @@ func startZMQListener(zmqEndpoint string, logger *zap.Logger) {
 
 		sub := zmq4.NewSub(ctx)
 		if err := sub.Dial(zmqEndpoint); err != nil {
-			logger.Warn("Failed to connect to ZMQ endpoint, retrying in 5s",
-				zap.String("endpoint", zmqEndpoint),
-				zap.Error(err))
+			// Throttled: this retries forever, and the dial itself takes a few seconds, so
+			// an endpoint that is simply not there produced thousands of identical warnings
+			// a day. The interval is deliberately not quoted in the message -- it is the
+			// sleep below plus however long the failing dial took.
+			if time.Since(lastZMQWarn) >= time.Minute {
+				lastZMQWarn = time.Now()
+				logger.Warn("Cannot connect to ZMQ endpoint; retrying (further identical warnings suppressed for 1m). Block detection falls back to polling, so mining is unaffected. Set node.zmq_endpoint empty to disable ZMQ.",
+					zap.String("endpoint", zmqEndpoint),
+					zap.Error(err))
+			}
 			time.Sleep(5 * time.Second)
 			continue
 		}
@@ -1208,10 +1255,28 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 				lastPool = pool
 			}
 		}
-		if tag != lastTag && tag != "" {
+		// Blank is a real value here: the dashboard clears a tag by sending an empty one,
+		// and SetCoinbaseTag sanitises "" back to the built-in default.
+		if tag != lastTag {
 			jm.SetCoinbaseTag(tag)
 			logger.Info("coinbase tag updated from dashboard", zap.String("tag", tag))
 			lastTag = tag
+		}
+		// Clearing the 1175 address turns merge mining OFF at runtime. Without this the
+		// field could be emptied in the dashboard and saved, and the previous address kept
+		// right on being mined to until the next restart -- with the UI showing no address.
+		if p1175 == "" && last1175 != "" {
+			jm.DisableMergeMining()
+			merge1175Enabled = false
+			aux1175PayoutAddr = ""
+			if stratumServer != nil {
+				stratumServer.DisableMergeMining()
+			}
+			if stratumBraiinsServer != nil {
+				stratumBraiinsServer.DisableMergeMining()
+			}
+			logger.Info("💠 1175 merge-mining DISABLED from dashboard (address cleared) — BCH2 mining continues")
+			last1175 = ""
 		}
 		if p1175 != last1175 && p1175 != "" {
 			if !merge1175Enabled {
@@ -1544,11 +1609,17 @@ func main() {
 	logger.Info("✅ Stratum server running", zap.Int("port", serverConfig.Port))
 
 	// Start ZMQ block notification listener for instant block detection
+	// An empty endpoint means DISABLED. It used to be silently replaced with a hardcoded
+	// tcp://127.0.0.1:28332, so an operator whose node does not publish ZMQ there could not
+	// turn the listener off by any means and collected a reconnect warning every few
+	// seconds forever. Block detection falls back to 1s polling, which is what the job loop
+	// already does.
 	zmqEndpoint := config.GetString("node.zmq_endpoint")
 	if zmqEndpoint == "" {
-		zmqEndpoint = "tcp://127.0.0.1:28332"
+		logger.Info("ZMQ disabled (node.zmq_endpoint is empty) — new blocks are detected by polling")
+	} else {
+		go startZMQListener(zmqEndpoint, logger)
 	}
-	go startZMQListener(zmqEndpoint, logger)
 
 	// Job broadcast loop
 	// Miners expect periodic job updates to confirm pool is alive
@@ -1564,6 +1635,9 @@ func main() {
 		var lastPrevHash string
 		var lastJobTime time.Time
 		var lastPausedLog time.Time
+		var lastAuxLog time.Time
+		var lastTemplateLog time.Time
+		var auxWasFailing bool
 
 		for {
 			var zmqTriggered bool
@@ -1596,8 +1670,15 @@ func main() {
 
 			template, err := jobManager.GetBlockTemplate()
 			if err != nil {
-				logger.Error("Failed to get block template", zap.Error(err))
+				// Throttled like the pause warning six lines up, which it was not. This
+				// loop runs every second, so a node that is syncing, restarting or
+				// reindexing produced ~3,600 ERROR lines an hour and the log a user sends
+				// for support became entirely this line, rotating the real cause out.
 				noteTemplateError(err)
+				if time.Since(lastTemplateLog) >= time.Minute {
+					lastTemplateLog = time.Now()
+					logger.Error("Failed to get block template (further identical errors suppressed for 1m)", zap.Error(err))
+				}
 				continue
 			}
 			if template == nil {
@@ -1616,6 +1697,27 @@ func main() {
 				setNetworkDifficulty(templateDiff)
 			}
 			setLatestCoinbaseBTC(float64(template.CoinbaseValue) / 1e8)
+
+			// Merge-mining health, said out loud. A persistent aux fault previously produced
+			// exactly one un-levelled line for its whole duration, so an install that never
+			// mined a single 1175 block looked identical in the log to one that did.
+			if aux := jobManager.AuxHealth(); aux.Enabled {
+				state, auxErr, _ := auxStatusFrom(aux, time.Now())
+				failing := state == "failing" || state == "never_worked"
+				if failing && time.Since(lastAuxLog) >= time.Minute {
+					lastAuxLog = time.Now()
+					auxWasFailing = true
+					msg := "⚠️  1175 merge-mining is enabled but NOT producing work — BCH2 mining is unaffected and continues normally."
+					if state == "never_worked" {
+						msg = "⚠️  1175 merge-mining is enabled but has NEVER produced work since startup (the 1175 node may still be syncing) — BCH2 mining is unaffected and continues normally."
+					}
+					logger.Warn(msg, zap.String("aux_error", auxErr), zap.String("payout_address_1175", aux.Payout))
+				}
+				if !failing && auxWasFailing {
+					auxWasFailing = false
+					logger.Info("✅ 1175 merge-mining recovered — aux work is flowing again")
+				}
+			}
 
 			curJob := getCurrentJob()
 			isNewBlock := template.Height != lastHeight || template.PreviousBlockHash != lastPrevHash || curJob == nil

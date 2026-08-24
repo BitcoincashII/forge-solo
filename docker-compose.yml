@@ -103,6 +103,13 @@ services:
       - STRATUM_INTERNAL_URL=http://stratum:3337
       - INTERNAL_API_TOKEN=${APP_INTERNAL_API_TOKEN}
       - POOL_ADDRESS=${POOL_ADDRESS:-}
+      # The api reads these as fallbacks for a fresh install; without them here its
+      # fallback branches could never fire, so a user who configured the tag or the 1175
+      # address in the Umbrel app config saw "not configured — merge-mining OFF" while
+      # merge mining was in fact running, and a tag box reading "Forge" while blocks
+      # carried the real one -- which the next Save would then overwrite.
+      - COINBASE_TAG=${COINBASE_TAG:-Forge}
+      - PAYOUT_ADDRESS_1175=${PAYOUT_ADDRESS_1175:-}
       - HOME_APP=1
       - CORS_ORIGINS=
     healthcheck:

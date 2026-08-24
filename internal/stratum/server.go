@@ -88,6 +88,15 @@ type Server struct {
 // EnableMergeMining lets this server submit solved aux-chain (1175) blocks. Any
 // accepted share whose parent (BCH2) header hash also meets the aux target for
 // the job's committed aux work is submitted to the aux node via submitauxblock.
+// DisableMergeMining stops the server submitting solved aux blocks. Pairs with
+// JobManager.DisableMergeMining so clearing the 1175 address in the dashboard takes effect
+// without a restart.
+func (s *Server) DisableMergeMining() {
+	s.auxMu.Lock()
+	s.auxClient = nil
+	s.auxMu.Unlock()
+}
+
 func (s *Server) EnableMergeMining(client *mergemining.Client) {
 	s.auxMu.Lock()
 	s.auxClient = client
@@ -2354,6 +2363,68 @@ func parseUsername(username string) (minerID, workerName string) {
 
 // normalizeMinerAddress ensures the address has the correct bitcoincashii: prefix
 // Returns empty string for invalid/rejected address formats
+// validCashAddrChecksum verifies a CashAddr's BCH-style polymod checksum.
+//
+// Length and first-character checks are not validation: a single mistyped character in an
+// address used as the stratum username produced a perfectly happy authorize, and shares
+// recorded under a minerID that the dashboard API then refused with "Invalid BCH2 address
+// format" -- so every tile read zero forever with nothing to explain it. Funds were never
+// at risk (the coinbase only ever uses the configured payout pubkeyHash), but the app's own
+// banner invites this by telling users they may authorize with their address.
+//
+// In a solo deployment a rejection here is not fatal: handleAuthorize falls back to the
+// configured payout address and treats the whole username as a worker label, so the miner
+// still mines and is credited correctly.
+func validCashAddrChecksum(address string) bool {
+	const charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+	i := strings.LastIndex(address, ":")
+	if i < 0 {
+		return false
+	}
+	prefix, payload := address[:i], address[i+1:]
+	if len(payload) < 8 {
+		return false
+	}
+	v := make([]byte, 0, len(prefix)+1+len(payload))
+	for j := 0; j < len(prefix); j++ {
+		v = append(v, prefix[j]&0x1f)
+	}
+	v = append(v, 0)
+	for _, c := range payload {
+		k := strings.IndexRune(charset, c)
+		if k < 0 {
+			return false
+		}
+		v = append(v, byte(k))
+	}
+	return cashaddrPolymodStratum(v) == 0
+}
+
+// cashaddrPolymodStratum is the BCH CashAddr polymod (a 40-bit BCH code over GF(32)).
+func cashaddrPolymodStratum(v []byte) uint64 {
+	c := uint64(1)
+	for _, d := range v {
+		c0 := c >> 35
+		c = ((c & 0x07ffffffff) << 5) ^ uint64(d)
+		if c0&0x01 != 0 {
+			c ^= 0x98f2bc8e61
+		}
+		if c0&0x02 != 0 {
+			c ^= 0x79b76d99e2
+		}
+		if c0&0x04 != 0 {
+			c ^= 0xf33e5fb3c4
+		}
+		if c0&0x08 != 0 {
+			c ^= 0xae2eabe2a8
+		}
+		if c0&0x10 != 0 {
+			c ^= 0x1e4f43e470
+		}
+	}
+	return c ^ 1
+}
+
 func normalizeMinerAddress(addr string) string {
 	// Convert to lowercase for comparison
 	lowerAddr := strings.ToLower(addr)
@@ -2368,6 +2439,9 @@ func normalizeMinerAddress(addr string) string {
 		hash := lowerAddr[len("bitcoincashii:"):]
 		if len(hash) < 42 || (hash[0] != 'q' && hash[0] != 'p') {
 			return "" // Reject: prefix without valid hash
+		}
+		if !validCashAddrChecksum(lowerAddr) {
+			return "" // one-character typo: see validCashAddrChecksum
 		}
 		return lowerAddr
 	}

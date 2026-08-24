@@ -1238,7 +1238,18 @@ func getPoolConfig(c *fiber.Ctx) error {
 		poolAddr, payout1175, tag, minPayout = "", "", "", 0
 	}
 	if poolAddr == "" {
-		poolAddr = os.Getenv("POOL_ADDRESS")
+		// Validate the env fallback before handing it to the page. Unvalidated, an
+		// Umbrel app-config value with a bitcoincash: prefix or a P2SH p… address made the
+		// settings page show the address, hide its "not configured" banner, and then 400
+		// every save -- including a save meant only to change the tag -- while the stratum
+		// sat paused. An invalid value is no configuration at all.
+		if env := strings.TrimSpace(os.Getenv("POOL_ADDRESS")); env != "" {
+			if isValidBCH2Address(env) {
+				poolAddr = strings.ToLower(env)
+			} else {
+				log.Printf("WARNING: POOL_ADDRESS is set but is not a valid mainnet bitcoincashii: P2PKH address (%q); ignoring it", env)
+			}
+		}
 	}
 	if payout1175 == "" {
 		payout1175 = os.Getenv("PAYOUT_ADDRESS_1175")
@@ -1290,7 +1301,9 @@ func savePoolConfig(c *fiber.Ctx) error {
 	}
 
 	// Load current DB values so a partial save (e.g. only the coinbase tag) preserves the rest.
-	curPool, cur1175, curTag, curMin, _ := stats.GetPoolConfig()
+	// Only the BCH2 address and the minimum are carried forward on a partial save; the two
+	// optional fields are cleared by a blank, see below.
+	curPool, _, _, curMin, _ := stats.GetPoolConfig()
 
 	// BCH2 payout address: validate with the full CashAddr checksum validator. Blank keeps
 	// the current value (does NOT clear a configured address).
@@ -1309,19 +1322,19 @@ func savePoolConfig(c *fiber.Ctx) error {
 		poolAddr = curPool
 	}
 
-	// 1175 (ESF) merge-mining payout address: validate as bech32 esf1…. Blank keeps current.
+	// 1175 (ESF) merge-mining payout address: validate as bech32 esf1…. Blank CLEARS it,
+	// which is the only way to turn merge mining off -- previously the server substituted
+	// the current value, answered "Settings saved", and the old address sprang straight back
+	// into the field, so a user who no longer controlled that address had no path at all.
 	payout1175 := strings.TrimSpace(input.PayoutAddress1175)
-	if payout1175 != "" {
-		if !isValid1175Address(payout1175) {
-			return c.Status(400).JSON(fiber.Map{"success": false, "error": "Invalid 1175 (ESF) address — must be a valid esf1… address"})
-		}
-	} else {
-		payout1175 = cur1175
+	if payout1175 != "" && !isValid1175Address(payout1175) {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "Invalid 1175 (ESF) address — must be a valid esf1… address"})
 	}
 
-	tag := curTag
-	if input.CoinbaseTag != "" {
-		tag = sanitizeTagAPI(input.CoinbaseTag)
+	// Blank clears the tag back to the default rather than silently restoring the old one.
+	tag := sanitizeTagAPI(input.CoinbaseTag)
+	if strings.TrimSpace(input.CoinbaseTag) == "" {
+		tag = ""
 	}
 
 	minPayout := curMin

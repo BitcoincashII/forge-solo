@@ -51,10 +51,7 @@ func authorizeWithPassword(t *testing.T, s *Server, password string) *Client {
 	go io.Copy(io.Discard, minerSide)
 
 	c := &Client{ID: "hint", Conn: poolSide}
-	params, err := json.Marshal([]string{
-		"bitcoincashii:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq.worker",
-		password,
-	})
+	params, err := json.Marshal([]string{testPayout + ".worker", password})
 	if err != nil {
 		t.Fatalf("marshal params: %v", err)
 	}
@@ -67,7 +64,7 @@ func authorizeWithPassword(t *testing.T, s *Server, password string) *Client {
 
 func newHintTestServer(t *testing.T) *Server {
 	t.Helper()
-	return NewServer(&ServerConfig{
+	s := NewServer(&ServerConfig{
 		MinDiff:         1024,
 		MaxDiff:         1e12,
 		RentalMinDiff:   500000,
@@ -76,6 +73,8 @@ func newHintTestServer(t *testing.T) *Server {
 		RetargetTime:    30,
 		SoloOnly:        true, // the shipped home-app configuration
 	}, zap.NewNop(), nil, nil)
+	s.SetSoloPayoutAddress(testPayout)
+	return s
 }
 
 // Rented hashpower declares its size in the password. Honouring it is the difference

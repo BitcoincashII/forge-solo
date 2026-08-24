@@ -9,7 +9,10 @@ import (
 	"go.uber.org/zap"
 )
 
-const testPayout = "bitcoincashii:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+// A REAL address: checksum-valid, so normalizeMinerAddress accepts it. The previous
+// placeholder was 42 q's, which has no valid checksum -- it only worked because the
+// checksum was not being verified.
+const testPayout = "bitcoincashii:qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzse6qye33q"
 
 func newSoloServer(t *testing.T, payout string) *Server {
 	t.Helper()
@@ -141,6 +144,34 @@ func TestNonSoloStillRejectsNonAddressUsernames(t *testing.T) {
 	_, resp := authorize(t, s, "rig1")
 	if resp.Result == true {
 		t.Error("a non-solo pool authorized a non-address username; it would mine to an unpayable identity")
+	}
+}
+
+// A one-character typo in an address used as the username must NOT become the minerID.
+// It used to: authorize succeeded and every share was recorded under an address the
+// dashboard API then refused, so all tiles read zero forever with nothing to explain it.
+// In solo the miner is now credited to the configured payout address instead, and the
+// mistyped string survives only as a worker label.
+func TestSoloAuthorizeRejectsMistypedAddressAsMinerID(t *testing.T) {
+	s := newSoloServer(t, testPayout)
+
+	// Flip one character of a valid address; the checksum no longer holds.
+	typo := testPayout[:len(testPayout)-1] + "p"
+	if typo == testPayout {
+		t.Fatal("typo fixture did not change the address")
+	}
+	c, resp := authorize(t, s, typo)
+	if resp.Result != true {
+		t.Fatalf("authorize refused: %+v", resp.Error)
+	}
+	c.mu.RLock()
+	minerID := c.MinerID
+	c.mu.RUnlock()
+	if minerID == typo {
+		t.Error("a checksum-invalid address became the minerID; the dashboard will refuse it and every tile will read zero")
+	}
+	if minerID != testPayout {
+		t.Errorf("MinerID = %q, want the configured payout address", minerID)
 	}
 }
 

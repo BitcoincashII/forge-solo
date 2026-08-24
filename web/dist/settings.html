@@ -61,6 +61,7 @@
     <div class="row"><span class="k">1175 (ESF) payout address</span><span class="v" id="esfStatus">—</span></div>
     <div class="row"><span class="k">Network difficulty</span><span class="v" id="netDiff">—</span></div>
     <div class="row"><span class="k">Your hashrate</span><span class="v" id="poolHr">—</span></div>
+    <p class="note">BCH2 mining is never affected by 1175: if the 1175 node is unreachable or still syncing, this app keeps mining BCH2 normally and simply stops adding the 1175 commitment until it recovers.</p>
     <p class="note">1175 (ESF) is merge-mined at no extra hashrate cost. Its reward is paid on-chain directly to the ESF address above. Set that address in <strong>Payout &amp; mining setup</strong> to turn merge-mining on.</p>
   </div>
 </main>
@@ -88,6 +89,25 @@
      var es=document.getElementById('esfStatus');
      if(esf){ es.textContent=esf; es.className='v'; }
      else { es.textContent='not configured — merge-mining OFF'; es.className='v mm-off'; }
+     if(esf) refreshMergeMiningHealth();
+   }
+
+   // An address in the box only means merge-mining was CONFIGURED. Whether it is actually
+   // producing work is a different question, and the honest answer lives on the stratum:
+   // a fresh install starts mining BCH2 while the 1175 node is still syncing, so aux work
+   // can fail indefinitely. Showing the address alone told those users they were earning.
+   function refreshMergeMiningHealth(){
+     fetch('/api/v1/mining-status').then(function(r){return r.json()}).then(function(ms){
+       var es=document.getElementById('esfStatus');
+       if(!ms||!ms.merge_mining||ms.merge_mining==='off') return;
+       if(ms.merge_mining==='ok'){ es.className='v'; return; }
+       es.className='v mm-off';
+       var why = ms.merge_mining==='never_worked'
+         ? 'configured, but has NOT produced any 1175 work yet — the 1175 node may still be syncing'
+         : 'configured, but 1175 work has STOPPED';
+       es.textContent = es.textContent + ' — ' + why;
+       if(ms.aux_error){ es.title = ms.aux_error; }
+     }).catch(function(){});
    }
 
    fetch('/api/v1/pool/config').then(function(r){return r.json()}).then(applyConfig).catch(function(){});
