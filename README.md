@@ -20,9 +20,13 @@ no PPLNS, no pool fee**.
 - `postgres`
 
 ## Connect a miner
-Set your **BCH2 payout address**, **1175 payout address** and **min payout** on the
-app's **Settings** page (they are stored in the app's database, so they survive
-updates). Then point your miner at `stratum+tcp://<your-umbrel-ip>:3333`.
+Set your **BCH2 payout address** and **1175 payout address** on the app's **Settings**
+page (they are stored in the app's database, so they survive updates). Then point your
+miner at `stratum+tcp://<your-umbrel-ip>:3333`.
+
+There is no minimum payout and no payout schedule. A block you find pays you **directly in
+that block's coinbase** — the reward is yours on-chain as soon as the block is accepted,
+spendable after the usual 100-block coinbase maturity.
 
 The worker username is **just a label** — `rig1`, `bitaxe`, anything. It has no payout
 role: every block's reward is paid to your configured BCH2 address. Supplying

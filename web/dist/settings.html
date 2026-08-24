@@ -38,8 +38,6 @@
     <input class="txt" id="esfAddr" type="text" spellcheck="false" autocapitalize="none" placeholder="esf1…">
     <label class="fld" for="cbTag">Coinbase tag (optional, ≤24 chars)</label>
     <input class="txt" id="cbTag" type="text" maxlength="24" placeholder="Forge">
-    <label class="fld" for="minPayout">Minimum payout (BCH2)</label>
-    <input class="txt" id="minPayout" type="number" min="0" step="0.01" placeholder="1">
     <div style="margin-top:16px">
       <button class="cta" id="saveBtn">Save settings</button>
       <span class="status" id="saveStatus"></span>
@@ -52,6 +50,7 @@
     <div class="row"><span class="k">Stratum URL</span><span class="v" id="stratumUrl">stratum+tcp://…:3333</span></div>
     <div class="row"><span class="k">Worker username</span><span class="v">any label (e.g. rig1)</span></div>
     <div class="row"><span class="k">Password</span><span class="v">x (anything)</span></div>
+    <p class="note">So there is <strong>no minimum payout and no payout schedule</strong> — nothing accumulates, and nothing is waiting to be sent. A block's reward is spendable after the usual 100-block coinbase maturity.</p>
     <p class="note">The worker <strong>username is only a label</strong> for the stats on this dashboard. All BCH2 block rewards go to the single <strong>payout address you set above</strong> — <em>not</em> to the worker username. Every share also merge-mines <strong>1175 (ESF)</strong> for free when a 1175 address is set.</p>
     <p class="note"><strong>Rented hashpower</strong> (Braiins and other marketplaces) uses this same URL and port — there is no separate rental port. Two things to know: the address above is a <em>local</em> one, so a marketplace can only reach it through a port forward or a tunnel; and you can pin the difficulty by putting <code>d=2000000</code> in the password field if you want to skip the automatic ramp.</p>
     <a class="cta" href="/solo">Open dashboard →</a>
@@ -60,7 +59,6 @@
   <div class="card">
     <h2>Merge-mining (1175 / ESF)</h2>
     <div class="row"><span class="k">1175 (ESF) payout address</span><span class="v" id="esfStatus">—</span></div>
-    <div class="row"><span class="k">Minimum payout</span><span class="v" id="minPayoutView">—</span></div>
     <div class="row"><span class="k">Network difficulty</span><span class="v" id="netDiff">—</span></div>
     <div class="row"><span class="k">Your hashrate</span><span class="v" id="poolHr">—</span></div>
     <p class="note">1175 (ESF) is merge-mined at no extra hashrate cost. Its reward is paid on-chain directly to the ESF address above. Set that address in <strong>Payout &amp; mining setup</strong> to turn merge-mining on.</p>
@@ -84,10 +82,6 @@
      document.getElementById('poolAddr').value=pool;
      document.getElementById('esfAddr').value=esf;
      if(d.coinbase_tag!=null) document.getElementById('cbTag').value=d.coinbase_tag;
-     if(d.min_payout!=null){
-       document.getElementById('minPayout').value=d.min_payout;
-       document.getElementById('minPayoutView').textContent=d.min_payout+' BCH2';
-     }
      // Not-configured banner (#1): shown only when no BCH2 payout address is set.
      document.getElementById('notConfiguredBanner').style.display = pool ? 'none' : 'block';
      // Merge-mining status (#9): the ESF address, or an explicit "OFF" when empty.
@@ -106,8 +100,6 @@
        payout_address_1175:document.getElementById('esfAddr').value.trim(),
        coinbase_tag:document.getElementById('cbTag').value
      };
-     var mp=parseFloat(document.getElementById('minPayout').value);
-     if(!isNaN(mp) && mp>0) body.min_payout=mp;
      fetch('/api/v1/pool/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
        .then(function(r){return r.json()}).then(function(d){
          if(d.success){

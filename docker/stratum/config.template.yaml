@@ -12,6 +12,10 @@ pool:
   block_reward: 50.0
   halving_interval: 210000
   payout_scheme: "solo"
+  # INERT in solo. A solo block is paid by its own coinbase and the settle stamps the payout
+  # row txid='coinbase-direct', while the sender only ever considers rows with a NULL/empty
+  # txid -- so no solo balance can reach the threshold this would gate, and payMiner is
+  # unreachable. Kept only so the template still renders MIN_PAYOUT.
   min_payout: ${MIN_PAYOUT}
   payout_interval: "1h"
   coinbase_tag: "${COINBASE_TAG}"
@@ -64,6 +68,8 @@ node:
 mergemining:
   enabled: true
   payout_address: "${PAYOUT_ADDRESS_1175}"
+  # Also inert: 1175 is coinbase-direct too, and min1175Payout is never read except to log
+  # itself at startup.
   min_payout: ${MIN_PAYOUT}
   aux_node:
     host: "${AUX1175_HOST}"
