@@ -1264,7 +1264,7 @@ func main() {
 	if dbErr := stats.InitDBWithRetry(dbConnStr, 30, 2*time.Second); dbErr != nil {
 		logger.Warn("Database not available, using memory only", zap.Error(dbErr))
 	} else {
-		logger.Info("✅ Connected to PostgreSQL database")
+		logger.Info("✅ Connected to database")
 		stats.LoadAllPendingPayouts()
 		// Note: startPayoutProcessor is started later after config is loaded
 	}

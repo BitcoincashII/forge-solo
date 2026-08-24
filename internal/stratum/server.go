@@ -2496,7 +2496,13 @@ func BitsToDifficulty(bitsHex string) float64 {
 	if err != nil || bits == 0 {
 		return 0
 	}
-	exp := bits >> 24
+	// int, NOT the uint the parse produces: the exponent is compared against 29, and for
+	// any target EASIER than difficulty 1 (exp > 29) unsigned arithmetic wraps 29-exp to a
+	// huge positive number and the result is +Inf. Caught by running the real thing against
+	// a regtest node, whose 207fffff target made the pool believe the network difficulty
+	// was infinite -- which silently disables block submission, because a share can never
+	// compare >= +Inf.
+	exp := int(bits >> 24)
 	mantissa := bits & 0xFFFFFF
 	if mantissa == 0 {
 		return 0

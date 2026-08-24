@@ -308,7 +308,7 @@ func main() {
 			}
 		}()
 	} else {
-		zapLogger.Info("✅ Connected to PostgreSQL database")
+		zapLogger.Info("✅ Connected to database")
 		// Load miner settings from database
 		loadMinerSettingsFromDB()
 		// Periodically reload miner settings from database (every 10 seconds)
