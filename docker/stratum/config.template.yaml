@@ -23,34 +23,40 @@ stratum:
   port: 3333
   max_connections: 256          # home use — a handful of miners
   max_shares_per_second: 100
-  extranonce1_size: 2
-  extranonce2_size: 8
+  extranonce1_size: 4          # full 32-bit session counter; 2 aliased after 65536 subscribes
+  extranonce2_size: 8          # Braiins requires >7 — do not shrink this to rebalance
   vardiff:
     enabled: true
     min_diff: 1024              # low floor so small ASICs (e.g. Bitaxe) submit steadily
     max_diff: 1000000000000
-    target_time: 10
-    retarget_time: 30
+    target_time: 5               # matches the production pool's Braiins profile
+    retarget_time: 10            # fast retarget so an individual miner finds its level quickly
     variance_percent: 25         # dead-band around target_time: vardiff only adjusts outside +/-this
 
-# Disabled — not applicable to a single-household solo miner.
-stratum_braiins:
-  enabled: false           # DEAD on Umbrel and must stay that way. It cannot be turned on from an
-                           # install: this file is baked into a digest-pinned image with no volume,
-                           # entrypoint.sh only runs envsubst (which cannot touch a literal `false`),
-                           # host is 127.0.0.1, and 3335 is not published. Rented hashpower does not
-                           # need it -- port 3333 already uses the same 2 + 8 extranonce sizing.
-  host: "127.0.0.1"
+# Second stratum: PROXIED rental hashpower (NiceHash / MiningRigRentals).
+#
+# Those marketplaces aggregate many miners behind ONE connection, so the aggregate arrives
+# as a single client and needs a high starting difficulty -- 500k is what they publish and
+# what the production pool uses. Braiins does NOT belong here: it connects each miner
+# individually, so it uses the main port on 3333 and vardiffs per miner from the 1024 floor.
+#
+# Keeping the two on separate PORTS is what removes the need to guess from a user agent.
+# Substring-matching "proxy" once stranded a home farm behind a stratum proxy at 500k;
+# a port carries its own profile and cannot misidentify anyone.
+stratum_rental:
+  enabled: true
+  host: "0.0.0.0"          # published on 3335 in docker-compose.yml
   port: 3335
-  max_connections: 1000
-  extranonce1_size: 2
-  extranonce2_size: 8
+  max_connections: 64
+  extranonce1_size: 4      # must sum with extranonce2_size to the coinbase reserve (12)
+  extranonce2_size: 8      # >7; NiceHash/MRR and Braiins all require it
   vardiff:
     enabled: true
-    min_diff: 500000       # high floor for PH/s rentals (ramps from here)
+    min_diff: 500000       # aggregate PH/s arrives on one connection; ramps from here
     max_diff: 1000000000000
     target_time: 5
     retarget_time: 10
+
 stratumv2:
   enabled: false
 

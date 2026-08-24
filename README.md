@@ -34,11 +34,22 @@ role: every block's reward is paid to your configured BCH2 address. Supplying
 
 ## Rented hashpower (Braiins and other marketplaces)
 
-Rented hashpower connects to the same port as your own hardware — `3333`. There is no
-separate rental port to enable: the stratum already uses the 8-byte extranonce2 that
-marketplaces require, and it accepts the standard `braiins…` connectivity probe.
+There are two stratum ports, and which one you use depends on how the marketplace connects:
 
-    URL:      stratum+tcp://<your-umbrel-ip>:3333
+| Port | For | Starting difficulty |
+|------|-----|--------------------|
+| **3333** | Your own hardware, **and Braiins** | 1024, vardiffs up per miner |
+| **3335** | **NiceHash / MiningRigRentals** | 500,000 |
+
+Braiins belongs on 3333 because it connects **each miner individually** rather than proxying
+them onto one connection — so every connection is one miner's hashrate and needs to find its
+own level from a low floor. NiceHash and MRR aggregate many miners behind a single
+connection, so that connection carries the whole order's hashrate and starts high.
+
+Both ports use the 8-byte extranonce2 every marketplace requires.
+
+    URL:      stratum+tcp://<your-umbrel-ip>:3333   (Braiins)
+              stratum+tcp://<your-umbrel-ip>:3335   (NiceHash / MiningRigRentals)
     Worker:   any label (e.g. rented-01), or <your-bitcoincashii-address>.<label>
     Password: d=2000000        # optional — see below
 

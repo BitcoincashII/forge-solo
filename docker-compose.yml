@@ -131,7 +131,8 @@ services:
       node1175:
         condition: service_started
     ports:
-      - "3333:3333"
+      - "3333:3333"   # your own hardware, and Braiins (which connects each miner individually)
+      - "3335:3335"   # proxied rental hashpower: NiceHash / MiningRigRentals
     environment:
       - INTERNAL_API_TOKEN=${APP_INTERNAL_API_TOKEN}
       - INTERNAL_STATS_HOST=0.0.0.0

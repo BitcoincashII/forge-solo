@@ -35,31 +35,31 @@ import (
 )
 
 var (
-	logger               *zap.Logger
-	jobManager           *mining.JobManager
-	currentJob           *mining.Job
-	currentJobMu         sync.RWMutex                   // Protects currentJob access
-	jobHistory           = make(map[string]*mining.Job) // Store jobs by ID for block submission
-	jobHistoryOrder      []string                       // Track insertion order for FIFO cleanup
-	jobHistoryMu         sync.RWMutex
-	rpcURL               string
-	walletRPCURL         string // RPC URL with wallet path for sendtoaddress
-	rpcUser              string
-	rpcPass              string
-	networkDifficulty    float64      = 1.0
-	latestCoinbaseBTC    float64      // most recent getblocktemplate coinbasevalue in BTC (guarded by networkDiffMu)
-	networkDiffMu        sync.RWMutex // Protects networkDifficulty + latestCoinbaseBTC access
-	poolAddress          string
-	poolFee              float64           = 1.0 // PPLNS fee percentage
-	soloFee              float64           = 0.5 // Solo fee percentage
-	blockReward          float64           = 50.0
-	minPayout            float64           = 5.0
-	minPayoutMu          sync.RWMutex               // guards minPayout: pool_config watcher writes vs payout processor reads
-	pplnsWindow          int               = 100000 // PPLNS window size (shares)
-	stratumServer        *stratum.Server            // Global reference for API handlers
-	stratumBraiinsServer *stratum.Server            // Second stratum for Braiins (8-byte extranonce2)
-	stratumV2Server      *stratumv2.Server          // Stratum V2 server (optional)
-	v2JobIDCounter       uint32                     // V2 job ID counter
+	logger              *zap.Logger
+	jobManager          *mining.JobManager
+	currentJob          *mining.Job
+	currentJobMu        sync.RWMutex                   // Protects currentJob access
+	jobHistory          = make(map[string]*mining.Job) // Store jobs by ID for block submission
+	jobHistoryOrder     []string                       // Track insertion order for FIFO cleanup
+	jobHistoryMu        sync.RWMutex
+	rpcURL              string
+	walletRPCURL        string // RPC URL with wallet path for sendtoaddress
+	rpcUser             string
+	rpcPass             string
+	networkDifficulty   float64      = 1.0
+	latestCoinbaseBTC   float64      // most recent getblocktemplate coinbasevalue in BTC (guarded by networkDiffMu)
+	networkDiffMu       sync.RWMutex // Protects networkDifficulty + latestCoinbaseBTC access
+	poolAddress         string
+	poolFee             float64           = 1.0 // PPLNS fee percentage
+	soloFee             float64           = 0.5 // Solo fee percentage
+	blockReward         float64           = 50.0
+	minPayout           float64           = 5.0
+	minPayoutMu         sync.RWMutex               // guards minPayout: pool_config watcher writes vs payout processor reads
+	pplnsWindow         int               = 100000 // PPLNS window size (shares)
+	stratumServer       *stratum.Server            // Global reference for API handlers
+	stratumRentalServer *stratum.Server            // Second stratum for PROXIED rental hashpower (NiceHash/MiningRigRentals)
+	stratumV2Server     *stratumv2.Server          // Stratum V2 server (optional)
+	v2JobIDCounter      uint32                     // V2 job ID counter
 
 	// miningStatus records WHY the job loop is (or is not) producing work, so the
 	// dashboard can say something truer than "ready to mine" when a miner is connected
@@ -128,8 +128,8 @@ func applySoloPayoutAddress(addr string) {
 	if stratumServer != nil {
 		stratumServer.SetSoloPayoutAddress(addr)
 	}
-	if stratumBraiinsServer != nil {
-		stratumBraiinsServer.SetSoloPayoutAddress(addr)
+	if stratumRentalServer != nil {
+		stratumRentalServer.SetSoloPayoutAddress(addr)
 	}
 }
 
@@ -1318,8 +1318,8 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 			if stratumServer != nil {
 				stratumServer.DisableMergeMining()
 			}
-			if stratumBraiinsServer != nil {
-				stratumBraiinsServer.DisableMergeMining()
+			if stratumRentalServer != nil {
+				stratumRentalServer.DisableMergeMining()
 			}
 			logger.Info("💠 1175 merge-mining DISABLED from dashboard (address cleared) — BCH2 mining continues")
 			last1175 = ""
@@ -1332,9 +1332,9 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 					stratumServer.EnableMergeMining(ac)
 					stratumServer.SetAuxBlockHandler(aux1175BlockHandler)
 				}
-				if stratumBraiinsServer != nil {
-					stratumBraiinsServer.EnableMergeMining(ac)
-					stratumBraiinsServer.SetAuxBlockHandler(aux1175BlockHandler)
+				if stratumRentalServer != nil {
+					stratumRentalServer.EnableMergeMining(ac)
+					stratumRentalServer.SetAuxBlockHandler(aux1175BlockHandler)
 				}
 				// Enable aux work on the job manager LAST — only after the stratum servers' aux
 				// fields are wired — so a produced aux job always has a server ready to submit it.
@@ -1555,9 +1555,6 @@ func main() {
 			zap.Int("required", mining.CoinbaseExtranonceReserve))
 	}
 	stratumServer = stratum.NewServer(serverConfig, logger, shareProcessor, minerSettings)
-	if jobManager.IsConfigured() {
-		applySoloPayoutAddress(effectivePoolAddr)
-	}
 
 	// Logged AFTER NewServer so it reports the RESOLVED values: NewServer fills in the
 	// defaults and clamps absolute_min_diff down to min_diff. min_diff is the floor a
@@ -1585,39 +1582,39 @@ func main() {
 	}
 
 	// Start Braiins-compatible stratum server (8-byte extranonce2)
-	if config.GetBool("stratum_braiins.enabled") {
-		braiinsConfig := &stratum.ServerConfig{
-			Host:            config.GetString("stratum_braiins.host"),
-			Port:            config.GetInt("stratum_braiins.port"),
-			MaxConnections:  config.GetInt("stratum_braiins.max_connections"),
-			VardiffEnabled:  config.GetBool("stratum_braiins.vardiff.enabled"),
-			MinDiff:         config.GetFloat64("stratum_braiins.vardiff.min_diff"),
-			MaxDiff:         config.GetFloat64("stratum_braiins.vardiff.max_diff"),
-			TargetShareTime: config.GetInt("stratum_braiins.vardiff.target_time"),
-			RetargetTime:    config.GetInt("stratum_braiins.vardiff.retarget_time"),
-			ExtraNonce1Size: config.GetInt("stratum_braiins.extranonce1_size"),
-			ExtraNonce2Size: config.GetInt("stratum_braiins.extranonce2_size"),
-			ServerName:      "braiins",
+	if config.GetBool("stratum_rental.enabled") {
+		rentalConfig := &stratum.ServerConfig{
+			Host:            config.GetString("stratum_rental.host"),
+			Port:            config.GetInt("stratum_rental.port"),
+			MaxConnections:  config.GetInt("stratum_rental.max_connections"),
+			VardiffEnabled:  config.GetBool("stratum_rental.vardiff.enabled"),
+			MinDiff:         config.GetFloat64("stratum_rental.vardiff.min_diff"),
+			MaxDiff:         config.GetFloat64("stratum_rental.vardiff.max_diff"),
+			TargetShareTime: config.GetInt("stratum_rental.vardiff.target_time"),
+			RetargetTime:    config.GetInt("stratum_rental.vardiff.retarget_time"),
+			ExtraNonce1Size: config.GetInt("stratum_rental.extranonce1_size"),
+			ExtraNonce2Size: config.GetInt("stratum_rental.extranonce2_size"),
+			ServerName:      "rental",
 			SoloOnly:        config.GetString("pool.payout_scheme") == "solo",
 		}
-		if got := braiinsConfig.ExtraNonce1Size + braiinsConfig.ExtraNonce2Size; got != mining.CoinbaseExtranonceReserve {
-			logger.Fatal("stratum_braiins extranonce1_size + extranonce2_size must equal the coinbase reserve, else assembled blocks are malformed and rejected",
-				zap.Int("extranonce1_size", braiinsConfig.ExtraNonce1Size),
-				zap.Int("extranonce2_size", braiinsConfig.ExtraNonce2Size),
+		if got := rentalConfig.ExtraNonce1Size + rentalConfig.ExtraNonce2Size; got != mining.CoinbaseExtranonceReserve {
+			logger.Fatal("stratum_rental extranonce1_size + extranonce2_size must equal the coinbase reserve, else assembled blocks are malformed and rejected",
+				zap.Int("extranonce1_size", rentalConfig.ExtraNonce1Size),
+				zap.Int("extranonce2_size", rentalConfig.ExtraNonce2Size),
 				zap.Int("sum", got),
 				zap.Int("required", mining.CoinbaseExtranonceReserve))
 		}
-		stratumBraiinsServer = stratum.NewServer(braiinsConfig, logger, shareProcessor, minerSettings)
+		stratumRentalServer = stratum.NewServer(rentalConfig, logger, shareProcessor, minerSettings)
 		if auxClient != nil {
-			stratumBraiinsServer.EnableMergeMining(auxClient)
-			stratumBraiinsServer.SetAuxBlockHandler(aux1175BlockHandler)
+			stratumRentalServer.EnableMergeMining(auxClient)
+			stratumRentalServer.SetAuxBlockHandler(aux1175BlockHandler)
 		}
-		if err := stratumBraiinsServer.Start(); err != nil {
-			logger.Error("Failed to start Braiins stratum", zap.Error(err))
+		if err := stratumRentalServer.Start(); err != nil {
+			logger.Error("Failed to start the rental stratum", zap.Error(err))
 		} else {
-			logger.Info("✅ Braiins stratum running",
-				zap.Int("port", braiinsConfig.Port),
-				zap.Int("extranonce2_size", braiinsConfig.ExtraNonce2Size))
+			logger.Info("✅ Rental stratum running (NiceHash/MiningRigRentals)",
+				zap.Int("port", rentalConfig.Port),
+				zap.Int("extranonce2_size", rentalConfig.ExtraNonce2Size))
 		}
 	}
 
@@ -1681,6 +1678,14 @@ func main() {
 
 	// Watch the dashboard-managed pool_config (DB) and apply changes live — payout address,
 	// coinbase tag, and first-time 1175 merge-mining enable — with no restart or SSH.
+	// AFTER every stratum server exists. This used to run right after the main server was
+	// constructed, which is before the rental server is created -- so on a normal boot with
+	// the address already in the database, the rental port never learned it and rejected
+	// every plain worker label while the main port accepted them.
+	if jobManager.IsConfigured() {
+		applySoloPayoutAddress(effectivePoolAddr)
+	}
+
 	go watchPoolConfig(jobManager, config)
 
 	// 1175 merge-mining payout processor (pays miners their accrued 1175).
@@ -1850,8 +1855,8 @@ func main() {
 				stratumServer.BroadcastJob(stratumJob)
 
 				// Broadcast to Braiins server if enabled
-				if stratumBraiinsServer != nil {
-					stratumBraiinsServer.BroadcastJob(stratumJob)
+				if stratumRentalServer != nil {
+					stratumRentalServer.BroadcastJob(stratumJob)
 				}
 
 				// Broadcast to V2 server if enabled
@@ -1909,8 +1914,8 @@ func main() {
 	if stratumV2Server != nil {
 		stratumV2Server.Stop()
 	}
-	if stratumBraiinsServer != nil {
-		stratumBraiinsServer.Stop()
+	if stratumRentalServer != nil {
+		stratumRentalServer.Stop()
 	}
 	stratumServer.Stop()
 }

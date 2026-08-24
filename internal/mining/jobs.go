@@ -627,7 +627,20 @@ func (jm *JobManager) CreateJob(template *BlockTemplate) *Job {
 // extranonce sizes MUST sum to this value or the scriptSig length byte will not
 // match the emitted bytes and the assembled block will be rejected. main.go
 // asserts this invariant at startup.
-const CoinbaseExtranonceReserve = 10
+//
+// 12 = extranonce1 4 + extranonce2 8, matching the production pool.
+//
+// extranonce1 is 4 rather than 2 because it must hold the full 32-bit session counter. At
+// 2 bytes the counter was masked to the field width, so after 65536 subscribes two LIVE
+// connections alias to the same extranonce1 and search the same space. The old comment
+// waved that away as harmless "for a home solo miner (a handful of connections)", which is
+// true of a household but not of rented Braiins hashpower: Braiins connects each miner
+// INDIVIDUALLY rather than proxying them onto one connection, so subscribe counts are high.
+//
+// extranonce2 stays 8. Braiins requires more than 7, so the reserve had to widen -- shrinking
+// extranonce2 to keep the reserve at 10 would have satisfied the arithmetic and broken the
+// thing this change is for.
+const CoinbaseExtranonceReserve = 12
 
 // buildCoinbase builds the split coinbase (cb1, cb2). When commitment is
 // non-empty (merge mining), the 44-byte merged-mining commitment is placed in
@@ -638,8 +651,8 @@ const CoinbaseExtranonceReserve = 10
 //
 //	height | <extranonce (reserve)> | "Forge" | [commitment] | <outputs...>
 //
-// Total scriptSig stays well under the 100-byte limit (height ~4 + reserve 10 +
-// tag 5 + commitment 44 = ~63).
+// Total scriptSig stays well under the 100-byte limit (height ~4 + reserve 12 +
+// tag 5 + commitment 44 = ~65; ~84 with the longest permitted 24-char tag).
 func (jm *JobManager) buildCoinbase(template *BlockTemplate, commitment []byte) (string, string) {
 	jm.mu.RLock()
 	pkh := jm.pubkeyHash
