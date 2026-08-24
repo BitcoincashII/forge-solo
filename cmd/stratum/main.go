@@ -1404,6 +1404,14 @@ func buildLogger(configPath string) (*zap.Logger, error) {
 	return cfg.Build()
 }
 
+// recordInvalidShare charges a rejected share to the worker that sent it, so the
+// dashboard's Reject % tile reports what the stratum actually rejected. Both
+// stratum servers share the one stats manager, so both feed the same counters.
+func recordInvalidShare(minerID, workerName, reason string) {
+	stats.GetManager().RecordInvalidShare(minerID, workerName)
+	_ = reason // reason rides along for future per-cause reporting; the log already carries it
+}
+
 func main() {
 	configPath := flag.String("config", "config.yaml", "Path to config file")
 	flag.Parse()
@@ -1570,6 +1578,7 @@ func main() {
 			zap.Int("required", mining.CoinbaseExtranonceReserve))
 	}
 	stratumServer = stratum.NewServer(serverConfig, logger, shareProcessor, minerSettings)
+	stratumServer.SetInvalidShareHandler(recordInvalidShare)
 
 	// Logged AFTER NewServer so it reports the RESOLVED values: NewServer fills in the
 	// defaults and clamps absolute_min_diff down to min_diff. min_diff is the floor a
@@ -1620,6 +1629,7 @@ func main() {
 				zap.Int("required", mining.CoinbaseExtranonceReserve))
 		}
 		stratumRentalServer = stratum.NewServer(rentalConfig, logger, shareProcessor, minerSettings)
+		stratumRentalServer.SetInvalidShareHandler(recordInvalidShare)
 		if auxClient != nil {
 			stratumRentalServer.EnableMergeMining(auxClient)
 			stratumRentalServer.SetAuxBlockHandler(aux1175BlockHandler)

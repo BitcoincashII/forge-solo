@@ -162,6 +162,31 @@ func (m *StatsManager) UpdateWorker(minerID, workerName string, valid bool, targ
 	w.Hashrate60m = m.calculateHashrate(shares, 60*time.Minute)
 }
 
+// RecordInvalidShare counts a rejected share against a worker.
+//
+// Deliberately NOT UpdateWorker(valid=false): that path also pushes the share
+// into the hashrate buffer and stamps LastShareAt, so rejects would inflate the
+// worker's reported hashrate and keep a miner that is producing nothing but
+// stales looking healthy. A reject is not work. It is counted, and nothing else.
+func (m *StatsManager) RecordInvalidShare(minerID, workerName string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	key := minerID + ":" + workerName
+	w, exists := m.workers[key]
+	if !exists {
+		w = &WorkerStats{
+			MinerID:     minerID,
+			WorkerName:  workerName,
+			ConnectedAt: time.Now(),
+			ShareBuffer: NewCircularShareBuffer(MaxSharesPerWorker),
+		}
+		m.workers[key] = w
+	}
+	w.Online = true
+	w.InvalidShares++
+}
+
 func (m *StatsManager) calculateHashrate(shares []ShareRecord, window time.Duration) float64 {
 	cutoff := time.Now().Add(-window)
 	

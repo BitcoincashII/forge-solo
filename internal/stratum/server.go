@@ -83,6 +83,15 @@ type Server struct {
 	// can distribute the reward. Args: aux height, aux child hash, coinbase value
 	// (satoshis), the finding miner, and whether that miner is solo.
 	onAuxBlock func(height int64, hash string, coinbaseValueSat int64, finder string, isSolo bool)
+
+	// onInvalidShare, if set, is invoked for every rejected share so the stats
+	// manager can count it against the worker. Without this hook a reject was
+	// recorded only in counters that nothing reads: the dashboard's "Reject %"
+	// tile is fed by stats.WorkerStats.InvalidShares, whose sole increment site
+	// sits behind an already-validated share and so can never fire. Stales and
+	// duplicates -- the two things an overclocked miner actually produces --
+	// were reported to the user as a flat 0.00%.
+	onInvalidShare func(minerID, workerName, reason string)
 }
 
 // EnableMergeMining lets this server submit solved aux-chain (1175) blocks. Any
@@ -123,6 +132,46 @@ func (s *Server) getOnAuxBlock() func(height int64, hash string, coinbaseValueSa
 	s.auxMu.RLock()
 	defer s.auxMu.RUnlock()
 	return s.onAuxBlock
+}
+
+// SetInvalidShareHandler registers a callback invoked for every rejected share.
+func (s *Server) SetInvalidShareHandler(fn func(minerID, workerName, reason string)) {
+	s.auxMu.Lock()
+	s.onInvalidShare = fn
+	s.auxMu.Unlock()
+}
+
+// noteInvalidShare records a rejected share everywhere it has to be counted: the
+// server totals, the client's own counter, and the stats manager behind the
+// dashboard's Reject % tile.
+//
+// Every rejection path must go through here. The two atomic increments used to be
+// written out by hand at each of the eight rejection sites, which is exactly how
+// the third destination came to be missing from all of them.
+func (s *Server) noteInvalidShare(client *Client, reason string) {
+	// NewServer always sets stats, but this runs on the submit path: a nil here
+	// would panic a connection goroutine and take the process with it.
+	if s.stats != nil {
+		atomic.AddInt64(&s.stats.InvalidShares, 1)
+	}
+	if client == nil {
+		return
+	}
+	atomic.AddInt64(&client.InvalidShares, 1)
+
+	s.auxMu.RLock()
+	cb := s.onInvalidShare
+	s.auxMu.RUnlock()
+	if cb == nil {
+		return
+	}
+	client.mu.RLock()
+	minerID, worker := client.MinerID, client.WorkerName
+	client.mu.RUnlock()
+	if minerID == "" {
+		return // not authorized yet; there is no worker to charge this to
+	}
+	cb(minerID, worker, reason)
 }
 
 // shareKey uniquely identifies a submitted share
@@ -1593,8 +1642,7 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 			zap.String("miner", minerID),
 			zap.Error(err),
 			zap.ByteString("params", req.Params))
-		atomic.AddInt64(&s.stats.InvalidShares, 1)
-		atomic.AddInt64(&client.InvalidShares, 1)
+		s.noteInvalidShare(client, "malformed_params")
 		return &Response{ID: req.ID, Result: false, Error: ErrLowDifficulty}
 	}
 
@@ -1602,8 +1650,7 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 		s.logger.Warn("Insufficient submit params",
 			zap.String("miner", minerID),
 			zap.Int("count", len(rawParams)))
-		atomic.AddInt64(&s.stats.InvalidShares, 1)
-		atomic.AddInt64(&client.InvalidShares, 1)
+		s.noteInvalidShare(client, "malformed_params")
 		return &Response{ID: req.ID, Result: false, Error: ErrLowDifficulty}
 	}
 
@@ -1620,8 +1667,7 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 				s.logger.Warn("Invalid numeric parameter - out of range",
 					zap.Int("param_index", i),
 					zap.Float64("value", v))
-				atomic.AddInt64(&s.stats.InvalidShares, 1)
-				atomic.AddInt64(&client.InvalidShares, 1)
+				s.noteInvalidShare(client, "param_out_of_range")
 				return &Response{ID: req.ID, Result: false, Error: ErrLowDifficulty}
 			}
 			params[i] = fmt.Sprintf("%08x", uint32(v))
@@ -1632,8 +1678,7 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 					s.logger.Warn("Invalid numeric parameter - out of range",
 						zap.Int("param_index", i),
 						zap.Int64("value", n))
-					atomic.AddInt64(&s.stats.InvalidShares, 1)
-					atomic.AddInt64(&client.InvalidShares, 1)
+					s.noteInvalidShare(client, "param_out_of_range")
 					return &Response{ID: req.ID, Result: false, Error: ErrLowDifficulty}
 				}
 				params[i] = fmt.Sprintf("%08x", uint32(n))
@@ -1667,8 +1712,7 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 		s.logger.Warn("Duplicate share rejected",
 			zap.String("miner", minerID),
 			zap.String("job", jobID))
-		atomic.AddInt64(&s.stats.InvalidShares, 1)
-		atomic.AddInt64(&client.InvalidShares, 1)
+		s.noteInvalidShare(client, "duplicate")
 		return &Response{ID: req.ID, Result: false, Error: ErrDuplicateShare}
 	}
 
@@ -1678,8 +1722,7 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 		s.logger.Warn("Job not found",
 			zap.String("miner", minerID),
 			zap.String("job", jobID))
-		atomic.AddInt64(&s.stats.InvalidShares, 1)
-		atomic.AddInt64(&client.InvalidShares, 1)
+		s.noteInvalidShare(client, "stale_job")
 		return &Response{ID: req.ID, Result: false, Error: ErrJobNotFound}
 	}
 	job := jobInterface.(*Job)
@@ -1706,8 +1749,7 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 		s.logger.Warn("Share validation error",
 			zap.String("miner", minerID),
 			zap.Error(err))
-		atomic.AddInt64(&s.stats.InvalidShares, 1)
-		atomic.AddInt64(&client.InvalidShares, 1)
+		s.noteInvalidShare(client, "invalid")
 		return &Response{ID: req.ID, Result: false, Error: ErrLowDifficulty}
 	}
 
@@ -1720,8 +1762,7 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 			zap.Float64("required", shareFloor),
 			zap.Float64("assigned", difficulty),
 			zap.Float64("actual", actualDiff))
-		atomic.AddInt64(&s.stats.InvalidShares, 1)
-		atomic.AddInt64(&client.InvalidShares, 1)
+		s.noteInvalidShare(client, "low_difficulty")
 
 		// Track rejection for vardiff adjustment
 		client.mu.Lock()
