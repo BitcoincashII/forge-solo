@@ -282,6 +282,7 @@ type WorkerStats struct {
 	Hashrate5m    float64   `json:"hashrate_5m"`
 	Hashrate60m   float64   `json:"hashrate_60m"`
 	ValidShares   int64     `json:"valid_shares"`
+	RoundShares   int64     `json:"round_shares"`
 	InvalidShares int64     `json:"invalid_shares"`
 	BestDiff      float64   `json:"best_diff"`
 	RoundBestDiff float64   `json:"round_best_diff"`
@@ -1008,6 +1009,7 @@ func getMiner(c *fiber.Ctx) error {
 
 	var totalHashrate5m, totalHashrate60m float64
 	var totalShares, totalRejected int64
+	var totalRoundShares int64 // accepted shares since the last block, distinct from all-time
 	var bestDiff float64
 	var athDiff float64
 	var totalWork float64
@@ -1019,6 +1021,7 @@ func getMiner(c *fiber.Ctx) error {
 		if addressMatches(w.MinerID, address) {
 			workerCount++
 			totalShares += w.ValidShares
+			totalRoundShares += w.RoundShares
 			totalRejected += w.InvalidShares
 			totalWork += w.TotalWork
 			if w.BestDiff > bestDiff {
@@ -1087,6 +1090,7 @@ func getMiner(c *fiber.Ctx) error {
 		"workers":         workerCount,
 		"onlineWorkers":   onlineWorkers,
 		"validShares":     totalShares,
+		"roundShares":     totalRoundShares,
 		"invalidShares":   totalRejected,
 		"bestDiff":        bestDiff,
 		"athDiff":         athDiff,

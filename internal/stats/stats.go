@@ -65,12 +65,18 @@ func (b *CircularShareBuffer) Size() int {
 }
 
 type WorkerStats struct {
-	MinerID       string               `json:"miner_id"`
-	WorkerName    string               `json:"worker_name"`
-	Online        bool                 `json:"online"`
-	Hashrate5m    float64              `json:"hashrate_5m"`
-	Hashrate60m   float64              `json:"hashrate_60m"`
-	ValidShares   int64                `json:"valid_shares"`
+	MinerID     string  `json:"miner_id"`
+	WorkerName  string  `json:"worker_name"`
+	Online      bool    `json:"online"`
+	Hashrate5m  float64 `json:"hashrate_5m"`
+	Hashrate60m float64 `json:"hashrate_60m"`
+	ValidShares int64   `json:"valid_shares"`
+	// RoundShares counts accepted shares SINCE THE LAST BLOCK. ValidShares is
+	// all-time and is never reset, so the "Round Shares" tile -- which was fed
+	// straight from it -- showed the same number as the all-time "Valid Shares"
+	// tile beside it, and sat next to a Current Effort and Best Difficulty that
+	// the round reset HAD cleared to zero.
+	RoundShares   int64                `json:"round_shares"`
 	InvalidShares int64                `json:"invalid_shares"`
 	BestDiff      float64              `json:"best_diff"`       // Best share this round (resets on block found)
 	RoundBestDiff float64              `json:"round_best_diff"` // Alias for best_diff for UI compatibility
@@ -88,15 +94,15 @@ type PoolStats struct {
 	BlocksFound   int64     `json:"blocks_found"`
 	LastBlockAt   time.Time `json:"last_block_at"`
 	LastBlockHash string    `json:"last_block_hash"`
-	RoundEffort   float64   `json:"round_effort"`   // Cumulative share difficulty this round
-	AvgLuck       float64   `json:"avg_luck"`       // Average luck over recent blocks (0-1 scale, <1 is lucky)
+	RoundEffort   float64   `json:"round_effort"` // Cumulative share difficulty this round
+	AvgLuck       float64   `json:"avg_luck"`     // Average luck over recent blocks (0-1 scale, <1 is lucky)
 }
 
 type StatsManager struct {
 	workers     map[string]*WorkerStats
 	poolStats   PoolStats
-	roundEffort float64       // Cumulative share difficulty for current round
-	luckHistory []float64     // Recent block luck values (capped at 100)
+	roundEffort float64   // Cumulative share difficulty for current round
+	luckHistory []float64 // Recent block luck values (capped at 100)
 	mu          sync.RWMutex
 }
 
@@ -142,7 +148,8 @@ func (m *StatsManager) UpdateWorker(minerID, workerName string, valid bool, targ
 
 	if valid {
 		w.ValidShares++
-		w.TotalWork += targetDiff // Accumulate work for round effort calculation
+		w.RoundShares++
+		w.TotalWork += targetDiff   // Accumulate work for round effort calculation
 		m.roundEffort += targetDiff // Track pool-wide round effort for luck calculation
 		// Use ACTUAL share difficulty for best share tracking
 		if actualDiff > w.BestDiff {
@@ -189,7 +196,7 @@ func (m *StatsManager) RecordInvalidShare(minerID, workerName string) {
 
 func (m *StatsManager) calculateHashrate(shares []ShareRecord, window time.Duration) float64 {
 	cutoff := time.Now().Add(-window)
-	
+
 	var totalWork float64
 	for _, s := range shares {
 		if s.Time.After(cutoff) {
@@ -262,6 +269,7 @@ func (m *StatsManager) ResetWorkerRoundStats(minerID string) {
 			m.workers[key].BestDiff = 0
 			m.workers[key].RoundBestDiff = 0
 			m.workers[key].TotalWork = 0 // Reset round effort tracking
+			m.workers[key].RoundShares = 0
 		}
 	}
 }
@@ -275,6 +283,7 @@ func (m *StatsManager) ResetAllWorkerRoundStats() {
 		m.workers[key].BestDiff = 0
 		m.workers[key].RoundBestDiff = 0
 		m.workers[key].TotalWork = 0
+		m.workers[key].RoundShares = 0
 	}
 }
 
@@ -429,14 +438,14 @@ func (m *StatsManager) GetPoolStats() PoolStats {
 
 // Block tracking per miner
 type MinerBlock struct {
-	Height      int64     `json:"height"`
-	Hash        string    `json:"hash"`
-	MinerID     string    `json:"miner_id"`
-	WorkerName  string    `json:"worker_name"`
-	Reward      float64   `json:"reward"`
-	Time        time.Time `json:"time"`
-	Confirmed   bool      `json:"confirmed"`
-	PayoutTxid  string    `json:"payoutTxid,omitempty"`
+	Height     int64     `json:"height"`
+	Hash       string    `json:"hash"`
+	MinerID    string    `json:"miner_id"`
+	WorkerName string    `json:"worker_name"`
+	Reward     float64   `json:"reward"`
+	Time       time.Time `json:"time"`
+	Confirmed  bool      `json:"confirmed"`
+	PayoutTxid string    `json:"payoutTxid,omitempty"`
 }
 
 var (
@@ -500,7 +509,7 @@ func GetMinerBlocks(minerID string) []MinerBlock {
 	if !exists {
 		return []MinerBlock{}
 	}
-	
+
 	// Return copy in reverse order (newest first)
 	result := make([]MinerBlock, len(blocks))
 	for i, b := range blocks {
@@ -512,14 +521,14 @@ func GetMinerBlocks(minerID string) []MinerBlock {
 // Payout tracking (COINBASE_MATURITY is in constants.go)
 
 type PendingPayout struct {
-	ID          string    `json:"id"`         // Unique identifier (UUID)
+	ID          string    `json:"id"` // Unique identifier (UUID)
 	MinerID     string    `json:"miner_id"`
 	BlockHeight int64     `json:"block_height"`
 	Amount      float64   `json:"amount"`
 	PaidAmount  float64   `json:"paid_amount"` // Track partial payments for split payouts
 	Confirmed   bool      `json:"confirmed"`
-	TxIDs       []string  `json:"txids"`       // Multiple txids for split payouts
-	TxID        string    `json:"txid"`        // Primary/last txid (backwards compat)
+	TxIDs       []string  `json:"txids"` // Multiple txids for split payouts
+	TxID        string    `json:"txid"`  // Primary/last txid (backwards compat)
 	CreatedAt   time.Time `json:"created_at"`
 	PaidAt      time.Time `json:"paid_at,omitempty"`
 }

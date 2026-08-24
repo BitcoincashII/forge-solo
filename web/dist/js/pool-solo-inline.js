@@ -205,7 +205,11 @@
                 // /api/v1/stats for the same moment.
                 document.getElementById('workers').textContent = formatNumber(data.onlineWorkers || 0);
                 document.getElementById('validShares').textContent = formatNumber(data.validShares || 0);
-                document.getElementById('roundShares').textContent = formatNumber(data.validShares || 0);
+                // roundShares, NOT validShares. validShares is all-time and is never reset --
+                // it is the same field the "Valid Shares" tile uses, so the two tiles were
+                // byte-identical always, and this one sat inside the Round Effort card next
+                // to a Current Effort and Best Difficulty that the round reset HAD cleared.
+                document.getElementById('roundShares').textContent = formatNumber(data.roundShares || 0);
                 document.getElementById('bestDiff').textContent = formatDiff(data.bestDiff || 0);
                 const rejectRate = data.invalidShares > 0 ?
                     ((data.invalidShares / (data.validShares + data.invalidShares)) * 100).toFixed(2) : '0.00';
