@@ -1253,7 +1253,7 @@ func GetMinerSoloPayoutsDB(minerID string) ([]PayoutRecord, int, float64) {
 
 	// Get payouts only for solo blocks
 	rows, err := db.Query(`
-		SELECT p.txid, p.amount, p.paid_at, 1 as blocks,
+		SELECT p.txid, p.amount, p.paid_at, 1 as blocks, COALESCE(p.status,'') as status,
 		       -- Read the ledger's own columns. Deriving this from the txid STRING treated an
 		       -- orphaned payout (status='orphaned', confirmed=false, txid='orphaned') as
 		       -- confirmed, so a voided reward stayed inside Total Paid -- contradicting the
@@ -1281,7 +1281,7 @@ func GetMinerSoloPayoutsDB(minerID string) ([]PayoutRecord, int, float64) {
 	for rows.Next() {
 		var p PayoutRecord
 		var paidAt sql.NullTime
-		if err := rows.Scan(&p.TxID, &p.Amount, &paidAt, &p.Blocks, &p.Confirmed); err != nil {
+		if err := rows.Scan(&p.TxID, &p.Amount, &paidAt, &p.Blocks, &p.Status, &p.Confirmed); err != nil {
 			log.Printf("Warning: failed to scan solo payout record: %v", err)
 			continue
 		}

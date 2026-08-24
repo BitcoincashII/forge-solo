@@ -40,6 +40,13 @@ type PayoutRecord struct {
 	PaidAt    time.Time `json:"paidAt"`
 	Blocks    int       `json:"blocks"`
 	Confirmed bool      `json:"confirmed"`
+
+	// Status is the payout ledger's own status column ('', 'orphaned', ...). The UI
+	// needs it to tell a voided reward apart from one that is still on its way:
+	// both have Confirmed=false and neither has a real txid, so without this an
+	// orphaned block rendered as "Pending <amount>" -- a payment that will never
+	// arrive, shown as one that is coming.
+	Status string `json:"status"`
 }
 
 // MinerSettings represents a miner's pool settings

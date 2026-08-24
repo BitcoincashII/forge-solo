@@ -336,10 +336,26 @@
                     // the hash check rendered every settled solo payout as "Pending" forever,
                     // directly beside a "Total Paid" that already counted it.
                     const paidByCoinbase = p.txid === 'coinbase-direct';
+                    // An orphaned block's reward is VOID -- it was never paid and never will
+                    // be. It reaches here with confirmed=false and no real txid, exactly like
+                    // a payout still on its way, so without reading the status it rendered as
+                    // "Pending <amount>": a payment that will never arrive, shown as one that
+                    // is coming. The blocks table on this same page already says "Orphaned".
+                    const orphaned = p.status === 'orphaned';
+                    const statusCell = orphaned
+                        ? '<span style="color:var(--red)" title="This block was superseded on the chain and paid nothing">Orphaned</span>'
+                        : (safeTxid
+                            ? `<a href="https://explorer.bch2.org/tx/${safeTxid}" target="_blank" rel="noopener noreferrer" class="hash-link" style="color:var(--gold)">${truncateHash(safeTxid, 8, 4)}</a>`
+                            : (paidByCoinbase
+                                ? '<span style="color:var(--bch-green)">Paid by coinbase</span>'
+                                : (typeof PT !== 'undefined' && PT.p_status_pending ? PT.p_status_pending : 'Pending')));
+                    const amountStyle = orphaned
+                        ? 'color:var(--text-secondary);text-decoration:line-through'
+                        : 'color:var(--bch-green)';
                     return `
                     <tr>
-                        <td>${safeTxid ? `<a href="https://explorer.bch2.org/tx/${safeTxid}" target="_blank" rel="noopener noreferrer" class="hash-link" style="color:var(--gold)">${truncateHash(safeTxid, 8, 4)}</a>` : (paidByCoinbase ? '<span style="color:var(--bch-green)">Paid by coinbase</span>' : (typeof PT !== 'undefined' && PT.p_status_pending ? PT.p_status_pending : 'Pending'))}</td>
-                        <td style="color:var(--bch-green)">${formatBCH2(p.amount || 0, 2)} BCH2</td>
+                        <td>${statusCell}</td>
+                        <td style="${amountStyle}">${formatBCH2(p.amount || 0, 2)} BCH2</td>
                         <td>${formatNumber(p.blocks || 0)}</td>
                         <td>${timeAgo(p.paidAt)}</td>
                     </tr>
