@@ -1,0 +1,76 @@
+name: Tests
+
+# This repository had NO test job at all: the only workflow built and pushed images, and
+# the Dockerfiles do not run tests either. Combined with two integration tests gated on
+# environment variables whose provisioning scripts were never committed, that meant the
+# checks covering aux-block acceptance and the 1175 payout ledger's fund-safety invariants
+# had never executed since the repo was created.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# Least privilege: reading the source is all any of this needs.
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: Unit tests (both build tags)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: gofmt (files this repo keeps formatted)
+        run: |
+          # Not the whole tree: several inherited files have never been gofmt-clean, and
+          # failing on those would just train people to ignore this job.
+          unformatted=$(gofmt -l cmd/api cmd/stratum internal/stratum internal/stats/db_sqlite.go internal/stats/dialect.go internal/stats/dialect_sqlite.go *.go 2>/dev/null || true)
+          if [ -n "$unformatted" ]; then echo "not gofmt-clean:"; echo "$unformatted"; exit 1; fi
+
+      - name: Vet (postgres build)
+        run: go vet ./...
+
+      - name: Vet (sqlite build)
+        run: go vet -tags sqlite ./...
+
+      - name: Test (postgres build)
+        run: go test -count=1 ./...
+
+      - name: Test (sqlite build)
+        run: go test -count=1 -tags sqlite ./...
+
+      - name: Test with race detector
+        run: go test -count=1 -race ./internal/stratum/ ./cmd/stratum/ ./cmd/api/ ./internal/mining/ ./internal/stats/
+
+      - name: Build every binary, both tags
+        run: |
+          go build ./...
+          go build -tags sqlite ./...
+
+  integration:
+    name: Integration (postgres + live 1175 node)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # Both steps run the SAME scripts a developer runs locally, so there is no second
+      # copy of the provisioning logic to drift. Each script fails if its test SKIPS, which
+      # is what stops a silently-unopened gate from reading as a pass.
+      - name: 1175 payout ledger (real postgres)
+        run: ./scripts/it-postgres.sh
+
+      - name: Merge-mining end to end (live 1175 regtest node)
+        run: ./scripts/it-1175.sh

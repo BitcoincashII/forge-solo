@@ -24,7 +24,9 @@ func abs1175(x float64) float64 {
 //   - the mark->send->finalize money path, stuck-sending surfacing, and revert
 //   - 1175 address resolution
 //
-// The runner (scratchpad) provisions the throwaway postgres DB and passes MMTEST_DB.
+// Run it with ./scripts/it-postgres.sh, which provisions a throwaway postgres in the image
+// docker-compose.yml pins, passes MMTEST_DB, and fails if this test skips. CI runs the same
+// script.
 func TestPayout1175Accounting(t *testing.T) {
 	connStr := os.Getenv("MMTEST_DB")
 	if connStr == "" {

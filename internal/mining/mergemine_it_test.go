@@ -20,8 +20,9 @@ import (
 // confirms a solved MULTI-transaction parent block is accepted via submitauxblock
 // and advances the aux chain. This is the end-to-end merge-mining proof.
 //
-// Gated on MM_REGTEST_RPC (+ _USER/_PASS/_PAYOUT), set by the runner script
-// scratchpad/mm_regtest_e2e.sh which starts the node past AuxPoW activation.
+// Gated on MM_REGTEST_RPC (+ _USER/_PASS/_PAYOUT). Run it with ./scripts/it-1175.sh, which
+// starts a 1175 regtest node past AuxPoW activation (height 200 -- getauxblock fails until
+// then) and fails if this test skips. CI runs the same script.
 func TestMergeMineMultiTxParent_Live(t *testing.T) {
 	rpcURL := os.Getenv("MM_REGTEST_RPC")
 	if rpcURL == "" {
