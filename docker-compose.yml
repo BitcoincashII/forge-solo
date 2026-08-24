@@ -16,6 +16,11 @@ services:
     image: ghcr.io/bitcoincashii/forge-solo-node:1.0.8@sha256:f78e628411f062d3d948a3540d1b0aa74e6d0109eac521a221f3727e37cb388b
     restart: unless-stopped
     stop_grace_period: 1m
+    ports:
+      # BCH2 peer-to-peer. Published so the node can ACCEPT inbound peers, not just make
+      # outbound ones. Forward 8339 in your router to actually receive them. The RPC port
+      # is deliberately NOT published -- it stays on the app's private network.
+      - "8339:8339"
     volumes:
       - ${APP_DATA_DIR}/node:/data/.bch2
     environment:
@@ -24,6 +29,7 @@ services:
     command:
       - -datadir=/data/.bch2
       - -printtoconsole
+      - -listen=1                 # accept inbound peers (forward 8339 in your router)
       - -prune=2000
       - -server=1
       - -rpcbind=0.0.0.0
@@ -43,6 +49,9 @@ services:
     image: ghcr.io/bitcoincashii/forge-solo-node1175:1.0.8@sha256:c974f4bd67429eae9f887c2c03c3bff37126e4178b3f26e244cc0b9c03a7b843
     restart: unless-stopped
     stop_grace_period: 1m
+    ports:
+      # 1175 (ESF) peer-to-peer, same reasoning as the BCH2 node above.
+      - "25360:25360"
     volumes:
       - ${APP_DATA_DIR}/node1175:/data/.elevenseventyfive
     environment:
@@ -51,6 +60,7 @@ services:
     command:
       - -datadir=/data/.elevenseventyfive
       - -printtoconsole
+      - -listen=1                 # accept inbound peers (forward 25360 in your router)
       - -server=1
       - -rpcbind=0.0.0.0
       - -rpcallowip=0.0.0.0/0

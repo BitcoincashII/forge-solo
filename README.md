@@ -32,6 +32,32 @@ The worker username is **just a label** — `rig1`, `bitaxe`, anything. It has n
 role: every block's reward is paid to your configured BCH2 address. Supplying
 `<your-address>.<label>` also works.
 
+## Open these ports in your router
+
+Umbrel sits on your home network, so nothing outside can reach it until you forward the
+ports. Forward each of these to your Umbrel's LAN address:
+
+| Port | Protocol | What it is | Needed for |
+|------|----------|-----------|-----------|
+| **8339** | TCP | BCH2 peer-to-peer | Accepting inbound peers. Optional, but it helps the network and improves your node's connectivity. |
+| **25360** | TCP | 1175 (ESF) peer-to-peer | Same, for the merge-mined chain. |
+| **3333** | TCP | Stratum — your miners and **Braiins** | Only if hashpower reaches you from outside your LAN. Miners on your own network do not need it. |
+| **3335** | TCP | Stratum — **NiceHash / MiningRigRentals** | Same, and it is required for those marketplaces, which always connect from outside. |
+
+Both nodes are configured to listen for inbound peers (`-listen=1`) and their P2P ports are
+published, so forwarding is the only step left on your side.
+
+**Rented hashpower will not reach you without forwarding a mining port.** A marketplace
+connects from the internet, so `192.168.x.x` is not an address it can use. Forward 3333
+(Braiins) or 3335 (NiceHash/MRR), and give the marketplace your public IP or a hostname
+that resolves to it.
+
+Two things worth knowing. The node **RPC ports are deliberately not published** — they stay
+on the app's private network and must never be forwarded; anyone reaching them could control
+the node. And a stratum port open to the internet accepts connections from anyone; in solo
+that only means a stranger could mine *to your address*, which costs you nothing, but keep
+it closed if you have no reason to open it.
+
 ## Rented hashpower (Braiins and other marketplaces)
 
 There are two stratum ports, and which one you use depends on how the marketplace connects:
