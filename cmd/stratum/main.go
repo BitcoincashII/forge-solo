@@ -361,6 +361,21 @@ func setLatestCoinbaseBTC(v float64) {
 	latestCoinbaseBTC = v
 }
 
+// blockCoinbaseBTC picks the coinbase value to record against a solved block.
+//
+// A job carries the exact satoshi value baked into the coinbase the miner hashed
+// -- subsidy plus the fees of the transactions in THAT job. The process-global
+// fallback is refreshed on every template poll, so it describes the most recent
+// template rather than the block just solved: any template refresh landing
+// between a job going out and its share coming back records the wrong fee total.
+// Prefer the job's own value; fall back only for jobs that carry none.
+func blockCoinbaseBTC(jobCoinbaseValue int64, latestGlobalBTC float64) float64 {
+	if jobCoinbaseValue > 0 {
+		return float64(jobCoinbaseValue) / 1e8
+	}
+	return latestGlobalBTC
+}
+
 func getLatestCoinbaseBTC() float64 {
 	networkDiffMu.RLock()
 	defer networkDiffMu.RUnlock()
@@ -2132,12 +2147,25 @@ func (p *BlockFindingShareProcessor) submitBlock(share *stratum.Share) {
 		// was recorded, reported and webhooked as exactly 50.0 and under-stated its own
 		// reward by its fees. Invisible on an empty regtest chain, where every block is
 		// subsidy-only.
+		cbv := blockCoinbaseBTC(job.CoinbaseValue, getLatestCoinbaseBTC())
 		effectiveReward := blockReward
-		if cbv := getLatestCoinbaseBTC(); cbv > 0 && cbv != effectiveReward {
-			p.logger.Error("block_reward config exceeds live coinbase value; capping payout (update pool.block_reward after a halving)",
-				zap.Float64("configured_reward", blockReward),
-				zap.Float64("coinbase_value", cbv),
-				zap.Int64("height", job.Height))
+		if cbv > 0 && cbv != effectiveReward {
+			// Only a configured reward ABOVE the coinbase is an operator error worth
+			// shouting about (a stale block_reward after a halving). Below it is the
+			// ordinary mainnet case -- the coinbase carries the block's fees on top of
+			// the subsidy -- and logging that at Error made every healthy block look
+			// like a fault.
+			if blockReward > cbv {
+				p.logger.Error("block_reward config exceeds this block's coinbase value; capping payout (update pool.block_reward after a halving)",
+					zap.Float64("configured_reward", blockReward),
+					zap.Float64("coinbase_value", cbv),
+					zap.Int64("height", job.Height))
+			} else {
+				p.logger.Info("recording block reward from its own coinbase (subsidy plus fees)",
+					zap.Float64("configured_reward", blockReward),
+					zap.Float64("coinbase_value", cbv),
+					zap.Int64("height", job.Height))
+			}
 			effectiveReward = cbv
 		}
 

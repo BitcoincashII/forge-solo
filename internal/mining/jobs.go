@@ -618,6 +618,7 @@ func (jm *JobManager) CreateJob(template *BlockTemplate) *Job {
 		OriginalPrevHash: originalPrevHash,
 		Transactions:     txData,
 		AuxWork:          auxWork,
+		CoinbaseValue:    template.CoinbaseValue,
 	}
 }
 
@@ -760,6 +761,14 @@ type Job struct {
 	Target           string
 	Transactions     []string             // Raw transaction hex data for block building
 	AuxWork          *mergemining.AuxWork // aux-chain work this job commits to (nil = no merge mining)
+
+	// CoinbaseValue is the satoshi value this job's own coinbase pays -- subsidy
+	// PLUS the fees of the transactions in THIS job. It is baked into CoinBase2 at
+	// construction, so it is the only figure that describes the block a miner
+	// actually solves from this job. Recording a block's reward from anywhere else
+	// (e.g. the most recent template) mis-states it whenever a template refresh
+	// lands between the job going out and the block coming back.
+	CoinbaseValue int64
 }
 
 // doubleSHA256 computes double SHA256 hash
