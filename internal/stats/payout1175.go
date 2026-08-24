@@ -21,48 +21,6 @@ import (
 //     'sending' row is surfaced for reconciliation, never silently frozen or blindly reverted.
 //
 // payouts_1175.status: pending | sending | paid | orphaned
-// blocks_1175.status:  pending | confirmed | orphaned   (+ distributed bool)
-
-func Init1175Schema() {
-	if db == nil {
-		return
-	}
-	stmts := []string{
-		`CREATE TABLE IF NOT EXISTS blocks_1175 (
-			height        BIGINT PRIMARY KEY,
-			hash          TEXT NOT NULL,
-			gross_reward  DOUBLE PRECISION NOT NULL,
-			is_solo       BOOLEAN DEFAULT false,
-			finder        TEXT,
-			distributed   BOOLEAN DEFAULT false,
-			status        TEXT DEFAULT 'pending',
-			created_at    TIMESTAMPTZ DEFAULT NOW()
-		)`,
-		`CREATE TABLE IF NOT EXISTS payouts_1175 (
-			id           BIGSERIAL PRIMARY KEY,
-			miner_address TEXT NOT NULL,
-			block_height BIGINT NOT NULL,
-			amount       DOUBLE PRECISION NOT NULL,
-			txid         TEXT,
-			status       TEXT DEFAULT 'pending',
-			batch        TEXT,
-			paid_at      TIMESTAMPTZ,
-			created_at   TIMESTAMPTZ DEFAULT NOW(),
-			UNIQUE(miner_address, block_height)
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_payouts_1175_pending ON payouts_1175 (miner_address) WHERE status = 'pending'`,
-		// additive migrations for pre-existing tables
-		`ALTER TABLE blocks_1175 ADD COLUMN IF NOT EXISTS is_solo BOOLEAN DEFAULT false`,
-		`ALTER TABLE blocks_1175 ADD COLUMN IF NOT EXISTS finder TEXT`,
-		`ALTER TABLE blocks_1175 ADD COLUMN IF NOT EXISTS distributed BOOLEAN DEFAULT false`,
-		`ALTER TABLE payouts_1175 ADD COLUMN IF NOT EXISTS batch TEXT`,
-	}
-	for _, s := range stmts {
-		if _, err := db.Exec(s); err != nil {
-			log.Printf("Warning: 1175 payout schema: %v", err)
-		}
-	}
-}
 
 // Record1175Block durably records a found aux block (idempotent). Must be committed
 // BEFORE distribution so a distribution failure is retryable and never loses the block.
@@ -74,7 +32,7 @@ func Record1175Block(height int64, hash string, grossReward float64, finder stri
 	}
 	_, err := db.Exec(`
 		INSERT INTO blocks_1175 (height, hash, gross_reward, finder, is_solo, distributed, status, created_at)
-		VALUES ($1, $2, $3, $4, $5, false, 'pending', NOW())
+		VALUES ($1, $2, $3, $4, $5, false, 'pending', CURRENT_TIMESTAMP)
 		ON CONFLICT (height) DO NOTHING`,
 		height, hash, grossReward, finder, isSolo)
 	return err
@@ -148,7 +106,7 @@ func Distribute1175Block(height int64, windowSize int, poolFeePct, soloFeePct fl
 		}
 		_, e := tx.ExecContext(ctx, `
 			INSERT INTO payouts_1175 (miner_address, block_height, amount, status, created_at)
-			VALUES ($1,$2,$3,'pending',NOW())
+			VALUES ($1,$2,$3,'pending',CURRENT_TIMESTAMP)
 			ON CONFLICT (miner_address, block_height) DO UPDATE
 			SET amount = EXCLUDED.amount, status='pending', txid=NULL, batch=NULL, paid_at=NULL
 			WHERE payouts_1175.status='pending'`, miner, height, amount)
@@ -215,7 +173,7 @@ func Get1175BlocksForMiner(minerID string, isSolo bool, limit int) ([]Miner1175B
 	defer cancel()
 	rows, err := db.QueryContext(ctx, `
 		SELECT b.height, b.hash, p.amount, b.gross_reward,
-		       EXTRACT(EPOCH FROM b.created_at)::bigint, b.status
+		       `+epochSecondsExpr("b.created_at")+`, b.status
 		FROM payouts_1175 p
 		JOIN blocks_1175 b ON p.block_height = b.height
 		WHERE p.miner_address = $1 AND b.is_solo = $2
@@ -312,7 +270,7 @@ func Settle1175ByCoinbase(miner string) (int64, error) {
 		return 0, ErrDatabaseNotInitialized
 	}
 	res, err := db.Exec(`
-		UPDATE payouts_1175 SET status='paid', txid='coinbase-direct', paid_at=NOW()
+		UPDATE payouts_1175 SET status='paid', txid='coinbase-direct', paid_at=CURRENT_TIMESTAMP
 		WHERE miner_address=$1 AND status='pending'
 		  AND block_height IN (SELECT height FROM blocks_1175 WHERE status='confirmed')`, miner)
 	if err != nil {
@@ -460,7 +418,8 @@ func StuckSending1175(graceSeconds int) ([]string, error) {
 	if db == nil {
 		return nil, ErrDatabaseNotInitialized
 	}
-	rows, err := db.Query(`SELECT DISTINCT batch FROM payouts_1175 WHERE status='sending' AND paid_at < NOW() - ($1 || ' seconds')::interval`, graceSeconds)
+	rows, err := db.Query(`SELECT DISTINCT batch FROM payouts_1175 WHERE status='sending' AND `+
+		olderThanSecondsExpr("paid_at", "$1"), graceSeconds)
 	if err != nil {
 		return nil, err
 	}

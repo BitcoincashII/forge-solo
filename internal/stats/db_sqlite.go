@@ -84,6 +84,10 @@ func InitDB(connStr string) error {
 		return fmt.Errorf("failed to create tables: %w", err)
 	}
 
+	// 1175 merge-mining ledger tables. Mirrors the postgres backend; without it a found
+	// aux block cannot be recorded (see Init1175Schema in dialect_sqlite.go).
+	Init1175Schema()
+
 	log.Printf("✅ Connected to SQLite database: %s", dbPath)
 	return nil
 }
