@@ -446,6 +446,22 @@ const aux1175Maturity = 100
 // submit goroutine) only when submitauxblock is accepted.
 func aux1175BlockHandler(height int64, hash string, coinbaseValueSat int64, finder string, isSolo bool) {
 	gross := float64(coinbaseValueSat) / 1e8
+
+	// Two candidates for one aux height is not a reorg -- it is the ordinary case of this
+	// pool solving two siblings on the same parent, which happened in testing. The ledger's
+	// supersede replaces whatever is recorded with whatever arrived LAST, so without this
+	// the loser overwrites the winner and the block actually on the chain vanishes from the
+	// ledger entirely. The chain decides, not arrival order.
+	if existing, ok := stats.Get1175BlockHashAtHeight(height); ok && existing != hash {
+		if _, onChain := aux1175BlockConfirmations(existing); onChain {
+			logger.Info("💠 1175 sibling at an already-recorded height; the recorded block is the one on the aux chain — keeping it",
+				zap.Int64("height", height),
+				zap.String("recorded", existing),
+				zap.String("this_sibling", hash))
+			return
+		}
+	}
+
 	if err := stats.Record1175Block(height, hash, gross, finder, isSolo); err != nil {
 		logger.Error("1175 record block FAILED (block may be lost — verify)", zap.Int64("height", height), zap.String("hash", hash), zap.Error(err))
 		return

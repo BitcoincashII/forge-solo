@@ -1586,3 +1586,21 @@ func SoloEarnings(minerID string, currentHeight int64) (mature, immature float64
 	}
 	return mature, immature
 }
+
+const GET_1175_HASH_QUERY = `SELECT COALESCE(hash, '') FROM blocks_1175 WHERE height = ?`
+
+// Get1175BlockHashAtHeight returns the aux block hash currently recorded at a height.
+// Used to detect two candidates for the same height before deciding which one counts --
+// a decision that belongs to the chain, not to whichever arrived second.
+func Get1175BlockHashAtHeight(height int64) (string, bool) {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return "", false
+	}
+	var hash string
+	if err := db.QueryRow(GET_1175_HASH_QUERY, height).Scan(&hash); err != nil {
+		return "", false
+	}
+	return hash, hash != ""
+}

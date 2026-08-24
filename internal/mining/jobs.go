@@ -71,9 +71,16 @@ type JobManager struct {
 	auxRefreshActive bool
 }
 
-// auxRefreshInterval is how often the aux node is polled in the background. Aux work only
-// changes when the aux chain advances, so this is comfortably faster than it matters.
-const auxRefreshInterval = 2 * time.Second
+// auxRefreshInterval is how often the aux node is polled in the background.
+//
+// NOT as fast as possible, deliberately. Every getauxblock call mints a NEW work item and
+// the 1175 node retains only the last MAX_AUXPOW_WORK_ITEMS = 32 of them, evicting FIFO
+// (see 1175 src/rpc/mining.cpp). submitauxblock is given only the hash, so once a work
+// item is evicted the block that solved it can no longer be submitted at all. Polling
+// every 2s recycled all 32 slots in ~64s; the previous build fetched only at job-build
+// time, i.e. every ~15s, for ~480s of retention. Matching that cadence keeps the
+// submission window where it was while still moving the network call off the job path.
+const auxRefreshInterval = 15 * time.Second
 
 // auxWorkMaxAge is how stale cached aux work may be before it is ignored. Committing to
 // aux work whose parent has moved on does not cost a BCH2 block -- the commitment is just
