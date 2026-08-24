@@ -62,7 +62,24 @@ type JobManager struct {
 	auxLastErr   string
 	auxLastErrAt time.Time
 	auxLastOKAt  time.Time
+
+	// Cached aux work, refreshed by a background poller. See auxRefreshLoop: fetching it
+	// on the job-build path made a HANGING 1175 node delay every BCH2 job.
+	auxWork          *mergemining.AuxWork
+	auxCommitment    []byte
+	auxWorkAt        time.Time
+	auxRefreshActive bool
 }
+
+// auxRefreshInterval is how often the aux node is polled in the background. Aux work only
+// changes when the aux chain advances, so this is comfortably faster than it matters.
+const auxRefreshInterval = 2 * time.Second
+
+// auxWorkMaxAge is how stale cached aux work may be before it is ignored. Committing to
+// aux work whose parent has moved on does not cost a BCH2 block -- the commitment is just
+// extra coinbase bytes -- but the aux submission would be rejected, so there is nothing to
+// gain by using it.
+const auxWorkMaxAge = 20 * time.Second
 
 // AuxHealth is a snapshot of whether merge mining is actually producing work.
 type AuxHealth struct {
@@ -94,7 +111,12 @@ func (jm *JobManager) DisableMergeMining() {
 	jm.auxClient = nil
 	jm.auxPayout = ""
 	jm.auxLastErr = ""
-	jm.mu.Unlock()
+	// Drop the cached work too, or a disabled aux chain would keep being committed to for
+	// up to auxWorkMaxAge after the operator turned it off.
+	jm.auxWork = nil
+	jm.auxCommitment = nil
+	jm.auxWorkAt = time.Time{}
+	jm.mu.Unlock() // auxRefreshLoop sees auxEnabled false on its next tick and exits
 }
 
 // EnableMergeMining turns on aux-chain merge mining. Each CreateJob then fetches
@@ -107,46 +129,94 @@ func (jm *JobManager) EnableMergeMining(nodeURL, user, pass, payoutAddr string) 
 	jm.auxClient = c
 	jm.auxPayout = payoutAddr
 	jm.auxEnabled = true
+	// The cached work belongs to the previous address; drop it so a re-point cannot commit
+	// to work that pays somewhere the operator just changed away from.
+	jm.auxWork = nil
+	jm.auxCommitment = nil
+	jm.auxWorkAt = time.Time{}
+	start := !jm.auxRefreshActive
+	jm.auxRefreshActive = true
 	jm.mu.Unlock()
+	// Prime the cache once, inline. This is the enable path (startup, or the dashboard
+	// watcher's 8s loop), never the job-build path, so a slow aux node costs at most the
+	// client's 3s timeout here and cannot delay a BCH2 job.
+	jm.refreshAuxOnce(c, payoutAddr)
+	if start {
+		go jm.auxRefreshLoop()
+	}
 	fmt.Printf("Merge mining ENABLED: aux node %s, payout %s\n", nodeURL, payoutAddr)
 }
 
 // fetchAuxWork returns current aux work + its coinbase commitment, or (nil,nil)
 // if merge mining is off or the aux node has no work (e.g. not yet activated).
 // Never returns an error to the caller: BCH2 mining must proceed regardless.
+// fetchAuxWork returns the most recent cached aux work and its coinbase commitment.
+//
+// NEVER blocks. It used to call the aux node synchronously from CreateJob, so a 1175 node
+// that HUNG rather than refused -- mid-restart, reindex, disk stall, all routine on an
+// Umbrel -- delayed every BCH2 job build by up to the client's 15s HTTP timeout, including
+// the job that follows a new block. That is orphan exposure on the main chain, caused by
+// the optional side chain. Now a background poller owns the network call and this is a
+// memory read; if the poller is stuck or the work is stale, BCH2 simply builds a job with
+// no aux commitment, exactly as it does when merge mining is off.
 func (jm *JobManager) fetchAuxWork() (*mergemining.AuxWork, []byte) {
 	jm.mu.RLock()
-	enabled := jm.auxEnabled
-	client := jm.auxClient
-	payout := jm.auxPayout
-	jm.mu.RUnlock()
-	if !enabled || client == nil {
+	defer jm.mu.RUnlock()
+	if !jm.auxEnabled || jm.auxWork == nil || jm.auxCommitment == nil {
 		return nil, nil
 	}
+	if time.Since(jm.auxWorkAt) > auxWorkMaxAge {
+		return nil, nil
+	}
+	return jm.auxWork, jm.auxCommitment
+}
+
+// auxRefreshLoop polls the aux node off the job-build path until merge mining is disabled.
+func (jm *JobManager) auxRefreshLoop() {
+	for {
+		jm.mu.RLock()
+		enabled := jm.auxEnabled
+		client := jm.auxClient
+		payout := jm.auxPayout
+		jm.mu.RUnlock()
+
+		if !enabled || client == nil {
+			jm.mu.Lock()
+			jm.auxRefreshActive = false
+			jm.mu.Unlock()
+			return
+		}
+
+		jm.refreshAuxOnce(client, payout)
+		time.Sleep(auxRefreshInterval)
+	}
+}
+
+// refreshAuxOnce performs one aux fetch and updates the cache and the health record.
+// Called by the background loop, and once inline by EnableMergeMining so that aux work is
+// available to the very next job rather than only after the first tick.
+func (jm *JobManager) refreshAuxOnce(client *mergemining.Client, payout string) {
 	w, err := client.GetAuxBlock(payout)
 	if err != nil {
-		// Recorded, not printed. The caller owns the logging so it happens at a real level
-		// through the real logger, throttled, and repeated while the fault persists rather
-		// than once per distinct error string.
 		jm.mu.Lock()
 		jm.auxLastErr = err.Error()
 		jm.auxLastErrAt = time.Now()
 		jm.mu.Unlock()
-		return nil, nil
+		return
 	}
-	jm.mu.Lock()
-	jm.auxLastErr = ""
-	jm.auxLastOKAt = time.Now()
-	jm.mu.Unlock()
 	commitment, cerr := mergemining.BuildCommitment(w.Hash)
+	jm.mu.Lock()
 	if cerr != nil {
-		jm.mu.Lock()
 		jm.auxLastErr = fmt.Sprintf("bad aux child hash %q: %v", w.Hash, cerr)
 		jm.auxLastErrAt = time.Now()
-		jm.mu.Unlock()
-		return nil, nil
+	} else {
+		jm.auxWork = w
+		jm.auxCommitment = commitment
+		jm.auxWorkAt = time.Now()
+		jm.auxLastErr = ""
+		jm.auxLastOKAt = time.Now()
 	}
-	return w, commitment
+	jm.mu.Unlock()
 }
 
 func NewJobManager(rpcURL, rpcUser, rpcPassword, poolAddress, coinbaseTag string) *JobManager {

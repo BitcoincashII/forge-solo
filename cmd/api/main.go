@@ -551,9 +551,6 @@ pool_uptime_seconds %.0f
 	app.Get("/settings", func(c *fiber.Ctx) error {
 		return c.SendFile(webRoot + "/settings.html")
 	})
-	app.Get("/blocks", func(c *fiber.Ctx) error {
-		return c.SendFile(webRoot + "/blocks.html")
-	})
 	app.Get("/solo", func(c *fiber.Ctx) error {
 		return c.SendFile(webRoot + "/solo.html")
 	})
@@ -1058,6 +1055,17 @@ func getMiner(c *fiber.Ctx) error {
 		json.NewDecoder(resp.Body).Decode(&balanceData)
 		matureBalance = balanceData.MatureBalance
 		immatureBalance = balanceData.ImmatureBalance
+	}
+
+	// In solo those two are structurally always zero: the stratum's balance endpoint feeds
+	// off payout rows with a NULL/empty txid, and a solo payout is settled
+	// txid='coinbase-direct' the instant it is recorded. Report what is actually true
+	// instead -- how much of what this miner MINED has matured -- so the card stops saying
+	// "0.00 waiting 100 confirms" with a hundred BCH2 genuinely maturing.
+	if os.Getenv("HOME_APP") == "1" && matureBalance == 0 && immatureBalance == 0 {
+		if m, im := stats.SoloEarnings(normalizedAddr, currentHeight); m > 0 || im > 0 {
+			matureBalance, immatureBalance = m, im
+		}
 	}
 
 	return c.JSON(fiber.Map{

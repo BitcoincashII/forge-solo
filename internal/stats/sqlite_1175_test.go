@@ -121,3 +121,70 @@ func Test1175SchemaIsIdempotentOnSQLite(t *testing.T) {
 		t.Errorf("after reopen got %d unconfirmed blocks, want the 1 recorded before", len(heights))
 	}
 }
+
+// Winning the same aux height twice is the ordinary outcome of a small reorg on the aux
+// chain. With ON CONFLICT DO NOTHING alone, the orphaned first block's row stayed forever:
+// permanently 'pending', its credits never voided, and the real block never recorded at all.
+// BCH2's recordBlockRow has always superseded; the 1175 ledger did not.
+func Test1175BlockSupersedesAReorgedOutHeight(t *testing.T) {
+	if err := InitDB(filepath.Join(t.TempDir(), "reorg.db")); err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+	defer CloseDB()
+
+	const (
+		height  = 4242
+		orphan  = "1111111111111111111111111111111111111111111111111111111111111111"
+		winner  = "2222222222222222222222222222222222222222222222222222222222222222"
+		miner   = "bitcoincashii:qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzse6qye33q"
+		rewardA = 25.0
+		rewardB = 26.5
+	)
+
+	if err := Record1175Block(height, orphan, rewardA, miner, true); err != nil {
+		t.Fatalf("record orphan: %v", err)
+	}
+	if err := Distribute1175Block(height, 100000, 0, 0); err != nil {
+		t.Fatalf("distribute orphan: %v", err)
+	}
+
+	// The chain reorgs and we win the same height with a different block.
+	if err := Record1175Block(height, winner, rewardB, miner, true); err != nil {
+		t.Fatalf("record winner: %v", err)
+	}
+
+	var gotHash, gotStatus string
+	var gotReward float64
+	var distributed bool
+	if err := db.QueryRow(`SELECT hash, status, gross_reward, distributed FROM blocks_1175 WHERE height=?`, height).
+		Scan(&gotHash, &gotStatus, &gotReward, &distributed); err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if gotHash != winner {
+		t.Errorf("hash = %s, want the block that actually won (%s); the orphan is still recorded", gotHash, winner)
+	}
+	if gotReward != rewardB {
+		t.Errorf("gross_reward = %v, want %v", gotReward, rewardB)
+	}
+	if gotStatus != "pending" || distributed {
+		t.Errorf("status=%q distributed=%v, want a fresh pending/undistributed row", gotStatus, distributed)
+	}
+
+	// The orphaned block's unpaid credits must be voided, not left payable.
+	var pending int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM payouts_1175 WHERE block_height=? AND status='pending'`, height).Scan(&pending); err != nil {
+		t.Fatalf("count pending: %v", err)
+	}
+	if pending != 0 {
+		t.Errorf("%d payout row(s) at the reorged height are still pending; the orphaned block's credits were never voided", pending)
+	}
+
+	// Exactly one row per height, still.
+	var rows int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM blocks_1175 WHERE height=?`, height).Scan(&rows); err != nil {
+		t.Fatalf("count blocks: %v", err)
+	}
+	if rows != 1 {
+		t.Errorf("blocks_1175 has %d rows at height %d, want 1", rows, height)
+	}
+}

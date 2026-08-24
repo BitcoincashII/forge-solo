@@ -83,3 +83,45 @@ func TestSoloPayoutIsSettledAsCoinbaseDirect(t *testing.T) {
 		t.Error("confirmed = false; the coinbase already paid this on-chain")
 	}
 }
+
+// The balance card was fed from the pool-style ready-to-pay query, which cannot return a
+// solo payout (see above), so it showed 0.00 matured and 0.00 maturing while blocks were
+// genuinely maturing -- and asserted "waiting 100 confirms" underneath. SoloEarnings reads
+// the blocks the miner actually found, which is the only thing that means anything when the
+// coinbase has already paid them.
+func TestSoloEarningsSplitsByMaturity(t *testing.T) {
+	if err := InitDB(filepath.Join(t.TempDir(), "earn.db")); err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+	defer CloseDB()
+
+	const miner = "bitcoincashii:qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzse6qye33q"
+	const tip = 1000
+	// Two matured, one still maturing, one orphaned (paid nothing).
+	for _, b := range []struct {
+		height int64
+		reward float64
+		status string
+	}{
+		{100, 50, "confirmed"},
+		{200, 50, "confirmed"},
+		{tip - 10, 50, "pending"},
+		{300, 50, "orphaned"},
+	} {
+		if _, err := db.Exec(`INSERT INTO blocks (height, hash, miner_address, reward, is_solo, status)
+			VALUES (?, ?, ?, ?, 1, ?)`, b.height, "h", miner, b.reward, b.status); err != nil {
+			t.Fatalf("seed %d: %v", b.height, err)
+		}
+	}
+
+	mature, immature := SoloEarnings(miner, tip)
+	if mature != 100 {
+		t.Errorf("matured = %v, want 100 (two blocks past coinbase maturity, orphan excluded)", mature)
+	}
+	if immature != 50 {
+		t.Errorf("still maturing = %v, want 50", immature)
+	}
+	if mature == 0 && immature == 0 {
+		t.Error("both zero — this is the bug the card had: nothing owed is not the same as nothing mined")
+	}
+}

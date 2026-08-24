@@ -326,7 +326,7 @@ func SavePoolConfig(poolAddr, payout1175, tag string, minPayout float64) error {
 // so there is NO secondary sendtoaddress (that path targets a nonexistent wallet, would
 // fail forever, and risks a double-pay). The payout row is therefore inserted already
 // settled (txid='coinbase-direct', status='paid'), which the BCH2 payout processor —
-// selecting only rows WHERE txid IS NULL OR txid='' — never touches. Mirrors
+// selecting only rows WHERE txid IS NULL OR txid=” — never touches. Mirrors
 // Settle1175ByCoinbase; reorg-aware via recordBlockRow.
 func SaveSoloBlockCoinbaseDirect(minerID string, blockHeight int64, amount float64, blockHash string) error {
 	dbMu.RLock()
@@ -1660,4 +1660,51 @@ func SetSettingsPinHash(address, hash string) error {
 		ON CONFLICT (address) DO UPDATE SET settings_pin_hash = EXCLUDED.settings_pin_hash, updated_at = NOW()`,
 		address, hash)
 	return err
+}
+
+// SOLO_EARNINGS_QUERY groups a solo miner's own blocks by whether they have matured.
+// Orphaned blocks are excluded: they paid nothing.
+const SOLO_EARNINGS_QUERY = `
+	SELECT height <= $2 AS matured, COALESCE(SUM(reward), 0)
+	FROM blocks
+	WHERE miner_address = $1 AND is_solo = true AND status <> 'orphaned'
+	GROUP BY height <= $2`
+
+// SoloEarnings splits what a solo miner has actually mined into the part that is spendable
+// and the part still maturing.
+//
+// The balance card used to be fed from the pool-style ready-to-pay query, which selects only
+// payout rows with a NULL/empty txid. A solo payout is settled txid='coinbase-direct' the
+// moment it is recorded, so that query can never return one and BOTH numbers were
+// structurally always 0.00 -- while the card asserted, underneath, that 0.00 BCH2 was
+// "waiting 100 confirms" with a hundred genuinely maturing.
+//
+// This reads the blocks the miner actually found instead, which is the only thing that means
+// anything in solo: the coinbase already paid them, so the question is not what is owed but
+// what has matured.
+func SoloEarnings(minerID string, currentHeight int64) (mature, immature float64) {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return 0, 0
+	}
+	matureBelow := currentHeight - COINBASE_MATURITY
+	rows, err := db.Query(SOLO_EARNINGS_QUERY, minerID, matureBelow)
+	if err != nil {
+		return 0, 0
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var isMature bool
+		var total float64
+		if err := rows.Scan(&isMature, &total); err != nil {
+			continue
+		}
+		if isMature {
+			mature = total
+		} else {
+			immature = total
+		}
+	}
+	return mature, immature
 }

@@ -1167,6 +1167,10 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 	ticker := time.NewTicker(8 * time.Second)
 	defer ticker.Stop()
 	var lastPool, lastTag, last1175 string
+	// lastDB1175 tracks what the DATABASE last said, as opposed to last1175 which tracks
+	// what actually took effect. Only a transition from a non-empty DB value to an empty
+	// one is a user clearing the field.
+	var lastDB1175 string
 	// Seed with the values that were actually APPLIED at startup, so we only act on real
 	// changes -- and so anything that failed to apply is retried on the first tick.
 	//
@@ -1193,6 +1197,11 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 	// 1175 address that failed to take effect is never retried while Settings reports it on.
 	if merge1175Enabled {
 		last1175 = aux1175Payout()
+	}
+	if stats.IsDBConnected() {
+		if _, p1175, _, _, err := stats.GetPoolConfig(); err == nil {
+			lastDB1175 = p1175
+		}
 	}
 	// lastTag is left empty on purpose: SetCoinbaseTag is idempotent, so the cost of not
 	// seeding it is one redundant call on the first tick, against the risk of latching out
@@ -1262,10 +1271,17 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 			logger.Info("coinbase tag updated from dashboard", zap.String("tag", tag))
 			lastTag = tag
 		}
-		// Clearing the 1175 address turns merge mining OFF at runtime. Without this the
-		// field could be emptied in the dashboard and saved, and the previous address kept
-		// right on being mined to until the next restart -- with the UI showing no address.
-		if p1175 == "" && last1175 != "" {
+		// Clearing the 1175 address in the DASHBOARD turns merge mining off at runtime.
+		// Without this the field could be emptied and saved while the previous address kept
+		// right on being mined to until the next restart, with the UI showing nothing.
+		//
+		// Gated on the DATABASE having previously held a value, not on what is currently in
+		// effect. Those are different, and conflating them was a bug caught by running the
+		// thing: an install configured by config file or env has an aux address in effect
+		// and an EMPTY database, so "in effect but not in the DB" looked exactly like "the
+		// user just cleared it" and merge mining switched itself off eight seconds after
+		// every startup.
+		if p1175 == "" && lastDB1175 != "" && merge1175Enabled {
 			jm.DisableMergeMining()
 			merge1175Enabled = false
 			aux1175PayoutAddr = ""
@@ -1278,6 +1294,7 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 			logger.Info("💠 1175 merge-mining DISABLED from dashboard (address cleared) — BCH2 mining continues")
 			last1175 = ""
 		}
+		lastDB1175 = p1175
 		if p1175 != last1175 && p1175 != "" {
 			if !merge1175Enabled {
 				ac := enableMergeMining1175(cfg, p1175)

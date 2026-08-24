@@ -30,7 +30,33 @@ func Record1175Block(height int64, hash string, grossReward float64, finder stri
 	if db == nil {
 		return ErrDatabaseNotInitialized
 	}
-	_, err := db.Exec(`
+	// Supersede a reorged-out block at this height, mirroring what recordBlockRow already
+	// does for BCH2. With ON CONFLICT DO NOTHING alone, winning the SAME aux height twice --
+	// the ordinary outcome of a small reorg on the aux chain -- left the orphaned first
+	// block's row in place forever: permanently 'pending', its credits never voided, and the
+	// real block never recorded at all.
+	//
+	// Safe against double-pay for the same reason as the BCH2 path: an orphaned block is
+	// always far below coinbase maturity, so its payout rows cannot have been paid yet. And
+	// in this solo app 1175 is coinbase-direct, so these rows are an ledger record rather
+	// than an instruction to send anything.
+	res, err := db.Exec(`
+		UPDATE blocks_1175
+		SET hash = $2, gross_reward = $3, finder = $4, is_solo = $5,
+		    distributed = false, status = 'pending', created_at = CURRENT_TIMESTAMP
+		WHERE height = $1 AND hash <> $2`,
+		height, hash, grossReward, finder, isSolo)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		_, err = db.Exec(`
+			UPDATE payouts_1175 SET status = 'orphaned', txid = 'orphaned', paid_at = CURRENT_TIMESTAMP
+			WHERE block_height = $1 AND status = 'pending'`, height)
+		return err
+	}
+
+	_, err = db.Exec(`
 		INSERT INTO blocks_1175 (height, hash, gross_reward, finder, is_solo, distributed, status, created_at)
 		VALUES ($1, $2, $3, $4, $5, false, 'pending', CURRENT_TIMESTAMP)
 		ON CONFLICT (height) DO NOTHING`,
