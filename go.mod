@@ -3,32 +3,25 @@ module github.com/bch2/forge-pool
 go 1.25.0
 
 require (
-	github.com/btcsuite/btcd v0.25.0
-	github.com/btcsuite/btcd/btcec/v2 v2.3.5
 	github.com/btcsuite/btcd/btcutil v1.1.6
-	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
 	github.com/flynn/noise v1.1.0
 	github.com/go-zeromq/zmq4 v0.17.0
 	github.com/gofiber/fiber/v2 v2.52.10
-	github.com/google/uuid v1.6.0
-	github.com/gorilla/websocket v1.5.3
 	github.com/lib/pq v1.11.1
-	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/spf13/viper v1.18.2
 	go.uber.org/zap v1.26.0
 	golang.org/x/crypto v0.31.0
 	golang.org/x/sys v0.42.0
+	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.48.1
 )
 
 require (
 	github.com/andybalholm/brotli v1.1.0 // indirect
-	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f // indirect
-	github.com/decred/dcrd/crypto/blake256 v1.0.0 // indirect
-	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/go-zeromq/goczmq/v4 v4.2.2 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
@@ -57,7 +50,6 @@ require (
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	modernc.org/libc v1.70.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect

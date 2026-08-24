@@ -2576,7 +2576,7 @@ func startStatsServer() {
 		json.NewEncoder(w).Encode(buildMiningStatus())
 	}))
 	http.HandleFunc("/internal/rental-stats", internalAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		// Get rental service statistics from stratum server
+		// Rented-hashpower counters (NiceHash / MiningRigRentals / other) from the stratum server
 		rentalStats := stratumServer.GetRentalStats()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{

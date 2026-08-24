@@ -30,15 +30,11 @@ description: >-
   NiceHash and MiningRigRentals put the whole order behind one connection, so they use 3335.
 
 developer: BCH2 Team
-website: https://hashforge.bch2.org
+website: https://bch2.org
 repo: https://github.com/BitcoincashII/forge-solo
 support: https://github.com/BitcoincashII/forge-solo/issues
-# gallery: all three screenshot URLs returned 404 and rendered as broken images in the
-# store listing. Re-add them once the files are actually uploaded to hashforge.bch2.org.
-# gallery:
-#   - https://hashforge.bch2.org/screenshots/solo-dashboard.png
-#   - https://hashforge.bch2.org/screenshots/solo-effort.png
-#   - https://hashforge.bch2.org/screenshots/settings.png
+# gallery: omitted until screenshots are hosted somewhere the store can reach. The
+# previous URLs 404'd and rendered as broken images in the listing.
 releaseNotes: >-
   The dashboard's Network Difficulty and Network Hashrate tiles no longer flash
   0 during brief node-RPC hiccups — they now hold the last good reading, and the

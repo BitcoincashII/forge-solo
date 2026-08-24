@@ -333,8 +333,8 @@ func main() {
 		zapLogger.Info("✅ Connected to database")
 		// Load miner settings from database
 		loadMinerSettingsFromDB()
-		// Periodically reload miner settings from database (every 10 seconds)
-		// This ensures rental service's solo_mining updates are reflected
+		// Periodically reload miner settings from database (every 10 seconds) so a
+		// restore or an out-of-band edit to the miners table is picked up without a restart.
 		go func() {
 			ticker := time.NewTicker(10 * time.Second)
 			defer ticker.Stop()
