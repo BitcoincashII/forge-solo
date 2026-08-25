@@ -25,7 +25,7 @@ func TestNoteInvalidShareReportsToTheStatsHook(t *testing.T) {
 		got = append(got, minerID+"/"+workerName+"/"+reason)
 	})
 
-	c := &Client{MinerID: "bitcoincashii:qrmuhc20dynyy6rcacxug78z7fc04x74yvgy3yp8u9", WorkerName: "rig1"}
+	c := &Client{MinerID: "bitcoincashii:qreject00000000000000000000000000000000", WorkerName: "rig1"}
 	s.noteInvalidShare(c, "duplicate")
 
 	mu.Lock()
@@ -34,7 +34,7 @@ func TestNoteInvalidShareReportsToTheStatsHook(t *testing.T) {
 		t.Fatalf("a rejected share was counted but never reported to the stats hook "+
 			"(%d calls); the Reject %% tile stays at 0.00%% no matter what the miner sends", len(got))
 	}
-	if want := "bitcoincashii:qrmuhc20dynyy6rcacxug78z7fc04x74yvgy3yp8u9/rig1/duplicate"; got[0] != want {
+	if want := "bitcoincashii:qreject00000000000000000000000000000000/rig1/duplicate"; got[0] != want {
 		t.Fatalf("reject reported as %q, want %q", got[0], want)
 	}
 	if n := atomic.LoadInt64(&c.InvalidShares); n != 1 {

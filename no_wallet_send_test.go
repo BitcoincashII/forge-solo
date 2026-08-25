@@ -20,6 +20,8 @@ package forgesolo
 
 import (
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -103,5 +105,71 @@ func TestNoMinimumPayoutConcept(t *testing.T) {
 					path, needle)
 			}
 		}
+	}
+}
+
+// Test fixtures must use obviously-fake addresses.
+//
+// A real regtest payout address was once pasted into a test straight from a running
+// harness, and it landed in the public repo. It held nothing and its key is long gone, but
+// a real-format address in test data is indistinguishable at a glance from one that
+// matters — and the reader cannot tell which without checking a chain.
+//
+// The convention is a self-describing stub padded with zeroes: qtestminer000…, qorphan000…,
+// qreject000…. Two exceptions are deliberate and allow-listed below: CashAddr checksum
+// vectors, which must be genuine to test the checksum at all.
+func TestTestAddressesAreObviouslyFake(t *testing.T) {
+	allowed := map[string]string{
+		// Real by necessity: these exercise the CashAddr checksum itself.
+		"bitcoincashii:qpgf7a4mx6hpsjd3qnl9pr7ee09j7rk4zclycv4c8m": "valid checksum vector",
+		"bitcoincashii:qpgf7a4mx6hpsjd3qnl9pr7ee09j7rk4zclycv4c8n": "one-char-off checksum vector",
+		"bitcoincashii:qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzse6qye33q": "canonical all-zero-payload vector",
+		"bitcoincashii:qzeh9rcyyy8jlyalgh84e8fst6xh649hly2tfwgvwc": "checksum-valid ledger fixture",
+		"bitcoincashii:qpvg5aehqc3mtrmf2say7tmn0t9cxcw0wsahs5d9r5": "checksum-valid 1175 fixture",
+	}
+	re := regexp.MustCompile(`bitcoincashii:q[a-z0-9]{10,}`)
+
+	var walk func(dir string) error
+	walk = func(dir string) error {
+		ents, err := os.ReadDir(dir)
+		if err != nil {
+			return err
+		}
+		for _, e := range ents {
+			full := filepath.Join(dir, e.Name())
+			if e.IsDir() {
+				if e.Name() == ".git" || e.Name() == "node_modules" {
+					continue
+				}
+				if err := walk(full); err != nil {
+					return err
+				}
+				continue
+			}
+			if !strings.HasSuffix(e.Name(), "_test.go") {
+				continue
+			}
+			src, err := os.ReadFile(full)
+			if err != nil {
+				return err
+			}
+			for _, m := range re.FindAllString(string(src), -1) {
+				if _, ok := allowed[m]; ok {
+					continue
+				}
+				// A fake is a short stub, or padded with a run of zeroes.
+				body := strings.TrimPrefix(m, "bitcoincashii:q")
+				if len(body) < 12 || strings.Contains(body, "0000") {
+					continue
+				}
+				t.Errorf("%s uses %s — that looks like a real address. Test fixtures should "+
+					"be self-describing stubs (qtestminer000…). If it must be checksum-valid, "+
+					"add it to the allow-list here with the reason.", full, m)
+			}
+		}
+		return nil
+	}
+	if err := walk("."); err != nil {
+		t.Fatalf("walk: %v", err)
 	}
 }
