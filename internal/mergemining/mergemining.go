@@ -4,7 +4,7 @@
 // assembles + submits the CAuxPow proof when a parent share solves the aux
 // target.
 //
-// Destined for github.com/bch2/forge-pool/internal/mergemining. Stdlib-only.
+// Destined for github.com/BitcoincashII/forge-solo/internal/mergemining. Stdlib-only.
 //
 // Byte formats verified against the live 1175 regtest node
 // (scratchpad/regtest_auxpow_ref.py): 8/8 getauxblock->submitauxblock accepted.

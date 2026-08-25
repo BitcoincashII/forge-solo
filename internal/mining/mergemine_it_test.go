@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bch2/forge-pool/internal/mergemining"
+	"github.com/BitcoincashII/forge-solo/internal/mergemining"
 )
 
 // TestMergeMineMultiTxParent_Live drives the REAL pool code — CreateJob (coinbase

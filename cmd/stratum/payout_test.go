@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/bch2/forge-pool/internal/stats"
+	"github.com/BitcoincashII/forge-solo/internal/stats"
 )
 
 // sumRows returns the total amount across chunked rows and the multiset of row IDs,

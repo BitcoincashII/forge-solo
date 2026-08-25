@@ -1,4 +1,4 @@
-module github.com/bch2/forge-pool
+module github.com/BitcoincashII/forge-solo
 
 go 1.25.0
 

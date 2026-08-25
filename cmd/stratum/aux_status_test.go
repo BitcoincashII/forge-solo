@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bch2/forge-pool/internal/mining"
+	"github.com/BitcoincashII/forge-solo/internal/mining"
 )
 
 // Merge mining could previously fail for the entire life of a process while every surface a

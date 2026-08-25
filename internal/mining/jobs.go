@@ -14,7 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/bch2/forge-pool/internal/mergemining"
+	"github.com/BitcoincashII/forge-solo/internal/mergemining"
 )
 
 type BlockTemplate struct {

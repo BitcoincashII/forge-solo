@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/bch2/forge-pool/internal/stats"
+	"github.com/BitcoincashII/forge-solo/internal/stats"
 )
 
 // cmd/api mirrors internal/stats.WorkerStats to decode the stratum's /internal/workers

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bch2/forge-pool/internal/stratum"
+	"github.com/BitcoincashII/forge-solo/internal/stratum"
 )
 
 // Rented hashpower arrives on 3335, not 3333.

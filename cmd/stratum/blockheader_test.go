@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bch2/forge-pool/internal/mining"
+	"github.com/BitcoincashII/forge-solo/internal/mining"
 )
 
 // The 80-byte block header is assembled TWICE by two functions in two packages:
