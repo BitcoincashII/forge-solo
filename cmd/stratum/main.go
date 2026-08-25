@@ -1419,6 +1419,27 @@ func recordInvalidShare(minerID, workerName, reason string) {
 	_ = reason // reason rides along for future per-cause reporting; the log already carries it
 }
 
+// sumRentalStats totals the rented-hashpower counters across every stratum server that
+// is running. Servers are skipped when nil: the rental listener is optional, and this runs
+// on an HTTP handler where a nil dereference would take the process down.
+func sumRentalStats(servers ...*stratum.Server) stratum.RentalStats {
+	var total stratum.RentalStats
+	for _, srv := range servers {
+		if srv == nil {
+			continue
+		}
+		s := srv.GetRentalStats()
+		if s == nil {
+			continue
+		}
+		total.NiceHashMiners += s.NiceHashMiners
+		total.MRRMiners += s.MRRMiners
+		total.OtherRentals += s.OtherRentals
+		total.TotalRentals += s.TotalRentals
+	}
+	return total
+}
+
 func main() {
 	configPath := flag.String("config", "config.yaml", "Path to config file")
 	flag.Parse()
@@ -2576,8 +2597,15 @@ func startStatsServer() {
 		json.NewEncoder(w).Encode(buildMiningStatus())
 	}))
 	http.HandleFunc("/internal/rental-stats", internalAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		// Rented-hashpower counters (NiceHash / MiningRigRentals / other) from the stratum server
-		rentalStats := stratumServer.GetRentalStats()
+		// Rented-hashpower counters (NiceHash / MiningRigRentals / other), summed across
+		// BOTH stratum servers.
+		//
+		// This asked only the 3333 server, which is the one port an aggregated rental order
+		// does NOT arrive on: NiceHash and MiningRigRentals are pointed at 3335, so their
+		// connections live in stratumRentalServer's client map and were never counted. The
+		// public "rentals" block in /api/v1/stats therefore reported {0,0,0,0} to external
+		// aggregators while a rental order was actively mining.
+		rentalStats := sumRentalStats(stratumServer, stratumRentalServer)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"nicehash_miners": rentalStats.NiceHashMiners,

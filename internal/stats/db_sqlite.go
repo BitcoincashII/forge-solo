@@ -471,15 +471,21 @@ func SaveMinerSettings(settings *MinerSettings) error {
 		solo = 1
 	}
 
+	// address_1175 is written here and read back in LoadAllMinerSettings and
+	// GetMinerSettingsDB. The postgres backend has always persisted it; sqlite dropped it
+	// at all three sites even though its own schema declares the column, so on the Windows
+	// build a per-miner 1175 payout address was accepted by the API, never stored, and
+	// blanked out of memory by the next settings reload.
 	_, err := db.Exec(`
-		INSERT INTO miners (address, solo_mining, manual_diff, min_payout, updated_at)
-		VALUES (?, ?, ?, ?, datetime('now'))
+		INSERT INTO miners (address, solo_mining, manual_diff, min_payout, address_1175, updated_at)
+		VALUES (?, ?, ?, ?, ?, datetime('now'))
 		ON CONFLICT(address) DO UPDATE SET
 			solo_mining = excluded.solo_mining,
 			manual_diff = excluded.manual_diff,
 			min_payout = excluded.min_payout,
+			address_1175 = excluded.address_1175,
 			updated_at = datetime('now')`,
-		settings.Address, solo, settings.ManualDiff, settings.MinPayout)
+		settings.Address, solo, settings.ManualDiff, settings.MinPayout, settings.Address1175)
 	return err
 }
 
@@ -493,7 +499,7 @@ func LoadAllMinerSettings() map[string]*MinerSettings {
 		return result
 	}
 
-	rows, err := db.Query(`SELECT address, solo_mining, manual_diff, min_payout FROM miners`)
+	rows, err := db.Query(`SELECT address, solo_mining, manual_diff, min_payout, COALESCE(address_1175, '') FROM miners`)
 	if err != nil {
 		log.Printf("Warning: failed to load miner settings: %v", err)
 		return result
@@ -503,7 +509,7 @@ func LoadAllMinerSettings() map[string]*MinerSettings {
 	for rows.Next() {
 		var s MinerSettings
 		var solo int
-		if err := rows.Scan(&s.Address, &solo, &s.ManualDiff, &s.MinPayout); err != nil {
+		if err := rows.Scan(&s.Address, &solo, &s.ManualDiff, &s.MinPayout, &s.Address1175); err != nil {
 			log.Printf("Warning: failed to scan miner settings: %v", err)
 			continue
 		}
@@ -926,9 +932,9 @@ func GetMinerSettingsDB(address string) (*MinerSettings, error) {
 	var settings MinerSettings
 	var solo int
 	err := db.QueryRow(`
-		SELECT address, solo_mining, manual_diff, min_payout
+		SELECT address, solo_mining, manual_diff, min_payout, COALESCE(address_1175, '')
 		FROM miners WHERE address = ?`,
-		address).Scan(&settings.Address, &solo, &settings.ManualDiff, &settings.MinPayout)
+		address).Scan(&settings.Address, &solo, &settings.ManualDiff, &settings.MinPayout, &settings.Address1175)
 
 	if err != nil {
 		return nil, err

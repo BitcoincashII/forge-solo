@@ -1113,8 +1113,10 @@ func (s *Server) handleSubscribe(client *Client, req *Request) *Response {
 			// normal home topology and "proxy" is one of the trigger substrings; that miner
 			// would need over an hour per share. firstRamp already gets genuinely large
 			// connections off the floor in a single adjustment, so the floor buys nothing here.
+			// Identity is always recorded; only the difficulty policy is withheld in solo.
+			client.DetectedMarketplace = detectRentalService(ua)
 			if !s.config.SoloOnly {
-				client.RentalService = detectRentalService(ua)
+				client.RentalService = client.DetectedMarketplace
 			}
 			// Bump difficulty to rental minimum if rental service detected
 			if client.RentalService != RentalNone && client.Difficulty < s.config.RentalMinDiff {
@@ -1343,9 +1345,11 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 	// as the user-agent path above -- and here the docs make it worse: they promise the
 	// worker name is "just a label", while a label containing "rental" or starting "nh_"
 	// would silently impose a 500000 floor.
+	// Identity is always recorded; only the difficulty policy is withheld in solo.
+	detectedFromWorker := detectRentalFromWorker(workerName)
 	var rentalFromWorker RentalService
 	if !s.config.SoloOnly {
-		rentalFromWorker = detectRentalFromWorker(workerName)
+		rentalFromWorker = detectedFromWorker
 	}
 
 	var soloMode bool
@@ -1404,6 +1408,9 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 	client.LastSettingsRefresh = time.Now()
 
 	// Update rental detection if found from worker name (user agent takes priority)
+	if client.DetectedMarketplace == RentalNone && detectedFromWorker != RentalNone {
+		client.DetectedMarketplace = detectedFromWorker
+	}
 	if client.RentalService == RentalNone && rentalFromWorker != RentalNone {
 		client.RentalService = rentalFromWorker
 	}
@@ -2327,7 +2334,10 @@ func (s *Server) GetRentalStats() *RentalStats {
 	s.clients.Range(func(key, value interface{}) bool {
 		client := value.(*Client)
 		client.mu.RLock()
-		rental := client.RentalService
+		// DetectedMarketplace, not RentalService: the latter is a difficulty-policy flag
+		// that is deliberately never set in solo, which is why this endpoint reported
+		// {0,0,0,0} to external aggregators while a rental order was actively mining.
+		rental := client.DetectedMarketplace
 		authorized := client.Authorized
 		client.mu.RUnlock()
 
@@ -2668,4 +2678,22 @@ func parseVersionMask(mask string) (uint32, bool) {
 		return 0, false
 	}
 	return uint32(v), true
+}
+
+// NewServerForTest builds a bare Server with just enough state for the rented-hashpower
+// counters to be exercised. Test-only helper; not used by the running app.
+func NewServerForTest() *Server {
+	return &Server{stats: &ServerStats{}}
+}
+
+// AddAuthorizedRentalClientForTest registers one authorized client attributed to the given
+// marketplace, so GetRentalStats has something to count.
+//
+// It sets DetectedMarketplace and deliberately leaves RentalService at RentalNone, which is
+// exactly the shape a solo install produces: identity recorded, difficulty policy withheld.
+// Setting RentalService here instead would make the counters look right for the one case
+// that never occurs in this app. Test-only helper.
+func (s *Server) AddAuthorizedRentalClientForTest(svc RentalService) {
+	c := &Client{Authorized: true, DetectedMarketplace: svc}
+	s.clients.Store(fmt.Sprintf("test-%d-%p", svc, c), c)
 }

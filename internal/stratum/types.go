@@ -128,7 +128,16 @@ type Client struct {
 	LastSettingsRefresh   time.Time // When settings were last refreshed from API
 
 	// Rental service detection
-	RentalService          RentalService
+	// RentalService drives DIFFICULTY POLICY: the RentalMinDiff floor, vardiffFloor and
+	// the RentalMaxDiff clamp all key off it. It is deliberately left RentalNone in a solo
+	// app, because that floor (500000) has no operator knob and nothing can climb back down
+	// from it -- see the comments at the two detection sites in server.go.
+	RentalService RentalService
+	// DetectedMarketplace is the marketplace this connection LOOKS like, recorded purely for
+	// reporting. It is always populated, including in solo, where RentalService is not.
+	// Keeping the two apart is what lets /internal/rental-stats report honestly without
+	// reimposing a difficulty floor that would trap the connection at 500000.
+	DetectedMarketplace    RentalService
 	UserAgent              string
 	SupportsExtranonce     bool // Client subscribed to extranonce updates
 	SupportsVersionRolling bool // Client supports version rolling (AsicBoost)
