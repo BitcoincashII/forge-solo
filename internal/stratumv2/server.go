@@ -16,15 +16,15 @@ import (
 
 // ServerConfig holds V2 server configuration
 type ServerConfig struct {
-	Host               string
-	Port               int
-	MaxConnections     int
-	MinDiff            float64
-	MaxDiff            float64
-	TargetShareTime    int  // Seconds between shares
-	RetargetTime       int  // Seconds between vardiff adjustments
-	RequireEncryption  bool // Require Noise encryption
-	ExtranonceSize     int  // Size of extranonce prefix (default 8)
+	Host              string
+	Port              int
+	MaxConnections    int
+	MinDiff           float64
+	MaxDiff           float64
+	TargetShareTime   int  // Seconds between shares
+	RetargetTime      int  // Seconds between vardiff adjustments
+	RequireEncryption bool // Require Noise encryption
+	ExtranonceSize    int  // Size of extranonce prefix (default 8)
 }
 
 // ShareProcessor processes accepted shares
@@ -43,7 +43,6 @@ type MinerSettings struct {
 	MinerID    string
 	SoloMining bool
 	ManualDiff float64
-	MinPayout  float64
 }
 
 // Share represents a submitted share
@@ -114,20 +113,20 @@ type ServerStats struct {
 
 // MiningJobState holds job state for validation
 type MiningJobState struct {
-	JobID           uint32
-	Height          int64
-	PrevHash        [32]byte
-	Version         uint32
-	NBits           uint32
-	MinNTime        uint32
-	MerkleRoot      [32]byte // For standard channels
-	MerklePath      [][]byte // For extended channels
+	JobID            uint32
+	Height           int64
+	PrevHash         [32]byte
+	Version          uint32
+	NBits            uint32
+	MinNTime         uint32
+	MerkleRoot       [32]byte // For standard channels
+	MerklePath       [][]byte // For extended channels
 	CoinbaseTxPrefix []byte
 	CoinbaseTxSuffix []byte
-	Target          [32]byte
-	CleanJobs       bool
-	CreatedAt       time.Time
-	Transactions    [][]byte // Raw transactions for block building
+	Target           [32]byte
+	CleanJobs        bool
+	CreatedAt        time.Time
+	Transactions     [][]byte // Raw transactions for block building
 }
 
 // MiningChannel represents an open mining channel

@@ -167,7 +167,6 @@ services:
       - POOL_ADDRESS=${POOL_ADDRESS:-}
       - COINBASE_TAG=${COINBASE_TAG:-Forge}
       - PAYOUT_ADDRESS_1175=${PAYOUT_ADDRESS_1175:-}
-      - MIN_PAYOUT=${MIN_PAYOUT:-1}
     healthcheck:
       test: ["CMD-SHELL", "nc -z localhost 3333 || exit 1"]
       interval: 30s

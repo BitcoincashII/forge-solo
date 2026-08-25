@@ -495,15 +495,14 @@ func SaveMinerSettings(settings *MinerSettings) error {
 	// build a per-miner 1175 payout address was accepted by the API, never stored, and
 	// blanked out of memory by the next settings reload.
 	_, err := db.Exec(`
-		INSERT INTO miners (address, solo_mining, manual_diff, min_payout, address_1175, updated_at)
-		VALUES (?, ?, ?, ?, ?, datetime('now'))
+		INSERT INTO miners (address, solo_mining, manual_diff, address_1175, updated_at)
+		VALUES (?, ?, ?, ?, datetime('now'))
 		ON CONFLICT(address) DO UPDATE SET
 			solo_mining = excluded.solo_mining,
 			manual_diff = excluded.manual_diff,
-			min_payout = excluded.min_payout,
 			address_1175 = excluded.address_1175,
 			updated_at = datetime('now')`,
-		settings.Address, solo, settings.ManualDiff, settings.MinPayout, settings.Address1175)
+		settings.Address, solo, settings.ManualDiff, settings.Address1175)
 	return err
 }
 
@@ -517,7 +516,7 @@ func LoadAllMinerSettings() map[string]*MinerSettings {
 		return result
 	}
 
-	rows, err := db.Query(`SELECT address, solo_mining, manual_diff, min_payout, COALESCE(address_1175, '') FROM miners`)
+	rows, err := db.Query(`SELECT address, solo_mining, manual_diff, COALESCE(address_1175, '') FROM miners`)
 	if err != nil {
 		log.Printf("Warning: failed to load miner settings: %v", err)
 		return result
@@ -527,7 +526,7 @@ func LoadAllMinerSettings() map[string]*MinerSettings {
 	for rows.Next() {
 		var s MinerSettings
 		var solo int
-		if err := rows.Scan(&s.Address, &solo, &s.ManualDiff, &s.MinPayout, &s.Address1175); err != nil {
+		if err := rows.Scan(&s.Address, &solo, &s.ManualDiff, &s.Address1175); err != nil {
 			log.Printf("Warning: failed to scan miner settings: %v", err)
 			continue
 		}
@@ -676,111 +675,6 @@ func MarkMaturePaidInDBWithAmount(minerID string, currentHeight int64, txid stri
 		txid, now, minerID, matureHeight)
 
 	return err
-}
-
-// GetReadyPayoutsDB queries database for miners with mature unpaid balances
-func GetReadyPayoutsDB(currentHeight int64, minPayout float64) map[string]float64 {
-	dbMu.RLock()
-	defer dbMu.RUnlock()
-
-	if db == nil {
-		return nil
-	}
-
-	matureHeight := currentHeight - COINBASE_MATURITY
-
-	rows, err := db.Query(`
-		SELECT miner_address, SUM(amount) as total
-		FROM payouts
-		WHERE (txid IS NULL OR txid = '')
-		  AND block_height <= ?
-		GROUP BY miner_address
-		HAVING SUM(amount) >= ?`,
-		matureHeight, minPayout)
-	if err != nil {
-		log.Printf("Warning: failed to query ready payouts: %v", err)
-		return nil
-	}
-	defer rows.Close()
-
-	ready := make(map[string]float64)
-	for rows.Next() {
-		var addr string
-		var amount float64
-		if err := rows.Scan(&addr, &amount); err != nil {
-			log.Printf("Warning: failed to scan ready payout: %v", err)
-			continue
-		}
-		ready[addr] = amount
-	}
-
-	if err := rows.Err(); err != nil {
-		log.Printf("Warning: error iterating ready payouts: %v", err)
-	}
-
-	return ready
-}
-
-// ProcessPayoutAtomic handles the entire payout process in a single transaction
-func ProcessPayoutAtomic(minerID string, currentHeight int64, minPayout float64) (string, float64, error) {
-	dbMu.RLock()
-	defer dbMu.RUnlock()
-
-	if db == nil {
-		return "", 0, ErrDatabaseNotInitialized
-	}
-
-	// CRITICAL FIX: Validate minerID length before slicing
-	if len(minerID) < 8 {
-		return "", 0, fmt.Errorf("invalid miner ID: too short (minimum 8 characters)")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), DBTimeout)
-	defer cancel()
-
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return "", 0, fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	var matureAmount float64
-	matureHeight := currentHeight - COINBASE_MATURITY
-
-	err = tx.QueryRowContext(ctx, `
-		SELECT COALESCE(SUM(amount), 0)
-		FROM payouts
-		WHERE miner_address = ?
-		  AND (txid IS NULL OR txid = '')
-		  AND block_height <= ?`,
-		minerID, matureHeight).Scan(&matureAmount)
-	if err != nil {
-		return "", 0, fmt.Errorf("failed to get mature balance: %w", err)
-	}
-
-	if matureAmount < minPayout {
-		return "", 0, fmt.Errorf("insufficient mature balance: %.2f < %.2f", matureAmount, minPayout)
-	}
-
-	// CRITICAL FIX: Safe slice after validation
-	pendingTxid := fmt.Sprintf("pending_%d_%s", time.Now().UnixNano(), minerID[:8])
-
-	_, err = tx.ExecContext(ctx, `
-		UPDATE payouts
-		SET txid = ?, paid_at = ?
-		WHERE miner_address = ?
-		  AND (txid IS NULL OR txid = '')
-		  AND block_height <= ?`,
-		pendingTxid, time.Now(), minerID, matureHeight)
-	if err != nil {
-		return "", 0, fmt.Errorf("failed to mark payouts: %w", err)
-	}
-
-	if err = tx.Commit(); err != nil {
-		return "", 0, fmt.Errorf("failed to commit: %w", err)
-	}
-
-	return pendingTxid, matureAmount, nil
 }
 
 // FinalizePayoutAtomic updates the pending txid to the actual txid
@@ -950,9 +844,9 @@ func GetMinerSettingsDB(address string) (*MinerSettings, error) {
 	var settings MinerSettings
 	var solo int
 	err := db.QueryRow(`
-		SELECT address, solo_mining, manual_diff, min_payout, COALESCE(address_1175, '')
+		SELECT address, solo_mining, manual_diff, COALESCE(address_1175, '')
 		FROM miners WHERE address = ?`,
-		address).Scan(&settings.Address, &solo, &settings.ManualDiff, &settings.MinPayout, &settings.Address1175)
+		address).Scan(&settings.Address, &solo, &settings.ManualDiff, &settings.Address1175)
 
 	if err != nil {
 		return nil, err
@@ -1339,42 +1233,41 @@ func ConfirmMatureSoloBlocks(confirmHeight int64) error {
 }
 
 // GetPoolConfig returns the single-row dashboard-managed pool configuration
-// (pool_config id=1). A missing row yields empty strings + min_payout 1 and a nil error.
-func GetPoolConfig() (poolAddr, payout1175, tag string, minPayout float64, err error) {
+// (pool_config id=1). A missing row yields empty strings and a nil error.
+func GetPoolConfig() (poolAddr, payout1175, tag string, err error) {
 	dbMu.RLock()
 	defer dbMu.RUnlock()
 	if db == nil {
-		return "", "", "", 0, ErrDatabaseNotInitialized
+		return "", "", "", ErrDatabaseNotInitialized
 	}
-	row := db.QueryRow(`SELECT COALESCE(pool_address,''), COALESCE(payout_address_1175,''), COALESCE(coinbase_tag,''), COALESCE(min_payout,1) FROM pool_config WHERE id = 1`)
-	err = row.Scan(&poolAddr, &payout1175, &tag, &minPayout)
+	row := db.QueryRow(`SELECT COALESCE(pool_address,''), COALESCE(payout_address_1175,''), COALESCE(coinbase_tag,'') FROM pool_config WHERE id = 1`)
+	err = row.Scan(&poolAddr, &payout1175, &tag)
 	if err == sql.ErrNoRows {
-		return "", "", "", 1, nil
+		return "", "", "", nil
 	}
 	if err != nil {
-		return "", "", "", 0, err
+		return "", "", "", err
 	}
-	return poolAddr, payout1175, tag, minPayout, nil
+	return poolAddr, payout1175, tag, nil
 }
 
 // SavePoolConfig upserts the single-row pool configuration (id=1). Empty strings are
 // stored verbatim (an empty pool_address means "not configured -- mining paused").
-func SavePoolConfig(poolAddr, payout1175, tag string, minPayout float64) error {
+func SavePoolConfig(poolAddr, payout1175, tag string) error {
 	dbMu.RLock()
 	defer dbMu.RUnlock()
 	if db == nil {
 		return ErrDatabaseNotInitialized
 	}
 	_, err := db.Exec(`
-		INSERT INTO pool_config (id, pool_address, payout_address_1175, coinbase_tag, min_payout, updated_at)
-		VALUES (1, ?, ?, ?, ?, ?)
+		INSERT INTO pool_config (id, pool_address, payout_address_1175, coinbase_tag, updated_at)
+		VALUES (1, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE
 		SET pool_address = excluded.pool_address,
 		    payout_address_1175 = excluded.payout_address_1175,
 		    coinbase_tag = excluded.coinbase_tag,
-		    min_payout = excluded.min_payout,
 		    updated_at = excluded.updated_at`,
-		poolAddr, payout1175, tag, minPayout, time.Now())
+		poolAddr, payout1175, tag, time.Now())
 	return err
 }
 

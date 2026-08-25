@@ -42,22 +42,22 @@ const (
 	ProtocolVersionMax uint16 = 2
 
 	// Setup connection flags
-	SetupFlagRequiresStandardJobs uint32 = 0x01
-	SetupFlagRequiresWorkSelection uint32 = 0x02
+	SetupFlagRequiresStandardJobs   uint32 = 0x01
+	SetupFlagRequiresWorkSelection  uint32 = 0x02
 	SetupFlagRequiresVersionRolling uint32 = 0x04
 )
 
 // SetupConnection is sent by client to initiate connection
 type SetupConnection struct {
-	Protocol        uint8    // 0 = Mining Protocol
-	MinVersion      uint16   // Minimum supported version
-	MaxVersion      uint16   // Maximum supported version
-	Flags           uint32   // Feature flags
-	Endpoint        string   // Host:port of pool (STR0_255)
-	Vendor          string   // Mining software vendor (STR0_255)
-	HardwareVersion string   // Hardware version (STR0_255)
-	FirmwareVersion string   // Firmware version (STR0_255)
-	DeviceID        string   // Unique device ID (STR0_255)
+	Protocol        uint8  // 0 = Mining Protocol
+	MinVersion      uint16 // Minimum supported version
+	MaxVersion      uint16 // Maximum supported version
+	Flags           uint32 // Feature flags
+	Endpoint        string // Host:port of pool (STR0_255)
+	Vendor          string // Mining software vendor (STR0_255)
+	HardwareVersion string // Hardware version (STR0_255)
+	FirmwareVersion string // Firmware version (STR0_255)
+	DeviceID        string // Unique device ID (STR0_255)
 }
 
 // SetupConnectionSuccess confirms connection setup
@@ -74,19 +74,19 @@ type SetupConnectionError struct {
 
 // OpenStandardMiningChannel requests a mining channel
 type OpenStandardMiningChannel struct {
-	RequestID            uint32  // Client-assigned request ID
-	User                 string  // Mining user identity (STR0_255)
-	NominalHashrate      float32 // Expected hashrate in h/s
-	MaxTargetNBits       uint32  // Maximum target difficulty
+	RequestID       uint32  // Client-assigned request ID
+	User            string  // Mining user identity (STR0_255)
+	NominalHashrate float32 // Expected hashrate in h/s
+	MaxTargetNBits  uint32  // Maximum target difficulty
 }
 
 // OpenStandardMiningChannelSuccess confirms channel open
 type OpenStandardMiningChannelSuccess struct {
-	RequestID         uint32   // Echoed request ID
-	ChannelID         uint32   // Server-assigned channel ID
-	TargetNBits       uint32   // Initial target (nBits format)
-	ExtranoncePrefix  []byte   // Pool-assigned extranonce prefix
-	GroupChannelID    uint32   // Group channel ID (0 if none)
+	RequestID        uint32 // Echoed request ID
+	ChannelID        uint32 // Server-assigned channel ID
+	TargetNBits      uint32 // Initial target (nBits format)
+	ExtranoncePrefix []byte // Pool-assigned extranonce prefix
+	GroupChannelID   uint32 // Group channel ID (0 if none)
 }
 
 // OpenStandardMiningChannelError rejects channel open
@@ -97,37 +97,37 @@ type OpenStandardMiningChannelError struct {
 
 // NewMiningJob distributes a new mining job
 type NewMiningJob struct {
-	ChannelID      uint32 // Target channel
-	JobID          uint32 // Unique job ID
-	MinNTime       uint32 // Minimum nTime allowed
-	Version        uint32 // Block version
-	MerkleRoot     [32]byte // Merkle root of transactions
+	ChannelID  uint32   // Target channel
+	JobID      uint32   // Unique job ID
+	MinNTime   uint32   // Minimum nTime allowed
+	Version    uint32   // Block version
+	MerkleRoot [32]byte // Merkle root of transactions
 }
 
 // NewExtendedMiningJob for extended channels (includes coinbase)
 type NewExtendedMiningJob struct {
-	ChannelID           uint32   // Target channel
-	JobID               uint32   // Unique job ID
-	MinNTime            uint32   // Minimum nTime allowed
-	Version             uint32   // Block version
-	VersionRollingMask  uint32   // Bits that can be rolled
-	MerklePath          [][]byte // Merkle path for coinbase
-	CoinbaseTxPrefix    []byte   // Coinbase before extranonce
-	CoinbaseTxSuffix    []byte   // Coinbase after extranonce
+	ChannelID          uint32   // Target channel
+	JobID              uint32   // Unique job ID
+	MinNTime           uint32   // Minimum nTime allowed
+	Version            uint32   // Block version
+	VersionRollingMask uint32   // Bits that can be rolled
+	MerklePath         [][]byte // Merkle path for coinbase
+	CoinbaseTxPrefix   []byte   // Coinbase before extranonce
+	CoinbaseTxSuffix   []byte   // Coinbase after extranonce
 }
 
 // SetNewPrevHash updates the previous block hash
 type SetNewPrevHash struct {
-	ChannelID   uint32   // Target channel (0 for all)
-	JobID       uint32   // Job ID this applies to
-	PrevHash    [32]byte // New previous block hash
-	MinNTime    uint32   // Minimum nTime
-	NBits       uint32   // Current difficulty target
+	ChannelID uint32   // Target channel (0 for all)
+	JobID     uint32   // Job ID this applies to
+	PrevHash  [32]byte // New previous block hash
+	MinNTime  uint32   // Minimum nTime
+	NBits     uint32   // Current difficulty target
 }
 
 // SetTarget updates the share difficulty target
 type SetTarget struct {
-	ChannelID uint32 // Target channel
+	ChannelID uint32   // Target channel
 	MaxTarget [32]byte // Maximum target (lower = harder)
 }
 
@@ -143,13 +143,13 @@ type SubmitSharesStandard struct {
 
 // SubmitSharesExtended submits shares for extended channels
 type SubmitSharesExtended struct {
-	ChannelID    uint32 // Channel ID
-	SequenceNo   uint32 // Submission sequence number
-	JobID        uint32 // Job ID
-	Nonce        uint32 // Nonce found
-	NTime        uint32 // nTime used
-	Version      uint32 // Version used
-	Extranonce   []byte // Full extranonce
+	ChannelID  uint32 // Channel ID
+	SequenceNo uint32 // Submission sequence number
+	JobID      uint32 // Job ID
+	Nonce      uint32 // Nonce found
+	NTime      uint32 // nTime used
+	Version    uint32 // Version used
+	Extranonce []byte // Full extranonce
 }
 
 // SubmitSharesSuccess confirms share acceptance

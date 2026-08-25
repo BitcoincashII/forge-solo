@@ -61,7 +61,6 @@ func (a *APIMinerSettings) SaveMinerSettings(settings *MinerSettings) error {
 		"address":     settings.MinerID,
 		"solo_mining": settings.SoloMining,
 		"manual_diff": settings.ManualDiff,
-		"min_payout":  5.0, // Default min payout
 	}
 
 	body, err := json.Marshal(payload)

@@ -619,38 +619,6 @@ func MarkPayoutPaid(minerID string, blockHeight int64, txid string) {
 	pendingPayouts[minerID] = payouts
 }
 
-// ProcessPayouts checks for mature balances and sends payouts
-// Returns list of addresses that need payouts and their amounts
-func GetReadyPayouts(currentHeight int64, minPayout float64) map[string]float64 {
-	pendingPayoutsMu.RLock()
-	defer pendingPayoutsMu.RUnlock()
-
-	ready := make(map[string]float64)
-
-	for minerID, payouts := range pendingPayouts {
-		var matureAmount float64
-		for _, p := range payouts {
-			// Skip fully paid payouts
-			if p.Confirmed {
-				continue
-			}
-			// Calculate unpaid portion (for split payouts)
-			unpaid := p.Amount - p.PaidAmount
-			if unpaid <= 0 {
-				continue
-			}
-			confirmations := currentHeight - p.BlockHeight
-			if confirmations >= COINBASE_MATURITY {
-				matureAmount += unpaid
-			}
-		}
-		if matureAmount >= minPayout {
-			ready[minerID] = matureAmount
-		}
-	}
-	return ready
-}
-
 // MarkAllMaturePaid marks all mature payouts for a miner as paid
 func MarkAllMaturePaid(minerID string, currentHeight int64, txid string) {
 	MarkMaturePaidWithAmount(minerID, currentHeight, txid, 0)
@@ -709,48 +677,6 @@ func MarkMaturePaidWithAmount(minerID string, currentHeight int64, txid string, 
 		}
 	}
 	pendingPayouts[minerID] = payouts
-}
-
-// GetDustBalances returns miners with mature balances below min payout threshold
-// This helps track dust accumulation for monitoring/reporting
-func GetDustBalances(currentHeight int64, minPayout float64) map[string]float64 {
-	pendingPayoutsMu.RLock()
-	defer pendingPayoutsMu.RUnlock()
-
-	dust := make(map[string]float64)
-
-	for minerID, payouts := range pendingPayouts {
-		var matureAmount float64
-		for _, p := range payouts {
-			if p.Confirmed {
-				continue
-			}
-			// Check for partial payments
-			unpaid := p.Amount - p.PaidAmount
-			if unpaid <= 0 {
-				continue
-			}
-			confirmations := currentHeight - p.BlockHeight
-			if confirmations >= COINBASE_MATURITY {
-				matureAmount += unpaid
-			}
-		}
-		// Only include if has balance but below min payout
-		if matureAmount > 0 && matureAmount < minPayout {
-			dust[minerID] = matureAmount
-		}
-	}
-	return dust
-}
-
-// GetTotalDust returns the total dust amount across all miners
-func GetTotalDust(currentHeight int64, minPayout float64) float64 {
-	dust := GetDustBalances(currentHeight, minPayout)
-	var total float64
-	for _, amount := range dust {
-		total += amount
-	}
-	return total
 }
 
 // CleanupPaidPayouts removes old paid payouts from memory to prevent unbounded growth

@@ -54,6 +54,5 @@ type MinerSettings struct {
 	Address     string  `json:"address"`
 	SoloMining  bool    `json:"solo_mining"`
 	ManualDiff  float64 `json:"manual_diff"`
-	MinPayout   float64 `json:"min_payout"`
 	Address1175 string  `json:"address_1175"` // 1175 merge-mining payout address (esf1...)
 }

@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math"
 	"net/http"
 	"os"
 	"os/signal"
@@ -43,7 +42,6 @@ var (
 	jobHistoryOrder     []string                       // Track insertion order for FIFO cleanup
 	jobHistoryMu        sync.RWMutex
 	rpcURL              string
-	walletRPCURL        string // RPC URL with wallet path for sendtoaddress
 	rpcUser             string
 	rpcPass             string
 	networkDifficulty   float64      = 1.0
@@ -51,8 +49,6 @@ var (
 	networkDiffMu       sync.RWMutex // Protects networkDifficulty + latestCoinbaseBTC access
 	poolAddress         string
 	blockReward         float64           = 50.0
-	minPayout           float64           = 5.0
-	minPayoutMu         sync.RWMutex               // guards minPayout: pool_config watcher writes vs payout processor reads
 	pplnsWindow         int               = 100000 // PPLNS window size (shares)
 	stratumServer       *stratum.Server            // Global reference for API handlers
 	stratumRentalServer *stratum.Server            // Second stratum for PROXIED rental hashpower (NiceHash/MiningRigRentals)
@@ -74,11 +70,6 @@ var (
 
 	// ZMQ new block notification channel for instant block detection
 	zmqBlockCh = make(chan string, 10)
-
-	// Security: Payout mutex to prevent concurrent payout processing per miner
-	payoutMu         sync.Mutex
-	payoutInProgress = make(map[string]time.Time) // Track active payout requests per miner
-	payoutMuMap      sync.RWMutex
 
 	// Security: Required internal API token (must be set in environment)
 	internalAPIToken string
@@ -387,20 +378,6 @@ func getLatestCoinbaseBTC() float64 {
 	return latestCoinbaseBTC
 }
 
-// Thread-safe access to minPayout. The runtime pool_config watcher mutates it while the
-// payout processor reads it, so route both through this guard (mirrors the networkDiff pair).
-func getMinPayout() float64 {
-	minPayoutMu.RLock()
-	defer minPayoutMu.RUnlock()
-	return minPayout
-}
-
-func setMinPayout(v float64) {
-	minPayoutMu.Lock()
-	defer minPayoutMu.Unlock()
-	minPayout = v
-}
-
 // ---- 1175 merge-mining payout ----
 
 var (
@@ -413,7 +390,6 @@ var (
 	aux1175WalletURL  string
 	aux1175User       string
 	aux1175Pass       string
-	min1175Payout     float64
 )
 
 // rpcCallAuth is like rpcCall but with explicit credentials, for the aux (1175)
@@ -447,18 +423,6 @@ func rpcCallAuth(url, user, pass, method string, params []interface{}) (interfac
 		return nil, fmt.Errorf("RPC error: %v", result.Error)
 	}
 	return result.Result, nil
-}
-
-func sendPayoutAuth(walletURL, user, pass, address string, amount float64) (string, error) {
-	result, err := rpcCallAuth(walletURL, user, pass, "sendtoaddress", []interface{}{address, amount})
-	if err != nil {
-		return "", err
-	}
-	txid, ok := result.(string)
-	if !ok {
-		return "", fmt.Errorf("unexpected sendtoaddress response: %T", result)
-	}
-	return txid, nil
 }
 
 // aux1175Maturity is the active-chain confirmation depth a 1175 aux block must reach
@@ -530,7 +494,7 @@ func aux1175BlockConfirmations(hash string) (int64, bool) {
 func start1175PayoutProcessor() {
 	ticker := time.NewTicker(120 * time.Second)
 	defer ticker.Stop()
-	logger.Info("💰 1175 payout processor started", zap.Float64("min_payout", min1175Payout))
+	logger.Info("💰 1175 payout processor started")
 	for {
 		select {
 		case <-shutdownCh:
@@ -620,13 +584,6 @@ func startPayoutProcessor() {
 	// Use global rpcURL configured from config file
 	nodeURL := rpcURL
 
-	// Track failed payouts for retry (address -> retry count)
-	failedPayouts := make(map[string]int)
-	const maxRetries = 3
-
-	// Dust logging interval (every 10 cycles = ~10 minutes)
-	dustLogCounter := 0
-
 	// Run a full orphan reconciliation once, on the first cycle, to clear any
 	// historical orphaned-block credits before they are ever paid.
 	orphanFullScanDone := false
@@ -674,167 +631,9 @@ func startPayoutProcessor() {
 			}
 		}
 
-		mp := getMinPayout()
-
-		// Periodic dust balance logging
-		dustLogCounter++
-		if dustLogCounter >= 10 {
-			dustLogCounter = 0
-			totalDust := stats.GetTotalDust(currentHeight, mp)
-			if totalDust > 0 {
-				dustCount := len(stats.GetDustBalances(currentHeight, mp))
-				log.Printf("Dust balances: %.8f BCH2 across %d miners (below %.2f min payout)",
-					totalDust, dustCount, mp)
-			}
-		}
-
-		// Get ready payouts using global minPayout config
-		// Use DB-based query for reliable payout detection (survives restarts)
-		ready := stats.GetReadyPayoutsDB(currentHeight, mp)
-		if ready == nil {
-			// Fall back to in-memory if DB query fails
-			ready = stats.GetReadyPayouts(currentHeight, mp)
-		}
-		if len(ready) == 0 {
-			continue
-		}
-
-		matureHeight := currentHeight - int64(stats.COINBASE_MATURITY)
-		for address := range ready {
-			// Skip if exceeded max retries (will be retried after pool restart)
-			if failedPayouts[address] >= maxRetries {
-				continue
-			}
-
-			// Reserve-then-send: payMiner reserves the miner's mature balance in the
-			// DB before broadcasting, sends in row-aligned chunks, and finalizes each
-			// chunk to its real txid. It never re-broadcasts and never releases a
-			// chunk that was already sent, so it cannot double-pay.
-			txids, sent, err := payMiner(address, matureHeight, mp)
-			if err != nil {
-				failedPayouts[address]++
-				log.Printf("Payout failed for %s (attempt %d/%d): %v",
-					address, failedPayouts[address], maxRetries, err)
-				continue
-			}
-
-			if len(txids) > 0 {
-				delete(failedPayouts, address)
-				// Keep the in-memory ledger roughly in sync (DB is authoritative).
-				stats.MarkMaturePaidWithAmount(address, currentHeight, txids[len(txids)-1], sent)
-				if len(txids) == 1 {
-					log.Printf("Payout sent: %s -> %.8f BCH2 (txid: %s)", address, sent, txids[0])
-				} else {
-					log.Printf("Split payout complete for %s: %d transactions, total %.8f BCH2",
-						address, len(txids), sent)
-				}
-			}
-		}
-
 		// Periodic cleanup of old paid payouts from memory (every cycle)
 		stats.CleanupPaidPayouts()
 	}
-}
-
-// isDefinitelyNotBroadcast reports whether a sendtoaddress failure proves that no
-// transaction was created. rpcCall wraps a structured node rejection as an
-// "RPC error:" — the node processed and refused the request, so nothing was
-// broadcast, and the reserved rows are safe to release. Any other error (HTTP
-// timeout, connection reset, decode failure) is an UNKNOWN outcome: the tx may
-// already be on the wire, so the caller must NOT retry or release it.
-func isDefinitelyNotBroadcast(err error) bool {
-	if err == nil {
-		return true
-	}
-	return strings.HasPrefix(err.Error(), "RPC error:")
-}
-
-// payMiner reserves a miner's mature unpaid payouts, then broadcasts them in
-// row-aligned chunks (each a whole number of ledger rows, capped near 1000 BCH2)
-// and finalizes each chunk to its real txid immediately after it is sent. Because
-// every chunk's marked amount equals exactly what was broadcast, and reserved rows
-// are excluded from selection the moment they are reserved, this path cannot
-// double-pay and cannot silently under/over-mark:
-//   - A definite pre-broadcast rejection releases the still-reserved rows for retry.
-//   - An ambiguous send error (timeout/connection) leaves the rows RESERVED and
-//     flags them for manual reconciliation — never re-broadcast automatically.
-//   - A crash mid-run leaves rows reserved (not payable) rather than double-paid.
-//
-// maxPayoutPerTx caps a single sendtoaddress to avoid "transaction too large".
-const maxPayoutPerTx = 1000.0
-
-// chunkPayoutRows groups reserved payout rows into row-aligned chunks, each capped
-// at maxPerTx BCH2. Because chunks never split a row, the amount broadcast for a
-// chunk always equals the sum of that chunk's ledger rows, so sent == marked. A
-// single row larger than the cap becomes its own chunk (never dropped or split).
-func chunkPayoutRows(rows []stats.PayoutRow, maxPerTx float64) [][]stats.PayoutRow {
-	var chunks [][]stats.PayoutRow
-	var cur []stats.PayoutRow
-	var curAmt float64
-	for _, r := range rows {
-		if len(cur) > 0 && curAmt+r.Amount > maxPerTx {
-			chunks = append(chunks, cur)
-			cur, curAmt = nil, 0
-		}
-		cur = append(cur, r)
-		curAmt += r.Amount
-	}
-	if len(cur) > 0 {
-		chunks = append(chunks, cur)
-	}
-	return chunks
-}
-
-func payMiner(address string, matureHeight int64, minPayout float64) (txids []string, totalSent float64, err error) {
-	pendingID, rows, total, err := stats.ReserveMaturePayouts(address, matureHeight)
-	if err != nil {
-		return nil, 0, err
-	}
-	// Below the payout threshold (or nothing to pay): release the reservation and
-	// leave the balance to accrue.
-	if len(rows) == 0 || total < minPayout || total <= 0 {
-		if pendingID != "" {
-			stats.RevertPendingPayout(pendingID)
-		}
-		return nil, 0, nil
-	}
-
-	for _, chunk := range chunkPayoutRows(rows, maxPayoutPerTx) {
-		var ids []int64
-		var amt float64
-		for _, r := range chunk {
-			ids = append(ids, r.ID)
-			amt += r.Amount
-		}
-		amt = math.Round(amt*1e8) / 1e8
-		if amt <= 0 || math.IsNaN(amt) || math.IsInf(amt, 0) {
-			// Non-sensible amount: release these rows, don't send.
-			stats.RevertPayoutRows(ids)
-			continue
-		}
-
-		txid, serr := sendPayout(walletRPCURL, address, amt)
-		if serr != nil {
-			if isDefinitelyNotBroadcast(serr) {
-				// Nothing was sent: release every row still reserved under pendingID.
-				stats.RevertPendingPayout(pendingID)
-			} else {
-				log.Printf("CRITICAL: payout to %s (%.8f BCH2) returned an ambiguous error; "+
-					"rows left RESERVED under %s for manual reconciliation, NOT retried (avoids double-send): %v",
-					address, amt, pendingID, serr)
-			}
-			return txids, totalSent, serr
-		}
-		if ferr := stats.FinalizePayoutRows(ids, txid); ferr != nil {
-			// Coins WERE sent; do not release. Leave reserved for manual reconcile.
-			log.Printf("CRITICAL: payout to %s sent (txid %s) but DB finalize failed; "+
-				"rows left reserved under %s for manual reconciliation: %v", address, txid, pendingID, ferr)
-			return txids, totalSent, ferr
-		}
-		txids = append(txids, txid)
-		totalSent += amt
-	}
-	return txids, totalSent, nil
 }
 
 // getRPCCredentials returns RPC credentials from environment variables
@@ -1038,17 +837,6 @@ func reconcileSoloBlocks(currentHeight int64, full bool) {
 func bitsToDifficulty(bitsHex string) float64 {
 	return stratum.BitsToDifficulty(bitsHex)
 }
-func sendPayout(rpcURL, address string, amount float64) (string, error) {
-	result, err := rpcCall(rpcURL, "sendtoaddress", []interface{}{address, amount})
-	if err != nil {
-		return "", err
-	}
-	txid, ok := result.(string)
-	if !ok {
-		return "", fmt.Errorf("unexpected response type for sendtoaddress: %T", result)
-	}
-	return txid, nil
-}
 
 // sendWebhookAlert sends a webhook notification for important events
 func sendWebhookAlert(event string, data map[string]interface{}) {
@@ -1194,10 +982,6 @@ func enableMergeMining1175(cfg *viper.Viper, auxPayout string) *mergemining.Clie
 	if auxWallet == "" {
 		auxWallet = "pool"
 	}
-	min1175Payout = cfg.GetFloat64("mergemining.min_payout")
-	if min1175Payout <= 0 {
-		min1175Payout = 1.0
-	}
 	merge1175Enabled = true
 	aux1175PayoutAddr = auxPayout
 	aux1175NodeURL = auxURL
@@ -1249,7 +1033,7 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 		last1175 = aux1175Payout()
 	}
 	if stats.IsDBConnected() {
-		if _, p1175, _, _, err := stats.GetPoolConfig(); err == nil {
+		if _, p1175, _, err := stats.GetPoolConfig(); err == nil {
 			lastDB1175 = p1175
 		}
 	}
@@ -1298,12 +1082,9 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 			// would sit pending forever and an orphaned one would never be voided.
 			startPayoutProcessorOnce()
 		}
-		pool, p1175, tag, minP, err := stats.GetPoolConfig()
+		pool, p1175, tag, err := stats.GetPoolConfig()
 		if err != nil {
 			continue
-		}
-		if minP > 0 {
-			setMinPayout(minP)
 		}
 		if pool != lastPool && pool != "" {
 			if serr := jm.SetPoolAddress(pool); serr != nil {
@@ -1527,15 +1308,13 @@ func main() {
 		protocol = "https"
 	}
 	rpcURL = fmt.Sprintf("%s://%s:%d", protocol, nodeHost, nodePort)
-	walletRPCURL = fmt.Sprintf("%s://%s:%d/wallet/main%%2Fpool", protocol, nodeHost, nodePort)
-	logger.Info("RPC URL configured", zap.String("url", rpcURL), zap.String("wallet_url", walletRPCURL))
+	logger.Info("RPC URL configured", zap.String("url", rpcURL))
 
 	rpcUser, rpcPass = getRPCCredentials()
 
 	// Load pool configuration
 	poolAddress = config.GetString("pool.address")
 	blockReward = config.GetFloat64("pool.block_reward")
-	setMinPayout(config.GetFloat64("pool.min_payout"))
 	pplnsWindow = config.GetInt("pool.pplns_window")
 	if pplnsWindow <= 0 {
 		pplnsWindow = 100000 // Default PPLNS window
@@ -1544,7 +1323,6 @@ func main() {
 	logger.Info("Mining configuration loaded",
 		zap.String("address", poolAddress),
 		zap.Float64("block_reward", blockReward),
-		zap.Float64("min_payout", minPayout),
 		zap.Int("pplns_window", pplnsWindow))
 
 	// Dashboard-managed config (DB pool_config) OVERRIDES the env-derived values when set,
@@ -1554,7 +1332,7 @@ func main() {
 	effectiveCoinbaseTag := config.GetString("pool.coinbase_tag")
 	effective1175Payout := config.GetString("mergemining.payout_address")
 	if stats.IsDBConnected() {
-		if dbPool, db1175, dbTag, dbMin, cErr := stats.GetPoolConfig(); cErr == nil {
+		if dbPool, db1175, dbTag, cErr := stats.GetPoolConfig(); cErr == nil {
 			if dbPool != "" {
 				effectivePoolAddr = dbPool
 			}
@@ -1563,9 +1341,6 @@ func main() {
 			}
 			if dbTag != "" {
 				effectiveCoinbaseTag = dbTag
-			}
-			if dbMin > 0 {
-				setMinPayout(dbMin)
 			}
 		} else {
 			logger.Warn("could not read dashboard pool_config; using env/config values", zap.Error(cErr))
@@ -2014,7 +1789,6 @@ func loadConfig(path string) (*viper.Viper, error) {
 	// flips the app to PPLNS -- authorizing miners as non-solo and queueing payouts against
 	// a wallet this app does not have. Solo is the only mode it supports.
 	v.SetDefault("pool.payout_scheme", "solo")
-	v.SetDefault("pool.min_payout", 5.0)
 	v.SetDefault("pool.address", "")
 	v.SetDefault("pool.coinbase_tag", "Forge") // Must be set in config or env
 
@@ -2691,74 +2465,6 @@ func startStatsServer() {
 			"total":  len(blocks),
 		})
 	}))
-	http.HandleFunc("/internal/trigger-payout", internalAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		minerID := r.URL.Query().Get("miner")
-
-		// Validate miner address format first
-		if minerID == "" || !strings.HasPrefix(minerID, "bitcoincash") {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid miner address"})
-			return
-		}
-
-		// SECURITY: Check if payout already in progress for this miner (prevent double-payout)
-		payoutMuMap.Lock()
-		if lastPayout, exists := payoutInProgress[minerID]; exists {
-			// Check if previous payout is still within cooldown (5 minutes)
-			if time.Since(lastPayout) < 5*time.Minute {
-				payoutMuMap.Unlock()
-				log.Printf("⚠️ SECURITY: Blocked concurrent payout request for %s (last: %v ago)", minerID, time.Since(lastPayout))
-				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Payout already in progress, please wait"})
-				return
-			}
-		}
-		// Mark payout as in progress
-		payoutInProgress[minerID] = time.Now()
-		payoutMuMap.Unlock()
-
-		// SECURITY: Ensure we clear the in-progress flag on exit
-		defer func() {
-			payoutMuMap.Lock()
-			delete(payoutInProgress, minerID)
-			payoutMuMap.Unlock()
-		}()
-
-		heightResp, err := rpcCall(rpcURL, "getblockcount", []interface{}{})
-		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to get height"})
-			return
-		}
-		heightFloat, ok := heightResp.(float64)
-		if !ok {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid height response"})
-			return
-		}
-		currentHeight := int64(heightFloat)
-
-		// Reserve-then-send via the shared idempotent path (row-aligned chunks,
-		// finalize-per-chunk, never re-broadcast, never blanket-revert sent chunks).
-		matureHeight := currentHeight - int64(stats.COINBASE_MATURITY)
-		txids, totalSent, err := payMiner(minerID, matureHeight, 5.0)
-		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Payout send failed: " + err.Error()})
-			return
-		}
-		if len(txids) == 0 {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "no mature balance at or above the minimum payout"})
-			return
-		}
-		lastTxid := txids[len(txids)-1]
-		stats.MarkMaturePaidWithAmount(minerID, currentHeight, lastTxid, totalSent)
-		log.Printf("💰 Manual payout: %s -> %.8f BCH2 in %d tx (last txid: %s)", minerID, totalSent, len(txids), lastTxid)
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "txid": lastTxid, "amount": totalSent})
-	}))
 	http.HandleFunc("/internal/miner-balance", internalAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		minerID := r.URL.Query().Get("miner")
 		heightStr := r.URL.Query().Get("height")
@@ -2912,6 +2618,5 @@ func (a *V2MinerSettingsAdapter) GetMinerSettings(minerID string) (*stratumv2.Mi
 		MinerID:    v1Settings.MinerID,
 		SoloMining: v1Settings.SoloMining,
 		ManualDiff: v1Settings.ManualDiff,
-		MinPayout:  v1Settings.MinPayout,
 	}, nil
 }

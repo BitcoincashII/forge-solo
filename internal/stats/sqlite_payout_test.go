@@ -100,24 +100,20 @@ func TestSQLiteReserveRespectsMaturity(t *testing.T) {
 func TestSQLitePoolConfigRoundTrips(t *testing.T) {
 	openTestDB(t)
 
-	_, _, _, minPayout, err := GetPoolConfig()
-	if err != nil {
+	if _, _, _, err := GetPoolConfig(); err != nil {
 		t.Fatalf("GetPoolConfig on empty: %v", err)
 	}
-	if minPayout != 1 {
-		t.Errorf("empty min_payout = %v, want 1", minPayout)
-	}
 
-	if err := SavePoolConfig("bitcoincashii:qpool", "esf1payout", "/forge/", 2.5); err != nil {
+	if err := SavePoolConfig("bitcoincashii:qpool", "esf1payout", "/forge/"); err != nil {
 		t.Fatalf("SavePoolConfig: %v", err)
 	}
-	addr, p1175, tag, mp, err := GetPoolConfig()
-	if err != nil || addr != "bitcoincashii:qpool" || p1175 != "esf1payout" || tag != "/forge/" || mp != 2.5 {
-		t.Fatalf("round trip: %q %q %q %v err=%v", addr, p1175, tag, mp, err)
+	addr, p1175, tag, err := GetPoolConfig()
+	if err != nil || addr != "bitcoincashii:qpool" || p1175 != "esf1payout" || tag != "/forge/" {
+		t.Fatalf("round trip: %q %q %q err=%v", addr, p1175, tag, err)
 	}
 
 	// Upsert, not a second row.
-	if err := SavePoolConfig("bitcoincashii:qpool2", "", "", 3); err != nil {
+	if err := SavePoolConfig("bitcoincashii:qpool2", "", ""); err != nil {
 		t.Fatalf("SavePoolConfig upsert: %v", err)
 	}
 	var n int

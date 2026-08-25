@@ -258,7 +258,6 @@ type MinerSetting struct {
 	Address     string  `json:"address"`
 	SoloMining  bool    `json:"solo_mining"`
 	ManualDiff  float64 `json:"manual_diff"`
-	MinPayout   float64 `json:"min_payout"`
 	Password    string  `json:"password"`
 	Address1175 string  `json:"address_1175"` // 1175 merge-mining payout address (esf1...)
 	Pin         string  `json:"pin"`          // optional settings PIN: proof-of-control for changing address_1175 (rental-friendly, no keys)
@@ -1263,9 +1262,9 @@ func getPoolConfig(c *fiber.Ctx) error {
 	// Dashboard-managed config is the source of truth (DB pool_config). Env vars provide the
 	// initial defaults until the miner saves settings from the UI (so a fresh install shows
 	// whatever was seeded in the Umbrel app config, then the DB value once configured).
-	poolAddr, payout1175, tag, minPayout, err := stats.GetPoolConfig()
+	poolAddr, payout1175, tag, err := stats.GetPoolConfig()
 	if err != nil {
-		poolAddr, payout1175, tag, minPayout = "", "", "", 0
+		poolAddr, payout1175, tag = "", "", ""
 	}
 	if poolAddr == "" {
 		// Validate the env fallback before handing it to the page. Unvalidated, an
@@ -1299,13 +1298,6 @@ func getPoolConfig(c *fiber.Ctx) error {
 	if tag == "" {
 		tag = "Forge"
 	}
-	if minPayout <= 0 {
-		if v, perr := strconv.ParseFloat(os.Getenv("MIN_PAYOUT"), 64); perr == nil && v > 0 {
-			minPayout = v
-		} else {
-			minPayout = 1.0
-		}
-	}
 	return c.JSON(fiber.Map{
 		"stratum_port": 3333,
 		"pool_name":    poolNameFromEnv(),
@@ -1333,10 +1325,9 @@ func savePoolConfig(c *fiber.Ctx) error {
 	}
 
 	var input struct {
-		PoolAddress       string   `json:"pool_address"`
-		PayoutAddress1175 string   `json:"payout_address_1175"`
-		CoinbaseTag       string   `json:"coinbase_tag"`
-		MinPayout         *float64 `json:"min_payout"`
+		PoolAddress       string `json:"pool_address"`
+		PayoutAddress1175 string `json:"payout_address_1175"`
+		CoinbaseTag       string `json:"coinbase_tag"`
 	}
 	if err := c.BodyParser(&input); err != nil {
 		return c.Status(400).JSON(fiber.Map{"success": false, "error": "Invalid request body"})
@@ -1345,7 +1336,7 @@ func savePoolConfig(c *fiber.Ctx) error {
 	// Load current DB values so a partial save (e.g. only the coinbase tag) preserves the rest.
 	// Only the BCH2 address and the minimum are carried forward on a partial save; the two
 	// optional fields are cleared by a blank, see below.
-	curPool, _, _, curMin, _ := stats.GetPoolConfig()
+	curPool, _, _, _ := stats.GetPoolConfig()
 
 	// BCH2 payout address: validate with the full CashAddr checksum validator. Blank keeps
 	// the current value (does NOT clear a configured address).
@@ -1379,15 +1370,7 @@ func savePoolConfig(c *fiber.Ctx) error {
 		tag = ""
 	}
 
-	minPayout := curMin
-	if input.MinPayout != nil && *input.MinPayout > 0 {
-		minPayout = *input.MinPayout
-	}
-	if minPayout <= 0 {
-		minPayout = 1.0
-	}
-
-	if err := stats.SavePoolConfig(poolAddr, payout1175, tag, minPayout); err != nil {
+	if err := stats.SavePoolConfig(poolAddr, payout1175, tag); err != nil {
 		return c.Status(500).JSON(fiber.Map{"success": false, "error": "Failed to save config: " + err.Error()})
 	}
 	return c.JSON(fiber.Map{"success": true, "message": "Settings saved. Mining picks up the new payout address within a few seconds — no restart needed."})
@@ -1404,7 +1387,6 @@ func loadMinerSettingsFromDB() {
 			Address:     s.Address,
 			SoloMining:  s.SoloMining,
 			ManualDiff:  s.ManualDiff,
-			MinPayout:   s.MinPayout,
 			Address1175: s.Address1175,
 		}
 	}
@@ -1623,15 +1605,6 @@ func saveMinerSettings(c *fiber.Ctx) error {
 	if settings.ManualDiff > 1e15 {
 		return c.Status(400).JSON(fiber.Map{"error": "Manual difficulty too high"})
 	}
-	if math.IsNaN(settings.MinPayout) || math.IsInf(settings.MinPayout, 0) {
-		return c.Status(400).JSON(fiber.Map{"error": "Invalid minimum payout value"})
-	}
-	if settings.MinPayout < 0 {
-		return c.Status(400).JSON(fiber.Map{"error": "Minimum payout cannot be negative"})
-	}
-	if settings.MinPayout > 10000 {
-		return c.Status(400).JSON(fiber.Map{"error": "Minimum payout too high"})
-	}
 
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
@@ -1661,7 +1634,6 @@ func saveMinerSettings(c *fiber.Ctx) error {
 		Address:     settings.Address,
 		SoloMining:  settings.SoloMining,
 		ManualDiff:  settings.ManualDiff,
-		MinPayout:   settings.MinPayout,
 		Address1175: settings.Address1175,
 	}
 	if err := stats.SaveMinerSettings(dbSettings); err != nil {

@@ -28,7 +28,6 @@ func TestSQLiteRoundTripsPerMinerAddress1175(t *testing.T) {
 		Address:     miner,
 		SoloMining:  true,
 		ManualDiff:  0,
-		MinPayout:   0,
 		Address1175: esf,
 	}); err != nil {
 		t.Fatalf("SaveMinerSettings: %v", err)

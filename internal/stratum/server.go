@@ -235,7 +235,6 @@ type MinerSettings struct {
 	MinerID    string
 	SoloMining bool
 	ManualDiff float64
-	MinPayout  float64
 	Exists     bool // Whether settings exist in database
 }
 
@@ -1373,7 +1372,6 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 						MinerID:    mid,
 						SoloMining: true,
 						ManualDiff: 0,
-						MinPayout:  5.0,
 					}
 					if err := s.minerSettings.SaveMinerSettings(newSettings); err != nil {
 						s.logger.Debug("Autosave settings for new miner",

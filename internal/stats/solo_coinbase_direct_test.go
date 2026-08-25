@@ -7,25 +7,23 @@ import (
 	"testing"
 )
 
-// A minimum payout is meaningless in this app, and these tests pin the reason so it stays
-// that way.
+// A solo block pays its finder in its OWN coinbase. SaveSoloBlockCoinbaseDirect settles the
+// payout row immediately with txid='coinbase-direct' and status='paid' -- there is no pool
+// wallet to send from, and nothing to accumulate.
 //
-// A solo block pays its finder in its OWN coinbase. SaveSoloBlockCoinbaseDirect therefore
-// settles the payout row immediately with txid='coinbase-direct' and status='paid' -- there
-// is no pool wallet to send from, and nothing to accumulate. GetReadyPayoutsDB, the only
-// feed into payMiner (the wallet sendtoaddress path), considers only rows with a NULL or
-// empty txid. So a solo payout can never be "ready" at ANY threshold, payMiner is
-// unreachable, and the min-payout value it takes as an argument can never change an outcome.
+// This app therefore has no minimum payout and, as of this change, no wallet-send path at
+// all: payMiner, sendPayout and /internal/trigger-payout are gone. ReserveMaturePayouts is
+// what any future sender would have to go through, and it selects only rows with a NULL or
+// empty txid -- so a settled solo reward can never be reserved for sending, at any balance.
 //
-// The settings UI used to expose a "Minimum payout" field on the strength of that dead
-// path. It has been removed. If someone later changes the settle to leave txid NULL, these
-// tests fail -- which is the warning that wants heeding, because it would point a
-// wallet-send path at a wallet this app does not have.
+// This is re-anchored on purpose. The previous version asserted against GetReadyPayoutsDB,
+// which was NOT what fed the sender, and that mistake is why the sender was believed
+// unreachable when it was not.
 //
-// The postgres backend carries the identical WHERE (txid IS NULL OR txid = ”) filter and
-// the identical 'coinbase-direct' stamp; this runs under the sqlite tag because it needs no
-// container.
-func TestSoloPayoutIsNeverReadyForSending(t *testing.T) {
+// If someone later changes the settle to leave txid NULL, this test fails. That is the
+// warning that wants heeding: it would make a solo reward reservable for a send against a
+// wallet this app does not have.
+func TestSoloPayoutIsNeverReservableForSending(t *testing.T) {
 	if err := InitDB(filepath.Join(t.TempDir(), "solo.db")); err != nil {
 		t.Fatalf("InitDB: %v", err)
 	}
@@ -40,16 +38,16 @@ func TestSoloPayoutIsNeverReadyForSending(t *testing.T) {
 		t.Fatalf("SaveSoloBlockCoinbaseDirect: %v", err)
 	}
 
-	// Far past coinbase maturity, and every threshold from "none" to "more than the block
-	// reward". None of them may produce anything to send.
+	// Far past coinbase maturity: there must still be nothing to reserve.
 	current := int64(height) + COINBASE_MATURITY + 1000
-	for _, minPayout := range []float64{0, 0.00000001, 1, 2.75, reward, reward * 10} {
-		ready := GetReadyPayoutsDB(current, minPayout)
-		if len(ready) != 0 {
-			t.Errorf("min_payout=%v: solo payout is queued for a wallet send (%v). "+
-				"It was already paid on-chain by the coinbase; sending it again would need a "+
-				"pool wallet this app does not have.", minPayout, ready)
-		}
+	pendingID, rows, total, err := ReserveMaturePayouts(miner, current)
+	if err != nil {
+		t.Fatalf("ReserveMaturePayouts: %v", err)
+	}
+	if pendingID != "" || len(rows) != 0 || total != 0 {
+		t.Errorf("solo payout was reserved for a wallet send (id=%q rows=%d total=%v). "+
+			"It was already paid on-chain by the coinbase; sending it again would need a "+
+			"pool wallet this app does not have.", pendingID, len(rows), total)
 	}
 }
 
