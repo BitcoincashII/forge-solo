@@ -3,6 +3,7 @@ package mining
 import (
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -92,10 +93,12 @@ func TestHangingAuxNodeYieldsNoCommitment(t *testing.T) {
 // OLD address. The window is the RPC duration plus one poll interval, and what is at stake
 // is where a 1175 block pays -- so a generation counter invalidates in-flight work.
 func TestRepointDiscardsWorkFetchedForTheOldAddress(t *testing.T) {
-	var served string
+	// atomic, not a plain string: the handler runs on the server's goroutine while the
+	// test body reads it, which is a data race the -race build is entitled to report.
+	var served atomic.Value
 	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(300 * time.Millisecond) // in flight while the address changes
-		served = "old"
+		served.Store("old")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"result":{"hash":"` + repeatStr("a", 64) + `","chainid":1175,"target":"7f"},"error":null,"id":1}`))
 	}))
@@ -123,7 +126,7 @@ func TestRepointDiscardsWorkFetchedForTheOldAddress(t *testing.T) {
 		t.Fatalf("payout = %q, want the re-pointed address", h.Payout)
 	}
 	if work, _ := jm.fetchAuxWork(); work != nil {
-		t.Errorf("aux work is being served after a re-point (%v); it was fetched for the previous address (served=%q)", work, served)
+		t.Errorf("aux work is being served after a re-point (%v); it was fetched for the previous address (served=%v)", work, served.Load())
 	}
 }
 

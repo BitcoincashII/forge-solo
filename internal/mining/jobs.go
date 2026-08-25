@@ -200,10 +200,19 @@ func (jm *JobManager) fetchAuxWork() (*mergemining.AuxWork, []byte) {
 // auxRefreshLoop polls the aux node off the job-build path until merge mining is disabled.
 func (jm *JobManager) auxRefreshLoop() {
 	for {
+		// client, payout and gen MUST be read under ONE lock acquisition.
+		//
+		// They used to be read under two, and EnableMergeMining running in the gap paired
+		// the OLD client and payout address with the NEW generation. refreshAuxOnce's
+		// guard then passed -- gen matched, because it had been read after the increment --
+		// and work fetched for the PREVIOUS payout address was stored as current. A block
+		// merge-mined on that work pays the address the operator just changed away from.
 		jm.mu.RLock()
 		enabled := jm.auxEnabled
 		client := jm.auxClient
 		payout := jm.auxPayout
+		gen := jm.auxGen
+		wake := jm.auxRefreshNow
 		jm.mu.RUnlock()
 
 		if !enabled || client == nil {
@@ -212,11 +221,6 @@ func (jm *JobManager) auxRefreshLoop() {
 			jm.mu.Unlock()
 			return
 		}
-
-		jm.mu.RLock()
-		gen := jm.auxGen
-		wake := jm.auxRefreshNow
-		jm.mu.RUnlock()
 
 		jm.refreshAuxOnce(client, payout, gen)
 
