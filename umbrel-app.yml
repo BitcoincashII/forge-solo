@@ -5,7 +5,12 @@ tagline: Solo-mine BCH2 at home and merge-mine 1175
 icon: https://raw.githubusercontent.com/BitcoincashII/BCH2-Graphics/main/bch2_logo.png
 category: bitcoin
 version: "1.0.8"
-port: 3080
+# 31175, not 3080: an Umbrel that already uses 3080 (another app, or a stuck prior
+# install attempt) fails to install this one with "Bind for 0.0.0.0:3080 failed: port is
+# already allocated". The community store moved to 31175 in v1.0.5; this manifest was
+# never updated to match and sat stale through v1.0.8. Dashboard UI port only -- the
+# miner ports are 3333 and 3335 and are unaffected.
+port: 31175
 description: >-
   Point your ASIC or Bitaxe at your own Umbrel and mine BCH2 SOLO — you keep the
   full block reward (no pool fee, no PPLNS). Every share also merge-mines 1175
