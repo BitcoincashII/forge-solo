@@ -74,3 +74,31 @@ jobs:
 
       - name: Merge-mining end to end (live 1175 regtest node)
         run: ./scripts/it-1175.sh
+
+  store-manifest:
+    name: Store listing matches this repo
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.x'
+
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+
+      # Publishing a release means hand-copying umbrel-app.yml into the community store.
+      # Nothing enforced that, and a missed copy is invisible -- the store went on serving
+      # the old file while this repo looked correct. It is how the 3080 -> 31175 port fix
+      # sat unmirrored for four releases, and how the store kept advertising "Automatic
+      # solo payouts", a feature this app does not have.
+      #
+      # Fails on drift; only warns when the store cannot be reached, so a GitHub outage
+      # does not read as a manifest problem.
+      - name: Compare against the published store listing
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/check-store-manifest.py
