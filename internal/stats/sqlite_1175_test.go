@@ -33,8 +33,8 @@ func Test1175LedgerWorksOnSQLite(t *testing.T) {
 	if err := Record1175Block(height, hash, reward, miner, true); err != nil {
 		t.Fatalf("Record1175Block: %v", err)
 	}
-	// Same arguments the stratum passes: (height, pplnsWindow, poolFee, soloFee).
-	if err := Distribute1175Block(height, 100000, 0.0, 0.0); err != nil {
+	// Same arguments the stratum passes: (height, pplnsWindow).
+	if err := Distribute1175Block(height, 100000); err != nil {
 		t.Fatalf("Distribute1175Block: %v", err)
 	}
 
@@ -144,7 +144,7 @@ func Test1175BlockSupersedesAReorgedOutHeight(t *testing.T) {
 	if err := Record1175Block(height, orphan, rewardA, miner, true); err != nil {
 		t.Fatalf("record orphan: %v", err)
 	}
-	if err := Distribute1175Block(height, 100000, 0, 0); err != nil {
+	if err := Distribute1175Block(height, 100000); err != nil {
 		t.Fatalf("distribute orphan: %v", err)
 	}
 

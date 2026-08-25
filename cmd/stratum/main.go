@@ -50,8 +50,6 @@ var (
 	latestCoinbaseBTC   float64      // most recent getblocktemplate coinbasevalue in BTC (guarded by networkDiffMu)
 	networkDiffMu       sync.RWMutex // Protects networkDifficulty + latestCoinbaseBTC access
 	poolAddress         string
-	poolFee             float64           = 1.0 // PPLNS fee percentage
-	soloFee             float64           = 0.5 // Solo fee percentage
 	blockReward         float64           = 50.0
 	minPayout           float64           = 5.0
 	minPayoutMu         sync.RWMutex               // guards minPayout: pool_config watcher writes vs payout processor reads
@@ -502,7 +500,7 @@ func aux1175BlockHandler(height int64, hash string, coinbaseValueSat int64, find
 		logger.Error("1175 record block FAILED (block may be lost — verify)", zap.Int64("height", height), zap.String("hash", hash), zap.Error(err))
 		return
 	}
-	if err := stats.Distribute1175Block(height, pplnsWindow, poolFee, soloFee); err != nil {
+	if err := stats.Distribute1175Block(height, pplnsWindow); err != nil {
 		logger.Warn("1175 distribute failed (processor will retry)", zap.Int64("height", height), zap.Error(err))
 		return
 	}
@@ -557,7 +555,7 @@ func run1175PayoutCycle() {
 	// 1. retry any distribution that failed transiently
 	if heights, err := stats.UndistributedBlocks1175(); err == nil {
 		for _, h := range heights {
-			if err := stats.Distribute1175Block(h, pplnsWindow, poolFee, soloFee); err != nil {
+			if err := stats.Distribute1175Block(h, pplnsWindow); err != nil {
 				logger.Warn("1175 re-distribute failed", zap.Int64("height", h), zap.Error(err))
 			}
 		}
@@ -1472,6 +1470,21 @@ func main() {
 		logger.Fatal("Failed to load config", zap.Error(err))
 	}
 
+	// Forge Solo is solo-only, and that is not a preference -- the whole payout model
+	// depends on it. Every reward is paid on-chain by the block's own coinbase to the
+	// configured address; there is no operator wallet. In any other scheme miners
+	// authorize as non-solo and payouts become sendable rows targeting a wallet this app
+	// does not have.
+	//
+	// The guarantee rested on one line in the shipped template with no code-level default,
+	// so a missing or misspelled key flipped the app to PPLNS in silence. loadConfig now
+	// defaults it to "solo"; anything explicitly set to something else is refused here,
+	// loudly, in the style of the extranonce invariant below.
+	if scheme := config.GetString("pool.payout_scheme"); scheme != "solo" {
+		logger.Fatal("Forge Solo is solo-only; pool.payout_scheme must be \"solo\"",
+			zap.String("payout_scheme", scheme))
+	}
+
 	serverConfig := &stratum.ServerConfig{
 		Host:               config.GetString("stratum.host"),
 		Port:               config.GetInt("stratum.port"),
@@ -1521,8 +1534,6 @@ func main() {
 
 	// Load pool configuration
 	poolAddress = config.GetString("pool.address")
-	poolFee = config.GetFloat64("pool.fee")
-	soloFee = config.GetFloat64("pool.solo_fee")
 	blockReward = config.GetFloat64("pool.block_reward")
 	setMinPayout(config.GetFloat64("pool.min_payout"))
 	pplnsWindow = config.GetInt("pool.pplns_window")
@@ -1532,8 +1543,6 @@ func main() {
 
 	logger.Info("Pool configuration loaded",
 		zap.String("address", poolAddress),
-		zap.Float64("fee", poolFee),
-		zap.Float64("solo_fee", soloFee),
 		zap.Float64("block_reward", blockReward),
 		zap.Float64("min_payout", minPayout),
 		zap.Int("pplns_window", pplnsWindow))
@@ -1998,10 +2007,13 @@ func loadConfig(path string) (*viper.Viper, error) {
 	v.SetDefault("node.user", "")
 	v.SetDefault("node.password", "")
 
-	// Pool defaults
-	v.SetDefault("pool.fee", 1.0)
-	v.SetDefault("pool.solo_fee", 0.5)
+	// Mining defaults. No fee key of any kind: this app takes none on any path, and a
+	// default here would be a live deduction the shipped template could not switch off.
 	v.SetDefault("pool.block_reward", 50.0)
+	// payout_scheme has no default in the template's absence, and its absence silently
+	// flips the app to PPLNS -- authorizing miners as non-solo and queueing payouts against
+	// a wallet this app does not have. Solo is the only mode it supports.
+	v.SetDefault("pool.payout_scheme", "solo")
 	v.SetDefault("pool.min_payout", 5.0)
 	v.SetDefault("pool.address", "")
 	v.SetDefault("pool.coinbase_tag", "Forge") // Must be set in config or env
@@ -2207,17 +2219,15 @@ func (p *BlockFindingShareProcessor) submitBlock(share *stratum.Share) {
 			effectiveReward = cbv
 		}
 
-		// Calculate payout after fee deduction
-		var feePercent float64
-		var mode string
-		if share.IsSolo {
-			feePercent = soloFee
-			mode = "SOLO"
-		} else {
-			feePercent = poolFee
+		// No fee. The block's own coinbase pays the configured payout address the FULL
+		// reward, so the recorded payout IS the reward -- there is nothing to deduct and no
+		// operator wallet to deduct it into. Deducting here would not take money from the
+		// miner (the chain already paid them in full); it would under-report what they got.
+		mode := "SOLO"
+		if !share.IsSolo {
 			mode = "PPLNS"
 		}
-		payoutAmount := effectiveReward * (1 - feePercent/100)
+		payoutAmount := effectiveReward
 		hashStr := hex.EncodeToString(blockHash)
 
 		p.logger.Info("🎉🎉🎉 BLOCK ACCEPTED BY NODE! 🎉🎉🎉",
@@ -2225,7 +2235,6 @@ func (p *BlockFindingShareProcessor) submitBlock(share *stratum.Share) {
 			zap.String("miner", share.MinerID),
 			zap.String("mode", mode),
 			zap.Float64("reward", effectiveReward),
-			zap.Float64("fee_percent", feePercent),
 			zap.Float64("payout", payoutAmount))
 
 		// Record block for miner stats with effort tracking for luck calculation
@@ -2234,14 +2243,13 @@ func (p *BlockFindingShareProcessor) submitBlock(share *stratum.Share) {
 
 		// Send webhook alert for block found
 		go sendWebhookAlert("block_found", map[string]interface{}{
-			"height":      job.Height,
-			"hash":        hashStr,
-			"miner":       share.MinerID,
-			"worker":      share.WorkerName,
-			"mode":        mode,
-			"reward":      effectiveReward,
-			"payout":      payoutAmount,
-			"fee_percent": feePercent,
+			"height": job.Height,
+			"hash":   hashStr,
+			"miner":  share.MinerID,
+			"worker": share.WorkerName,
+			"mode":   mode,
+			"reward": effectiveReward,
+			"payout": payoutAmount,
 		})
 
 		if share.IsSolo {

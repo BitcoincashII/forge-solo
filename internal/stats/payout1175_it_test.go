@@ -15,11 +15,11 @@ func abs1175(x float64) float64 {
 // TestPayout1175Accounting exercises the hardened 1175 merge-mining payout ledger
 // against a real postgres test DB (MMTEST_DB connStr). It validates the fund-safety
 // invariants from the 2026-07-17 audit:
-//   - proportional PPLNS distribution (60/40) net of pool fee
+//   - proportional PPLNS distribution (60/40) of the full reward
 //   - idempotent re-distribution (no double-credit)
 //   - the CONFIRMATION GATE: credits are unpayable until the aux block is confirmed
 //   - redistribute REFUSED once a height has paid/sending rows
-//   - SOLO block credits only the finder, net of the solo fee
+//   - SOLO block credits only the finder, the full reward
 //   - ORPHAN-VOID: an orphaned block voids its unpaid credits + drops from the payable set
 //   - the mark->send->finalize money path, stuck-sending surfacing, and revert
 //   - 1175 address resolution
@@ -36,8 +36,6 @@ func TestPayout1175Accounting(t *testing.T) {
 		t.Fatalf("InitDB: %v", err)
 	}
 	Init1175Schema()
-
-	const poolFee, soloFee = 1.0, 2.0
 
 	// clean slate
 	for _, q := range []string{`DELETE FROM shares`, `DELETE FROM payouts_1175`, `DELETE FROM blocks_1175`, `DELETE FROM miners`} {
@@ -77,27 +75,34 @@ func TestPayout1175Accounting(t *testing.T) {
 		return false
 	}
 
-	// ---- 1. PPLNS distribution: block 100, gross 25, poolFee 1% => net 24.75, A=14.85 B=9.90
+	// ---- 1. PPLNS distribution: block 100, gross 25, no fee => A=15.00 B=10.00 (sums to gross)
 	if err := Record1175Block(100, "hash100", 25.0, "minerAAAAAAAAAA", false); err != nil {
 		t.Fatalf("record 100: %v", err)
 	}
-	if err := Distribute1175Block(100, 1000, poolFee, soloFee); err != nil {
+	if err := Distribute1175Block(100, 1000); err != nil {
 		t.Fatalf("distribute 100: %v", err)
 	}
-	if a, b := amtOf("minerAAAAAAAAAA", 100), amtOf("minerBBBBBBBBBB", 100); abs1175(a-14.85) > 1e-9 || abs1175(b-9.90) > 1e-9 {
-		t.Fatalf("pplns split: A=%.8f (want 14.85) B=%.8f (want 9.90)", a, b)
+	if a, b := amtOf("minerAAAAAAAAAA", 100), amtOf("minerBBBBBBBBBB", 100); abs1175(a-15.00) > 1e-9 || abs1175(b-10.00) > 1e-9 {
+		t.Fatalf("pplns split: A=%.8f (want 15.00) B=%.8f (want 10.00)", a, b)
+	}
+
+	// The fee-net pair (14.85 / 9.90) was a stronger invariant than two round numbers:
+	// it could only hold if the split AND the deduction were both right. With no fee, the
+	// equivalent strength is that the credits sum to the whole reward, nothing withheld.
+	if a, b := amtOf("minerAAAAAAAAAA", 100), amtOf("minerBBBBBBBBBB", 100); abs1175((a+b)-25.0) > 1e-9 {
+		t.Fatalf("credits must sum to the full reward: A+B=%.8f (want 25.00000000)", a+b)
 	}
 
 	// ---- 2. idempotency: re-record + re-distribute a still-pending height must not double
 	if err := Record1175Block(100, "hash100", 25.0, "minerAAAAAAAAAA", false); err != nil {
 		t.Fatalf("re-record 100: %v", err)
 	}
-	if err := Distribute1175Block(100, 1000, poolFee, soloFee); err != nil {
+	if err := Distribute1175Block(100, 1000); err != nil {
 		t.Fatalf("re-distribute 100: %v", err)
 	}
 	var cnt int
 	db.QueryRow(`SELECT COUNT(*) FROM payouts_1175 WHERE block_height=100`).Scan(&cnt)
-	if cnt != 2 || abs1175(amtOf("minerAAAAAAAAAA", 100)-14.85) > 1e-9 {
+	if cnt != 2 || abs1175(amtOf("minerAAAAAAAAAA", 100)-15.00) > 1e-9 {
 		t.Fatalf("idempotency broken: rows=%d A=%.8f", cnt, amtOf("minerAAAAAAAAAA", 100))
 	}
 
@@ -121,8 +126,8 @@ func TestPayout1175Accounting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("process A: %v", err)
 	}
-	if abs1175(amt-14.85) > 1e-9 {
-		t.Fatalf("process amount: %.8f (want 14.85)", amt)
+	if abs1175(amt-15.00) > 1e-9 {
+		t.Fatalf("process amount: %.8f (want 15.00)", amt)
 	}
 	if s := statusOf("minerAAAAAAAAAA", 100); s != "sending" {
 		t.Fatalf("A status after process = %q (want sending)", s)
@@ -138,33 +143,33 @@ func TestPayout1175Accounting(t *testing.T) {
 	}
 
 	// ---- 5a. re-distributing an already-distributed height is a SAFE NO-OP (idempotency guard)
-	if err := Distribute1175Block(100, 1000, poolFee, soloFee); err != nil {
+	if err := Distribute1175Block(100, 1000); err != nil {
 		t.Fatalf("re-distribute (distributed=true) should be a safe no-op, got: %v", err)
 	}
 	db.QueryRow(`SELECT COUNT(*) FROM payouts_1175 WHERE block_height=100`).Scan(&cnt)
-	if cnt != 2 || statusOf("minerAAAAAAAAAA", 100) != "paid" || abs1175(amtOf("minerAAAAAAAAAA", 100)-14.85) > 1e-9 {
+	if cnt != 2 || statusOf("minerAAAAAAAAAA", 100) != "paid" || abs1175(amtOf("minerAAAAAAAAAA", 100)-15.00) > 1e-9 {
 		t.Fatalf("re-distribute mutated a paid height: rows=%d Astatus=%s Aamt=%.8f", cnt, statusOf("minerAAAAAAAAAA", 100), amtOf("minerAAAAAAAAAA", 100))
 	}
 	// ---- 5b. defensive: a height flagged undistributed but already carrying paid/sending rows
 	//          is REFUSED (with error) rather than double-paying.
 	db.Exec(`UPDATE blocks_1175 SET distributed=false WHERE height=100`)
-	if err := Distribute1175Block(100, 1000, poolFee, soloFee); err == nil {
+	if err := Distribute1175Block(100, 1000); err == nil {
 		t.Fatal("re-distribute of a height with paid rows succeeded (want refuse)")
 	}
-	if statusOf("minerAAAAAAAAAA", 100) != "paid" || abs1175(amtOf("minerAAAAAAAAAA", 100)-14.85) > 1e-9 {
+	if statusOf("minerAAAAAAAAAA", 100) != "paid" || abs1175(amtOf("minerAAAAAAAAAA", 100)-15.00) > 1e-9 {
 		t.Fatalf("refused re-distribute still mutated A: status=%s amt=%.8f", statusOf("minerAAAAAAAAAA", 100), amtOf("minerAAAAAAAAAA", 100))
 	}
 	db.Exec(`UPDATE blocks_1175 SET distributed=true WHERE height=100`) // restore invariant
 
-	// ---- 6. SOLO block: credits ONLY the finder, net of the solo fee (2%): 10 => 9.80
+	// ---- 6. SOLO block: credits ONLY the finder, the full reward: 10 => 10.00
 	if err := Record1175Block(101, "hash101", 10.0, "minerAAAAAAAAAA", true); err != nil {
 		t.Fatalf("record 101: %v", err)
 	}
-	if err := Distribute1175Block(101, 1000, poolFee, soloFee); err != nil {
+	if err := Distribute1175Block(101, 1000); err != nil {
 		t.Fatalf("distribute 101: %v", err)
 	}
-	if a := amtOf("minerAAAAAAAAAA", 101); abs1175(a-9.80) > 1e-9 {
-		t.Fatalf("solo credit A=%.8f (want 9.80)", a)
+	if a := amtOf("minerAAAAAAAAAA", 101); abs1175(a-10.00) > 1e-9 {
+		t.Fatalf("solo credit A=%.8f (want 10.00)", a)
 	}
 	if b := amtOf("minerBBBBBBBBBB", 101); b != 0 {
 		t.Fatalf("solo block credited non-finder B=%.8f (want 0)", b)
@@ -174,7 +179,7 @@ func TestPayout1175Accounting(t *testing.T) {
 	if err := Record1175Block(102, "hash102", 25.0, "minerAAAAAAAAAA", false); err != nil {
 		t.Fatalf("record 102: %v", err)
 	}
-	if err := Distribute1175Block(102, 1000, poolFee, soloFee); err != nil {
+	if err := Distribute1175Block(102, 1000); err != nil {
 		t.Fatalf("distribute 102: %v", err)
 	}
 	if err := Confirm1175Block(102); err != nil {
@@ -200,8 +205,8 @@ func TestPayout1175Accounting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("process 101: %v", err)
 	}
-	if abs1175(ramt-9.80) > 1e-9 {
-		t.Fatalf("process 101 amount=%.8f (want 9.80)", ramt)
+	if abs1175(ramt-10.00) > 1e-9 {
+		t.Fatalf("process 101 amount=%.8f (want 10.00)", ramt)
 	}
 	if err := Revert1175PayoutMark(rbatch); err != nil {
 		t.Fatalf("revert: %v", err)

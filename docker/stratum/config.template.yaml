@@ -10,7 +10,6 @@ pool:
   coin: "Bitcoin Cash II"
   coin_symbol: "BCH2"
   address: "${POOL_ADDRESS}"
-  solo_fee: 0.0                 # home miner keeps 100% — no pool fee
   block_reward: 50.0
   payout_scheme: "solo"
   # INERT in solo. A solo block is paid by its own coinbase and the settle stamps the payout

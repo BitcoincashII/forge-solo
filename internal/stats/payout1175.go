@@ -64,12 +64,12 @@ func Record1175Block(height int64, hash string, grossReward float64, finder stri
 	return err
 }
 
-// Distribute1175Block credits the block's reward (net of fee) to miners, idempotently
+// Distribute1175Block credits the block's full reward to miners, idempotently
 // and reorg-aware. No-op if already distributed. If ANY row for this height is already
 // paid it refuses (never double-pays); otherwise it deletes the still-unpaid rows and
 // recomputes the full set, so the aggregate for a height can never exceed one reward.
 // Solo blocks credit the finder; an empty PPLNS window falls back to the finder.
-func Distribute1175Block(height int64, windowSize int, poolFeePct, soloFeePct float64) error {
+func Distribute1175Block(height int64, windowSize int) error {
 	dbMu.RLock()
 	defer dbMu.RUnlock()
 	if db == nil {
@@ -91,11 +91,15 @@ func Distribute1175Block(height int64, windowSize int, poolFeePct, soloFeePct fl
 		return nil
 	}
 
-	feePct := poolFeePct
-	if isSolo {
-		feePct = soloFeePct
-	}
-	payoutAmount := gross * (1 - feePct/100.0)
+	// No fee: 1175 is coinbase-direct too. The aux coinbase pays the configured 1175
+	// payout address the full reward, so the credit is the full gross.
+	//
+	// This mattered more than the BCH2 side: the fee was selected from blocks_1175.is_solo
+	// read back from the DATABASE, and that column was added by an additive migration that
+	// backfills pre-existing rows to false. An upgraded install retrying an undistributed
+	// pre-column row would have taken the PPLNS branch and written gross*0.99 into
+	// payouts_1175.amount -- a durable ledger row understating what the chain paid.
+	payoutAmount := gross
 
 	// shares only needed for the PPLNS path
 	var shares map[string]float64
@@ -144,9 +148,7 @@ func Distribute1175Block(height int64, windowSize int, poolFeePct, soloFeePct fl
 		if finder == "" {
 			return fmt.Errorf("1175 block %d has no finder and no PPLNS work; holding (manual reconcile)", height)
 		}
-		if isSolo {
-			// finder already accounted for via soloFee
-		} else {
+		if !isSolo {
 			log.Printf("Warning: 1175 block %d empty PPLNS window; crediting finder %s", height, finder)
 		}
 		if err = credit(finder, payoutAmount); err != nil {

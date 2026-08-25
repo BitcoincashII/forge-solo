@@ -121,17 +121,6 @@ func poolNameFromEnv() string {
 	return "Forge Solo"
 }
 
-// poolFeeFromConfig reports the pool fee actually in effect. Solo takes none; the value is
-// read rather than assumed so a future non-solo build cannot silently publish a wrong number.
-func poolFeeFromConfig() float64 {
-	if v := os.Getenv("POOL_FEE"); v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
-			return f
-		}
-	}
-	return 0.0
-}
-
 func isValid1175Address(address string) bool {
 	address = strings.TrimSpace(address)
 	if address == "" {
@@ -836,7 +825,11 @@ func getPoolStats(c *fiber.Ctx) error {
 		// aggregators, so those two numbers were the ones the outside world saw. The
 		// minimum is 0 because a solo block pays its finder in its own coinbase; there is
 		// nothing to accumulate. See /api/v1/pool/config, which already reported the truth.
-		"poolFee":           poolFeeFromConfig(),
+		// Always 0: this app takes no fee on any path -- the block's coinbase pays the
+		// miner directly. Kept as a field because /api/stats is aliased for aggregators,
+		// and for a "no pool fee" product a machine-readable 0 IS the claim; undefined
+		// would be worse. The POOL_FEE env branch this used to read was set nowhere.
+		"poolFee":           0.0,
 		"soloFee":           0.0,
 		"minPayout":         0.0,
 		"currentHeight":     height,
