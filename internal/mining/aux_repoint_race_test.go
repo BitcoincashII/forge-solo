@@ -63,24 +63,43 @@ func TestRepointNeverStoresWorkFromTheOldAddress(t *testing.T) {
 		}
 	}()
 
+	// Read the payout address and the stored work under ONE lock acquisition.
+	//
+	// The invariant only holds instantaneously: refreshAuxOnce writes auxWork under the
+	// lock while the generation still matches, and auxPayout changes only in
+	// EnableMergeMining, which bumps the generation and clears auxWork in the same
+	// critical section. Calling AuxHealth() and fetchAuxWork() separately observes a torn
+	// pair across a re-point and reports a defect that is not there -- the same mistake
+	// this test exists to catch in the production loop.
+	snapshot := func() (string, string) {
+		jm.mu.RLock()
+		defer jm.mu.RUnlock()
+		if !jm.auxEnabled || jm.auxWork == nil || jm.auxCommitment == nil {
+			return jm.auxPayout, ""
+		}
+		if time.Since(jm.auxWorkAt) > auxWorkMaxAge {
+			return jm.auxPayout, ""
+		}
+		return jm.auxPayout, jm.auxWork.Hash
+	}
+
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		h := jm.AuxHealth()
-		work, _ := jm.fetchAuxWork()
-		if work == nil {
+		payout, hash := snapshot()
+		if hash == "" {
 			continue
 		}
 		// The stored work must always belong to the address currently in effect.
 		wantHash := repeatStr("a", 64)
-		if h.Payout == "esf1new" {
+		if payout == "esf1new" {
 			wantHash = repeatStr("b", 64)
 		}
-		if work.Hash != wantHash {
+		if hash != wantHash {
 			close(stop)
 			wg.Wait()
 			t.Fatalf("payout is %q but the stored aux work came from the other node "+
 				"(hash %s, want %s) — a 1175 block found on this work would pay the "+
-				"previous address", h.Payout, work.Hash[:8], wantHash[:8])
+				"previous address", payout, hash[:8], wantHash[:8])
 		}
 	}
 	close(stop)
