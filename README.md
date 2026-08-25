@@ -89,7 +89,7 @@ measured rate warrants rather than climbing in +50% steps. Setting `d=<difficult
 password skips even that: the connection opens exactly there. The hint is a starting
 point, not a lock — vardiff still tracks the connection afterwards, so a hint that turns
 out to be wrong corrects itself. It is clamped to the same floor and maximum as every
-other path, so `d=1` cannot flood the pool and an absurd value cannot park a connection
+other path, so `d=1` cannot flood the miner and an absurd value cannot park a connection
 where it never submits.
 
 **Payout.** Rented hashpower mines **solo to your address**, exactly like your own

@@ -51,7 +51,7 @@ func main() {
 		backendAddr = env
 	}
 
-	log.Printf("Forge Pool Stratum Proxy")
+	log.Printf("Forge Solo Stratum Proxy")
 	log.Printf("Listen: %s -> Backend: %s", listenAddr, backendAddr)
 
 	// Start health check server

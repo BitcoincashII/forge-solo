@@ -304,14 +304,14 @@ func NewJobManager(rpcURL, rpcUser, rpcPassword, poolAddress, coinbaseTag string
 			// Fallback to local parsing if RPC fails
 			pkh = parseAddressToPubkeyHash(poolAddress)
 			if pkh != nil {
-				fmt.Printf("Pool address pubkey hash (from local parser): %s\n", hex.EncodeToString(pkh))
+				fmt.Printf("Payout address pubkey hash (from local parser): %s\n", hex.EncodeToString(pkh))
 			}
 		}
 		if pkh == nil {
 			// A configured-but-unparseable address is a mistake we must NOT silently mine
 			// past (rewards would burn), but we no longer crash the process — warn and pause
 			// until a valid address is set in the dashboard.
-			log.Printf("WARNING: pool payout address %q could not be resolved to a pubkey hash - "+
+			log.Printf("WARNING: payout address %q could not be resolved to a pubkey hash - "+
 				"mining paused until a valid payout address is set in the dashboard", poolAddress)
 		}
 	} else {
@@ -407,7 +407,7 @@ func getPubkeyHashFromNode(rpcURL, rpcUser, rpcPassword, address string) []byte 
 	if len(spk) == 50 && spk[:6] == "76a914" && spk[46:] == "88ac" {
 		pkh, err := hex.DecodeString(spk[6:46])
 		if err == nil && len(pkh) == 20 {
-			fmt.Printf("Pool address pubkey hash (from node): %s\n", spk[6:46])
+			fmt.Printf("Payout address pubkey hash (from node): %s\n", spk[6:46])
 			return pkh
 		}
 	}

@@ -1060,7 +1060,7 @@ func sendWebhookAlert(event string, data map[string]interface{}) {
 	payload := map[string]interface{}{
 		"event":     event,
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
-		"pool":      "Forge Pool",
+		"pool":      "Forge Solo",
 		"data":      data,
 	}
 
@@ -1452,7 +1452,7 @@ func main() {
 	}
 	defer logger.Sync()
 
-	logger.Info("🔥 Forge Pool - BCH2 Mining Pool")
+	logger.Info("🔥 Forge Solo - BCH2 Solo Miner")
 
 	// Initialize database with credentials from environment
 	dbConnStr := stats.GetDBConnStr()
@@ -1541,7 +1541,7 @@ func main() {
 		pplnsWindow = 100000 // Default PPLNS window
 	}
 
-	logger.Info("Pool configuration loaded",
+	logger.Info("Mining configuration loaded",
 		zap.String("address", poolAddress),
 		zap.Float64("block_reward", blockReward),
 		zap.Float64("min_payout", minPayout),

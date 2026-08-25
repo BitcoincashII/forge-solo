@@ -1,5 +1,5 @@
 // Package mergemining implements the aux-chain (Dogecoin-style AuxPoW) side of
-// merge mining for Forge Pool: it fetches aux work from the 1175 node, builds
+// merge mining for Forge Solo: it fetches aux work from the 1175 node, builds
 // the merged-mining commitment that goes into the PARENT (BCH2) coinbase, and
 // assembles + submits the CAuxPow proof when a parent share solves the aux
 // target.

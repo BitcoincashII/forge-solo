@@ -289,7 +289,7 @@ func main() {
 	}
 	defer zapLogger.Sync()
 
-	zapLogger.Info("🔥 Forge Pool API Server")
+	zapLogger.Info("🔥 Forge Solo API Server")
 
 	// Initialize database connection for settings persistence
 	dbConnStr := stats.GetDBConnStr()
@@ -335,7 +335,7 @@ func main() {
 	defer stats.CloseDB()
 
 	app := fiber.New(fiber.Config{
-		AppName: "Forge Pool API",
+		AppName: "Forge Solo API",
 	})
 
 	app.Use(logger.New())
@@ -442,7 +442,11 @@ func main() {
 
 		// Output in Prometheus format
 		c.Set("Content-Type", "text/plain; charset=utf-8")
-		return c.SendString(fmt.Sprintf(`# HELP pool_hashrate_ths Pool hashrate in TH/s
+		// The pool_* metric NAMES below are a scrape contract: a Grafana panel or an alert
+		// rule referencing them breaks silently on a rename, with no error anywhere. The
+		// HELP text is metadata and has been corrected for a solo miner; the names are
+		// deliberately left alone. Do not "tidy" them.
+		return c.SendString(fmt.Sprintf(`# HELP pool_hashrate_ths Hashrate in TH/s
 # TYPE pool_hashrate_ths gauge
 pool_hashrate_ths %.6f
 
@@ -458,7 +462,7 @@ pool_workers_total %d
 # TYPE pool_shares_total counter
 pool_shares_total %d
 
-# HELP pool_blocks_found Total blocks found by pool
+# HELP pool_blocks_found Total blocks found
 # TYPE pool_blocks_found counter
 pool_blocks_found %d
 
@@ -466,7 +470,7 @@ pool_blocks_found %d
 # TYPE network_block_height gauge
 network_block_height %d
 
-# HELP pool_uptime_seconds Pool uptime in seconds
+# HELP pool_uptime_seconds API uptime in seconds
 # TYPE pool_uptime_seconds gauge
 pool_uptime_seconds %.0f
 `,
@@ -819,16 +823,15 @@ func getPoolStats(c *fiber.Ctx) error {
 		"miners":        len(minerSet),
 		"blocksFound":   blocksFound,
 		"blocksPending": 0,
-		// Read from the live config, never hardcoded. These literals said poolFee 1% and
-		// minPayout 5 BCH2 on an app that charges no fee and has no minimum -- and this
-		// route is deliberately aliased at /api/stats for miningpoolstats and other
-		// aggregators, so those two numbers were the ones the outside world saw. The
-		// minimum is 0 because a solo block pays its finder in its own coinbase; there is
-		// nothing to accumulate. See /api/v1/pool/config, which already reported the truth.
-		// Always 0: this app takes no fee on any path -- the block's coinbase pays the
-		// miner directly. Kept as a field because /api/stats is aliased for aggregators,
-		// and for a "no pool fee" product a machine-readable 0 IS the claim; undefined
-		// would be worse. The POOL_FEE env branch this used to read was set nowhere.
+		// All three are constants now, and 0 is the truth rather than a placeholder: this
+		// app takes no fee on any path, and there is no minimum because a solo block pays
+		// its finder in its own coinbase -- nothing accumulates. These literals once said
+		// poolFee 1% and minPayout 5 BCH2, and this route is deliberately aliased at
+		// /api/stats for aggregators, so those were the numbers the outside world saw.
+		//
+		// The keys stay. For a product whose headline claim is "no pool fee", a
+		// machine-readable 0 IS the claim; undefined would be worse. The POOL_FEE env
+		// branch that used to feed poolFee was set by nothing in the tree and is gone.
 		"poolFee":           0.0,
 		"soloFee":           0.0,
 		"minPayout":         0.0,
@@ -975,7 +978,7 @@ func getBlocksAPI(c *fiber.Ctx) error {
 			"height":    b.Height,
 			"hash":      b.Hash,
 			"time":      b.Time,
-			"miner":     "Forge Pool",
+			"miner":     poolNameFromEnv(),
 			"reward":    b.Reward,
 			"confirmed": b.Status == "confirmed" || (currentHeight > 0 && currentHeight-b.Height >= 6),
 			"type":      blockType,

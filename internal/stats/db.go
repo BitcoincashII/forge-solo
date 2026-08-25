@@ -43,7 +43,10 @@ func GetDBConnStr() string {
 	}
 	dbname := os.Getenv("DB_NAME")
 	if dbname == "" {
-		dbname = "forgepool"
+		// forgesolo, not forgepool. The packaged app always sets DB_NAME, so this default
+		// is unreachable there -- but a bare invocation with DB_NAME unset would otherwise
+		// attach to the production pool's live ledger, which is a different product.
+		dbname = "forgesolo"
 	}
 	sslmode := os.Getenv("DB_SSLMODE")
 	if sslmode == "" {
@@ -361,7 +364,7 @@ func SaveSoloBlockCoinbaseDirect(minerID string, blockHeight int64, amount float
 	if err = tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit solo block: %w", err)
 	}
-	log.Printf("✅ Solo block %d recorded; %.8f BCH2 paid on-chain by coinbase to POOL_ADDRESS (settled DB-only)", blockHeight, amount)
+	log.Printf("✅ Solo block %d recorded; %.8f BCH2 paid on-chain by coinbase to your configured payout address (settled DB-only)", blockHeight, amount)
 	return nil
 }
 
