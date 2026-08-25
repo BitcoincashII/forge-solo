@@ -171,10 +171,20 @@
                         // text, which is the one dynamic string on this page that does not
                         // originate here.
                         msg = '⚠️ <b>Not mining.</b> ' + escapeHtml(ms.message);
+                        // The detail line must agree with the message above it. "receiving no
+                        // work" is only true when the node has stopped producing jobs; appending
+                        // it to no_shares -- whose message says the miner IS receiving work and
+                        // not submitting -- contradicted itself inside one banner. Seen on
+                        // mainnet: "connected and receiving work but has not submitted an
+                        // accepted share recently. 1 miner(s) connected and receiving no work."
                         if (ms.reason === 'miners_refused' && ms.connections > 0) {
                             msg += '<div style="margin-top:6px">' + Number(ms.connections) + ' connection(s), 0 authorized.</div>';
+                        } else if (ms.connections > 0 && (ms.reason === 'stale_template' || ms.reason === 'no_template_yet')) {
+                            msg += '<div style="margin-top:6px">' + Number(ms.connections) + ' miner(s) connected, but the node is not producing work for them.</div>';
+                        } else if (ms.connections > 0 && ms.reason === 'no_shares') {
+                            msg += '<div style="margin-top:6px">' + Number(ms.connections) + ' miner(s) connected and receiving work.</div>';
                         } else if (ms.connections > 0) {
-                            msg += '<div style="margin-top:6px">' + Number(ms.connections) + ' miner(s) connected and receiving no work.</div>';
+                            msg += '<div style="margin-top:6px">' + Number(ms.connections) + ' miner(s) connected.</div>';
                         }
                     } else if (ms && ms.mining === true && Number(ms.authorized) > 0) {
                         tone = 'green';
