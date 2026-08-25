@@ -924,7 +924,7 @@ func GetMinerBlockContributionsDB(minerID string) []MinerBlockContribution {
 	}
 
 	rows, err := db.Query(`
-		SELECT p.block_height, p.amount, EXTRACT(EPOCH FROM p.created_at)::bigint,
+		SELECT p.block_height, p.amount, COALESCE(b.reward, 0), EXTRACT(EPOCH FROM p.created_at)::bigint,
 			CASE WHEN p.txid IS NOT NULL AND p.txid != '' THEN true ELSE false END as is_paid
 		FROM payouts p
 		JOIN blocks b ON b.height = p.block_height
@@ -940,12 +940,19 @@ func GetMinerBlockContributionsDB(minerID string) []MinerBlockContribution {
 	var contributions []MinerBlockContribution
 	for rows.Next() {
 		var c MinerBlockContribution
-		if err := rows.Scan(&c.Height, &c.Amount, &c.Time, &c.IsPaid); err != nil {
+		var blockReward float64
+		if err := rows.Scan(&c.Height, &c.Amount, &blockReward, &c.Time, &c.IsPaid); err != nil {
 			log.Printf("Warning: failed to scan block contribution: %v", err)
 			continue
 		}
-		// Calculate share percentage (50 BCH2 * 0.99 fee = 49.5 max reward)
-		c.SharePct = (c.Amount / 49.5) * 100
+		// Against the block's OWN reward, read from the row beside it. This used to be
+		// (amount / 49.5) * 100 -- a 1% fee frozen into a constant, on a public JSON
+		// route, in an app that takes no fee. 49.5 was also wrong for any subsidy other
+		// than 50, so it would have drifted at every halving. Can legitimately exceed
+		// 100 only if the ledger is inconsistent; reward is the total the amount came out of.
+		if blockReward > 0 {
+			c.SharePct = (c.Amount / blockReward) * 100
+		}
 		contributions = append(contributions, c)
 	}
 

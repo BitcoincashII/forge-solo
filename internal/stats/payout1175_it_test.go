@@ -110,9 +110,6 @@ func TestPayout1175Accounting(t *testing.T) {
 	if payable("minerAAAAAAAAAA") {
 		t.Fatal("confirmation gate: A payable before block confirmed (want not payable)")
 	}
-	if _, _, err := Process1175PayoutAtomic("minerAAAAAAAAAA", 1.0); err == nil {
-		t.Fatal("confirmation gate: Process succeeded on an unconfirmed block (want error)")
-	}
 	// confirm => now payable
 	if err := Confirm1175Block(100); err != nil {
 		t.Fatalf("confirm 100: %v", err)
@@ -121,25 +118,24 @@ func TestPayout1175Accounting(t *testing.T) {
 		t.Fatal("A not payable after confirm (want payable)")
 	}
 
-	// ---- 4. money path: process -> sending, finalize -> paid
-	batch, amt, err := Process1175PayoutAtomic("minerAAAAAAAAAA", 1.0)
-	if err != nil {
-		t.Fatalf("process A: %v", err)
-	}
-	if abs1175(amt-15.00) > 1e-9 {
-		t.Fatalf("process amount: %.8f (want 15.00)", amt)
-	}
-	if s := statusOf("minerAAAAAAAAAA", 100); s != "sending" {
-		t.Fatalf("A status after process = %q (want sending)", s)
-	}
-	if stuck, _ := StuckSending1175(0); len(stuck) == 0 {
-		t.Fatal("StuckSending1175(0) returned none while a batch was sending")
-	}
-	if err := Finalize1175Payout(batch, "txidA"); err != nil {
-		t.Fatalf("finalize: %v", err)
+	// ---- 4. money path: the aux COINBASE settles it. There is no reserve->send->finalize
+	// pipeline any more -- it was deleted, because wiring it in on top of the coinbase
+	// payment would have paid twice. Settle1175ByCoinbase is the whole money path.
+	if n, err := Settle1175ByCoinbase("minerAAAAAAAAAA"); err != nil || n == 0 {
+		t.Fatalf("settle A: n=%d err=%v (want a settled credit)", n, err)
 	}
 	if s := statusOf("minerAAAAAAAAAA", 100); s != "paid" {
-		t.Fatalf("A status after finalize = %q (want paid)", s)
+		t.Fatalf("A status after coinbase settle = %q (want paid)", s)
+	}
+	if abs1175(amtOf("minerAAAAAAAAAA", 100)-15.00) > 1e-9 {
+		t.Fatalf("settling must not change the amount: %.8f (want 15.00)", amtOf("minerAAAAAAAAAA", 100))
+	}
+	// Settling twice must not double-credit or resurrect the row.
+	if n, err := Settle1175ByCoinbase("minerAAAAAAAAAA"); err != nil || n != 0 {
+		t.Fatalf("re-settle A: n=%d err=%v (want 0 -- already paid, must not settle twice)", n, err)
+	}
+	if s := statusOf("minerAAAAAAAAAA", 100); s != "paid" {
+		t.Fatalf("A status after re-settle = %q (want paid)", s)
 	}
 
 	// ---- 5a. re-distributing an already-distributed height is a SAFE NO-OP (idempotency guard)
@@ -201,27 +197,20 @@ func TestPayout1175Accounting(t *testing.T) {
 	if err := Confirm1175Block(101); err != nil {
 		t.Fatalf("confirm 101: %v", err)
 	}
-	rbatch, ramt, err := Process1175PayoutAtomic("minerAAAAAAAAAA", 1.0)
-	if err != nil {
-		t.Fatalf("process 101: %v", err)
+	if abs1175(amtOf("minerAAAAAAAAAA", 101)-10.00) > 1e-9 {
+		t.Fatalf("101 credit = %.8f (want 10.00)", amtOf("minerAAAAAAAAAA", 101))
 	}
-	if abs1175(ramt-10.00) > 1e-9 {
-		t.Fatalf("process 101 amount=%.8f (want 10.00)", ramt)
+	if n, err := Settle1175ByCoinbase("minerAAAAAAAAAA"); err != nil || n == 0 {
+		t.Fatalf("settle 101: n=%d err=%v (want a settled credit)", n, err)
 	}
-	if err := Revert1175PayoutMark(rbatch); err != nil {
-		t.Fatalf("revert: %v", err)
-	}
-	if s := statusOf("minerAAAAAAAAAA", 101); s != "pending" {
-		t.Fatalf("101 status after revert = %q (want pending)", s)
+	if s := statusOf("minerAAAAAAAAAA", 101); s != "paid" {
+		t.Fatalf("101 status after settle = %q (want paid)", s)
 	}
 
-	// ---- 9. address resolution
-	if got, _ := Get1175PayoutAddress("minerAAAAAAAAAA"); got != "esf1aaa" {
-		t.Fatalf("addr A = %q (want esf1aaa)", got)
-	}
-	if got, _ := Get1175PayoutAddress("minerBBBBBBBBBB"); got != "" {
-		t.Fatalf("addr B = %q (want empty)", got)
-	}
+	// ---- 9. no send path exists. These five were a pool-style reserve->send->finalize
+	// pipeline that would have DOUBLE-PAID on top of the aux coinbase. No shipped version
+	// ever called them, so they were deleted rather than left behind a warning comment.
+	// If any of them comes back, this file stops compiling -- which is the point.
 
-	t.Log("✅ 1175 payout: PPLNS 60/40, idempotent, confirmation-gated, redistribute-refused, solo-finder, orphan-voided, stuck-surfaced, reverted, address resolved")
+	t.Log("✅ 1175 payout: PPLNS 60/40, idempotent, confirmation-gated, redistribute-refused, solo-finder, orphan-voided, coinbase-settled, no send path")
 }

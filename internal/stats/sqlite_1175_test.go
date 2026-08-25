@@ -91,10 +91,10 @@ func Test1175LedgerWorksOnSQLite(t *testing.T) {
 		t.Errorf("Time = %d; the epoch conversion produced nothing usable", blocks[0].Time)
 	}
 
-	// The stuck-batch sweep: interval arithmetic, also postgres-only in its original form.
-	if _, err := StuckSending1175(600); err != nil {
-		t.Fatalf("StuckSending1175: %v", err)
-	}
+	// The stuck-batch sweep used to be exercised here. It is gone with the rest of the
+	// pool-style send pipeline: it looked for rows in status 'sending', and the only thing
+	// that could ever write that status was the sender, which no shipped version called.
+	// With the sender deleted, a stuck batch is unreachable by construction.
 }
 
 // Init1175Schema must be safe to run again over an existing file, which is what every

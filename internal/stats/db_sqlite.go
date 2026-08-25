@@ -905,7 +905,7 @@ func GetMinerBlockContributionsDB(minerID string) []MinerBlockContribution {
 	}
 
 	rows, err := db.Query(`
-		SELECT p.block_height, p.amount, strftime('%s', p.created_at),
+		SELECT p.block_height, p.amount, COALESCE(b.reward, 0), strftime('%s', p.created_at),
 			CASE WHEN p.txid IS NOT NULL AND p.txid != '' THEN 1 ELSE 0 END as is_paid
 		FROM payouts p
 		JOIN blocks b ON b.height = p.block_height
@@ -921,13 +921,20 @@ func GetMinerBlockContributionsDB(minerID string) []MinerBlockContribution {
 	var contributions []MinerBlockContribution
 	for rows.Next() {
 		var c MinerBlockContribution
+		var blockReward float64
 		var isPaid int
-		if err := rows.Scan(&c.Height, &c.Amount, &c.Time, &isPaid); err != nil {
+		if err := rows.Scan(&c.Height, &c.Amount, &blockReward, &c.Time, &isPaid); err != nil {
 			log.Printf("Warning: failed to scan block contribution: %v", err)
 			continue
 		}
 		c.IsPaid = isPaid == 1
-		c.SharePct = (c.Amount / 49.5) * 100
+		// Against the block's OWN reward, read from the row beside it. This used to be
+		// (amount / 49.5) * 100 -- a 1% fee frozen into a constant, on a public JSON route,
+		// in an app that takes no fee, and wrong for any subsidy other than 50 so it would
+		// have drifted at every halving.
+		if blockReward > 0 {
+			c.SharePct = (c.Amount / blockReward) * 100
+		}
 		contributions = append(contributions, c)
 	}
 

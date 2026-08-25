@@ -57,6 +57,35 @@ func TestNoWalletSendPathExists(t *testing.T) {
 	}
 }
 
+// The 1175 side has no send path either.
+//
+// A pool-style reserve->send->finalize pipeline used to sit in internal/stats/payout1175.go
+// behind a comment warning that wiring it in would DOUBLE-PAY on top of the aux coinbase.
+// No shipped version ever called it -- v1.0.0, v1.0.6 and v1.0.8 all have zero call sites --
+// so it was deleted. A comment cannot stop a future edit; an absent function can.
+func TestNo1175SendPipeline(t *testing.T) {
+	src, err := os.ReadFile("internal/stats/payout1175.go")
+	if err != nil {
+		t.Fatalf("read payout1175.go: %v", err)
+	}
+	body := string(src)
+	for _, fn := range []string{
+		"func Process1175PayoutAtomic(", "func Finalize1175Payout(",
+		"func Revert1175PayoutMark(", "func StuckSending1175(",
+	} {
+		if strings.Contains(body, fn) {
+			t.Errorf("payout1175.go declares %s — 1175 is aux-coinbase-direct, so a secondary "+
+				"send pays the miner twice. Any 1175 send path needs a design that answers "+
+				"how it avoids that, not a revival of this one.", fn)
+		}
+	}
+	// status='sending' is only reachable through that pipeline; nothing may write it.
+	if strings.Contains(body, "SET status='sending'") {
+		t.Error("payout1175.go can write status='sending' again; the sweep that reconciled " +
+			"those rows was removed because nothing could produce them")
+	}
+}
+
 // And the minimum-payout concept must not come back with it.
 func TestNoMinimumPayoutConcept(t *testing.T) {
 	for _, path := range []string{

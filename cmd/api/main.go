@@ -28,7 +28,6 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
-	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -1175,50 +1174,6 @@ func getAllWorkers(c *fiber.Ctx) error {
 	})
 }
 
-// Pool config file path
-var configFilePath = "config.yaml"
-
-// ConfigFile represents the config.yaml structure
-type ConfigFile struct {
-	Pool struct {
-		Name        string  `yaml:"name"`
-		Fee         float64 `yaml:"fee"`
-		MinPayout   float64 `yaml:"min_payout"`
-		Wallet      string  `yaml:"wallet"`
-		CoinbaseTag string  `yaml:"coinbase_tag"`
-	} `yaml:"pool"`
-	Stratum struct {
-		Port       int `yaml:"port"`
-		VardiffMin int `yaml:"vardiff_min"`
-		VardiffMax int `yaml:"vardiff_max"`
-	} `yaml:"stratum"`
-	Node struct {
-		Host     string `yaml:"host"`
-		Port     int    `yaml:"port"`
-		User     string `yaml:"user"`
-		Password string `yaml:"password"`
-	} `yaml:"node"`
-	Database struct {
-		Type string `yaml:"type"`
-		Path string `yaml:"path"`
-	} `yaml:"database"`
-	Web struct {
-		Port int `yaml:"port"`
-	} `yaml:"web"`
-}
-
-func loadConfigFile() (*ConfigFile, error) {
-	data, err := os.ReadFile(configFilePath)
-	if err != nil {
-		return nil, err
-	}
-	var cfg ConfigFile
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, err
-	}
-	return &cfg, nil
-}
-
 // sanitizeTagAPI mirrors the stratum coinbase-tag sanitizer (printable ASCII, <=24 bytes).
 func sanitizeTagAPI(tag string) string {
 	out := make([]byte, 0, len(tag))
@@ -1231,31 +1186,6 @@ func sanitizeTagAPI(tag string) string {
 		out = out[:24]
 	}
 	return string(out)
-}
-
-func updateConfigFile(updates map[string]map[string]interface{}) error {
-	var doc map[string]interface{}
-	if data, err := os.ReadFile(configFilePath); err == nil {
-		yaml.Unmarshal(data, &doc)
-	}
-	if doc == nil {
-		doc = map[string]interface{}{}
-	}
-	for section, kv := range updates {
-		sec, ok := doc[section].(map[string]interface{})
-		if !ok {
-			sec = map[string]interface{}{}
-		}
-		for k, v := range kv {
-			sec[k] = v
-		}
-		doc[section] = sec
-	}
-	out, err := yaml.Marshal(doc)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(configFilePath, out, 0644)
 }
 
 func getPoolConfig(c *fiber.Ctx) error {

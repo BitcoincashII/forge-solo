@@ -571,10 +571,6 @@ func run1175PayoutCycle() {
 				zap.String("miner", miner), zap.Int64("credits", n))
 		}
 	}
-	// 4. surface stuck 'sending' batches (ambiguous send / crash between mark and finalize)
-	if stuck, err := stats.StuckSending1175(600); err == nil && len(stuck) > 0 {
-		logger.Error("1175 payouts STUCK in 'sending' — reconcile against the 1175 wallet manually", zap.Strings("batches", stuck))
-	}
 }
 
 func startPayoutProcessor() {
