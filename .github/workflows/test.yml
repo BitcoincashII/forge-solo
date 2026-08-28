@@ -42,11 +42,17 @@ jobs:
       # UPDATE of two columns the schema never declared survived, how a mining-password check
       # the PIN design had deliberately replaced stayed in the tree, and how an entire
       # unreachable Stratum V2 server sat behind a false constant. Both tags are clean as of
-      # this commit; this keeps them that way. Pinned, so a new staticcheck release cannot
-      # fail the build on its own schedule.
+      # this commit; this keeps them that way.
+      #
+      # Pinned to v0.7.0 (2026.1) for two reasons. A floating version would fail this build on
+      # someone else's release schedule. And it must BUILD with the Go this job has: setup-go
+      # exports GOTOOLCHAIN=local, so there is no automatic toolchain download, and v0.8.x
+      # declares go >= 1.26.0 -- it cannot be installed here at all. v0.7.0 declares go 1.25.0
+      # and matches the toolchain directive in go.mod. Raising this pin means raising that
+      # toolchain first.
       - name: staticcheck (both build tags)
         run: |
-          go install honnef.co/go/tools/cmd/staticcheck@2026.2.1
+          go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
           "$(go env GOPATH)/bin/staticcheck" ./...
           "$(go env GOPATH)/bin/staticcheck" -tags sqlite ./...
 
