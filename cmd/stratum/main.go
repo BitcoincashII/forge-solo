@@ -2473,7 +2473,20 @@ func startStatsServer() {
 	}
 	statsAddr := statsHost + ":" + statsPort
 	log.Printf("Internal stats server starting on %s", statsAddr)
-	if err := http.ListenAndServe(statsAddr, nil); err != nil {
+	// Explicit timeouts. http.ListenAndServe uses a zero-value Server, which has none at
+	// all, so a client that opens a connection and then stalls holds it for as long as it
+	// likes. INTERNAL_STATS_HOST is 0.0.0.0 under compose so the api container can reach
+	// this over the app network -- the port is never published to the host, but "not
+	// published" is not a reason to serve without bounds. Every response here is a small
+	// JSON document, so these are generous.
+	srv := &http.Server{
+		Addr:              statsAddr,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	if err := srv.ListenAndServe(); err != nil {
 		log.Printf("ERROR: Internal stats server failed: %v", err)
 	}
 }
