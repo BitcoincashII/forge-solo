@@ -17,7 +17,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -25,7 +24,6 @@ import (
 	"github.com/BitcoincashII/forge-solo/internal/mining"
 	"github.com/BitcoincashII/forge-solo/internal/stats"
 	"github.com/BitcoincashII/forge-solo/internal/stratum"
-	"github.com/BitcoincashII/forge-solo/internal/stratumv2"
 	"github.com/go-zeromq/zmq4"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -48,12 +46,10 @@ var (
 	latestCoinbaseBTC   float64      // most recent getblocktemplate coinbasevalue in BTC (guarded by networkDiffMu)
 	networkDiffMu       sync.RWMutex // Protects networkDifficulty + latestCoinbaseBTC access
 	poolAddress         string
-	blockReward         float64           = 50.0
-	pplnsWindow         int               = 100000 // PPLNS window size (shares)
-	stratumServer       *stratum.Server            // Global reference for API handlers
-	stratumRentalServer *stratum.Server            // Second stratum for PROXIED rental hashpower (NiceHash/MiningRigRentals)
-	stratumV2Server     *stratumv2.Server          // Stratum V2 server (optional)
-	v2JobIDCounter      uint32                     // V2 job ID counter
+	blockReward         float64         = 50.0
+	pplnsWindow         int             = 100000 // PPLNS window size (shares)
+	stratumServer       *stratum.Server          // Global reference for API handlers
+	stratumRentalServer *stratum.Server          // Second stratum for PROXIED rental hashpower (NiceHash/MiningRigRentals)
 
 	// miningStatus records WHY the job loop is (or is not) producing work, so the
 	// dashboard can say something truer than "ready to mine" when a miner is connected
@@ -267,12 +263,6 @@ func auxStatusFrom(a mining.AuxHealth, now time.Time) (state, errText string, la
 // rebuilt on every new block and at least every 15s regardless, so anything this old means
 // the loop has stopped producing even if it once worked.
 const jobStaleAfter = 90 * time.Second
-
-// stratumV2Supported gates the Stratum V2 server. It is false, and the block below is kept
-// only so the work is not lost: see the refusal above for what is wrong with it. Flipping
-// this to true without fixing V2 block submission means a solved block is logged and
-// discarded.
-const stratumV2Supported = false
 
 // noShareAfter is how long an authorized miner may go without an accepted share before the
 // dashboard stops calling it mining. Generous on purpose: at the 1024 floor a very small
@@ -1456,56 +1446,16 @@ func main() {
 		}
 	}
 
-	// Start Stratum V2 server if enabled
+	// Stratum V2 is not implemented in this build. The previous implementation was removed
+	// rather than shipped disabled: a solved V2 block was logged and discarded (submission
+	// was never written), the bridge never reversed the prev-hash so a V2 share could not be
+	// a valid block anyway, and it had no duplicate check and no vardiff. Refuse loudly and
+	// keep mining on V1 -- NOT logger.Fatal, because this runs after :3333 is already
+	// listening, and aborting would turn a config typo into a crash loop in which no miner of
+	// any kind can connect.
 	if config.GetBool("stratumv2.enabled") {
-		// Refuse, loudly, and keep V1 mining. The V2 implementation in this tree is not
-		// fit to mine: a solved V2 block is logged and then dropped (the submission is a
-		// TODO), the bridge never reverses the prev-hash so a V2 share cannot be a valid
-		// block anyway, there is no duplicate check and no vardiff, and its job-history
-		// eviction still has the base-10 bug that cost the production pool a 2.75% reject
-		// rate. Enabling it would lose a block outright.
-		//
-		// Deliberately NOT logger.Fatal: this runs after :3333 is already listening, so
-		// aborting here turns a config typo into a crash loop in which no miner of any
-		// kind can connect. Refusing one feature is recoverable; refusing to run is not.
-		logger.Error("⛔ stratumv2.enabled is set, but Stratum V2 is NOT supported in this build and will NOT be started — a block found on it would be LOST. V1 mining on the main port continues normally.")
-	}
-	if stratumV2Supported {
-		v2Config := &stratumv2.ServerConfig{
-			Host:              config.GetString("stratumv2.host"),
-			Port:              config.GetInt("stratumv2.port"),
-			MaxConnections:    config.GetInt("stratumv2.max_connections"),
-			MinDiff:           config.GetFloat64("stratumv2.vardiff.min_diff"),
-			MaxDiff:           config.GetFloat64("stratumv2.vardiff.max_diff"),
-			TargetShareTime:   config.GetInt("stratumv2.vardiff.target_time"),
-			RetargetTime:      config.GetInt("stratumv2.vardiff.retarget_time"),
-			RequireEncryption: config.GetBool("stratumv2.require_encryption"),
-			ExtranonceSize:    config.GetInt("stratumv2.extranonce_size"),
-		}
-
-		if got := v2Config.ExtranonceSize; got != mining.CoinbaseExtranonceReserve {
-			logger.Fatal("stratumv2 extranonce_size must equal the coinbase reserve, else assembled blocks are malformed and rejected",
-				zap.Int("extranonce_size", got),
-				zap.Int("required", mining.CoinbaseExtranonceReserve))
-		}
-
-		// Create V2 share processor that bridges to V1 processing
-		v2ShareProcessor := &V2ShareProcessor{logger: logger}
-		v2MinerSettings := &V2MinerSettingsAdapter{v1Settings: minerSettings}
-
-		var err error
-		stratumV2Server, err = stratumv2.NewServer(v2Config, logger, v2ShareProcessor, v2MinerSettings)
-		if err != nil {
-			logger.Error("Failed to create V2 server", zap.Error(err))
-		} else {
-			if err := stratumV2Server.Start(); err != nil {
-				logger.Error("Failed to start V2 server", zap.Error(err))
-			} else {
-				logger.Info("✅ Stratum V2 server running",
-					zap.Int("port", v2Config.Port),
-					zap.Bool("encryption", v2Config.RequireEncryption))
-			}
-		}
+		logger.Error("⛔ stratumv2.enabled is set, but Stratum V2 is not supported by this build. " +
+			"Mining continues on the V1 stratum; remove the stratumv2 section from your config to silence this.")
 	}
 
 	// Start worker timeout detection (marks workers offline after 5 min of no shares)
@@ -1697,29 +1647,6 @@ func main() {
 					stratumRentalServer.BroadcastJob(stratumJob)
 				}
 
-				// Broadcast to V2 server if enabled
-				if stratumV2Server != nil {
-					v2JobID := atomic.AddUint32(&v2JobIDCounter, 1)
-					v2Job, err := stratumv2.ConvertV1ToV2Job(&stratumv2.V1JobData{
-						ID:               job.ID,
-						Height:           job.Height,
-						PrevBlockHash:    job.PrevBlockHash,
-						OriginalPrevHash: job.OriginalPrevHash,
-						CoinBase1:        job.CoinBase1,
-						CoinBase2:        job.CoinBase2,
-						MerkleBranches:   job.MerkleBranches,
-						Version:          job.Version,
-						NBits:            job.NBits,
-						NTime:            job.NTime,
-						CleanJobs:        cleanJobs,
-						CreatedAt:        time.Now(),
-						Transactions:     job.Transactions,
-					}, v2JobID)
-					if err == nil {
-						stratumV2Server.BroadcastJob(v2Job)
-					}
-				}
-
 				if isNewBlock {
 					source := "polling"
 					if zmqTriggered {
@@ -1749,9 +1676,6 @@ func main() {
 	logger.Info("Shutting down...")
 	close(shutdownCh)        // Signal all goroutines to stop
 	close(workerTimeoutStop) // Stop worker timeout checker
-	if stratumV2Server != nil {
-		stratumV2Server.Stop()
-	}
 	if stratumRentalServer != nil {
 		stratumRentalServer.Stop()
 	}
@@ -2552,70 +2476,4 @@ func startStatsServer() {
 	if err := http.ListenAndServe(statsAddr, nil); err != nil {
 		log.Printf("ERROR: Internal stats server failed: %v", err)
 	}
-}
-
-// V2ShareProcessor processes shares from the V2 server
-type V2ShareProcessor struct {
-	logger *zap.Logger
-}
-
-func (p *V2ShareProcessor) ProcessShare(ctx context.Context, share *stratumv2.Share) error {
-	mode := "PPLNS"
-	if share.IsSolo {
-		mode = "SOLO"
-	}
-
-	networkDiff := getNetworkDifficulty()
-
-	// Track worker stats
-	stats.GetManager().UpdateWorker(share.MinerID, share.WorkerName, true, share.Difficulty, share.ActualDiff)
-
-	// Save share to database
-	if err := stats.SaveShare(share.MinerID, share.WorkerName, share.Difficulty, share.IsSolo); err != nil {
-		p.logger.Warn("Failed to save V2 share to DB", zap.Error(err))
-	}
-
-	// Check for block
-	if share.ActualDiff >= networkDiff {
-		p.logger.Info("🎉 V2 BLOCK CANDIDATE!",
-			zap.String("miner", share.MinerID),
-			zap.Float64("actual_diff", share.ActualDiff),
-			zap.Float64("network_diff", networkDiff),
-			zap.Uint32("job_id", share.JobID))
-		// V2 block submission would go here
-		// For now, we log it - full block submission requires additional work
-	}
-
-	p.logger.Debug("V2 share processed",
-		zap.String("miner", share.MinerID),
-		zap.Float64("diff", share.Difficulty),
-		zap.String("mode", mode))
-	return nil
-}
-
-func (p *V2ShareProcessor) ProcessBlock(ctx context.Context, block *stratumv2.Block) error {
-	p.logger.Info("🎉 V2 BLOCK FOUND!",
-		zap.String("hash", block.Hash),
-		zap.Int64("height", block.Height))
-	return nil
-}
-
-// V2MinerSettingsAdapter adapts V1 miner settings to V2 interface
-type V2MinerSettingsAdapter struct {
-	v1Settings stratum.MinerSettingsStore
-}
-
-func (a *V2MinerSettingsAdapter) GetMinerSettings(minerID string) (*stratumv2.MinerSettings, error) {
-	if a.v1Settings == nil {
-		return nil, nil
-	}
-	v1Settings, err := a.v1Settings.GetMinerSettings(minerID)
-	if err != nil || v1Settings == nil {
-		return nil, err
-	}
-	return &stratumv2.MinerSettings{
-		MinerID:    v1Settings.MinerID,
-		SoloMining: v1Settings.SoloMining,
-		ManualDiff: v1Settings.ManualDiff,
-	}, nil
 }

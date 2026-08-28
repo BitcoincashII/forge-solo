@@ -1,5 +1,6 @@
 # Forge Solo — stratum config (rendered from env by entrypoint.sh via envsubst).
-# SOLO ONLY: no PPLNS, no Stratum V2 (it is refused at startup -- see cmd/stratum).
+# SOLO ONLY: no PPLNS, and no Stratum V2 (not implemented; setting stratumv2.enabled
+# only logs a refusal -- see cmd/stratum).
 # Merge-mines 1175 (ESF). Two stratum ports: 3333 for your own hardware and for Braiins
 # (which connects each miner individually), 3335 for NiceHash / MiningRigRentals (which
 # put a whole order behind one connection). Both ship the 4 + 8 extranonce sizing
@@ -52,9 +53,6 @@ stratum_rental:
     max_diff: 1000000000000
     target_time: 5
     retarget_time: 10
-
-stratumv2:
-  enabled: false
 
 node:
   host: "${NODE_HOST}"
