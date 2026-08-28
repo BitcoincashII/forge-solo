@@ -23,18 +23,33 @@ type CircularShareBuffer struct {
 	cap     int // Maximum capacity
 }
 
-// NewCircularShareBuffer creates a new circular buffer with the given capacity
+// NewCircularShareBuffer creates a share ring bounded to capacity records.
+//
+// The backing array grows on demand instead of being allocated up front. At
+// MaxSharesPerWorker a full ring is ~320 KB (10000 * a 32-byte ShareRecord), and the worker
+// map is keyed by miner+worker name, so every distinct name used to cost that much from its
+// very first share -- a marketplace order that rotates worker names could pin hundreds of
+// megabytes of buffers holding a handful of shares each.
 func NewCircularShareBuffer(capacity int) *CircularShareBuffer {
-	return &CircularShareBuffer{
-		records: make([]ShareRecord, capacity),
-		cap:     capacity,
-	}
+	return &CircularShareBuffer{cap: capacity}
 }
 
 // Add adds a share record to the buffer, overwriting oldest if full
 func (b *CircularShareBuffer) Add(r ShareRecord) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.cap <= 0 {
+		return // a zero-capacity ring has nowhere to write; % 0 would panic
+	}
+	if len(b.records) < b.cap {
+		// Still filling. head == len(records) here, so appending keeps the
+		// oldest-at-index-0 layout GetRecordsAfter walks, and head lands back on 0
+		// exactly when the ring fills and overwriting must begin.
+		b.records = append(b.records, r)
+		b.size = len(b.records)
+		b.head = b.size % b.cap
+		return
+	}
 	b.records[b.head] = r
 	b.head = (b.head + 1) % b.cap
 	if b.size < b.cap {
@@ -226,6 +241,25 @@ func (m *StatsManager) MarkStaleWorkersOffline() int {
 	return count
 }
 
+// PruneStaleWorkers drops workers silent for longer than maxAge, releasing their share
+// buffers. Nothing else ever removes from the worker map -- MarkStaleWorkersOffline only
+// flips a bool -- so without this a renamed rig, or a marketplace order that rotates worker
+// names, pins one buffer per name for the life of the stratum process.
+func (m *StatsManager) PruneStaleWorkers(maxAge time.Duration) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	cutoff := time.Now().Add(-maxAge)
+	pruned := 0
+	for key, w := range m.workers {
+		if !w.Online && w.LastShareAt.Before(cutoff) {
+			delete(m.workers, key)
+			pruned++
+		}
+	}
+	return pruned
+}
+
 // StartWorkerTimeoutChecker starts a background goroutine to mark stale workers offline
 func (m *StatsManager) StartWorkerTimeoutChecker(stopCh <-chan struct{}) {
 	ticker := time.NewTicker(time.Minute)
@@ -236,9 +270,8 @@ func (m *StatsManager) StartWorkerTimeoutChecker(stopCh <-chan struct{}) {
 		case <-stopCh:
 			return
 		case <-ticker.C:
-			if count := m.MarkStaleWorkersOffline(); count > 0 {
-				// Log handled by caller if needed
-			}
+			m.MarkStaleWorkersOffline()
+			m.PruneStaleWorkers(WorkerRetention)
 		}
 	}
 }

@@ -17,12 +17,6 @@ func epochSecondsExpr(col string) string {
 	return "EXTRACT(EPOCH FROM " + col + ")::bigint"
 }
 
-// olderThanSecondsExpr is true when col is further in the past than the seconds bound in
-// the given placeholder.
-func olderThanSecondsExpr(col, placeholder string) string {
-	return col + " < NOW() - (" + placeholder + " || ' seconds')::interval"
-}
-
 // Init1175Schema creates the 1175 merge-mining ledger tables.
 //
 // blocks_1175.status:  pending | confirmed | orphaned   (+ distributed bool)

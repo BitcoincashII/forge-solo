@@ -819,25 +819,6 @@ func hashToDifficulty(hash []byte) float64 {
 	return difficulty
 }
 
-// difficultyToTarget converts a difficulty value to a target for comparison
-func difficultyToTarget(diff float64) *big.Int {
-	if diff <= 0 {
-		return new(big.Int)
-	}
-
-	diff1Target := new(big.Int)
-	diff1Target.SetString("00000000FFFF0000000000000000000000000000000000000000000000000000", 16)
-
-	// Target = diff1Target / difficulty
-	diff1Float := new(big.Float).SetInt(diff1Target)
-	diffFloat := new(big.Float).SetFloat64(diff)
-
-	targetFloat := new(big.Float).Quo(diff1Float, diffFloat)
-	targetInt, _ := targetFloat.Int(nil)
-
-	return targetInt
-}
-
 func (s *Server) Start() error {
 	addr := fmt.Sprintf("%s:%d", s.config.Host, s.config.Port)
 	listener, err := net.Listen("tcp", addr)
@@ -2401,28 +2382,6 @@ func (s *Server) GetRentalStats() *RentalStats {
 	})
 
 	return stats
-}
-
-// sendExtranonce sends an extranonce update to a client that supports it
-// This is used when a client's extranonce needs to change (rare, but supported)
-func (s *Server) sendExtranonce(client *Client, extranonce1 string, extranonce2Size int) {
-	client.mu.RLock()
-	supportsExtranonce := client.SupportsExtranonce
-	client.mu.RUnlock()
-
-	if !supportsExtranonce {
-		return
-	}
-
-	notif := &Notification{
-		Method: "mining.set_extranonce",
-		Params: []interface{}{extranonce1, extranonce2Size},
-	}
-	s.sendNotification(client, notif)
-
-	s.logger.Info("Sent extranonce update",
-		zap.String("ip", client.IP),
-		zap.String("extranonce1", extranonce1))
 }
 
 // IsRentalClient checks if a client is from a rental service

@@ -71,9 +71,6 @@ var (
 	// ZMQ new block notification channel for instant block detection
 	zmqBlockCh = make(chan string, 10)
 
-	// Security: Required internal API token (must be set in environment)
-	internalAPIToken string
-
 	// Global HTTP client for RPC calls (reuses connections)
 	httpClient = &http.Client{
 		Timeout: 30 * time.Second,
@@ -398,7 +395,6 @@ var (
 	// the database says, and therefore retry an address that failed to come up.
 	aux1175PayoutAddr string
 	aux1175NodeURL    string
-	aux1175WalletURL  string
 	aux1175User       string
 	aux1175Pass       string
 )
@@ -985,14 +981,12 @@ func enableMergeMining1175(cfg *viper.Viper, auxPayout string) *mergemining.Clie
 		logger.Info("💠 1175 (ESF) block rewards will be paid on-chain DIRECTLY to your configured address", zap.String("payout_address_1175", auxPayout))
 	}
 	ac := mergemining.NewClient(auxURL, auxUser, auxPass)
-	auxWallet := cfg.GetString("mergemining.aux_node.wallet")
-	if auxWallet == "" {
-		auxWallet = "pool"
-	}
+	// No wallet URL is derived here: merge mining is aux-coinbase-direct. getauxblock is
+	// given the payout address explicitly and the 1175 node builds the aux coinbase itself,
+	// so the node needs no wallet and this path never touches one.
 	merge1175Enabled = true
 	aux1175PayoutAddr = auxPayout
 	aux1175NodeURL = auxURL
-	aux1175WalletURL = fmt.Sprintf("%s/wallet/%s", auxURL, auxWallet)
 	aux1175User = auxUser
 	aux1175Pass = auxPass
 	logger.Info("⛏️  Merge mining enabled", zap.String("aux_node", auxURL), zap.String("payout", auxPayout))
@@ -2364,11 +2358,6 @@ func internalAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 // HTTP server for stats
 func startStatsServer() {
-	http.HandleFunc("/internal/miner-auth", internalAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		hash, ok := stratumServer.GetAuthPasswordHash(r.URL.Query().Get("miner"))
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"set": ok, "hash": hash})
-	}))
 	http.HandleFunc("/internal/workers", internalAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		workers := stats.GetManager().GetAllWorkerStats()
 		w.Header().Set("Content-Type", "application/json")

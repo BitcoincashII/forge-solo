@@ -20,12 +20,6 @@ func epochSecondsExpr(col string) string {
 	return "CAST(strftime('%s', " + col + ") AS INTEGER)"
 }
 
-// olderThanSecondsExpr is true when col is further in the past than the seconds bound in
-// the given placeholder.
-func olderThanSecondsExpr(col, placeholder string) string {
-	return col + " < datetime('now', '-' || " + placeholder + " || ' seconds')"
-}
-
 // Init1175Schema creates the 1175 merge-mining ledger tables.
 //
 // This existed only in the postgres backend, so on SQLite -- i.e. every Windows build --

@@ -2,9 +2,7 @@ package main
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -43,10 +41,6 @@ var (
 	internalAPIToken string
 	webRoot          string = "./web/dist" // Web UI root directory, configurable via WEB_ROOT env
 	halvingInterval  int64  = 210000       // BCH2 halving interval, configurable via HALVING_INTERVAL env
-
-	// Block cache to avoid N+1 RPC queries
-	blockCache   = make(map[int64]*CachedBlock)
-	blockCacheMu sync.RWMutex
 
 	// Internal HTTP client with timeout to prevent cascading failures
 	internalHTTPClient = &http.Client{Timeout: 10 * time.Second}
@@ -98,13 +92,6 @@ func prefixToValues(prefix string) []int {
 	}
 	values[len(prefix)] = 0 // separator
 	return values
-}
-
-// verifyCashAddrChecksum verifies the CashAddr checksum
-func verifyCashAddrChecksum(prefix string, payload []int) bool {
-	prefixVals := prefixToValues(prefix)
-	combined := append(prefixVals, payload...)
-	return cashAddrPolymod(combined) == 0
 }
 
 // isValid1175Address validates a 1175 payout address: a bech32 address with the
@@ -651,43 +638,6 @@ func getStratumWorkers() []WorkerStats {
 	return result.Workers
 }
 
-// isActiveMiner checks if a miner has submitted shares in the last 10 minutes
-// OR has a balance in the database (proving historical mining activity)
-func isActiveMiner(address string) bool {
-	normalizedAddr := normalizeAddress(address)
-
-	// First check: actively mining (shares in last 10 minutes)
-	workers := getStratumWorkers()
-	if workers != nil {
-		for _, w := range workers {
-			if addressMatches(w.MinerID, address) {
-				if time.Since(w.LastShareAt) < 10*time.Minute {
-					return true
-				}
-			}
-		}
-	}
-
-	// Second check: has balance in database (historical mining activity)
-	// This proves they mined before and have pending rewards
-	balanceURL := fmt.Sprintf("%s/internal/miner-balance?miner=%s&height=0", stratumURL, url.QueryEscape(normalizedAddr))
-	resp, err := internalAPIGet(balanceURL)
-	if err == nil {
-		defer resp.Body.Close()
-		var balanceData struct {
-			MatureBalance   float64 `json:"matureBalance"`
-			ImmatureBalance float64 `json:"immatureBalance"`
-		}
-		if json.NewDecoder(resp.Body).Decode(&balanceData) == nil {
-			if balanceData.MatureBalance > 0 || balanceData.ImmatureBalance > 0 {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
 // Network-stats last-good cache. getdifficulty / getnetworkhashps occasionally fail (RPC
 // timeout on a busy home node, node warming up) — the old code discarded the error and returned
 // 0, which flashed "0" / "0 H/s" on the dashboard tiles. Hold the last good reading, only
@@ -846,72 +796,6 @@ func getPoolStats(c *fiber.Ctx) error {
 			"total":    rentalStats.TotalRentals,
 		},
 	})
-}
-
-// getBlockCached retrieves a block from cache or fetches it from node
-func getBlockCached(height int64) (*CachedBlock, error) {
-	// Check cache first
-	blockCacheMu.RLock()
-	if cached, ok := blockCache[height]; ok {
-		// Cache blocks for 1 minute (recent) or forever (confirmed)
-		if time.Since(cached.CachedAt) < time.Minute {
-			blockCacheMu.RUnlock()
-			return cached, nil
-		}
-	}
-	blockCacheMu.RUnlock()
-
-	// Fetch from node
-	hashResult, err := rpcCall("getblockhash", []interface{}{height})
-	if err != nil {
-		return nil, err
-	}
-	var hash string
-	if err := json.Unmarshal(hashResult, &hash); err != nil {
-		return nil, err
-	}
-
-	blockResult, err := rpcCall("getblock", []interface{}{hash})
-	if err != nil {
-		return nil, err
-	}
-	var block struct {
-		Height int64  `json:"height"`
-		Hash   string `json:"hash"`
-		Time   int64  `json:"time"`
-		Size   int    `json:"size"`
-		NumTx  int    `json:"nTx"`
-	}
-	if err := json.Unmarshal(blockResult, &block); err != nil {
-		return nil, err
-	}
-
-	cached := &CachedBlock{
-		Height:   block.Height,
-		Hash:     hash,
-		Time:     block.Time,
-		Size:     block.Size,
-		TxCount:  block.NumTx,
-		CachedAt: time.Now(),
-	}
-
-	// Store in cache
-	blockCacheMu.Lock()
-	blockCache[height] = cached
-	// Limit cache size to last 1000 blocks
-	if len(blockCache) > 1000 {
-		// Find and remove oldest entries
-		var minHeight int64 = height
-		for h := range blockCache {
-			if h < minHeight {
-				minHeight = h
-			}
-		}
-		delete(blockCache, minHeight)
-	}
-	blockCacheMu.Unlock()
-
-	return cached, nil
 }
 
 func getBlocksAPI(c *fiber.Ctx) error {
@@ -1322,36 +1206,6 @@ func loadMinerSettingsFromDB() {
 	}
 }
 
-// verifyMinerPassword reports whether providedPassword matches the settings
-// password the miner set in their own stratum config (captured by the stratum
-// server at authorize, read over the internal API). Proof-of-control with no
-// accounts: only whoever controls the miner knows the password. Tries the raw
-// and normalized address forms so it matches however the miner authorized.
-func verifyMinerPassword(address, providedPassword string) bool {
-	if providedPassword == "" {
-		return false
-	}
-	sum := sha256.Sum256([]byte(providedPassword))
-	providedHash := hex.EncodeToString(sum[:])
-	for _, key := range []string{address, normalizeAddress(address)} {
-		resp, err := internalAPIGet(stratumURL + "/internal/miner-auth?miner=" + url.QueryEscape(key))
-		if err != nil {
-			continue
-		}
-		var data struct {
-			Set  bool   `json:"set"`
-			Hash string `json:"hash"`
-		}
-		err = json.NewDecoder(resp.Body).Decode(&data)
-		resp.Body.Close()
-		if err == nil && data.Set && data.Hash != "" &&
-			subtle.ConstantTimeCompare([]byte(providedHash), []byte(data.Hash)) == 1 {
-			return true
-		}
-	}
-	return false
-}
-
 // PIN brute-force lockout: after too many wrong PINs for an address, lock the sensitive
 // (1175-address) path for a cooldown. bcrypt already makes each guess ~expensive; this
 // caps online guessing of short PINs.
@@ -1447,8 +1301,8 @@ func saveMinerSettings(c *fiber.Ctx) error {
 	authorized := isAdmin || os.Getenv("HOME_APP") == "1"
 
 	// Only a change to the fund-critical, redirectable 1175 payout address (or setting a
-	// PIN) is "sensitive" and needs proof-of-control. Mode / difficulty / min-payout stay
-	// open (griefing at worst, never fund loss) so rental miners onboard with no friction.
+	// PIN) is "sensitive" and needs proof-of-control. Mode and difficulty stay open
+	// (griefing at worst, never fund loss) so rental miners onboard with no friction.
 	settingsMu.RLock()
 	oldS, hadOld := minerSettings[settings.Address]
 	settingsMu.RUnlock()

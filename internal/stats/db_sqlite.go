@@ -247,13 +247,6 @@ func IsDBConnected() bool {
 	return db.Ping() == nil
 }
 
-// getDB returns the database connection with read lock held
-// Caller must call dbMu.RUnlock() when done
-func getDB() *sql.DB {
-	dbMu.RLock()
-	return db
-}
-
 // SavePayout saves a payout to the database
 func SavePayout(minerID string, blockHeight int64, amount float64) error {
 	dbMu.RLock()

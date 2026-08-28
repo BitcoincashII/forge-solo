@@ -72,7 +72,6 @@ mergemining:
     port: ${AUX1175_PORT}
     user: "${AUX1175_USER}"
     pass: "${AUX1175_PASSWORD}"
-    wallet: "${AUX1175_WALLET}"
 
 logging:
   level: "info"

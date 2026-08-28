@@ -22,4 +22,9 @@ const (
 
 	// MaxSharesPerWorker is the maximum shares to keep per worker in memory
 	MaxSharesPerWorker = 10000
+
+	// WorkerRetention is how long a silent worker is kept before it is dropped from the
+	// stats map entirely. Long enough that the dashboard still lists a rig that went down
+	// overnight; short enough that rotating worker names cannot grow the map without bound.
+	WorkerRetention = 24 * time.Hour
 )

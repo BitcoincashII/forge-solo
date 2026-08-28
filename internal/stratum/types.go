@@ -31,7 +31,6 @@ type Response struct {
 
 // MarshalJSON ensures both result and error fields are always present per stratum spec
 func (r *Response) MarshalJSON() ([]byte, error) {
-	type Alias Response
 	return json.Marshal(&struct {
 		ID     interface{} `json:"id"`
 		Result interface{} `json:"result"`
