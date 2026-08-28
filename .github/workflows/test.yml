@@ -27,15 +27,28 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: gofmt (files this repo keeps formatted)
+      - name: gofmt (whole tree)
         run: |
-          # Not the whole tree: several inherited files have never been gofmt-clean, and
-          # failing on those would just train people to ignore this job.
-          unformatted=$(gofmt -l cmd/api cmd/stratum internal/stratum internal/stats/db_sqlite.go internal/stats/dialect.go internal/stats/dialect_sqlite.go *.go 2>/dev/null || true)
+          # The whole tree, not a path list. It used to be a subset because inherited files
+          # had never been gofmt-clean; they all are now, so anything narrower would let it
+          # rot again in the files the list happened to miss.
+          unformatted=$(gofmt -l .)
           if [ -n "$unformatted" ]; then echo "not gofmt-clean:"; echo "$unformatted"; exit 1; fi
 
       - name: Vet (postgres build)
         run: go vet ./...
+
+      # staticcheck finds what vet does not: code nothing reaches. That is how a Postgres
+      # UPDATE of two columns the schema never declared survived, how a mining-password check
+      # the PIN design had deliberately replaced stayed in the tree, and how an entire
+      # unreachable Stratum V2 server sat behind a false constant. Both tags are clean as of
+      # this commit; this keeps them that way. Pinned, so a new staticcheck release cannot
+      # fail the build on its own schedule.
+      - name: staticcheck (both build tags)
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@2026.2.1
+          "$(go env GOPATH)/bin/staticcheck" ./...
+          "$(go env GOPATH)/bin/staticcheck" -tags sqlite ./...
 
       - name: Vet (sqlite build)
         run: go vet -tags sqlite ./...
