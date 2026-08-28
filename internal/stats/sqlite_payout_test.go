@@ -67,7 +67,7 @@ func TestSQLiteReserveMaturePayoutsIsExactlyOnce(t *testing.T) {
 		t.Fatalf("after revert: rows=%d err=%v, want 3 claimable again", len(again), err)
 	}
 
-	// Finalizing stamps the real txid and refreshes the cached columns.
+	// Finalizing stamps the real txid.
 	if err := FinalizePayoutRows(ids, "realtxid123"); err != nil {
 		t.Fatalf("FinalizePayoutRows: %v", err)
 	}

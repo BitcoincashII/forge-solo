@@ -57,13 +57,6 @@ func (b *CircularShareBuffer) GetRecordsAfter(cutoff time.Time) []ShareRecord {
 	return result
 }
 
-// Size returns the number of records in the buffer
-func (b *CircularShareBuffer) Size() int {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	return b.size
-}
-
 type WorkerStats struct {
 	MinerID     string  `json:"miner_id"`
 	WorkerName  string  `json:"worker_name"`
@@ -215,16 +208,6 @@ func (m *StatsManager) calculateHashrate(shares []ShareRecord, window time.Durat
 	return hashrate
 }
 
-func (m *StatsManager) SetWorkerOffline(minerID, workerName string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	key := minerID + ":" + workerName
-	if w, exists := m.workers[key]; exists {
-		w.Online = false
-	}
-}
-
 // MarkStaleWorkersOffline marks workers as offline if they haven't submitted shares recently
 func (m *StatsManager) MarkStaleWorkersOffline() int {
 	m.mu.Lock()
@@ -287,26 +270,6 @@ func (m *StatsManager) ResetAllWorkerRoundStats() {
 	}
 }
 
-func (m *StatsManager) GetWorkerStats(minerID string) []*WorkerStats {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	now := time.Now()
-	cutoff := now.Add(-5 * time.Minute)
-
-	var result []*WorkerStats
-	for _, w := range m.workers {
-		if w.MinerID == minerID {
-			wCopy := *w
-			wCopy.Online = w.LastShareAt.After(cutoff)
-			// Get block count for this worker
-			wCopy.BlocksFound = GetWorkerBlockCount(w.MinerID, w.WorkerName)
-			result = append(result, &wCopy)
-		}
-	}
-	return result
-}
-
 func (m *StatsManager) GetAllWorkerStats() []*WorkerStats {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -341,15 +304,6 @@ func (m *StatsManager) GetAllWorkerStats() []*WorkerStats {
 	return result
 }
 
-func (m *StatsManager) RecordBlock(hash string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.poolStats.BlocksFound++
-	m.poolStats.LastBlockAt = time.Now()
-	m.poolStats.LastBlockHash = hash
-}
-
 // RecordBlockWithEffort records a block and calculates luck based on effort vs network difficulty
 func (m *StatsManager) RecordBlockWithEffort(hash string, networkDiff float64) {
 	m.mu.Lock()
@@ -375,29 +329,6 @@ func (m *StatsManager) RecordBlockWithEffort(hash string, networkDiff float64) {
 	m.poolStats.RoundEffort = m.roundEffort
 	// Reset round effort for next block
 	m.roundEffort = 0
-}
-
-// GetAverageLuck returns the average luck over recent blocks
-func (m *StatsManager) GetAverageLuck() float64 {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if len(m.luckHistory) == 0 {
-		return 1.0 // Default to 100% (neutral luck)
-	}
-
-	var sum float64
-	for _, luck := range m.luckHistory {
-		sum += luck
-	}
-	return sum / float64(len(m.luckHistory))
-}
-
-// GetRoundEffort returns current round effort (share difficulty sum)
-func (m *StatsManager) GetRoundEffort() float64 {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.roundEffort
 }
 
 func (m *StatsManager) GetPoolStats() PoolStats {
@@ -453,14 +384,6 @@ var (
 	workerBlockCount = make(map[string]int64)        // minerID:workerName -> block count
 	minerBlocksMu    sync.RWMutex
 )
-
-func RecordMinerBlock(minerID string, height int64, hash string, reward float64) {
-	RecordMinerBlockWithWorker(minerID, "", height, hash, reward)
-}
-
-func RecordMinerBlockWithWorker(minerID, workerName string, height int64, hash string, reward float64) {
-	RecordMinerBlockWithWorkerSolo(minerID, workerName, height, hash, reward, false)
-}
 
 func RecordMinerBlockWithWorkerSolo(minerID, workerName string, height int64, hash string, reward float64, isSolo bool) {
 	minerBlocksMu.Lock()
@@ -584,99 +507,6 @@ func GetMinerBalance(minerID string, currentHeight int64) (mature float64, immat
 		}
 	}
 	return
-}
-
-func GetPendingPayouts(minerID string) []PendingPayout {
-	pendingPayoutsMu.RLock()
-	defer pendingPayoutsMu.RUnlock()
-
-	payouts, exists := pendingPayouts[minerID]
-	if !exists {
-		return []PendingPayout{}
-	}
-
-	result := make([]PendingPayout, len(payouts))
-	copy(result, payouts)
-	return result
-}
-
-func MarkPayoutPaid(minerID string, blockHeight int64, txid string) {
-	pendingPayoutsMu.Lock()
-	defer pendingPayoutsMu.Unlock()
-
-	payouts, exists := pendingPayouts[minerID]
-	if !exists {
-		return
-	}
-
-	for i, p := range payouts {
-		if p.BlockHeight == blockHeight {
-			payouts[i].TxID = txid
-			payouts[i].PaidAt = time.Now()
-			payouts[i].Confirmed = true
-		}
-	}
-	pendingPayouts[minerID] = payouts
-}
-
-// MarkAllMaturePaid marks all mature payouts for a miner as paid
-func MarkAllMaturePaid(minerID string, currentHeight int64, txid string) {
-	MarkMaturePaidWithAmount(minerID, currentHeight, txid, 0)
-}
-
-// MarkMaturePaidWithAmount marks mature payouts as paid, supporting partial/split payments
-// If paidAmount > 0, it tracks partial payment; otherwise marks all mature as fully paid
-func MarkMaturePaidWithAmount(minerID string, currentHeight int64, txid string, paidAmount float64) {
-	pendingPayoutsMu.Lock()
-	defer pendingPayoutsMu.Unlock()
-
-	payouts, exists := pendingPayouts[minerID]
-	if !exists {
-		return
-	}
-
-	remainingPayment := paidAmount
-	now := time.Now()
-
-	for i, p := range payouts {
-		// Skip already fully paid
-		if p.Confirmed {
-			continue
-		}
-		confirmations := currentHeight - p.BlockHeight
-		if confirmations < COINBASE_MATURITY {
-			continue
-		}
-
-		// Add txid to list
-		payouts[i].TxIDs = append(payouts[i].TxIDs, txid)
-		payouts[i].TxID = txid // Keep last txid for backwards compat
-
-		if paidAmount == 0 {
-			// Full payment mode - mark all mature as paid
-			payouts[i].PaidAmount = p.Amount
-			payouts[i].PaidAt = now
-			payouts[i].Confirmed = true
-		} else {
-			// Partial payment mode - track amounts
-			unpaidAmount := p.Amount - p.PaidAmount
-			if remainingPayment >= unpaidAmount {
-				// Fully pay this payout
-				payouts[i].PaidAmount = p.Amount
-				payouts[i].PaidAt = now
-				payouts[i].Confirmed = true
-				remainingPayment -= unpaidAmount
-			} else if remainingPayment > 0 {
-				// Partial payment
-				payouts[i].PaidAmount += remainingPayment
-				remainingPayment = 0
-			}
-			if remainingPayment <= 0 {
-				break
-			}
-		}
-	}
-	pendingPayouts[minerID] = payouts
 }
 
 // CleanupPaidPayouts removes old paid payouts from memory to prevent unbounded growth

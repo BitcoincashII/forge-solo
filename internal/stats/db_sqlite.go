@@ -140,8 +140,6 @@ func createTables() error {
 		address TEXT UNIQUE NOT NULL,
 		solo_mining INTEGER DEFAULT 0,
 		manual_diff REAL DEFAULT 0,
-		balance REAL DEFAULT 0,
-		total_paid REAL DEFAULT 0,
 		address_1175 TEXT,
 		settings_pin_hash TEXT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -196,6 +194,11 @@ func createTables() error {
 		// migrated file the "no such column" error below is the expected no-op.
 		`ALTER TABLE miners DROP COLUMN min_payout`,
 		`ALTER TABLE pool_config DROP COLUMN min_payout`,
+		// Cached balance/total_paid: nothing ever read them, and the Postgres schema never
+		// declared them at all, so the writes that maintained them had been failing silently
+		// there. The dashboard sums payouts on read instead (GetMinerBalanceDB).
+		`ALTER TABLE miners DROP COLUMN balance`,
+		`ALTER TABLE miners DROP COLUMN total_paid`,
 		// Matches postgres (database/schema.sql UNIQUE(miner_address, block_height)).
 		// Without it the INSERT OR IGNORE above ignores nothing and a re-recorded block
 		// double-credits. Fails loudly-but-nonfatally if an existing file already holds
@@ -663,60 +666,6 @@ func GetMinerSoloPayoutsDB(minerID string) ([]PayoutRecord, int, float64) {
 	return payouts, len(payouts), totalPaid
 }
 
-// MarkMaturePaidInDBWithAmount marks mature payouts as paid
-func MarkMaturePaidInDBWithAmount(minerID string, currentHeight int64, txid string, paidAmount float64) error {
-	dbMu.RLock()
-	defer dbMu.RUnlock()
-
-	if db == nil {
-		return ErrDatabaseNotInitialized // CRITICAL FIX: Return error instead of nil
-	}
-
-	matureHeight := currentHeight - COINBASE_MATURITY
-	now := time.Now()
-
-	_, err := db.Exec(`
-		UPDATE payouts SET confirmed = 1, status = 'paid', txid = ?, paid_at = ?
-		WHERE miner_address = ? AND block_height <= ? AND (txid IS NULL OR txid = '')`,
-		txid, now, minerID, matureHeight)
-
-	return err
-}
-
-// FinalizePayoutAtomic updates the pending txid to the actual txid
-func FinalizePayoutAtomic(pendingTxid, actualTxid string) error {
-	dbMu.RLock()
-	defer dbMu.RUnlock()
-
-	if db == nil {
-		return ErrDatabaseNotInitialized // CRITICAL FIX: Return error instead of nil
-	}
-
-	_, err := db.Exec(`
-		UPDATE payouts
-		SET txid = ?, confirmed = 1, status = 'paid'
-		WHERE txid = ?`,
-		actualTxid, pendingTxid)
-	return err
-}
-
-// RevertPendingPayout reverts a failed payout attempt
-func RevertPendingPayout(pendingTxid string) error {
-	dbMu.RLock()
-	defer dbMu.RUnlock()
-
-	if db == nil {
-		return ErrDatabaseNotInitialized // CRITICAL FIX: Return error instead of nil
-	}
-
-	_, err := db.Exec(`
-		UPDATE payouts
-		SET txid = NULL, paid_at = NULL
-		WHERE txid = ?`,
-		pendingTxid)
-	return err
-}
-
 // SaveShare saves a PPLNS share to the database
 func SaveShare(minerAddress string, workerName string, difficulty float64, isSolo bool) error {
 	dbMu.RLock()
@@ -835,10 +784,6 @@ func SavePayoutAtomic(minerID string, blockHeight int64, amount float64, blockHa
 	return SavePayoutAtomicWithSolo(minerID, blockHeight, amount, blockHash, false)
 }
 
-func MarkMaturePaidInDB(minerID string, currentHeight int64, txid string) error {
-	return MarkMaturePaidInDBWithAmount(minerID, currentHeight, txid, 0)
-}
-
 func GetMinerSettingsDB(address string) (*MinerSettings, error) {
 	dbMu.RLock()
 	defer dbMu.RUnlock()
@@ -951,25 +896,6 @@ func GetMinerBlockContributionsDB(minerID string) []MinerBlockContribution {
 	return contributions
 }
 
-func MarkPayoutPaidDB(minerID string, blockHeight int64, txid string) error {
-	dbMu.RLock()
-	defer dbMu.RUnlock()
-
-	if db == nil {
-		return ErrDatabaseNotInitialized // CRITICAL FIX: Return error instead of nil
-	}
-
-	_, err := db.Exec(`
-		UPDATE payouts SET confirmed = 1, status = 'paid', txid = ?, paid_at = ?
-		WHERE miner_address = ? AND block_height = ?`,
-		txid, time.Now(), minerID, blockHeight)
-	return err
-}
-
-func LoadMinerPayouts(minerID string) {
-	// Not needed for SQLite - query directly
-}
-
 func LoadAllPendingPayouts() {
 	// Not needed for SQLite - query directly
 }
@@ -1033,6 +959,13 @@ func idPlaceholders(ids []int64) (string, []interface{}) {
 	return string(ph), args
 }
 
+// NO PRODUCTION CALLER, AND THAT IS THE POINT. Every reward is paid by the block's own
+// coinbase, so nothing sweeps the ledger: the sender was removed and no_wallet_send_test.go
+// forbids its return. What survives here is the instrument that proves the property --
+// TestSoloPayoutIsNeverReservableForSending reserves against a real database and asserts a
+// solo payout is never handed back. Delete this and the proof goes with it; wire it to a
+// sender and the guard test fails, which is the intended outcome.
+//
 // ReserveMaturePayouts atomically reserves every mature unpaid payout row for a
 // miner, stamps them with a unique placeholder txid, and returns them ordered.
 // Reserved rows carry a non-empty txid so GetReadyPayoutsDB no longer selects them --
@@ -1125,7 +1058,8 @@ func RevertPayoutRows(ids []int64) error {
 }
 
 // FinalizePayoutRows stamps the given payout rows with the real broadcast txid, so the
-// amount sent on-chain always equals the amount marked paid in the ledger.
+// amount sent on-chain would always equal the amount marked paid in the ledger. Reached
+// only from the reservation tests -- see the note on ReserveMaturePayouts.
 func FinalizePayoutRows(ids []int64, actualTxid string) error {
 	dbMu.RLock()
 	defer dbMu.RUnlock()
@@ -1144,19 +1078,10 @@ func FinalizePayoutRows(ids []int64, actualTxid string) error {
 		return err
 	}
 
-	// Best-effort refresh, exactly as postgres: the ledger is the source of truth and
-	// these columns cache it, so a failure must not turn a completed payment into an
-	// error the caller might retry.
-	refreshArgs := append([]interface{}{time.Now()}, args...)
-	db.Exec(`
-		UPDATE miners SET
-			balance = COALESCE((SELECT SUM(amount) FROM payouts
-				WHERE miner_address = miners.address AND (txid IS NULL OR txid = '')), 0),
-			total_paid = COALESCE((SELECT SUM(amount) FROM payouts
-				WHERE miner_address = miners.address AND confirmed = 1), 0),
-			updated_at = ?
-		WHERE address IN (SELECT DISTINCT miner_address FROM payouts WHERE id IN (`+ph+`))`,
-		refreshArgs...)
+	// No cached-balance refresh: the balance the dashboard shows is summed from payouts on
+	// read (GetMinerBalanceDB), so there is nothing here to keep in step. The columns it used
+	// to write were never declared in the Postgres schema, so that write had always failed
+	// silently, and nothing has ever read them in either dialect.
 	return nil
 }
 

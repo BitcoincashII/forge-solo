@@ -244,8 +244,8 @@
                 document.getElementById('hashrate5m').textContent = formatHashrate((data.hashrate5m || 0) * 1e12);
                 document.getElementById('hashrate60m').textContent = formatHashrate((data.hashrate60m || 0) * 1e12);
                 // Never data.workers: that counts every worker ever seen. The stats manager
-                // never deletes from its map (SetWorkerOffline and MarkStaleWorkersOffline
-                // only flip a bool), so it stays >= 1 for the life of the stratum process --
+                // never deletes from its map (MarkStaleWorkersOffline only flips a bool),
+                // so it stays >= 1 for the life of the stratum process --
                 // an unplugged rig, a rig moved to another pool, a renamed worker or
                 // rotating rental worker names all left the tile reading 1 next to a
                 // hashrate of 0, while the same app answered 0 on /api/v1/stats.

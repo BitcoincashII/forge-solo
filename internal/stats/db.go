@@ -595,103 +595,6 @@ func SavePayoutAtomicWithSolo(minerID string, blockHeight int64, amount float64,
 	return nil
 }
 
-// FinalizePayoutAtomic updates the pending txid to the actual txid after successful send
-func FinalizePayoutAtomic(pendingTxid, actualTxid string) error {
-	dbMu.RLock()
-	defer dbMu.RUnlock()
-	if db == nil {
-		return ErrDatabaseNotInitialized // CRITICAL FIX: Return error instead of nil
-	}
-
-	_, err := db.Exec(`
-		UPDATE payouts
-		SET txid = $1, confirmed = true, status = 'paid'
-		WHERE txid = $2`,
-		actualTxid, pendingTxid)
-	if err != nil {
-		return err
-	}
-
-	// Update miners table for affected miners
-	db.Exec(`
-		UPDATE miners SET
-			balance = COALESCE((
-				SELECT SUM(amount) FROM payouts
-				WHERE miner_address = miners.address AND (txid IS NULL OR txid = '')
-			), 0),
-			total_paid = COALESCE((
-				SELECT SUM(amount) FROM payouts
-				WHERE miner_address = miners.address AND confirmed = true
-			), 0),
-			updated_at = NOW()
-		WHERE address IN (SELECT DISTINCT miner_address FROM payouts WHERE txid = $1)`,
-		actualTxid)
-
-	return nil
-}
-
-// RevertPendingPayout reverts a failed payout attempt
-func RevertPendingPayout(pendingTxid string) error {
-	dbMu.RLock()
-	defer dbMu.RUnlock()
-	if db == nil {
-		return ErrDatabaseNotInitialized // CRITICAL FIX: Return error instead of nil
-	}
-
-	_, err := db.Exec(`
-		UPDATE payouts
-		SET txid = NULL, paid_at = NULL
-		WHERE txid = $1`,
-		pendingTxid)
-	return err
-}
-
-// LoadMinerPayouts loads payouts from database into memory
-func LoadMinerPayouts(minerID string) {
-	if db == nil {
-		log.Printf("Warning: LoadMinerPayouts called but database not initialized")
-		return
-	}
-
-	rows, err := db.Query(`
-		SELECT block_height, amount, confirmed, txid, created_at, paid_at
-		FROM payouts WHERE miner_address = $1 AND confirmed = false`,
-		minerID)
-	if err != nil {
-		log.Printf("Error loading payouts for %s: %v", minerID, err)
-		return
-	}
-	defer rows.Close()
-
-	pendingPayoutsMu.Lock()
-	defer pendingPayoutsMu.Unlock()
-
-	for rows.Next() {
-		var p PendingPayout
-		var txid sql.NullString
-		var paidAt sql.NullTime
-
-		if err := rows.Scan(&p.BlockHeight, &p.Amount, &p.Confirmed, &txid, &p.CreatedAt, &paidAt); err != nil {
-			log.Printf("Warning: failed to scan payout for %s: %v", minerID, err)
-			continue
-		}
-
-		p.MinerID = minerID
-		if txid.Valid {
-			p.TxID = txid.String
-		}
-		if paidAt.Valid {
-			p.PaidAt = paidAt.Time
-		}
-
-		pendingPayouts[minerID] = append(pendingPayouts[minerID], p)
-	}
-
-	if err := rows.Err(); err != nil {
-		log.Printf("Warning: error iterating payouts for %s: %v", minerID, err)
-	}
-}
-
 // LoadAllPendingPayouts loads all unpaid payouts from database
 func LoadAllPendingPayouts() {
 	if db == nil {
@@ -739,21 +642,6 @@ func LoadAllPendingPayouts() {
 	}
 
 	log.Printf("✅ Loaded %d miners with pending payouts from database", len(pendingPayouts))
-}
-
-// MarkPayoutPaidDB marks payout as paid in database
-func MarkPayoutPaidDB(minerID string, blockHeight int64, txid string) error {
-	dbMu.RLock()
-	defer dbMu.RUnlock()
-	if db == nil {
-		return ErrDatabaseNotInitialized // CRITICAL FIX: Return error instead of nil
-	}
-
-	_, err := db.Exec(`
-		UPDATE payouts SET confirmed = true, status = 'paid', txid = $1, paid_at = $2
-		WHERE miner_address = $3 AND block_height = $4`,
-		txid, time.Now(), minerID, blockHeight)
-	return err
 }
 
 // GetMinerBalanceDB gets balance from database
@@ -972,102 +860,6 @@ func GetMinerBlockContributionsDB(minerID string) []MinerBlockContribution {
 	}
 
 	return contributions
-}
-
-// MarkMaturePaidInDB marks all mature payouts as paid directly in database
-// Uses a transaction with row locking to prevent race conditions
-func MarkMaturePaidInDB(minerID string, currentHeight int64, txid string) error {
-	return MarkMaturePaidInDBWithAmount(minerID, currentHeight, txid, 0)
-}
-
-// MarkMaturePaidInDBWithAmount marks mature payouts as paid with partial payment support
-// If paidAmount > 0, only marks payouts up to that amount; otherwise marks all mature
-func MarkMaturePaidInDBWithAmount(minerID string, currentHeight int64, txid string, paidAmount float64) error {
-	dbMu.RLock()
-	defer dbMu.RUnlock()
-	if db == nil {
-		return ErrDatabaseNotInitialized // CRITICAL FIX: Return error instead of nil
-	}
-
-	// Use context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), DBTimeout)
-	defer cancel()
-
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	matureHeight := currentHeight - COINBASE_MATURITY
-	now := time.Now()
-
-	var result sql.Result
-
-	if paidAmount == 0 {
-		// Full payment mode - mark all mature as paid
-		result, err = tx.ExecContext(ctx, `
-			UPDATE payouts SET confirmed = true, status = 'paid', txid = $1, paid_at = $2
-			WHERE miner_address = $3 AND block_height <= $4 AND (txid IS NULL OR txid = '')`,
-			txid, now, minerID, matureHeight)
-	} else {
-		// Partial payment mode - mark payouts up to paidAmount
-		// Use a CTE to select payouts in order and mark only up to the paid amount
-		result, err = tx.ExecContext(ctx, `
-			WITH to_pay AS (
-				SELECT id, amount,
-					SUM(amount) OVER (ORDER BY block_height, id) as running_total
-				FROM payouts
-				WHERE miner_address = $1 AND block_height <= $2 AND (txid IS NULL OR txid = '')
-			)
-			UPDATE payouts SET confirmed = true, status = 'paid', txid = $3, paid_at = $4
-			WHERE id IN (
-				SELECT id FROM to_pay WHERE running_total <= $5
-			)`,
-			minerID, matureHeight, txid, now, paidAmount)
-	}
-
-	if err != nil {
-		log.Printf("DB update error: %v", err)
-		return err
-	}
-
-	// Also update block status to confirmed for paid blocks
-	tx.ExecContext(ctx, `
-		UPDATE blocks SET status = 'confirmed'
-		WHERE height IN (
-			SELECT block_height FROM payouts
-			WHERE miner_address = $1 AND txid = $2
-		) AND status = 'pending'`,
-		minerID, txid)
-
-	// Update miners table balance and total_paid
-	tx.ExecContext(ctx, `
-		UPDATE miners SET
-			balance = COALESCE((
-				SELECT SUM(amount) FROM payouts
-				WHERE miner_address = miners.address AND (txid IS NULL OR txid = '')
-			), 0),
-			total_paid = COALESCE((
-				SELECT SUM(amount) FROM payouts
-				WHERE miner_address = miners.address AND confirmed = true
-			), 0),
-			updated_at = NOW()
-		WHERE address = $1`,
-		minerID)
-
-	if err = tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit: %w", err)
-	}
-
-	rows, _ := result.RowsAffected()
-	if paidAmount > 0 {
-		log.Printf("Marked %d payouts as paid in DB for %s (txid: %s, amount: %.8f)",
-			rows, minerID, txid, paidAmount)
-	} else {
-		log.Printf("Marked %d payouts as paid in DB for %s (txid: %s)", rows, minerID, txid)
-	}
-	return nil
 }
 
 // SaveMinerSettings saves or updates miner settings in the database
@@ -1427,13 +1219,20 @@ type PayoutRow struct {
 	BlockHeight int64
 }
 
+// NO PRODUCTION CALLER, AND THAT IS THE POINT. Every reward is paid by the block's own
+// coinbase, so nothing sweeps the ledger: the sender was removed and no_wallet_send_test.go
+// forbids its return. What survives here is the instrument that proves the property --
+// TestSoloPayoutIsNeverReservableForSending reserves against a real database and asserts a
+// solo payout is never handed back. Delete this and the proof goes with it; wire it to a
+// sender and the guard test fails, which is the intended outcome.
+//
 // ReserveMaturePayouts atomically reserves (under FOR UPDATE) every mature unpaid
 // payout row for a miner, stamps them with a unique placeholder txid, and returns
 // them ordered. Reserved rows carry a non-empty txid so GetReadyPayoutsDB no longer
 // selects them — this is what stops the auto processor and a concurrent manual
-// request from both paying the same balance. The caller must, for each row it
-// actually broadcasts, call FinalizePayoutRows with the real txid, and release any
-// rows it did not send via RevertPendingPayout(pendingID). Rows left carrying the
+// request from both paying the same balance. A caller would, for each row it
+// actually broadcasts, call FinalizePayoutRows with the real txid, and release the
+// rows it did not send via RevertPayoutRows. Rows left carrying the
 // placeholder after an interrupted run are safely excluded from payment (never
 // double-paid) until reconciled.
 func ReserveMaturePayouts(minerID string, matureHeight int64) (pendingID string, rows []PayoutRow, total float64, err error) {
@@ -1496,9 +1295,9 @@ func ReserveMaturePayouts(minerID string, matureHeight int64) (pendingID string,
 	return pendingID, rows, total, nil
 }
 
-// FinalizePayoutRows stamps the given payout rows with the real broadcast txid.
-// Called immediately after a chunk's sendtoaddress succeeds, so the amount sent
-// on-chain always equals the amount marked paid in the ledger.
+// FinalizePayoutRows stamps the given payout rows with the real broadcast txid, so the
+// amount sent on-chain would always equal the amount marked paid in the ledger. Reached
+// only from the reservation tests -- see the note on ReserveMaturePayouts.
 func FinalizePayoutRows(ids []int64, actualTxid string) error {
 	dbMu.RLock()
 	defer dbMu.RUnlock()
@@ -1514,16 +1313,10 @@ func FinalizePayoutRows(ids []int64, actualTxid string) error {
 	if err != nil {
 		return err
 	}
-	// Refresh affected miners' balance/total_paid.
-	db.Exec(`
-		UPDATE miners SET
-			balance = COALESCE((SELECT SUM(amount) FROM payouts
-				WHERE miner_address = miners.address AND (txid IS NULL OR txid = '')), 0),
-			total_paid = COALESCE((SELECT SUM(amount) FROM payouts
-				WHERE miner_address = miners.address AND confirmed = true), 0),
-			updated_at = NOW()
-		WHERE address IN (SELECT DISTINCT miner_address FROM payouts WHERE id = ANY($1))`,
-		pq.Array(ids))
+	// No cached-balance refresh: the balance the dashboard shows is summed from payouts on
+	// read (GetMinerBalanceDB), so there is nothing here to keep in step. The columns it used
+	// to write were never declared in the Postgres schema, so that write had always failed
+	// silently, and nothing has ever read them in either dialect.
 	return nil
 }
 
