@@ -140,7 +140,6 @@ func createTables() error {
 		address TEXT UNIQUE NOT NULL,
 		solo_mining INTEGER DEFAULT 0,
 		manual_diff REAL DEFAULT 0,
-		min_payout REAL DEFAULT 5.0,
 		balance REAL DEFAULT 0,
 		total_paid REAL DEFAULT 0,
 		address_1175 TEXT,
@@ -178,7 +177,6 @@ func createTables() error {
 		pool_address TEXT DEFAULT '',
 		payout_address_1175 TEXT DEFAULT '',
 		coinbase_tag TEXT DEFAULT '',
-		min_payout REAL DEFAULT 1,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 	`
@@ -192,13 +190,21 @@ func createTables() error {
 	// duplicate-column error here is the expected no-op on an already-migrated file.
 	for _, stmt := range []string{
 		`ALTER TABLE blocks ADD COLUMN confirmed_at DATETIME`,
+		// A solo block pays its finder in its own coinbase: nothing accumulates and there is
+		// no threshold to cross. These columns outlived the payout sender and kept reporting a
+		// default nothing honours. SQLite has no DROP COLUMN IF EXISTS, so on an already
+		// migrated file the "no such column" error below is the expected no-op.
+		`ALTER TABLE miners DROP COLUMN min_payout`,
+		`ALTER TABLE pool_config DROP COLUMN min_payout`,
 		// Matches postgres (database/schema.sql UNIQUE(miner_address, block_height)).
 		// Without it the INSERT OR IGNORE above ignores nothing and a re-recorded block
 		// double-credits. Fails loudly-but-nonfatally if an existing file already holds
 		// duplicates, which must then be reconciled by hand rather than silently indexed.
 		`CREATE UNIQUE INDEX IF NOT EXISTS uq_payouts_miner_height ON payouts(miner_address, block_height)`,
 	} {
-		if _, err := db.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		if _, err := db.Exec(stmt); err != nil &&
+			!strings.Contains(err.Error(), "duplicate column") &&
+			!strings.Contains(err.Error(), "no such column") {
 			log.Printf("Warning: schema migration %q: %v", stmt, err)
 		}
 	}

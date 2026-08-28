@@ -92,7 +92,7 @@ func TestNo1175SendPipeline(t *testing.T) {
 func TestNoMinimumPayoutConcept(t *testing.T) {
 	for _, path := range []string{
 		"cmd/stratum/main.go", "docker/stratum/config.template.yaml",
-		"docker-compose.yml", ".env.example",
+		"docker-compose.yml", ".env.example", "init-db.sql",
 	} {
 		src, err := os.ReadFile(path)
 		if err != nil {
@@ -104,6 +104,23 @@ func TestNoMinimumPayoutConcept(t *testing.T) {
 					"coinbase; there is no balance to accumulate and no threshold to cross.",
 					path, needle)
 			}
+		}
+	}
+
+	// The schema files may keep exactly one kind of reference: the migration that drops the
+	// dead column from databases created before it was removed. Any mention on a line that is
+	// not that migration means a CREATE TABLE grew it back.
+	for _, path := range []string{"internal/stats/db.go", "internal/stats/db_sqlite.go"} {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		for i, line := range strings.Split(string(src), "\n") {
+			if !strings.Contains(line, "min_payout") || strings.Contains(line, "DROP COLUMN") {
+				continue
+			}
+			t.Errorf("%s:%d reintroduces the minimum-payout column outside the drop "+
+				"migration: %s", path, i+1, strings.TrimSpace(line))
 		}
 	}
 }

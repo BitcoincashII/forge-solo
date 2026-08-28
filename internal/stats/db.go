@@ -103,7 +103,6 @@ CREATE TABLE IF NOT EXISTS miners (
     address VARCHAR(255) UNIQUE NOT NULL,
     solo_mining BOOLEAN DEFAULT FALSE,
     manual_diff DECIMAL(20, 8) DEFAULT 0,
-    min_payout DECIMAL(20, 8) DEFAULT 5.0,
     address_1175 TEXT,
     settings_pin_hash TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -147,7 +146,6 @@ CREATE TABLE IF NOT EXISTS pool_config (
     pool_address TEXT DEFAULT '',
     payout_address_1175 TEXT DEFAULT '',
     coinbase_tag TEXT DEFAULT '',
-    min_payout DOUBLE PRECISION DEFAULT 1,
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -222,6 +220,19 @@ func InitDB(connStr string) error {
 	// settle) reference payouts.status, so a fresh Postgres install must have it.
 	if _, mErr := db.Exec(`ALTER TABLE payouts ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'pending'`); mErr != nil {
 		log.Printf("Warning: payouts.status column migration: %v", mErr)
+	}
+	// Destructive but deliberate: drop the dead minimum-payout columns. A solo block pays its
+	// finder in its own coinbase, so nothing accumulates and there is no threshold to cross --
+	// yet the columns kept reporting their old defaults to anyone reading the database, which
+	// is how a dead column makes triage lie. Nothing has read or written them since the payout
+	// sender was removed. IF EXISTS makes this a no-op once it has run.
+	for _, stmt := range []string{
+		`ALTER TABLE miners DROP COLUMN IF EXISTS min_payout`,
+		`ALTER TABLE pool_config DROP COLUMN IF EXISTS min_payout`,
+	} {
+		if _, mErr := db.Exec(stmt); mErr != nil {
+			log.Printf("Warning: dead-column drop migration %q: %v", stmt, mErr)
+		}
 	}
 	// 1175 merge-mining payout ledger tables.
 	Init1175Schema()
