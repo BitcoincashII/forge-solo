@@ -2,15 +2,19 @@ module github.com/BitcoincashII/forge-solo
 
 go 1.25.0
 
+// Pinned to a stdlib with the net/url, crypto/tls and crypto/x509 fixes
+// (GO-2026-6218 needs 1.25.13). The Docker build images are pinned to the
+// matching golang:1.25-bookworm digest.
+toolchain go1.25.14
+
 require (
 	github.com/btcsuite/btcd/btcutil v1.1.6
-	github.com/flynn/noise v1.1.0
 	github.com/go-zeromq/zmq4 v0.17.0
-	github.com/gofiber/fiber/v2 v2.52.10
+	github.com/gofiber/fiber/v2 v2.52.15
 	github.com/lib/pq v1.11.1
 	github.com/spf13/viper v1.18.2
 	go.uber.org/zap v1.26.0
-	golang.org/x/crypto v0.31.0
+	golang.org/x/crypto v0.55.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.48.1
 )
@@ -46,9 +50,10 @@ require (
 	github.com/valyala/tcplisten v1.0.0 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
-	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
-	golang.org/x/text v0.35.0 // indirect
+	golang.org/x/sync v0.22.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
+	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	modernc.org/libc v1.70.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
