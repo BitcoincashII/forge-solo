@@ -59,7 +59,6 @@ type Server struct {
 	extraNonceMu   sync.Mutex
 	shareProcessor ShareProcessor
 	minerSettings  MinerSettingsStore
-	authPasswords  sync.Map // minerID(address) -> sha256(settings password) hex; proof-of-control for settings changes
 	diffMemory     sync.Map // minerID(address) -> diffMem: last vardiff level, reused across reconnects
 	shutdownCh     chan struct{}
 	stats          *ServerStats
@@ -484,8 +483,24 @@ func (s *Server) shareCleanupLoop() {
 			return
 		case <-ticker.C:
 			s.cleanupOldShares()
+			s.cleanupDiffMemory()
 		}
 	}
+}
+
+// cleanupDiffMemory drops remembered vardiff levels past their TTL.
+//
+// The read path already ignores an entry older than diffMemoryTTL, but nothing deleted it,
+// so the map only ever grew -- and its key is miner+worker name, which a marketplace order
+// rotates. Small per entry, unbounded in aggregate, and invisible because the stale entries
+// were never returned anyway.
+func (s *Server) cleanupDiffMemory() {
+	s.diffMemory.Range(func(key, value interface{}) bool {
+		if m, ok := value.(diffMem); ok && time.Since(m.at) > diffMemoryTTL {
+			s.diffMemory.Delete(key)
+		}
+		return true
+	})
 }
 
 // cleanupOldShares removes shares older than 5 minutes
@@ -1250,15 +1265,6 @@ func detectRentalService(userAgent string) RentalService {
 	return RentalNone
 }
 
-// GetAuthPasswordHash returns the hex sha256 of the settings password the miner
-// set at authorize for this address, if one was captured.
-func (s *Server) GetAuthPasswordHash(minerID string) (string, bool) {
-	if v, ok := s.authPasswords.Load(minerID); ok {
-		return v.(string), true
-	}
-	return "", false
-}
-
 // CountAuthorized returns the number of clients that have completed mining.authorize.
 //
 // Deliberately distinct from ActiveConnections, which counts TCP accepts: a rig that is
@@ -1407,16 +1413,11 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 		}
 	}
 
-	// Capture the miner-chosen stratum password as a proof-of-control secret for
-	// settings changes (verified by the pool API). The "ignore" default "x" and
-	// difficulty hints ("d=...") are not treated as real passwords.
+	// The stratum password is NOT retained. It used to be hashed and kept as a
+	// proof-of-control secret for settings changes, but that route is gone: the mining
+	// password must never override a settings PIN, or whoever rents the rig inherits the
+	// payout address with it. Only the difficulty hint is read out of it now.
 	var hintedDiff float64
-	if len(params) >= 2 && minerID != "probe" {
-		if pw := strings.TrimSpace(params[1]); pw != "" && !strings.EqualFold(pw, "x") && !strings.HasPrefix(strings.ToLower(pw), "d=") {
-			sum := sha256.Sum256([]byte(pw))
-			s.authPasswords.Store(minerID, hex.EncodeToString(sum[:]))
-		}
-	}
 	if len(params) >= 2 {
 		hintedDiff = parsePasswordDiffHint(params[1])
 	}
@@ -2382,13 +2383,6 @@ func (s *Server) GetRentalStats() *RentalStats {
 	})
 
 	return stats
-}
-
-// IsRentalClient checks if a client is from a rental service
-func (c *Client) IsRentalClient() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.RentalService != RentalNone
 }
 
 func parseUsername(username string) (minerID, workerName string) {

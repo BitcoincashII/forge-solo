@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"io"
 	"net"
+	"os"
+	"strings"
 	"testing"
 
 	"go.uber.org/zap"
@@ -141,17 +143,55 @@ func TestAuthorizeWithoutHintUsesTheFloor(t *testing.T) {
 	}
 }
 
-// A real password must still be captured as the settings proof-of-control secret, and a
-// difficulty hint must still NOT be (it is not a secret -- it is printed in order forms).
-func TestPasswordHintIsNotStoredAsASecret(t *testing.T) {
+// The stratum must retain no password material at all.
+//
+// It used to hash the miner's stratum password and keep it, so the api could verify it as
+// proof-of-control for settings changes. That route is gone: the mining password must never
+// override a settings PIN, because whoever rents the rig is handed the password and would
+// inherit the payout address with it. The hash outlived its only reader and was kept for
+// nothing, which is worse than useless -- it is a secret held with no purpose.
+//
+// This asserts on the source, because the absence of a store cannot be observed through the
+// API that no longer exists. Comments are stripped first: a prose mention of the old field
+// would otherwise satisfy the check and make it vacuous.
+func TestStratumRetainsNoPasswordMaterial(t *testing.T) {
+	raw, err := os.ReadFile("server.go")
+	if err != nil {
+		t.Fatalf("read server.go: %v", err)
+	}
+	var code strings.Builder
+	for _, line := range strings.Split(string(raw), "\n") {
+		if t := strings.TrimSpace(line); strings.HasPrefix(t, "//") {
+			continue
+		}
+		code.WriteString(line)
+		code.WriteString("\n")
+	}
+	body := code.String()
+
+	for _, banned := range []string{"authPasswords", "GetAuthPasswordHash"} {
+		if strings.Contains(body, banned) {
+			t.Errorf("server.go references %s again: the stratum must not keep the miner's "+
+				"password, hashed or otherwise", banned)
+		}
+	}
+	// The password is still read -- for the public d= difficulty hint -- so guard the thing
+	// that matters: it must not be fed into a hash on the authorize path.
+	if strings.Contains(body, "sha256.Sum256([]byte(pw") {
+		t.Error("the authorize path hashes the stratum password again")
+	}
+}
+
+// The difficulty hint is public (it is printed in rental order forms) and must keep working.
+func TestPasswordHintStillParsedAfterPasswordsStoppedBeingKept(t *testing.T) {
 	s := newHintTestServer(t)
 	c := authorizeWithPassword(t, s, "d=65536")
 
 	c.mu.RLock()
-	minerID := c.MinerID
+	diff := c.Difficulty
 	c.mu.RUnlock()
 
-	if _, ok := s.authPasswords.Load(minerID); ok {
-		t.Error("a d= hint was stored as the settings password; it is public, not a secret")
+	if diff <= s.config.AbsoluteMinDiff {
+		t.Errorf("opening difficulty = %v; the d= hint stopped being honoured", diff)
 	}
 }
