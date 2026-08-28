@@ -145,9 +145,20 @@ services:
       - "3335:3335"   # proxied rental hashpower: NiceHash / MiningRigRentals
     environment:
       - INTERNAL_API_TOKEN=${APP_INTERNAL_API_TOKEN}
+      # The stats server the api polls. Bound on 0.0.0.0 so the api container can reach it
+      # over the private app network; the port is never published to the host, and the
+      # constant-time internal-token check is what guards it. Must stay in step with the
+      # api's STRATUM_INTERNAL_URL (http://stratum:3337).
       - INTERNAL_STATS_HOST=0.0.0.0
-      - API_HOST=0.0.0.0
-      - API_PORT=3337
+      # Where the stratum would REACH the api, which is a different thing from the line
+      # above: api.exe listens on 8080 (API_LISTEN_PORT), not on 3337. This pointed at
+      # 0.0.0.0:3337 -- the stratum's own stats port, which serves only /internal/* -- so
+      # every /api/v1/miners/.../settings request would have 404ed. It is inert today
+      # because both call sites are gated on !SoloOnly and this app is payout_scheme
+      # "solo", but a wrong value that only a future change would expose is worth not
+      # leaving in place.
+      - API_HOST=api
+      - API_PORT=8080
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_USER=forge
