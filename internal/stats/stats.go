@@ -147,7 +147,7 @@ func (m *StatsManager) UpdateWorker(minerID, workerName string, valid bool, targ
 	w.Online = true
 	w.LastShareAt = time.Now()
 
-	// Add share to circular buffer (O(1) operation, no memory allocation)
+	// Add share to the ring: O(1), and the backing array grows only until it reaches cap.
 	// Use target difficulty for hashrate calculation (consistent work credit)
 	w.ShareBuffer.Add(ShareRecord{
 		Time:       time.Now(),

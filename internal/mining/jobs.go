@@ -364,11 +364,30 @@ func (jm *JobManager) SetCoinbaseTag(tag string) {
 	jm.mu.Unlock()
 }
 
+// validateAddressRequest builds the validateaddress RPC body.
+//
+// Marshalled, never interpolated. The address reaching here is only checked for
+// non-emptiness (SetPoolAddress), and JSON decoders take the LAST of duplicate keys, so an
+// address containing a quote could close params and append its own "method" -- turning this
+// request into a different RPC call against the operator's own node. Every other RPC body in
+// this tree is marshalled; this one was the exception.
+func validateAddressRequest(address string) ([]byte, error) {
+	return json.Marshal(map[string]interface{}{
+		"jsonrpc": "1.0",
+		"id":      "pkh",
+		"method":  "validateaddress",
+		"params":  []interface{}{address},
+	})
+}
+
 // getPubkeyHashFromNode extracts pubkey hash via node RPC validateaddress
 func getPubkeyHashFromNode(rpcURL, rpcUser, rpcPassword, address string) []byte {
-	reqBody := fmt.Sprintf(`{"jsonrpc":"1.0","id":"pkh","method":"validateaddress","params":["%s"]}`, address)
+	reqBody, err := validateAddressRequest(address)
+	if err != nil {
+		return nil
+	}
 
-	req, err := http.NewRequest("POST", rpcURL, bytes.NewBufferString(reqBody))
+	req, err := http.NewRequest("POST", rpcURL, bytes.NewReader(reqBody))
 	if err != nil {
 		return nil
 	}
