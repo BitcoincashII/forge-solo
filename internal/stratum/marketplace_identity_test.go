@@ -114,3 +114,54 @@ func TestDifficultyReadsPolicyAndCountersReadIdentity(t *testing.T) {
 		}
 	}
 }
+
+// Difficulty must be announced at subscribe, before authorize.
+//
+// It used to be withheld until authorize succeeded. Real ASICs never noticed -- an
+// Antminer sends mining.authorize straight after subscribe without waiting -- but
+// MiningRigRentals' endpoint validator subscribes and then WAITS for
+// mining.set_difficulty. It never came, the validator timed out, and MRR reported the
+// pool as unusable. Observed directly: its probe (user_agent "MiningRigRentals/Test/1.0")
+// subscribed, received nothing, and gave up without ever sending authorize.
+//
+// A source check because the failure is an ABSENCE: nothing errors, the client simply
+// waits forever, and every test that authorizes immediately passes either way.
+func TestDifficultyIsAnnouncedAtSubscribe(t *testing.T) {
+	raw, err := os.ReadFile("server.go")
+	if err != nil {
+		t.Fatalf("read server.go: %v", err)
+	}
+	src := string(raw)
+
+	i := strings.Index(src, "case MethodSubscribe:")
+	if i < 0 {
+		t.Fatal("subscribe dispatch not found")
+	}
+	j := strings.Index(src[i:], "case MethodAuthorize:")
+	if j < 0 {
+		t.Fatal("authorize dispatch not found after subscribe")
+	}
+	// Strip comments before matching. The explanatory comment in that branch mentions
+	// sendDifficulty by name, so a naive substring check passes even with the call
+	// deleted -- which is exactly how the first version of this test was vacuous.
+	var b strings.Builder
+	for _, line := range strings.Split(src[i:i+j], "\n") {
+		if t := strings.TrimSpace(line); strings.HasPrefix(t, "//") {
+			continue
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	block := b.String()
+
+	if !strings.Contains(block, "sendDifficulty") {
+		t.Error("the subscribe branch never calls sendDifficulty — a client that waits for " +
+			"mining.set_difficulty before authorizing (MiningRigRentals' validator does) " +
+			"hangs until it times out, and the endpoint reads as unusable")
+	}
+	// Work must still wait for authorize: difficulty is not secret, a job is.
+	if strings.Contains(block, "sendJob") {
+		t.Error("the subscribe branch sends a JOB before authorize; work must not go to an " +
+			"unauthenticated connection")
+	}
+}

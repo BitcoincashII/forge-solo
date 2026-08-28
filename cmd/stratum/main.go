@@ -204,10 +204,21 @@ func buildMiningStatus() miningStatusSnapshot {
 	if jobManager != nil {
 		configured = jobManager.IsConfigured()
 	}
+	// BOTH servers, summed. Counting only stratumServer reported connections=0 and
+	// authorized=0 while a rented Antminer was connected to the RENTAL listener on 3335
+	// and submitting accepted shares every second or two -- so the dashboard showed
+	// "No miner connected" and Workers 0 during a paid rental that was working perfectly.
+	//
+	// This is the same mistake as /internal/rental-stats, which asked only stratumServer
+	// and missed the 3335 listener. That one was found and fixed; nobody then checked
+	// whether the pattern existed elsewhere. It did, here.
 	var connections, authorized int64
-	if stratumServer != nil {
-		connections = stratumServer.GetStats().ActiveConnections
-		authorized = stratumServer.CountAuthorized()
+	for _, srv := range []*stratum.Server{stratumServer, stratumRentalServer} {
+		if srv == nil {
+			continue
+		}
+		connections += srv.GetStats().ActiveConnections
+		authorized += srv.CountAuthorized()
 	}
 	miningStatusMu.RLock()
 	shareAt := lastShareAt
@@ -1751,6 +1762,9 @@ func main() {
 		stratumRentalServer.Stop()
 	}
 	stratumServer.Stop()
+	if stratumRentalServer != nil {
+		stratumRentalServer.Stop()
+	}
 }
 
 func loadConfig(path string) (*viper.Viper, error) {

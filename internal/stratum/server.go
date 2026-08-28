@@ -174,6 +174,21 @@ func (s *Server) noteInvalidShare(client *Client, reason string) {
 	cb(minerID, worker, reason)
 }
 
+// isLoopback reports whether a "host:port" peer address is a loopback client, for either
+// IP family. Used to keep local health probes out of the logs; anything that cannot be
+// parsed is treated as external, so a genuine handshake failure is never silently dropped.
+func isLoopback(addr string) bool {
+	host := addr
+	if h, _, err := net.SplitHostPort(addr); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
+}
+
 // shareKey uniquely identifies a submitted share
 type shareKey struct {
 	JobID       string
@@ -963,8 +978,15 @@ func (s *Server) handleClient(conn net.Conn) {
 	duration := time.Since(client.ConnectedAt)
 	scanErr := scanner.Err()
 
-	// Log external connections that never subscribed
-	if !strings.HasPrefix(client.IP, "127.0.0.1") && !subscribed {
+	// Log EXTERNAL connections that never subscribed. A local probe that opens a socket
+	// and closes it is the container healthcheck, not a miner with a problem.
+	//
+	// This used to test strings.HasPrefix(ip, "127.0.0.1"), which only covers IPv4.
+	// `nc -z localhost 3333` resolves to ::1 first on a dual-stack container, so every
+	// healthcheck slipped past and logged a warning: ~84 an hour, ~2000 a day, all
+	// self-inflicted. That volume is not just untidy -- it buries the case the warning
+	// exists for, a real miner failing to complete the handshake.
+	if !isLoopback(client.IP) && !subscribed {
 		s.logger.Warn("External client disconnected without subscribing",
 			zap.String("ip", client.IP),
 			zap.Duration("connected_duration", duration),
@@ -1007,7 +1029,28 @@ func (s *Server) handleMessage(client *Client, data []byte) {
 	case MethodSubscribe:
 		resp := s.handleSubscribe(client, &req)
 		s.sendResponse(client, resp)
-		// Difficulty will be sent after authorize
+		// Push the starting difficulty immediately, before authorize.
+		//
+		// Difficulty used to be withheld until authorize succeeded. Real ASICs never
+		// noticed -- an Antminer fires mining.authorize straight after subscribe without
+		// waiting for anything -- but MiningRigRentals' endpoint validator subscribes and
+		// then WAITS for mining.set_difficulty before going further. It never arrived, the
+		// validator timed out, and MRR reported the pool as unusable, which is what
+		// "blocked pool" looked like from the outside. Verified against MRR's own probe
+		// (user_agent "MiningRigRentals/Test/1.0"): it subscribed, received nothing, and
+		// gave up without ever sending authorize.
+		//
+		// Most pools announce difficulty here, so this is the conventional shape as well as
+		// the interoperable one. It leaks nothing: the value is not a secret, and no WORK is
+		// sent until the client has authorized. sendDifficulty suppresses an identical
+		// repeat within 500ms, so the authorize path's own send is a no-op when the value
+		// has not changed, and still fires when it has.
+		client.mu.RLock()
+		startDiff := client.Difficulty
+		client.mu.RUnlock()
+		if startDiff > 0 {
+			s.sendDifficulty(client, startDiff)
+		}
 	case MethodAuthorize:
 		resp := s.handleAuthorize(client, &req)
 		// Send auth response FIRST

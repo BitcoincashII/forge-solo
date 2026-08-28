@@ -96,3 +96,56 @@ func TestRentalStatsHandlerAsksBothServers(t *testing.T) {
 		t.Errorf("sumRentalStats is called with %s — the 3333 server is no longer counted", joined)
 	}
 }
+
+// The status ladder must count BOTH stratum listeners.
+//
+// buildMiningStatus asked only stratumServer, so with a rented Antminer connected to the
+// RENTAL listener on 3335 and submitting accepted shares every second or two, the app
+// reported connections=0 authorized=0 -- the dashboard said "No miner connected" and
+// Workers 0 during a paid rental that was working perfectly. Caught by a real rental, not
+// by any test here: every previous check held a socket open on 3333.
+//
+// This is the same defect as /internal/rental-stats, which also asked only stratumServer.
+// That one was fixed; the pattern was not swept for. This test covers the sweep.
+func TestMiningStatusCountsBothStratumListeners(t *testing.T) {
+	raw, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("read main.go: %v", err)
+	}
+	src := string(raw)
+
+	i := strings.Index(src, "func buildMiningStatus()")
+	if i < 0 {
+		t.Fatal("buildMiningStatus not found")
+	}
+	body := src[i:]
+	if j := strings.Index(body, "\n}\n"); j > 0 {
+		body = body[:j]
+	}
+	if !strings.Contains(body, "stratumRentalServer") {
+		t.Error("buildMiningStatus never mentions stratumRentalServer — a miner on the 3335 " +
+			"rental listener is invisible to the status ladder, so the dashboard reports " +
+			"'No miner connected' and Workers 0 while it is actively submitting shares")
+	}
+	if !strings.Contains(body, "stratumServer") {
+		t.Error("buildMiningStatus no longer counts the 3333 listener")
+	}
+	// It must ADD, not overwrite: `=` on the second server would discard the first.
+	if strings.Contains(body, "connections = stratumServer") {
+		t.Error("buildMiningStatus assigns rather than accumulates; whichever listener is " +
+			"read last wins and the other is discarded")
+	}
+}
+
+// Shutdown must stop both listeners.
+func TestShutdownStopsBothStratumListeners(t *testing.T) {
+	raw, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("read main.go: %v", err)
+	}
+	src := string(raw)
+	if !strings.Contains(src, "stratumRentalServer.Stop()") {
+		t.Error("the rental listener on 3335 is never stopped on shutdown; it keeps its " +
+			"socket and its clients while the miner listener closes cleanly")
+	}
+}
