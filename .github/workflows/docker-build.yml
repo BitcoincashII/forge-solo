@@ -15,6 +15,7 @@ on:
 permissions:
   contents: write   # the re-pin commit is pushed back to main
   packages: write
+  actions: write   # the repin job dispatches Tests against the re-pinned main
 
 env:
   REGISTRY: ghcr.io
@@ -211,3 +212,12 @@ jobs:
           git add docker-compose.yml packaging_test.go
           git commit -m "release: pin docker-compose to the ${V} digests CI published"
           git push origin HEAD:main
+
+      # That push was made with GITHUB_TOKEN, which by design triggers no workflows. Without
+      # this, main keeps showing the Tests failure from the window between the manifest bump
+      # and the re-pin -- a red branch that is actually green.
+      - name: Run Tests against the re-pinned main
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run test.yml --ref main

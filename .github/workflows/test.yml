@@ -9,6 +9,10 @@ on:
   push:
     branches: ['**']
   pull_request:
+  # A push made with GITHUB_TOKEN does not trigger workflows -- GitHub's loop prevention --
+  # so the release re-pin commit would otherwise leave main showing the failed run from the
+  # window between the manifest bump and the re-pin. The repin job dispatches this.
+  workflow_dispatch:
 
 # Least privilege: reading the source is all any of this needs.
 permissions:
