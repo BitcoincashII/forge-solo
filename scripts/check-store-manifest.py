@@ -17,6 +17,7 @@ Compares PARSED values, not bytes, so comments and line wrapping may differ.
 """
 import os
 import sys
+import difflib
 import urllib.request
 
 try:
@@ -29,55 +30,99 @@ except ImportError:
 # keep returning the previous file for minutes after a push, which would make this report
 # drift that had just been fixed -- a check that cries wolf gets ignored, and then it is
 # worse than no check.
-STORE_API = (
+STORE_DIR = (
     "https://api.github.com/repos/BitcoincashII/umbrel-app-store/contents/"
-    "bch2-apps-forge-solo/umbrel-app.yml?ref=main"
+    "bch2-apps-forge-solo/{name}?ref=main"
 )
+
+# Every file the store serves for this app, not just the manifest.
+#
+# Checking the manifest alone is how the store's compose sat on 1.0.8 images while its
+# manifest advertised 1.0.9: the version field matched what the check looked at, so the drift
+# was invisible, and a fresh install got neither version. The compose is the file that decides
+# which images a user actually runs.
 LOCAL = "umbrel-app.yml"
+STORE_FILES = ["umbrel-app.yml", "docker-compose.yml", "exports.sh", "init-db.sql"]
 
 
 def main() -> int:
     with open(LOCAL) as fh:
         local = yaml.safe_load(fh)
 
-    req = urllib.request.Request(
-        STORE_API,
-        headers={
-            "Accept": "application/vnd.github.raw",
-            "User-Agent": "forge-solo-manifest-drift-check",
-        },
-    )
-    # GITHUB_TOKEN lifts the unauthenticated rate limit; the repo is public so the check
-    # still works without one, which keeps it runnable locally.
-    token = os.environ.get("GITHUB_TOKEN")
-    if token:
-        req.add_header("Authorization", f"Bearer {token}")
-
-    try:
+    def fetch(name: str) -> bytes:
+        req = urllib.request.Request(
+            STORE_DIR.format(name=name),
+            headers={
+                "Accept": "application/vnd.github.raw",
+                "User-Agent": "forge-solo-manifest-drift-check",
+            },
+        )
+        # GITHUB_TOKEN lifts the unauthenticated rate limit; the repo is public so the check
+        # still works without one, which keeps it runnable locally.
+        token = os.environ.get("GITHUB_TOKEN")
+        if token:
+            req.add_header("Authorization", f"Bearer {token}")
         with urllib.request.urlopen(req, timeout=30) as resp:
-            store = yaml.safe_load(resp.read())
+            return resp.read()
+
+    # Byte-compare every file the store serves; the manifest additionally gets a field-level
+    # diff below, because "which field changed" is the useful answer for that one.
+    raw = {}
+    try:
+        for name in STORE_FILES:
+            raw[name] = fetch(name)
     except Exception as exc:  # noqa: BLE001 - any failure here is worth reporting verbatim
         # A network failure must not turn into a false "they match". Report and fail
         # soft: the check is a drift alarm, not a correctness gate on the code.
-        print(f"::warning::could not fetch the store manifest ({exc}); drift NOT checked")
+        print(f"::warning::could not fetch the store copy ({exc}); drift NOT checked")
         return 0
+
+    file_drift = []
+    for name in STORE_FILES:
+        try:
+            with open(name, "rb") as fh:
+                mine = fh.read()
+        except FileNotFoundError:
+            file_drift.append((name, "missing from this repo"))
+            continue
+        if mine != raw[name]:
+            a = mine.decode("utf-8", "replace").splitlines()
+            b = raw[name].decode("utf-8", "replace").splitlines()
+            # Skip the ---/+++ headers, or a one-line change reports as three.
+            n = sum(
+                1
+                for line in difflib.unified_diff(b, a, lineterm="")
+                if line[:1] in "+-" and not line.startswith(("---", "+++"))
+            )
+            file_drift.append((name, f"{n} differing lines"))
+
+    store = yaml.safe_load(raw[LOCAL])
 
     keys = sorted(set(local) | set(store))
     drift = [k for k in keys if local.get(k) != store.get(k)]
 
-    if not drift:
-        print(f"store manifest matches this repo on all {len(keys)} fields")
+    if not drift and not file_drift:
+        print(f"store copy matches this repo: all {len(keys)} manifest fields "
+              f"and all {len(STORE_FILES)} files byte-identical")
         return 0
 
-    print("::error::umbrel-app.yml has drifted from the published store listing")
+    if file_drift:
+        print("::error::the published store copy has drifted from this repo")
+        for name, how in file_drift:
+            print(f"  {name}: {how}")
+
+    if drift:
+        print("\n  umbrel-app.yml field differences:")
     for k in drift:
         print(f"\n  {k}:")
         print(f"    this repo : {local.get(k, '<missing>')!r}")
         print(f"    the store : {store.get(k, '<missing>')!r}")
     print(
-        "\nThe store copy is what users actually install. Copy umbrel-app.yml to\n"
-        "BitcoincashII/umbrel-app-store at bch2-apps-forge-solo/umbrel-app.yml,\n"
-        "or fix this repo if the store is the correct one."
+        "\nThe store copy is what users actually install. Sync the drifted files to\n"
+        "BitcoincashII/umbrel-app-store under bch2-apps-forge-solo/.\n"
+        "\nCHECK WHICH SIDE IS RIGHT FIRST. The drift has run BOTH ways: the store once\n"
+        "held a dependency-free secret generator this repo lacked, and copying this repo\n"
+        "over it blindly would have reintroduced a crash on every fresh install."
     )
     return 1
 
