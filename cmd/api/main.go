@@ -660,14 +660,7 @@ func publicAddressFrom(raw json.RawMessage, err error) string {
 	}
 	best, bestScore := "", -1
 	for _, la := range info.LocalAddresses {
-		ip := net.ParseIP(la.Address)
-		if ip == nil || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
-			continue
-		}
-		// Carrier-grade NAT (100.64.0.0/10). Not "private" by Go's definition, but it is the
-		// one case where the user cannot forward a port at all -- handing it to a rental
-		// marketplace would produce a connection that never arrives.
-		if ip4 := ip.To4(); ip4 != nil && ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 {
+		if !routablePublicIP(la.Address) {
 			continue
 		}
 		if la.Score > bestScore {
@@ -677,11 +670,87 @@ func publicAddressFrom(raw json.RawMessage, err error) string {
 	return best
 }
 
+// routablePublicIP reports whether an address is one the outside world could dial.
+// Loopback, RFC1918 and link-local are exactly what a rental cannot use, and carrier-grade
+// NAT (100.64.0.0/10) is the one case where the user cannot forward a port at all -- not
+// "private" by Go's definition, but handing any of these to a marketplace produces a
+// connection that never arrives.
+func routablePublicIP(addr string) bool {
+	ip := net.ParseIP(addr)
+	if ip == nil || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+		return false
+	}
+	if ip4 := ip.To4(); ip4 != nil && ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 {
+		return false
+	}
+	return true
+}
+
+// publicAddressFromPeers derives our public address from what peers report seeing us on.
+//
+// localaddresses is empty whenever the node runs in a container: its only interface holds
+// an RFC1918 address, which is not routable and so is never recorded. getpeerinfo carries
+// the same fact one hop further out -- addrlocal is the address a peer observed our
+// connection arriving from. That is peer-supplied and therefore spoofable, so no single
+// peer is trusted: take the value a majority of reporting peers agree on, and only count
+// outbound connections, since an inbound peer can only echo an address we already gave it.
+func publicAddressFromPeers(raw json.RawMessage, err error) string {
+	if err != nil || len(raw) == 0 {
+		return ""
+	}
+	var peers []struct {
+		AddrLocal string `json:"addrlocal"`
+		Inbound   bool   `json:"inbound"`
+	}
+	if json.Unmarshal(raw, &peers) != nil {
+		return ""
+	}
+	counts := map[string]int{}
+	reporting := 0
+	for _, p := range peers {
+		if p.AddrLocal == "" || p.Inbound {
+			continue
+		}
+		host := p.AddrLocal
+		if h, _, splitErr := net.SplitHostPort(host); splitErr == nil {
+			host = h
+		}
+		if !routablePublicIP(host) {
+			continue
+		}
+		counts[host]++
+		reporting++
+	}
+	best, bestN := "", 0
+	for h, n := range counts {
+		if n > bestN {
+			best, bestN = h, n
+		}
+	}
+	// Require corroboration: at least two peers, and a strict majority of those reporting.
+	// One peer claiming an address it made up must never become what we show a marketplace.
+	if bestN < 2 || bestN*2 <= reporting {
+		return ""
+	}
+	return best
+}
+
 // getConnectivity answers the two questions a solo miner actually has: what do I give a
 // rental marketplace, and are my P2P forwards working?
 func getConnectivity(c *fiber.Ctx) error {
-	bchTotal, bchInbound, bchOK := peerCounts(rpcCall("getpeerinfo", []interface{}{}))
+	bchPeers, bchPeersErr := rpcCall("getpeerinfo", []interface{}{})
+	bchTotal, bchInbound, bchOK := peerCounts(bchPeers, bchPeersErr)
+
+	// A node that knows no routable address of its own never announces one, so no peer
+	// ever learns how to dial in and inbound stays at zero however the router is set up.
+	// Fall back to what peers observe, and report which of the two we had, because
+	// "advertising" is the difference between a forward that will attract peers and one
+	// that cannot.
 	public := publicAddressFrom(rpcCall("getnetworkinfo", []interface{}{}))
+	advertising := public != ""
+	if public == "" {
+		public = publicAddressFromPeers(bchPeers, bchPeersErr)
+	}
 
 	auxTotal, auxInbound, auxOK := peerCounts(rpcCallURL(
 		os.Getenv("AUX1175_URL"), os.Getenv("AUX1175_USER"), os.Getenv("AUX1175_PASSWORD"),
@@ -689,6 +758,7 @@ func getConnectivity(c *fiber.Ctx) error {
 
 	return c.JSON(fiber.Map{
 		"publicIp":    public,
+		"advertising": advertising,
 		"stratumPort": 3333,
 		"rentalPort":  3335,
 		"bch2": fiber.Map{
