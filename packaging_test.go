@@ -6,8 +6,10 @@ package forgesolo
 // the ORIGINAL images. That is silent -- a user who "updates" gets a version number and
 // none of the fixes -- so assert the two agree.
 //
-// Release order: bump umbrel-app.yml, tag, let CI publish, then re-pin the digests here.
-// This test failing between the tag and the re-pin is the reminder to finish the release.
+// Release order: bump umbrel-app.yml, tag, and CI does the rest -- the repin job in
+// docker-build.yml rewrites the compose pins and the table below from the digests it just
+// published, and refuses to push unless this test passes. Re-pinning by hand is what used to
+// be forgotten; this test is now the backstop rather than the reminder.
 
 import (
 	"os"

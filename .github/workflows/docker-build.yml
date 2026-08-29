@@ -13,7 +13,7 @@ on:
 # Least privilege: the job-scoped GITHUB_TOKEN (auto-provisioned, expires with the run) has
 # just enough to push to this repo's GHCR packages. No long-lived PAT.
 permissions:
-  contents: read
+  contents: write   # the re-pin commit is pushed back to main
   packages: write
 
 env:
@@ -31,6 +31,13 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      node: ${{ steps.node.outputs.digest }}
+      node1175: ${{ steps.node1175.outputs.digest }}
+      api: ${{ steps.api.outputs.digest }}
+      stratum: ${{ steps.stratum.outputs.digest }}
+      web: ${{ steps.web.outputs.digest }}
+      version: ${{ steps.version.outputs.VERSION }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -61,6 +68,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push Node image (BCH2 v27.0.2)
+        id: node
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: ./docker/node
@@ -76,6 +84,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push Node1175 image (ESF v29.1.0)
+        id: node1175
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: ./docker/node1175
@@ -91,6 +100,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push API image
+        id: api
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
@@ -106,6 +116,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push Stratum image
+        id: stratum
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
@@ -121,6 +132,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push Web image
+        id: web
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
@@ -134,3 +146,68 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Re-pin the compose file and the digest table to what was just published.
+  #
+  # This is the step that used to be done by hand and silently was not: the 1.0.8 release
+  # bumped umbrel-app.yml and left the compose pinned at 1.0.0, so for eight releases this
+  # repo would have installed the ORIGINAL images. Docker resolves name:tag@digest by DIGEST,
+  # so bumping the tag alone ships the previous release under a new version number. Doing it
+  # here means it cannot be forgotten, and packaging_test.go fails the build if the three
+  # files ever disagree.
+  repin:
+    name: Re-pin digests on main
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: main
+          # A tag build has a detached HEAD; the re-pin belongs on the branch, not the tag.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Re-pin to the published digests
+        env:
+          V: ${{ needs.build.outputs.version }}
+          D_NODE: ${{ needs.build.outputs.node }}
+          D_NODE1175: ${{ needs.build.outputs.node1175 }}
+          D_API: ${{ needs.build.outputs.api }}
+          D_STRATUM: ${{ needs.build.outputs.stratum }}
+          D_WEB: ${{ needs.build.outputs.web }}
+        run: |
+          for d in "$D_NODE" "$D_NODE1175" "$D_API" "$D_STRATUM" "$D_WEB"; do
+            [ -n "$d" ] || { echo "::error::a build produced no digest; refusing to re-pin"; exit 1; }
+          done
+          scripts/repin-release.sh "$V" "$D_NODE" "$D_NODE1175" "$D_API" "$D_STRATUM" "$D_WEB"
+
+      # The guard that made this necessary must pass before anything is pushed.
+      - name: Verify the three files agree
+        run: go test -run 'TestCompose' -count=1 .
+
+      - name: Show what would be pinned
+        run: |
+          git --no-pager diff --stat
+          grep -oE 'forge-solo-[a-z0-9]+:[^@]+@sha256:[0-9a-f]{12}' docker-compose.yml
+
+      # Everything above runs on a manual dispatch too, so the re-pin path is exercised
+      # without cutting a release. Only the push is gated on an actual tag.
+      - name: Commit the re-pin
+        if: github.ref_type == 'tag'
+        env:
+          V: ${{ needs.build.outputs.version }}
+        run: |
+          if git diff --quiet; then
+            echo "already pinned to these digests; nothing to commit"
+            exit 0
+          fi
+          git config user.name "BitcoincashII Dev"
+          git config user.email "dev@bitcoincashii.org"
+          git add docker-compose.yml packaging_test.go
+          git commit -m "release: pin docker-compose to the ${V} digests CI published"
+          git push origin HEAD:main
