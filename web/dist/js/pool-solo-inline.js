@@ -82,6 +82,22 @@
             dash.insertBefore(b, dash.firstChild);
         })();
 
+        // Reachability banner: sits under the status banner, because "nobody outside can reach
+        // your node" is something to be TOLD, not something to find by scrolling to a card.
+        // Separate from syncBanner on purpose -- that one cycles through mining states, and a
+        // port that is closed stays closed through every one of them.
+        (function ensureReachBanner(){
+            if (document.getElementById('reachBanner')) return;
+            var b = document.createElement('div');
+            b.id = 'reachBanner';
+            b.style.cssText = 'display:none;margin:0 0 16px;padding:11px 15px;border-radius:8px;'
+                + 'background:rgba(224,179,65,0.12);color:#e0b341;border:1px solid rgba(224,179,65,0.35);'
+                + 'font-size:0.92rem;line-height:1.55;';
+            var sync = document.getElementById('syncBanner');
+            if (sync && sync.parentNode) sync.parentNode.insertBefore(b, sync.nextSibling);
+            else (document.querySelector('.container.dashboard') || document.body).appendChild(b);
+        })();
+
         // The stratum address to tell the user to point a miner at. This page is served
         // from the same host as the stratum, so its own hostname is the right answer --
         // the old copy hardcoded "this PC: 127.0.0.1:3333 · a Bitaxe: your PC LAN IP",
@@ -412,6 +428,48 @@
                 p2p.appendChild(connPortRow('BCH2', c.bch2));
                 p2p.appendChild(connPortRow('1175', c.aux1175));
             }
+
+            renderReachBanner(c, rentalPort);
+        }
+
+        // Only speak up when there is something to do about it.
+        //
+        // Silent when every port is open (the card below already shows green) and silent when
+        // a node could not be consulted -- telling someone their forward is broken because
+        // their node was restarting is how a warning gets ignored for the one time it matters.
+        function renderReachBanner(c, rentalPort) {
+            const el = document.getElementById('reachBanner');
+            if (!el) return;
+
+            const closed = [];
+            if (c.bch2 && c.bch2.known && !c.bch2.reachable) closed.push({ name: 'BCH2', port: c.bch2.port });
+            if (c.aux1175 && c.aux1175.known && !c.aux1175.reachable) closed.push({ name: '1175', port: c.aux1175.port });
+
+            if (!closed.length) { el.style.display = 'none'; return; }
+
+            const ports = closed.map(p => 'TCP ' + p.port + ' (' + p.name + ')').join(' and ');
+            // Say only what is true. One chain being unreachable while the other is fine is a
+            // different sentence from both being shut, and a banner that overstates the
+            // problem is one the reader learns to skip.
+            const total = [c.bch2, c.aux1175].filter(n => n && n.known).length;
+            const allClosed = closed.length === total;
+            const parts = [];
+            parts.push(allClosed
+                ? '<b>Nothing on the internet can reach your node.</b> Forward ' + ports
+                    + ' to this machine in your router.'
+                : '<b>Your ' + closed.map(p => p.name).join(' and ') + ' node is not reachable '
+                    + 'from the internet.</b> Forward ' + ports + ' to this machine in your router.');
+            parts.push((allClosed
+                    ? 'Your node is connected out to peers, but none have connected in. '
+                    : 'It is connected out to peers, but none have connected in on that port. ')
+                + 'Accepting inbound peers is what keeps the network reachable instead of leaning '
+                + 'on a handful of well-connected machines \u2014 it is not required to mine.');
+            parts.push('<b>Mining from outside your network</b>, including rented hashrate, needs '
+                + 'TCP ' + rentalPort + ' forwarded as well \u2014 otherwise an order pays for '
+                + 'hashrate that never arrives.');
+
+            el.innerHTML = '\uD83D\uDD0C ' + parts.join('<br><br>');
+            el.style.display = 'block';
         }
 
         async function fetchWorkers() {
