@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -387,6 +388,7 @@ func main() {
 	api.Get("/miners/:address/settings", getMinerSettingsAPI)
 	api.Post("/miners/settings", saveMinerSettings)
 	api.Get("/network", getNetworkInfo)
+	api.Get("/connectivity", getConnectivity)
 	api.Get("/workers", getAllWorkers)
 	api.Get("/validate-address", validateAddress)
 	api.Get("/validate-1175-address", validate1175Address)
@@ -575,6 +577,129 @@ pool_uptime_seconds %.0f
 
 	zapLogger.Info("Shutting down...")
 	app.Shutdown()
+}
+
+// rpcCallURL is rpcCall against an arbitrary node. The 1175 node has its own credentials,
+// and its peer counts are needed to tell the user whether their 25360 forward is working.
+func rpcCallURL(url, user, pass, method string, params interface{}) (json.RawMessage, error) {
+	if url == "" || user == "" || pass == "" {
+		return nil, fmt.Errorf("RPC credentials not configured")
+	}
+	reqBody, err := json.Marshal(map[string]interface{}{
+		"jsonrpc": "1.0", "id": "api", "method": method, "params": params,
+	})
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest("POST", url, bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, err
+	}
+	req.SetBasicAuth(user, pass)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	var rpcResp struct {
+		Result json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(body, &rpcResp); err != nil {
+		return nil, err
+	}
+	return rpcResp.Result, nil
+}
+
+// peerCounts reports total peers and how many of them dialled US.
+//
+// Inbound is the number that matters: outbound peers say nothing about reachability, but a
+// single inbound peer proves the port forward works end to end -- better evidence than any
+// self-reported address, and it needs no third-party service.
+func peerCounts(raw json.RawMessage, err error) (total, inbound int, ok bool) {
+	if err != nil || len(raw) == 0 {
+		return 0, 0, false
+	}
+	var peers []struct {
+		Inbound bool `json:"inbound"`
+	}
+	if json.Unmarshal(raw, &peers) != nil {
+		return 0, 0, false
+	}
+	for _, p := range peers {
+		if p.Inbound {
+			inbound++
+		}
+	}
+	return len(peers), inbound, true
+}
+
+// publicAddressFrom picks the best routable address the node believes it has.
+//
+// getnetworkinfo.localaddresses is populated from what peers report back, so it is the node's
+// own view of how the internet reaches it -- no external lookup, and nothing leaks the user's
+// address to a third party. Private and loopback candidates are discarded: a LAN address is
+// exactly what a rental cannot use.
+func publicAddressFrom(raw json.RawMessage, err error) string {
+	if err != nil || len(raw) == 0 {
+		return ""
+	}
+	var info struct {
+		LocalAddresses []struct {
+			Address string `json:"address"`
+			Score   int    `json:"score"`
+		} `json:"localaddresses"`
+	}
+	if json.Unmarshal(raw, &info) != nil {
+		return ""
+	}
+	best, bestScore := "", -1
+	for _, la := range info.LocalAddresses {
+		ip := net.ParseIP(la.Address)
+		if ip == nil || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+			continue
+		}
+		// Carrier-grade NAT (100.64.0.0/10). Not "private" by Go's definition, but it is the
+		// one case where the user cannot forward a port at all -- handing it to a rental
+		// marketplace would produce a connection that never arrives.
+		if ip4 := ip.To4(); ip4 != nil && ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 {
+			continue
+		}
+		if la.Score > bestScore {
+			best, bestScore = la.Address, la.Score
+		}
+	}
+	return best
+}
+
+// getConnectivity answers the two questions a solo miner actually has: what do I give a
+// rental marketplace, and are my P2P forwards working?
+func getConnectivity(c *fiber.Ctx) error {
+	bchTotal, bchInbound, bchOK := peerCounts(rpcCall("getpeerinfo", []interface{}{}))
+	public := publicAddressFrom(rpcCall("getnetworkinfo", []interface{}{}))
+
+	auxTotal, auxInbound, auxOK := peerCounts(rpcCallURL(
+		os.Getenv("AUX1175_URL"), os.Getenv("AUX1175_USER"), os.Getenv("AUX1175_PASSWORD"),
+		"getpeerinfo", []interface{}{}))
+
+	return c.JSON(fiber.Map{
+		"publicIp":    public,
+		"stratumPort": 3333,
+		"rentalPort":  3335,
+		"bch2": fiber.Map{
+			"port": 8339, "peers": bchTotal, "inbound": bchInbound,
+			"known": bchOK, "reachable": bchOK && bchInbound > 0,
+		},
+		"aux1175": fiber.Map{
+			"port": 25360, "peers": auxTotal, "inbound": auxInbound,
+			"known": auxOK, "reachable": auxOK && auxInbound > 0,
+		},
+	})
 }
 
 func rpcCall(method string, params interface{}) (json.RawMessage, error) {

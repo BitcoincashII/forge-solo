@@ -897,3 +897,28 @@ footer a:hover {
         break-inside: avoid;
     }
 }
+
+/* Connect & Network -------------------------------------------------------
+   Connection details are copied by hand into a miner or a rental order form, so the value
+   is set in the mono face at full contrast and the label stays quiet -- the reverse of the
+   stat tiles, where the number is the thing being scanned. */
+.conn-group { display:flex; flex-direction:column; gap:6px; margin-bottom:18px; }
+.conn-label { font-size:.78rem; text-transform:uppercase; letter-spacing:.06em; color:var(--text-secondary); }
+.conn-value {
+  font-family:var(--font-mono); font-size:1rem; color:var(--text-primary);
+  background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius-sm);
+  padding:9px 12px; overflow-x:auto; white-space:nowrap; user-select:all;
+}
+.conn-note { font-size:.82rem; color:var(--text-secondary); line-height:1.5; }
+.conn-p2p { border-top:1px solid var(--border); padding-top:16px; display:flex; flex-direction:column; gap:8px; }
+.conn-port { display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:.88rem; }
+.conn-port code { font-family:var(--font-mono); color:var(--text-primary); }
+/* State reads from the pill's own colour as well as its words, so the row is scannable
+   without being read. */
+.conn-pill {
+  font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; font-weight:600;
+  padding:3px 9px; border-radius:var(--radius-full); white-space:nowrap;
+}
+.conn-pill.ok      { color:var(--bch-green); background:rgba(16,185,129,.12); border:1px solid rgba(16,185,129,.35); }
+.conn-pill.closed  { color:var(--gold);      background:rgba(245,158,11,.12); border:1px solid rgba(245,158,11,.35); }
+.conn-pill.unknown { color:var(--text-secondary); background:var(--bg-hover); border:1px solid var(--border); }

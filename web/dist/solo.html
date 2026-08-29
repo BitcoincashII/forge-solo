@@ -233,6 +233,29 @@
             </div>
 
             <div class="main-grid">
+                <div class="card" style="grid-column:1/-1">
+                    <h2 data-i18n="p_solo_connect_title">Connect &amp; Network</h2>
+
+                    <div class="conn-group">
+                        <div class="conn-label" data-i18n="p_solo_conn_own">Your own miners, on this network</div>
+                        <code class="conn-value" id="connLocal">&mdash;</code>
+                    </div>
+
+                    <div class="conn-group" id="connRentalGroup" hidden>
+                        <div class="conn-label" data-i18n="p_solo_conn_rental">From the internet &mdash; rented hashrate (NiceHash, MiningRigRentals)</div>
+                        <code class="conn-value" id="connRental">&mdash;</code>
+                        <div class="conn-note" id="connRentalNote"></div>
+                    </div>
+
+                    <div class="conn-p2p">
+                        <div class="conn-label" data-i18n="p_solo_conn_p2p">Peer-to-peer ports</div>
+                        <div class="conn-note" data-i18n="p_solo_conn_p2p_why">Forwarding these lets other nodes reach yours. It is not needed to mine, and it is how the network stays reachable rather than depending on a handful of well-connected machines.</div>
+                        <div id="connP2P"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="main-grid">
                 <div class="card">
                     <h2 data-i18n="p_solo_hashrate_history">Hashrate History (~24 min)</h2>
                     <div class="chart-container">

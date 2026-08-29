@@ -183,6 +183,7 @@ type miningStatusSnapshot struct {
 	TemplateError string `json:"template_error"`      // last getblocktemplate failure, if any
 	Reason        string `json:"reason"`              // machine-readable pause cause, "" when mining
 	Message       string `json:"message"`             // one line a home user can act on
+	RentalPort    int    `json:"rental_port"`         // 3335 when the rental listener is up, 0 when it is not
 }
 
 // buildMiningStatus gathers the live inputs and hands them to the reason ladder.
@@ -223,6 +224,12 @@ func buildMiningStatus() miningStatusSnapshot {
 	}
 
 	st := miningStatusFrom(configured, stats.IsDBConnected(), connections, authorized, jobHeight, jobAt, shareAt, tmplErr, time.Now())
+	// The dashboard advertises a rental endpoint only when one is really listening. The
+	// Windows build ships with stratum_rental disabled, and telling someone to point a paid
+	// order at a closed port is worse than saying nothing.
+	if stratumRentalServer != nil {
+		st.RentalPort = 3335
+	}
 	st.MergeMining, st.AuxError, st.AuxLastOKAge = auxStatusFrom(aux, time.Now())
 	return st
 }

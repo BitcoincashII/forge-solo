@@ -315,6 +315,105 @@
             }
         }
 
+        // Connect & Network -------------------------------------------------------------
+        //
+        // Two different audiences, and conflating them is what sends a paid rental order to a
+        // port nothing is listening on:
+        //
+        //   * Your own hardware reaches this box on the LAN, so the page's own hostname is the
+        //     right answer -- the same reasoning as stratumHostHint().
+        //   * A marketplace dials in from the internet, so it needs the PUBLIC address and the
+        //     rental port, and only if a rental listener actually came up. The Windows build
+        //     ships that listener disabled, which is why the port comes from the live mining
+        //     status rather than from a constant here.
+        //
+        // Inbound peer counts are the honest test of a P2P forward. Outbound peers prove
+        // nothing -- a node behind a closed port still makes plenty. One inbound peer means
+        // somebody out there reached you, which no self-reported address can establish.
+        function connPill(known, reachable, okText, closedText) {
+            const el = document.createElement('span');
+            if (!known) {
+                el.className = 'conn-pill unknown';
+                el.textContent = 'node unreachable';
+            } else if (reachable) {
+                el.className = 'conn-pill ok';
+                el.textContent = okText;
+            } else {
+                el.className = 'conn-pill closed';
+                el.textContent = closedText;
+            }
+            return el;
+        }
+
+        function connPortRow(name, info) {
+            const row = document.createElement('div');
+            row.className = 'conn-port';
+
+            const label = document.createElement('span');
+            label.textContent = name;
+            row.appendChild(label);
+
+            const port = document.createElement('code');
+            port.textContent = String(info.port);
+            row.appendChild(port);
+
+            row.appendChild(connPill(info.known, info.reachable,
+                'reachable · ' + info.inbound + ' inbound',
+                'no inbound peers'));
+
+            if (info.known) {
+                const peers = document.createElement('span');
+                peers.style.color = 'var(--text-secondary)';
+                peers.textContent = info.peers + ' peers connected';
+                row.appendChild(peers);
+            }
+            return row;
+        }
+
+        async function fetchConnectivity() {
+            let c;
+            try {
+                c = await apiFetch('/api/v1/connectivity');
+            } catch (e) {
+                return; // leave the last good values on screen rather than blanking them
+            }
+
+            const host = (window.location && window.location.hostname) || 'your-node';
+            const local = document.getElementById('connLocal');
+            if (local) local.textContent = 'stratum+tcp://' + host + ':' + (c.stratumPort || 3333);
+
+            // Which port a marketplace should dial. The dedicated rental listener exists to
+            // give an aggregated order its own high difficulty floor, but it is not always
+            // running -- the Windows build ships it off -- and in that case the main port is
+            // the honest answer rather than nothing at all.
+            const group = document.getElementById('connRentalGroup');
+            const rentalPort = (lastMiningStatus && Number(lastMiningStatus.rental_port))
+                || Number(c.stratumPort) || 3333;
+            if (group) {
+                group.hidden = false;
+                const value = document.getElementById('connRental');
+                const note = document.getElementById('connRentalNote');
+                if (c.publicIp) {
+                    value.textContent = 'stratum+tcp://' + c.publicIp + ':' + rentalPort;
+                    note.textContent = 'Forward port ' + rentalPort + ' to this machine in your router, '
+                        + 'or the order will pay for hashrate that never reaches you.';
+                } else {
+                    value.textContent = 'Public address not known yet';
+                    note.textContent = 'Your node learns its public address from the peers that reach it. '
+                        + 'While this is blank, port ' + (c.bch2 && c.bch2.port ? c.bch2.port : 8339)
+                        + ' is almost certainly not forwarded either \u2014 and a rental would not reach '
+                        + 'you on port ' + rentalPort + ' until you forward that too.';
+                }
+            }
+
+            const p2p = document.getElementById('connP2P');
+            if (p2p && c.bch2 && c.aux1175) {
+                p2p.textContent = '';
+                p2p.appendChild(connPortRow('BCH2', c.bch2));
+                p2p.appendChild(connPortRow('1175', c.aux1175));
+            }
+        }
+
         async function fetchWorkers() {
             const tbody = document.getElementById('workersTable');
             if (!minerAddress) { tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">' + escapeHtml(noAddressNotice(true)) + '</div></td></tr>'; return; }
@@ -539,9 +638,11 @@
             fetchStats();
             fetchMinerData();
             fetchWorkers();
+            fetchConnectivity();
             fetchBlocks();
             fetchPayouts();
             setInterval(updateStatusBanner, 5000);
+            setInterval(fetchConnectivity, 30000);
             setInterval(fetchStats, 30000);
             setInterval(fetchMinerData, 5000);
             setInterval(fetchWorkers, 10000);

@@ -116,6 +116,11 @@ services:
       - RPC_PASSWORD=${APP_NODE_RPC_PASSWORD}
       - STRATUM_INTERNAL_URL=http://stratum:3337
       - INTERNAL_API_TOKEN=${APP_INTERNAL_API_TOKEN}
+      # Read-only: the dashboard reports whether the 1175 P2P forward is working, which needs
+      # that node's own peer list. Same private network, never published to the host.
+      - AUX1175_URL=http://node1175:25359
+      - AUX1175_USER=forge1175
+      - AUX1175_PASSWORD=${APP_1175_RPC_PASSWORD}
       - POOL_ADDRESS=${POOL_ADDRESS:-}
       - POOL_NAME=${POOL_NAME:-Forge Solo}
       # The api reads these as fallbacks for a fresh install; without them here its
