@@ -55,16 +55,16 @@ func TestComposeImagesMatchManifestVersion(t *testing.T) {
 // of current digests cannot notice, because nothing changed. Tying the table to a version
 // means the release that bumps umbrel-app.yml must come back here, and re-pinning the
 // digests is the only way to make this pass.
-const releaseDigestsForVersion = "1.0.9"
+const releaseDigestsForVersion = "1.0.10"
 
 // The digests actually shipped by releaseDigestsForVersion. Update both, together, from the
 // digests CI published for the new tag.
 var releaseDigests = map[string]string{
-	"forge-solo-node":     "d66ec1434c8114ae057222f4877711a91c80abea97527d3a09c60365aa4bbc9a",
-	"forge-solo-node1175": "389416122fec21808e6649608639ac27e7d11680b354f1960c70a12f1feb2052",
-	"forge-solo-api":      "be8e1620cd769f7453ab7bbc92049449bea4b3abe7099674e75abe1a61ff67b0",
-	"forge-solo-stratum":  "bed38e46d29f616696956dbe6f4c15387676dd6876d92b902755d6ebd2385ce1",
-	"forge-solo-web":      "2a2e532ca9d9cdb2b7db6a8e76a6d581b6159fe906e2a160b39e9e148b711d4a",
+	"forge-solo-node":     "2470b9c79b2e2a7975ad67a6131d26de69133d21209f7a5da4e5409134a48023",
+	"forge-solo-node1175": "9b9772e5bd2e5fd6e42300a5a58af22cb4204ea2106ebaa271a8f94e0cb24b5f",
+	"forge-solo-api":      "3fcf141c3bf1633bd9bcb9eafca5597fc45a71feb52230bf3009124b45731f2e",
+	"forge-solo-stratum":  "8703b88ad8c143df0687264f843978fc2391ca767413ad496e84101440dad6e3",
+	"forge-solo-web":      "a07fe254cf31ec1c87f4499f1f2c72f9a7337b02b5cc26cb4f5721292645f188",
 }
 
 func TestComposeDigestsAreTheOnesThisReleasePublished(t *testing.T) {
