@@ -467,6 +467,11 @@
             parts.push('<b>Mining from outside your network</b>, including rented hashrate, needs '
                 + 'TCP ' + rentalPort + ' forwarded as well \u2014 otherwise an order pays for '
                 + 'hashrate that never arrives.');
+            // This clears on proof -- an inbound peer -- not on the router rule being saved,
+            // and the first peer can take a while to find you. Without saying so, the obvious
+            // reading of a warning that survives the fix is that the fix did not work.
+            parts.push('<i>Already forwarded? This clears itself once the first peer connects '
+                + 'in, which can take a few minutes. Nothing to reload.</i>');
 
             el.innerHTML = '\uD83D\uDD0C ' + parts.join('<br><br>');
             el.style.display = 'block';
