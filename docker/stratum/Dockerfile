@@ -14,5 +14,11 @@ COPY --from=build /out/stratum /usr/local/bin/stratum
 COPY docker/stratum/config.template.yaml /etc/forge/config.template.yaml
 COPY docker/stratum/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
-EXPOSE 3333 3337
+# Drop root. This service is the one published to the internet (3333 and 3335), and it needs
+# no privilege: the ports are above 1024 and the only thing it writes is the rendered config.
+# /etc/forge must be writable because the entrypoint renders config.yaml there at start.
+RUN useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin forge \
+    && chown -R forge:forge /etc/forge
+USER forge
+EXPOSE 3333 3335 3337
 ENTRYPOINT ["/entrypoint.sh"]

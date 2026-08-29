@@ -94,6 +94,10 @@ services:
 
   api:
     image: ghcr.io/bitcoincashii/forge-solo-api:1.0.9@sha256:be8e1620cd769f7453ab7bbc92049449bea4b3abe7099674e75abe1a61ff67b0
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     restart: unless-stopped
     depends_on:
       postgres:
@@ -132,6 +136,10 @@ services:
 
   stratum:
     image: ghcr.io/bitcoincashii/forge-solo-stratum:1.0.9@sha256:bed38e46d29f616696956dbe6f4c15387676dd6876d92b902755d6ebd2385ce1
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     restart: unless-stopped
     depends_on:
       postgres:

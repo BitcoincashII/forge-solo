@@ -60,6 +60,8 @@ type Server struct {
 	shareProcessor ShareProcessor
 	minerSettings  MinerSettingsStore
 	diffMemory     sync.Map // minerID(address) -> diffMem: last vardiff level, reused across reconnects
+	ipConnsMu      sync.Mutex
+	ipConns        map[string]int // remote host -> live connections, for the per-IP cap
 	shutdownCh     chan struct{}
 	stats          *ServerStats
 	// Duplicate share detection
@@ -199,12 +201,13 @@ type shareKey struct {
 }
 
 type ServerConfig struct {
-	Host               string
-	Port               int
-	MaxConnections     int
-	MaxSharesPerSecond int
-	VardiffEnabled     bool
-	MinDiff            float64
+	Host                string
+	Port                int
+	MaxConnections      int
+	MaxConnectionsPerIP int
+	MaxSharesPerSecond  int
+	VardiffEnabled      bool
+	MinDiff             float64
 	// VariancePercent is the dead-band around the target share time, as a fraction (0.30 =
 	// 30%). Zero means "use VardiffVariancePercent". This was a shipped config key that
 	// nothing read -- an operator whose miner settled at the wrong difficulty turned it and
@@ -896,7 +899,69 @@ func (s *Server) acceptLoop() {
 	}
 }
 
+// hostOf strips the port so every connection from one machine shares a counter.
+func hostOf(remoteAddr string) string {
+	if h, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		return h
+	}
+	return remoteAddr
+}
+
+// reserveIPSlot bounds how many live connections one remote host may hold.
+//
+// MaxConnections alone is a global cap, so a single peer could take all of it and lock the
+// machine's own miners out. This listener is published on 0.0.0.0 and has no authentication,
+// deliberately: a stranger's hashrate is paid to the operator's own coinbase, so it is
+// welcome. What is not welcome is one source consuming the whole pool.
+//
+// The cap is generous rather than tight. A stratum proxy, or Braiins fronting a farm, opens
+// many sessions from a single address, and refusing those would break real setups to deter an
+// attacker who can simply use a second address. It guarantees only that no single source
+// takes everything. 0 disables it.
+//
+// Loopback is exempt: a healthcheck or a miner on the same machine must never be refused by a
+// limit meant for the outside world.
+func (s *Server) reserveIPSlot(host string) bool {
+	limit := s.config.MaxConnectionsPerIP
+	if limit <= 0 || isLoopback(host) {
+		return true
+	}
+	s.ipConnsMu.Lock()
+	defer s.ipConnsMu.Unlock()
+	if s.ipConns == nil {
+		s.ipConns = make(map[string]int)
+	}
+	if s.ipConns[host] >= limit {
+		return false
+	}
+	s.ipConns[host]++
+	return true
+}
+
+func (s *Server) releaseIPSlot(host string) {
+	if s.config.MaxConnectionsPerIP <= 0 || isLoopback(host) {
+		return
+	}
+	s.ipConnsMu.Lock()
+	defer s.ipConnsMu.Unlock()
+	if n := s.ipConns[host]; n <= 1 {
+		delete(s.ipConns, host) // never retain an entry for a host with nothing open
+	} else {
+		s.ipConns[host] = n - 1
+	}
+}
+
 func (s *Server) handleClient(conn net.Conn) {
+	host := hostOf(conn.RemoteAddr().String())
+	if !s.reserveIPSlot(host) {
+		s.logger.Warn("refused connection: per-IP limit reached",
+			zap.String("ip", host),
+			zap.Int("limit", s.config.MaxConnectionsPerIP))
+		conn.Close()
+		return
+	}
+	defer s.releaseIPSlot(host)
+
 	// Configure TCP connection for mining
 	if tc, ok := conn.(*net.TCPConn); ok {
 		// Disable Nagle algorithm for low-latency share responses

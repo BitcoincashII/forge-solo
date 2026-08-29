@@ -11,5 +11,8 @@ FROM debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bb
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates wget \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/api /usr/local/bin/api
+# Drop root: this process binds 8080, reads the database and writes nothing to disk.
+RUN useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin forge
+USER forge
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/api"]

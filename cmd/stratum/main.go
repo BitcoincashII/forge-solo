@@ -1210,6 +1210,20 @@ func sumRentalStats(servers ...*stratum.Server) stratum.RentalStats {
 	return total
 }
 
+// perIPLimit resolves stratum.max_connections_per_ip. An absent key must not read as 0,
+// because 0 means "no limit" -- so default to half the server's own connection pool, which
+// bounds any single source without refusing a proxy fronting a real farm. An explicit 0 in
+// the config still disables it.
+func perIPLimit(cfg *viper.Viper, key string, maxConns int) int {
+	if cfg.IsSet(key) {
+		return cfg.GetInt(key)
+	}
+	if maxConns <= 1 {
+		return 0
+	}
+	return maxConns / 2
+}
+
 func main() {
 	configPath := flag.String("config", "config.yaml", "Path to config file")
 	flag.Parse()
@@ -1258,12 +1272,13 @@ func main() {
 	}
 
 	serverConfig := &stratum.ServerConfig{
-		Host:               config.GetString("stratum.host"),
-		Port:               config.GetInt("stratum.port"),
-		MaxConnections:     config.GetInt("stratum.max_connections"),
-		MaxSharesPerSecond: config.GetInt("stratum.max_shares_per_second"),
-		VardiffEnabled:     config.GetBool("stratum.vardiff.enabled"),
-		MinDiff:            config.GetFloat64("stratum.vardiff.min_diff"),
+		Host:                config.GetString("stratum.host"),
+		Port:                config.GetInt("stratum.port"),
+		MaxConnections:      config.GetInt("stratum.max_connections"),
+		MaxConnectionsPerIP: perIPLimit(config, "stratum.max_connections_per_ip", config.GetInt("stratum.max_connections")),
+		MaxSharesPerSecond:  config.GetInt("stratum.max_shares_per_second"),
+		VardiffEnabled:      config.GetBool("stratum.vardiff.enabled"),
+		MinDiff:             config.GetFloat64("stratum.vardiff.min_diff"),
 		// Accepted as a percentage in the config (25) and used as a fraction (0.25).
 		VariancePercent: config.GetFloat64("stratum.vardiff.variance_percent") / 100.0,
 		// Optional. Lowest difficulty a non-rental miner may be ASSIGNED; unset (0) means
@@ -1411,18 +1426,19 @@ func main() {
 	// Start Braiins-compatible stratum server (8-byte extranonce2)
 	if config.GetBool("stratum_rental.enabled") {
 		rentalConfig := &stratum.ServerConfig{
-			Host:            config.GetString("stratum_rental.host"),
-			Port:            config.GetInt("stratum_rental.port"),
-			MaxConnections:  config.GetInt("stratum_rental.max_connections"),
-			VardiffEnabled:  config.GetBool("stratum_rental.vardiff.enabled"),
-			MinDiff:         config.GetFloat64("stratum_rental.vardiff.min_diff"),
-			MaxDiff:         config.GetFloat64("stratum_rental.vardiff.max_diff"),
-			TargetShareTime: config.GetInt("stratum_rental.vardiff.target_time"),
-			RetargetTime:    config.GetInt("stratum_rental.vardiff.retarget_time"),
-			ExtraNonce1Size: config.GetInt("stratum_rental.extranonce1_size"),
-			ExtraNonce2Size: config.GetInt("stratum_rental.extranonce2_size"),
-			ServerName:      "rental",
-			SoloOnly:        config.GetString("pool.payout_scheme") == "solo",
+			Host:                config.GetString("stratum_rental.host"),
+			Port:                config.GetInt("stratum_rental.port"),
+			MaxConnections:      config.GetInt("stratum_rental.max_connections"),
+			MaxConnectionsPerIP: perIPLimit(config, "stratum_rental.max_connections_per_ip", config.GetInt("stratum_rental.max_connections")),
+			VardiffEnabled:      config.GetBool("stratum_rental.vardiff.enabled"),
+			MinDiff:             config.GetFloat64("stratum_rental.vardiff.min_diff"),
+			MaxDiff:             config.GetFloat64("stratum_rental.vardiff.max_diff"),
+			TargetShareTime:     config.GetInt("stratum_rental.vardiff.target_time"),
+			RetargetTime:        config.GetInt("stratum_rental.vardiff.retarget_time"),
+			ExtraNonce1Size:     config.GetInt("stratum_rental.extranonce1_size"),
+			ExtraNonce2Size:     config.GetInt("stratum_rental.extranonce2_size"),
+			ServerName:          "rental",
+			SoloOnly:            config.GetString("pool.payout_scheme") == "solo",
 		}
 		if got := rentalConfig.ExtraNonce1Size + rentalConfig.ExtraNonce2Size; got != mining.CoinbaseExtranonceReserve {
 			logger.Fatal("stratum_rental extranonce1_size + extranonce2_size must equal the coinbase reserve, else assembled blocks are malformed and rejected",
