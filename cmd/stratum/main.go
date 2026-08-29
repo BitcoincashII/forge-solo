@@ -1445,6 +1445,7 @@ func main() {
 			ExtraNonce1Size:     config.GetInt("stratum_rental.extranonce1_size"),
 			ExtraNonce2Size:     config.GetInt("stratum_rental.extranonce2_size"),
 			ServerName:          "rental",
+			IsRentalPort:        true,
 			SoloOnly:            config.GetString("pool.payout_scheme") == "solo",
 		}
 		if got := rentalConfig.ExtraNonce1Size + rentalConfig.ExtraNonce2Size; got != mining.CoinbaseExtranonceReserve {

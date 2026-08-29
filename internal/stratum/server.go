@@ -224,6 +224,7 @@ type ServerConfig struct {
 	ExtraNonce2Size   int    // Size of extranonce2 in bytes (default 4, Braiins needs 8)
 	ExtraNonce1Size   int    // Size of extranonce1 in bytes (default 6)
 	ServerName        string // Name for logging (e.g., "main", "braiins")
+	IsRentalPort      bool   // this listener exists for marketplace hashpower; see GetRentalStats
 	SoloOnly          bool   // Force every miner to SOLO regardless of settings (solo-only deployments)
 }
 
@@ -2443,6 +2444,19 @@ func (s *Server) GetRentalStats() *RentalStats {
 		case RentalOther:
 			stats.OtherRentals++
 			stats.TotalRentals++
+		default:
+			// Nothing recognisable in the user agent, but this listener exists ONLY for
+			// marketplace hashpower -- that is the whole reason the difficulty floor is
+			// taken from the port instead of guessed from a user agent. A rented rig
+			// relayed to this port announces itself as the ASIC it is ("Antminer S21 XP"),
+			// not as the marketplace that rented it, so keying identity off the user agent
+			// alone reports zero rentals while a paid order is actively mining. Observed
+			// doing exactly that. The port is the authoritative signal; the user agent only
+			// refines WHICH marketplace.
+			if s.config.IsRentalPort {
+				stats.OtherRentals++
+				stats.TotalRentals++
+			}
 		}
 		return true
 	})
