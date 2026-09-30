@@ -328,7 +328,8 @@
             document.getElementById('tidesNext').textContent = w ? fmtBCH2(w.next_payout_sats) : (mine ? fmtBCH2(0) : '--');
             document.getElementById('tidesPending').textContent = mine ? fmtBCH2(mine.pending_sats) : '--';
             document.getElementById('tidesPaid').textContent = mine ? fmtBCH2(mine.paid_sats) : '--';
-            document.getElementById('tidesMiners').textContent = pool && pool.miners ? String(pool.miners.length) : '--';
+            // Addresses with work in the window: the pool also lists ones that only have a carried amount.
+            document.getElementById('tidesMiners').textContent = pool && pool.miners ? String(pool.miners.filter(m => m.work > 0).length) : '--';
             const snap = pool && pool.snapshot;
             document.getElementById('tidesFill').textContent = snap && snap.window_work > 0
                 ? Math.min(100, Number(snap.filled_work) / Number(snap.window_work) * 100).toFixed(1) + '%' : '--';
