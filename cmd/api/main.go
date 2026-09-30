@@ -641,10 +641,11 @@ func peerCounts(raw json.RawMessage, err error) (total, inbound int, ok bool) {
 
 // publicAddressFrom picks the best routable address the node believes it has.
 //
-// getnetworkinfo.localaddresses is populated from what peers report back, so it is the node's
-// own view of how the internet reaches it -- no external lookup, and nothing leaks the user's
-// address to a third party. Private and loopback candidates are discarded: a LAN address is
-// exactly what a rental cannot use.
+// getnetworkinfo.localaddresses holds the addresses the node found on its own interfaces, was
+// given with -externalip, or mapped on the router; peers' reports only raise the score of one
+// already there. It is the node's own view -- no external lookup, and nothing leaks the
+// user's address to a third party. Private and loopback candidates are discarded: a LAN
+// address is exactly what a rental cannot use.
 func publicAddressFrom(raw json.RawMessage, err error) string {
 	if err != nil || len(raw) == 0 {
 		return ""
@@ -741,13 +742,11 @@ func getConnectivity(c *fiber.Ctx) error {
 	bchPeers, bchPeersErr := rpcCall("getpeerinfo", []interface{}{})
 	bchTotal, bchInbound, bchOK := peerCounts(bchPeers, bchPeersErr)
 
-	// A node that knows no routable address of its own never announces one, so no peer
-	// ever learns how to dial in and inbound stays at zero however the router is set up.
-	// Fall back to what peers observe, and report which of the two we had, because
-	// "advertising" is the difference between a forward that will attract peers and one
-	// that cannot.
+	// localaddresses is empty for a node behind NAT, which is every home node. That does not
+	// stop it announcing itself -- with -discover it advertises the address its peers see it
+	// on -- so it says nothing about whether peers can find the node, only where to read the
+	// address from: fall back to the peers' view.
 	public := publicAddressFrom(rpcCall("getnetworkinfo", []interface{}{}))
-	advertising := public != ""
 	if public == "" {
 		public = publicAddressFromPeers(bchPeers, bchPeersErr)
 	}
@@ -758,7 +757,6 @@ func getConnectivity(c *fiber.Ctx) error {
 
 	return c.JSON(fiber.Map{
 		"publicIp":    public,
-		"advertising": advertising,
 		"stratumPort": 3333,
 		"rentalPort":  3335,
 		"bch2": fiber.Map{

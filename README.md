@@ -13,7 +13,7 @@ no PPLNS, no pool fee**.
 3. Set your BCH2 payout address on the app's **Settings** page, then point your miner at `stratum+tcp://<your-umbrel-ip>:3333`. The worker username can be any label.
 
 ## What's inside
-- `node` — BCH2 full node (pruned, auto-syncs)
+- `node` — BCH2 full node (auto-syncs, keeps the whole chain so other nodes can sync from it)
 - `node1175` — 1175 (ESF) node for AuxPoW merge-mining (fetched + SHA256-verified)
 - `stratum` — solo stratum (port 3333), merge-mining enabled
 - `api` + `web` — solo dashboard (hashrate, effort, your blocks, payouts)

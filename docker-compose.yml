@@ -30,7 +30,11 @@ services:
       - -datadir=/data/.bch2
       - -printtoconsole
       - -listen=1                 # accept inbound peers (forward 8339 in your router)
-      - -prune=2000
+      # Not pruned: the whole chain is ~90 MB, and a pruned node announces itself as
+      # NODE_NETWORK_LIMITED, which the DNS seeders never list -- so it waited on chance
+      # for inbound peers however the router was set up. Earlier releases passed
+      # -prune=2000, but Core prunes nothing below height 200,000, so no datadir was ever
+      # actually pruned and each one starts unpruned as it is.
       - -server=1
       - -rpcbind=0.0.0.0
       - -rpcallowip=0.0.0.0/0

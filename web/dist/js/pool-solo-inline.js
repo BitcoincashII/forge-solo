@@ -460,20 +460,13 @@
             // and the first peer can take a while to find you. Without saying so, the obvious
             // reading of a warning that survives the fix is that the fix did not work.
             //
-            // A node that is announcing no address of its own cannot attract inbound peers
-            // however the router is configured, so in that state "no inbound yet" says
-            // nothing about the forward. Telling someone to re-check a rule that is already
-            // correct is how a warning gets ignored the one time it matters.
-            if (c.publicIp && c.advertising === false) {
-                parts.push('<i>Your node has learned its public address ('
-                    + escapeHtml(c.publicIp) + ') but is not announcing it yet \u2014 it '
-                    + 'starts doing that the next time the app restarts. Peers cannot find '
-                    + 'their way in until it does, so expect this notice until then even '
-                    + 'with the forward already in place.</i>');
-            } else {
-                parts.push('<i>Already forwarded? This clears itself once the first peer connects '
-                    + 'in, which can take a few minutes. Nothing to reload.</i>');
-            }
+            // "A while" is hours, not minutes: other nodes learn the address by gossip, the DNS
+            // seeders list it only after it answers their probes, and both come back slowly to
+            // an address that failed while the port was closed (a seeder sets one that failed
+            // for long enough aside for a day or more).
+            parts.push('<i>Already forwarded? This clears itself once the first peer connects '
+                + 'in. Other nodes have to find yours first, which can take a few hours. '
+                + 'Nothing to reload.</i>');
 
             el.innerHTML = '\uD83D\uDD0C ' + parts.join('<br><br>');
             el.style.display = 'block';

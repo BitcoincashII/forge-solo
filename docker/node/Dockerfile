@@ -31,5 +31,5 @@ RUN set -eux; \
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
-EXPOSE 8333 28332
+EXPOSE 8339 28332
 ENTRYPOINT ["/entrypoint.sh"]
