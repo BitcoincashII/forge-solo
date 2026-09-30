@@ -30,6 +30,14 @@ services:
       - -datadir=/data/.bch2
       - -printtoconsole
       - -listen=1                 # accept inbound peers (forward 8339 in your router)
+      # Bind explicitly. The node's mainnet Tor onion target port is 8339, the same as its P2P
+      # port (chainparamsbase.cpp; upstream uses P2P port + 1), and with no -bind it binds that
+      # onion listener on 127.0.0.1:8339 FIRST, so its own 0.0.0.0:8339 fails ("Unable to bind
+      # to 0.0.0.0:8339 ... probably already running") and no IPv4 peer could ever connect in,
+      # however the router was forwarded. The onion listener moves to 8340.
+      - -bind=0.0.0.0:8339
+      - "-bind=[::]:8339"
+      - -bind=127.0.0.1:8340=onion
       # Not pruned: the whole chain is ~90 MB, and a pruned node announces itself as
       # NODE_NETWORK_LIMITED, which the DNS seeders never list -- so it waited on chance
       # for inbound peers however the router was set up. Earlier releases passed
