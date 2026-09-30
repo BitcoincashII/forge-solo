@@ -28,6 +28,8 @@ func serveDashboard() {
 			http.ServeFile(w, r, filepath.Join(webRoot, "solo.html"))
 		case p == "/settings":
 			http.ServeFile(w, r, filepath.Join(webRoot, "settings.html"))
+		case p == "/tides":
+			http.ServeFile(w, r, filepath.Join(webRoot, "tides.html"))
 		case p == "/index.html":
 			http.Redirect(w, r, "/solo", http.StatusFound)
 		default:
