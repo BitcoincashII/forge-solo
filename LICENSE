@@ -1,0 +1,49 @@
+MIT License
+
+Copyright (c) 2026 Bitcoin Cash II
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+Credits and notices
+--------------------------------------------------------------------------------
+
+DATUM. Forge Solo's TIDES mode, and the gateway program built from this
+repository, follow DATUM (Decentralized Alternative Templates for Universal
+Mining), designed and built by OCEAN:
+
+    https://ocean.xyz/docs/datum
+    https://github.com/OCEAN-xyz/datum_gateway
+
+The DATUM Gateway is Copyright (c) 2024-2025 Bitcoin Ocean, LLC, Jason Hughes,
+and individual contributors, and is released under the MIT License. The idea
+this software follows is theirs: every miner's own node builds the block
+template, and each block's coinbase pays the pool's miners directly, so the
+pool never holds the reward. This software is an independent implementation,
+written in Go for Bitcoin Cash II and Forge Pool. It is not derived from the
+DATUM Gateway's source code, and it does not speak OCEAN's DATUM Protocol.
+
+TIDES. The payout split these gateways write into every coinbase follows
+TIDES, OCEAN's reward system: https://ocean.xyz/docs/tides
+
+Not affiliated. This project is not affiliated with, endorsed by, or sponsored
+by OCEAN, Bitcoin Ocean, LLC, or Mummolin, Inc. The names DATUM, TIDES and
+OCEAN appear here only to credit and describe the designs this software
+follows; any trademarks in them belong to their owners, and OCEAN's copyright
+license grants no right to use them.

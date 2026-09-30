@@ -102,3 +102,9 @@ and the worker label is only a label.
 - Internal API fails **closed** without its token.
 - 1175 node binary is **checksum-verified**; images are version-pinned.
 - Share work is credited as `min(assigned, proven)` — no credit inflation.
+
+## License and credits
+
+MIT — see [LICENSE](LICENSE). TIDES mode follows DATUM and TIDES, both designed by
+[OCEAN](https://ocean.xyz); the credits and notices at the end of LICENSE say what that means.
+This project is not affiliated with or endorsed by OCEAN.
