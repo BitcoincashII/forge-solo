@@ -752,6 +752,9 @@ func makeHeightScript(height int64) []byte {
 	return append([]byte{byte(len(heightBytes))}, heightBytes...)
 }
 
+// HeightScript is the BIP34 height push that opens a coinbase scriptSig at height.
+func HeightScript(height int64) []byte { return makeHeightScript(height) }
+
 // stratumPrevHash converts getblocktemplate previousblockhash to stratum format
 func stratumPrevHash(gbtHash string) string {
 	b, _ := hex.DecodeString(gbtHash)

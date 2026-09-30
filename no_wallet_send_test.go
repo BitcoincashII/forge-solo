@@ -143,6 +143,14 @@ func TestTestAddressesAreObviouslyFake(t *testing.T) {
 		"bitcoincashii:qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzse6qye33q": "canonical all-zero-payload vector",
 		"bitcoincashii:qzeh9rcyyy8jlyalgh84e8fst6xh649hly2tfwgvwc": "checksum-valid ledger fixture",
 		"bitcoincashii:qpvg5aehqc3mtrmf2say7tmn0t9cxcw0wsahs5d9r5": "checksum-valid 1175 fixture",
+		// internal/cashaddr and internal/datum/wire are Forge Pool's packages carried over
+		// verbatim -- the TIDES gateway and the pool must agree to the byte -- tests included.
+		// Their decoder vectors are built on Forge Pool's own payout address, which is public
+		// (every pool coinbase pays it), and variants of it that must each fail one check.
+		"bitcoincashii:qqrek3md53495f9u7vjszc9xp8qcm0xwyy2e7gqtxg":  "Forge Pool's public payout address; checksum-valid decoder vector",
+		"bitcoincashii:qqrek3md53495f9u7vjszc9xp8qcm0xwyy2e7gqtxq":  "one-char-off checksum vector",
+		"bitcoincashii:qqrek3md53495f9u7vjszc9xp8qcm0xwy9e68reg4f":  "non-zero padding bits vector",
+		"bitcoincashii:qqrek3md53495f9u7vjszc9xp8qcm0xwyyqrqyu8cnt": "spare padding group vector",
 	}
 	re := regexp.MustCompile(`bitcoincashii:q[a-z0-9]{10,}`)
 
