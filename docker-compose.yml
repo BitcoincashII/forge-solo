@@ -158,6 +158,9 @@ services:
     cap_drop:
       - ALL
     restart: unless-stopped
+    # Room to stop both ports (2 s grace each for connected miners) and send the pool the TIDES
+    # shares still queued, instead of Docker's 10 s default killing it part way.
+    stop_grace_period: 30s
     depends_on:
       postgres:
         condition: service_healthy

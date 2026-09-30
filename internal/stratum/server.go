@@ -937,25 +937,36 @@ func (s *Server) stop() {
 		s.listener.Close()
 	}
 
-	// Wait for active clients to disconnect (with timeout)
-	shutdownDeadline := time.Now().Add(30 * time.Second)
-	for atomic.LoadInt64(&s.clientCount) > 0 {
-		if time.Now().After(shutdownDeadline) {
-			s.logger.Warn("Shutdown timeout reached, forcing disconnect",
-				zap.Int64("remaining_clients", atomic.LoadInt64(&s.clientCount)))
-			// Force close all client connections
-			s.clients.Range(func(key, value interface{}) bool {
-				client := value.(*Client)
-				client.Conn.Close()
-				return true
-			})
-			break
+	// Give connected miners a moment to finish what they are sending, then close their
+	// connections. A miner never hangs up by itself: its handler only sees shutdownCh when the
+	// next message arrives, so waiting for it (this was 30 s) outlasted Docker's 10 s stop
+	// timeout whenever a rental was quiet for a few seconds, and the process was killed with
+	// the TIDES shares still queued.
+	deadline := time.Now().Add(shutdownGrace)
+	for atomic.LoadInt64(&s.clientCount) > 0 && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if n := atomic.LoadInt64(&s.clientCount); n > 0 {
+		s.logger.Info("Closing the miners' connections", zap.Int64("clients", n))
+		s.clients.Range(func(key, value interface{}) bool {
+			if c, ok := value.(*Client); ok && c.Conn != nil {
+				c.Conn.Close()
+			}
+			return true
+		})
+		// Each handler sees its connection closed at once and exits.
+		end := time.Now().Add(time.Second)
+		for atomic.LoadInt64(&s.clientCount) > 0 && time.Now().Before(end) {
+			time.Sleep(20 * time.Millisecond)
 		}
-		time.Sleep(100 * time.Millisecond)
 	}
 
 	s.logger.Info("Graceful shutdown complete")
 }
+
+// shutdownGrace is how long Stop lets connected miners finish a message before it closes their
+// connections.
+const shutdownGrace = 2 * time.Second
 
 func (s *Server) acceptLoop() {
 	for {

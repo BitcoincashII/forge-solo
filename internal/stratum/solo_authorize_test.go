@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"io"
 	"net"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/BitcoincashII/forge-solo/internal/cashaddr"
 	"go.uber.org/zap"
@@ -274,4 +277,55 @@ func TestStopTwiceDoesNotPanic(t *testing.T) {
 	}()
 	s.Stop()
 	s.Stop()
+}
+
+// A connected miner that is quiet (a rental between shares) must not hold Stop up: Stop waited
+// up to 30 s for miners to hang up, which they never do by themselves, and Docker killed the
+// stratum at its 10 s stop timeout with the TIDES shares still queued.
+func TestStopClosesQuietMinersPromptly(t *testing.T) {
+	s := NewServer(&ServerConfig{Host: "127.0.0.1", Port: 0, MaxConnections: 10, MaxConnectionsPerIP: 10,
+		MinDiff: 1024, MaxDiff: 1e12, VardiffEnabled: true, TargetShareTime: 10, RetargetTime: 30, SoloOnly: true},
+		zap.NewNop(), nil, nil)
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := net.Dial("tcp", s.ListenAddr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	// Subscribed, then quiet: its handler blocks reading the next message, which is what held
+	// Stop up. (A connection that never sends is dropped at shutdown by the first-message wait.)
+	if _, err := conn.Write([]byte(`{"id":1,"method":"mining.subscribe","params":["test-miner/1.0"]}` + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	buf := make([]byte, 4096)
+	if n, err := conn.Read(buf); err != nil || !strings.Contains(string(buf[:n]), `"id":1`) {
+		t.Fatalf("no subscribe answer: %q %v", buf[:n], err)
+	}
+	if atomic.LoadInt64(&s.clientCount) != 1 {
+		t.Fatalf("%d clients connected, want the one miner", atomic.LoadInt64(&s.clientCount))
+	}
+	time.Sleep(200 * time.Millisecond) // quiet
+	start := time.Now()
+	s.Stop()
+	// An absolute bound, not one derived from shutdownGrace: Docker gives the whole process 10 s
+	// by default, and Forge Solo stops two ports and then sends its queued TIDES shares.
+	if took := time.Since(start); took > 4*time.Second {
+		t.Fatalf("Stop took %v with one quiet miner connected", took)
+	}
+	if n := atomic.LoadInt64(&s.clientCount); n != 0 {
+		t.Fatalf("%d miners still connected after Stop", n)
+	}
+	// Whatever the server sent before closing, the connection must end.
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	for {
+		if _, err := conn.Read(buf); err != nil {
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				t.Fatal("the miner's connection is still open after Stop")
+			}
+			break
+		}
+	}
 }
