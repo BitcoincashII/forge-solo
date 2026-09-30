@@ -1746,6 +1746,11 @@ func main() {
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	// A launcher that cannot send this process a signal (Forge Solo for Windows) asks for the same
+	// clean stop by closing our stdin. Opt-in: under Docker stdin is /dev/null, which ends at once.
+	if os.Getenv("FORGE_STOP_ON_STDIN_EOF") == "1" {
+		go stopOnEOF(os.Stdin, sigCh)
+	}
 	<-sigCh
 
 	logger.Info("Shutting down...")
@@ -1762,6 +1767,16 @@ func main() {
 		if n := g.Flush(); n > 0 {
 			logger.Info("TIDES: sent the pool the shares still queued", zap.Int("shares", n))
 		}
+	}
+}
+
+// stopOnEOF reads r until it ends, then asks for shutdown as SIGTERM would. It never blocks on a
+// shutdown already asked for.
+func stopOnEOF(r io.Reader, stop chan<- os.Signal) {
+	_, _ = io.Copy(io.Discard, r)
+	select {
+	case stop <- syscall.SIGTERM:
+	default:
 	}
 }
 
