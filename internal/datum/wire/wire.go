@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -32,6 +33,9 @@ const ExtranonceSize = 12
 // MaxTag bounds the gateway's coinbase tag; with the height push and the extranonce the scriptSig
 // stays well under consensus's 100 bytes.
 const MaxTag = 32
+
+// MaxShareDiffExp bounds a committed share difficulty's exponent either way: 2^-64 to 2^64.
+const MaxShareDiffExp = 64
 
 // Snapshot is the pool's TIDES state at one moment. Every DATUM coinbase built on it pays
 // Payouts(snapshot, value, finder).
@@ -76,6 +80,38 @@ type JobRequest struct {
 	Finder   string            `json:"finder"`           // paid in full while the share log is empty
 	TxIDs    []string          `json:"txids"`            // the template's other transactions, block order
 	TxData   map[string]string `json:"txdata,omitempty"` // raw hex of txids the pool may not know yet
+	// ShareDiffExp, when set, commits the job to a share difficulty of at least 2^ShareDiffExp.
+	// The coinbase tag's last byte is this exponent (CommitShareDiff), so the difficulty is part
+	// of what every share on the job hashes and cannot be chosen once a hash is known. The pool
+	// credits each share on the job at least that difficulty, so a gateway whose miners work at a
+	// high difficulty is credited for it: the way OCEAN's DATUM Gateway puts each miner's
+	// difficulty into its coinbase. Unset: the pool's own share difficulty only.
+	ShareDiffExp *int `json:"share_diff_exp,omitempty"`
+}
+
+// CommitShareDiff returns tag with the share difficulty exponent exp as its last byte, cut to fit
+// MaxTag. A JobRequest's ShareDiffExp tells the pool to check that byte.
+func CommitShareDiff(tag []byte, exp int) []byte {
+	if len(tag) > MaxTag-1 {
+		tag = tag[:MaxTag-1]
+	}
+	return append(append([]byte(nil), tag...), byte(int8(exp)))
+}
+
+// CommittedShareDiff is the share difficulty req commits its coinbase cb to, or 0 when req commits
+// to none; an error when req says it commits and cb's tag does not.
+func CommittedShareDiff(req *JobRequest, cb *Coinbase) (float64, error) {
+	if req.ShareDiffExp == nil {
+		return 0, nil
+	}
+	e := *req.ShareDiffExp
+	if e < -MaxShareDiffExp || e > MaxShareDiffExp {
+		return 0, fmt.Errorf("share difficulty exponent %d is outside ±%d", e, MaxShareDiffExp)
+	}
+	if len(cb.Tag) == 0 || cb.Tag[len(cb.Tag)-1] != byte(int8(e)) {
+		return 0, fmt.Errorf("the coinbase tag does not end with share difficulty exponent %d", e)
+	}
+	return math.Ldexp(1, e), nil
 }
 
 // JobResponse answers a registration.

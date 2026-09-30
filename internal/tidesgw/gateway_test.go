@@ -366,8 +366,10 @@ func TestForwardOnlyWhatThePoolCredits(t *testing.T) {
 	if want := hex.EncodeToString(stratum.RollVersion("20000000", "2000")); got.Version != want || len(got.Version) != 8 {
 		t.Fatalf("TIDES-GW-VERSION: sent version %q, want %q (8 hex digits)", got.Version, want)
 	}
+	// The status shows what the job miners are on is credited at (2048), not the pool's own
+	// difficulty in the batch answer (4096): with a committed difficulty the two differ.
 	st := g.Status()
-	if st.Forwarded != 1 || st.Accepted != 1 || st.ShareDifficulty != 4096 {
+	if st.Forwarded != 1 || st.Accepted != 1 || st.ShareDifficulty != 2048 {
 		t.Fatalf("TIDES-GW-COUNTS: %+v", st)
 	}
 }
@@ -545,3 +547,50 @@ func TestCreditToNamesTheAddressCredited(t *testing.T) {
 		t.Fatalf("TIDES-GW-CREDIT-OWN: credited to %s, want the miner's own %s", got, me)
 	}
 }
+
+// Every job commits its coinbase to a share difficulty above the busiest miner's (twice it, as a
+// power of two), in the tag's last byte, and tells the pool so; the pool credits shares at least
+// that. Without MaxDifficulty, or with no miner, a job commits to nothing, as before.
+func TestRegisterCommitsTheShareDifficulty(t *testing.T) {
+	p := newFakePool(t)
+	p.snap.Work = map[string]float64{other: 1}
+	_, key, _ := ed25519.GenerateKey(nil)
+	max := 500000.0
+	g := New(Config{PoolURL: p.srv.URL, Key: key, RegisterFor: 2 * time.Second, RetryEvery: time.Minute,
+		MaxDifficulty: func() float64 { return max }})
+	if _, err := g.Register(template(), me, []byte("/Forge Solo/")); err != nil {
+		t.Fatal(err)
+	}
+	max = 0 // every miner gone
+	if _, err := g.Register(template(), me, []byte("/Forge Solo/")); err != nil {
+		t.Fatal(err)
+	}
+	g2 := newGateway(t, p) // no MaxDifficulty
+	if _, err := g2.Register(template(), me, []byte("/Forge Solo/")); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.jobs) != 3 {
+		t.Fatalf("TIDES-GW-COMMIT: %d registrations", len(p.jobs))
+	}
+	for i, want := range []*int{intp(20), nil, nil} {
+		req := p.jobs[i]
+		cb, err := wire.ParseCoinbase(req.Coinb1, req.Coinb2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		switch {
+		case want == nil && req.ShareDiffExp != nil:
+			t.Fatalf("TIDES-GW-COMMIT %d: committed %d with no miner difficulty to cover", i, *req.ShareDiffExp)
+		case want == nil && string(cb.Tag) != "/Forge Solo/":
+			t.Fatalf("TIDES-GW-COMMIT %d: tag %q changed with nothing to commit", i, cb.Tag)
+		case want != nil && (req.ShareDiffExp == nil || *req.ShareDiffExp != *want):
+			t.Fatalf("TIDES-GW-COMMIT %d: exponent %v, want %d", i, req.ShareDiffExp, *want)
+		case want != nil:
+			if d, err := wire.CommittedShareDiff(&req, cb); err != nil || d != 1<<20 {
+				t.Fatalf("TIDES-GW-COMMIT %d: the coinbase commits %g (%v), want 2^20", i, d, err)
+			}
+		}
+	}
+}
+
+func intp(v int) *int { return &v }

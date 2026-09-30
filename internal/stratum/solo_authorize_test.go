@@ -247,3 +247,18 @@ func TestAddressUsernameCreditedToItselfWithoutCreditPayoutAddress(t *testing.T)
 		t.Errorf("credited to %q worker %q, want %q worker rig1", minerID, worker, other)
 	}
 }
+
+// A TIDES job commits to a share difficulty above MaxDifficulty, so it must cover every authorized
+// miner, including one whose vardiff step is decided but not yet sent, and only authorized ones.
+func TestMaxDifficultyCoversEveryAuthorizedMiner(t *testing.T) {
+	s := newSoloServer(t, testPayout)
+	if got := s.MaxDifficulty(); got != 0 {
+		t.Fatalf("no miners: %g, want 0", got)
+	}
+	s.clients.Store("bitaxe", &Client{ID: "bitaxe", Authorized: true, Difficulty: 1024, LastDifficultySent: 1024})
+	s.clients.Store("rental", &Client{ID: "rental", Authorized: true, Difficulty: 750000, LastDifficultySent: 500000})
+	s.clients.Store("probe", &Client{ID: "probe", Authorized: false, Difficulty: 1e9, LastDifficultySent: 1e9})
+	if got := s.MaxDifficulty(); got != 750000 {
+		t.Fatalf("MaxDifficulty = %g, want 750000 (the rental's next difficulty; the unauthorized probe does not count)", got)
+	}
+}

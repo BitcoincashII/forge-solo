@@ -1464,6 +1464,27 @@ func detectRentalService(userAgent string) RentalService {
 	return RentalNone
 }
 
+// MaxDifficulty is the highest share difficulty any authorized miner works at: the one it was
+// last sent, or the one vardiff has set for it if that is higher. A TIDES job commits to at least
+// this (see tidesgw.Config.MaxDifficulty), so the pool credits every share in full. 0 with no
+// miner.
+func (s *Server) MaxDifficulty() float64 {
+	var max float64
+	s.clients.Range(func(_, v interface{}) bool {
+		c, ok := v.(*Client)
+		if !ok {
+			return true
+		}
+		c.mu.RLock()
+		if c.Authorized {
+			max = math.Max(max, math.Max(c.Difficulty, c.LastDifficultySent))
+		}
+		c.mu.RUnlock()
+		return true
+	})
+	return max
+}
+
 // CountAuthorized returns the number of clients that have completed mining.authorize.
 //
 // Deliberately distinct from ActiveConnections, which counts TCP accepts: a rig that is

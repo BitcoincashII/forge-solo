@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"strings"
@@ -117,6 +118,24 @@ type Template struct {
 	CurTime       uint32
 	CoinbaseValue int64 // subsidy + the fees of Txs
 	Txs           []TemplateTx
+}
+
+// ShareDiffExp is the share difficulty exponent a job commits to (wire.CommitShareDiff) for
+// miners working at up to maxDiff: the power of two at or above twice maxDiff, so a miner whose
+// difficulty goes up a step before the next job is still credited in full. ok is false when there
+// is nothing to commit to (no miner, so maxDiff is 0).
+func ShareDiffExp(maxDiff float64) (exp int, ok bool) {
+	if !(maxDiff > 0) || math.IsInf(maxDiff, 0) {
+		return 0, false
+	}
+	e := int(math.Ceil(math.Log2(2 * maxDiff)))
+	if e < -wire.MaxShareDiffExp {
+		e = -wire.MaxShareDiffExp
+	}
+	if e > wire.MaxShareDiffExp {
+		e = wire.MaxShareDiffExp
+	}
+	return e, true
 }
 
 // BuildJob turns the gateway node's template into a registration whose coinbase pays snap's split

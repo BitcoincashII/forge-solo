@@ -81,7 +81,12 @@ type Config struct {
 	// miners stay connected). Nil, or "", credits each share to the address its miner logged
 	// in with (the gateway program, which may serve several people).
 	CreditTo func() string
-	Now      func() time.Time
+	// MaxDifficulty, when set, is the highest difficulty a miner of this gateway works at. Every
+	// job then commits its coinbase to a share difficulty above it (wire.CommitShareDiff), and the
+	// pool credits each share at least that: without it the pool credits its own share difficulty,
+	// which a busy miner's shares far exceed (a 500k rental was credited 1024 a share).
+	MaxDifficulty func() float64
+	Now           func() time.Time
 }
 
 func (c *Config) defaults() {
@@ -310,10 +315,17 @@ func (g *Gateway) register(t *mining.BlockTemplate, finder string, tag []byte, t
 	for _, tx := range txs {
 		gt.Txs = append(gt.Txs, gateway.TemplateTx{TxID: tx.TxID, Data: tx.Data})
 	}
+	var exp *int
+	if g.cfg.MaxDifficulty != nil {
+		if e, ok := gateway.ShareDiffExp(g.cfg.MaxDifficulty()); ok {
+			exp, tag = &e, wire.CommitShareDiff(tag, e)
+		}
+	}
 	req, err := gateway.BuildJob(snap, gt, finder, tag)
 	if err != nil {
 		return nil, err
 	}
+	req.ShareDiffExp = exp
 
 	// The pool answers "retry" while its node has not yet seen the block this one is building
 	// on, or has just taken one of this node's transactions; that usually clears in well under
@@ -357,6 +369,7 @@ func (g *Gateway) Track(localID string, reg *Registration, version string) {
 	defer g.mu.Unlock()
 	g.jobs[localID] = &tracked{reg: reg, version: version}
 	g.order = append(g.order, localID)
+	g.shareDiff = reg.ShareDiff // what the pool credits a share on the work miners now have
 	for len(g.order) > maxTracked {
 		delete(g.jobs, g.order[0])
 		g.order = g.order[1:]
@@ -563,9 +576,8 @@ func (g *Gateway) tally(sent []queued, resp *wire.ShareBatchResponse) []queued {
 			g.counts.LastReject = r.Error
 		}
 	}
-	if resp.ShareDifficulty > 0 {
-		g.shareDiff = resp.ShareDifficulty
-	}
+	// resp.ShareDifficulty is the pool's own difficulty for this gateway, which the next job
+	// starts from; the status shows what the current job is credited at (Register, Track).
 	return resend
 }
 

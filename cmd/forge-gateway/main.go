@@ -129,11 +129,15 @@ func run(cfgPath string, stop <-chan struct{}, asService bool) error {
 	}
 
 	jm := mining.NewJobManager(cfg.Node.RPCURL, user, pass, cfg.Mining.PayoutAddress, cfg.Mining.CoinbaseTag)
-	gw := tidesgw.New(tidesgw.Config{PoolURL: cfg.Pool.URL, Key: key, Logger: log.Named("pool"), PoolOnly: cfg.Mining.PoolOnly})
+	var srv *stratum.Server
+	gw := tidesgw.New(tidesgw.Config{PoolURL: cfg.Pool.URL, Key: key, Logger: log.Named("pool"), PoolOnly: cfg.Mining.PoolOnly,
+		// Each job commits to a share difficulty above the busiest miner's, so the pool credits
+		// every share in full (srv is set before the job loop, which alone calls this, starts).
+		MaxDifficulty: func() float64 { return srv.MaxDifficulty() }})
 	hist := newJobHistory()
 	proc := &processor{log: log, gw: gw, hist: hist, node: n, stats: newMinerStats()}
 	host, port, _ := hostPort(cfg.Stratum.Listen)
-	srv := stratum.NewServer(&stratum.ServerConfig{
+	srv = stratum.NewServer(&stratum.ServerConfig{
 		Host:                host,
 		Port:                port,
 		MaxConnections:      cfg.Stratum.MaxConnections,

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"os"
 	"sync/atomic"
 	"time"
@@ -65,13 +66,27 @@ func ensureTidesGateway(cfg *viper.Viper) error {
 	if err != nil {
 		return err
 	}
-	g := tidesgw.New(tidesgw.Config{PoolURL: tidesPoolURL(cfg), Key: key, Logger: logger, CreditTo: tidesPayoutAddress})
+	g := tidesgw.New(tidesgw.Config{PoolURL: tidesPoolURL(cfg), Key: key, Logger: logger, CreditTo: tidesPayoutAddress,
+		MaxDifficulty: tidesMaxDifficulty})
 	if !tidesGWPtr.CompareAndSwap(nil, g) {
 		return nil
 	}
 	go g.Run(shutdownCh)
 	logger.Info("🌊 TIDES gateway ready", zap.String("pool", tidesPoolURL(cfg)), zap.String("gateway", g.ID()))
 	return nil
+}
+
+// tidesMaxDifficulty is the highest difficulty a miner works at on either port: every TIDES job
+// commits to a share difficulty above it, so the pool credits a rental's shares in full.
+func tidesMaxDifficulty() float64 {
+	var m float64
+	if stratumServer != nil {
+		m = stratumServer.MaxDifficulty()
+	}
+	if stratumRentalServer != nil {
+		m = math.Max(m, stratumRentalServer.MaxDifficulty())
+	}
+	return m
 }
 
 // tidesPayoutAddress is the address TIDES credits: the one the coinbase would pay in solo. The

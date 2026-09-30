@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"encoding/hex"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -176,3 +177,36 @@ func TestSignAndVerify(t *testing.T) {
 }
 
 type httptestReq struct{ r *http.Request }
+
+// A share difficulty commitment is the coinbase tag's last byte, a signed exponent, and survives
+// the coinbase round trip; a tag too long to take it is cut, not refused.
+func TestShareDifficultyCommitment(t *testing.T) {
+	outs := []tides.Output{{Address: addrA, Sats: 3000}}
+	for _, e := range []int{20, 11, -35, 0, 64, -64} {
+		tag := CommitShareDiff([]byte("/Forge Solo/"), e)
+		c1, c2, err := BuildCoinbase(83216, tag, outs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cb, err := ParseCoinbase(c1, c2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		exp := e
+		got, err := CommittedShareDiff(&JobRequest{ShareDiffExp: &exp}, cb)
+		if err != nil || got != math.Ldexp(1, e) || string(cb.Tag[:len(cb.Tag)-1]) != "/Forge Solo/" {
+			t.Fatalf("COMMIT-ROUNDTRIP %d: %g %v (tag %q)", e, got, err, cb.Tag)
+		}
+		other := e + 1
+		if _, err := CommittedShareDiff(&JobRequest{ShareDiffExp: &other}, cb); err == nil {
+			t.Fatalf("COMMIT-MISMATCH %d: exponent %d accepted for a tag committing %d", e, other, e)
+		}
+	}
+	long := CommitShareDiff([]byte(strings.Repeat("x", 40)), 20)
+	if len(long) != MaxTag || long[MaxTag-1] != 20 {
+		t.Fatalf("COMMIT-CUT: %d bytes, last %d", len(long), long[len(long)-1])
+	}
+	if d, err := CommittedShareDiff(&JobRequest{}, &Coinbase{}); d != 0 || err != nil {
+		t.Fatalf("COMMIT-NONE: %g %v", d, err)
+	}
+}
