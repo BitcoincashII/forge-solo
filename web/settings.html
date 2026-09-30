@@ -19,6 +19,11 @@
  .status{margin-left:12px;font-size:13px}
  .ok{color:var(--bch-green,#0ac18e)} .err{color:#ef4444}
  .mm-off{color:#f59e0b}
+ .modes{display:grid;gap:10px;margin-top:6px}
+ .mode{display:flex;gap:10px;align-items:flex-start;background:#000;border:1px solid var(--border);border-radius:10px;padding:12px 14px;cursor:pointer;font-size:14px;line-height:1.5}
+ .mode input{margin-top:4px}
+ .mode:has(input:checked){border-color:var(--bch-green,#0ac18e)}
+ .mode small{display:block;color:var(--text-secondary);font-size:12.5px;margin-top:2px}
 </style></head><body>
 <header><div class="container header-content">
   <a href="/solo" class="logo" aria-label="Home"><div><div class="logo-text">Forge Solo</div><div class="logo-sub">BCH2 + 1175 merge-mining</div></div></a>
@@ -43,6 +48,15 @@
 
   <div class="card">
     <h2>Payout &amp; mining setup</h2>
+    <span class="fld" id="modeLabel">How blocks pay</span>
+    <div class="modes" role="radiogroup" aria-labelledby="modeLabel">
+      <label class="mode"><input type="radio" name="payoutMode" value="solo" checked>
+        <span><strong>Solo</strong> — every block you find pays your address in full.
+        <small>The lottery: nothing until you find a block, then all of it. Merge-mines 1175 when a 1175 address is set.</small></span></label>
+      <label class="mode"><input type="radio" name="payoutMode" value="tides">
+        <span><strong>TIDES pool</strong> — share blocks with other Forge Solo miners through Forge Pool.
+        <small>Your node still builds its own blocks, but each one pays everyone with work in the pool's TIDES window, straight from its coinbase — and you are paid from every TIDES block anyone finds. Steadier payouts for the same expected amount; no pool wallet, no fee. BCH2 only: 1175 merge-mining is off in this mode. If Forge Pool cannot be reached, this app mines solo until it can.</small></span></label>
+    </div>
     <label class="fld" for="poolAddr">BCH2 payout address (required)</label>
     <input class="txt" id="poolAddr" type="text" spellcheck="false" autocapitalize="none" placeholder="bitcoincashii:q…">
     <label class="fld" for="esfAddr">1175 (ESF) merge-mining payout address (optional)</label>
@@ -53,7 +67,7 @@
       <button class="cta" id="saveBtn">Save settings</button>
       <span class="status" id="saveStatus"></span>
     </div>
-    <p class="note">Your <strong>BCH2 payout address</strong> receives every block you solo-mine — the block's coinbase pays it directly on-chain (no separate payout transaction). Changes apply within a few seconds; <strong>no restart needed</strong>. A valid-but-wrong address is unrecoverable, so double-check it.</p>
+    <p class="note">Your <strong>BCH2 payout address</strong> receives every block you solo-mine — the block's coinbase pays it directly on-chain (no separate payout transaction). In <strong>TIDES</strong> mode it is the address your share of every TIDES block is paid to. Changes apply within a few seconds; <strong>no restart needed</strong>. A valid-but-wrong address is unrecoverable, so double-check it.</p>
   </div>
 
   <div class="card">
@@ -122,11 +136,14 @@
      var esf=d.payout_address_1175||'';
      document.getElementById('poolAddr').value=pool;
      document.getElementById('esfAddr').value=esf;
+     var tides=(d.payout_mode==='tides');
+     document.querySelectorAll('input[name=payoutMode]').forEach(function(r){ r.checked=(r.value===(tides?'tides':'solo')); });
      if(d.coinbase_tag!=null) document.getElementById('cbTag').value=d.coinbase_tag;
      // Not-configured banner (#1): shown only when no BCH2 payout address is set.
      document.getElementById('notConfiguredBanner').style.display = pool ? 'none' : 'block';
      // Merge-mining status (#9): the ESF address, or an explicit "OFF" when empty.
      var es=document.getElementById('esfStatus');
+     if(tides){ es.textContent='OFF — TIDES mode mines BCH2 only'+(esf?' (your address is kept for Solo)':''); es.className='v mm-off'; return; }
      if(esf){ es.textContent=esf; es.className='v'; }
      else { es.textContent='not configured — merge-mining OFF'; es.className='v mm-off'; }
      if(esf) refreshMergeMiningHealth();
@@ -155,10 +172,12 @@
    document.getElementById('saveBtn').addEventListener('click', function(){
      var st=document.getElementById('saveStatus');
      st.className='status'; st.textContent='Saving…';
+     var picked=document.querySelector('input[name=payoutMode]:checked');
      var body={
        pool_address:document.getElementById('poolAddr').value.trim(),
        payout_address_1175:document.getElementById('esfAddr').value.trim(),
-       coinbase_tag:document.getElementById('cbTag').value
+       coinbase_tag:document.getElementById('cbTag').value,
+       payout_mode:picked?picked.value:'solo'
      };
      fetch('/api/v1/pool/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
        .then(function(r){return r.json()}).then(function(d){

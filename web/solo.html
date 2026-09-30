@@ -78,6 +78,24 @@
 
         /* Solo mode badge */
         .mode-badge{background:var(--gold);color:#000}
+        .mode-badge.tides{background:#38bdf8}
+        .mode-badge.fallback{background:linear-gradient(90deg,#38bdf8,var(--gold))}
+
+        /* TIDES mode (Forge Solo as a DATUM gateway to Forge Pool) */
+        .tides-card{border-color:rgba(56,189,248,0.45);margin-bottom:24px}
+        .tides-card h2{color:#38bdf8}
+        .tides-state{font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px;margin-left:auto}
+        .tides-state.active{background:rgba(10,193,142,0.15);color:var(--bch-green)}
+        .tides-state.fallback,.tides-state.starting{background:rgba(245,158,11,0.15);color:var(--gold)}
+        .tides-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin:12px 0 16px}
+        .tides-grid>div{background:var(--bg-primary);border-radius:10px;padding:14px;text-align:center;min-width:0}
+        .tides-grid .tv{font-size:18px;font-weight:700;font-family:'JetBrains Mono',monospace;color:#38bdf8;word-break:break-word}
+        .tides-grid .tl{font-size:11px;color:var(--text-secondary);margin-top:4px}
+        .tides-note{font-size:13px;color:var(--text-secondary);line-height:1.55}
+        .tides-gw{font-size:12px;color:var(--text-secondary);font-family:'JetBrains Mono',monospace;margin:8px 0 12px;word-break:break-word}
+        .tides-you{color:var(--bch-green);font-weight:700}
+        @media(max-width:900px){.tides-grid{grid-template-columns:repeat(3,1fr)}}
+        @media(max-width:600px){.tides-grid{grid-template-columns:repeat(2,1fr)}}
 
         footer a{color:var(--gold)}
 
@@ -111,7 +129,7 @@
             <nav role="navigation" aria-label="Main navigation">
                 <a href="/solo" data-i18n="p_nav_dashboard">Dashboard</a>
                 <a href="/settings" data-i18n="p_nav_settings">Settings</a>
-                <span class="mode-badge">SOLO</span>
+                <span class="mode-badge" id="modeBadge">SOLO</span>
             </nav>
         </div>
     </header>
@@ -138,6 +156,40 @@
                     <div class="blocks-label" data-i18n="p_solo_blocks_found">Your Blocks Found</div>
                     <div style="margin-top:8px;font-size:13px;opacity:0.8;color:#000" id="totalEarned">Total: 0 BCH2</div>
                 </div>
+            </div>
+
+            <!-- TIDES mode: shown only while the stratum reports TIDES in effect. -->
+            <div class="card tides-card" id="tidesCard" hidden role="region" aria-label="Forge Pool TIDES">
+                <h2>🌊 Forge Pool TIDES <span class="tides-state" id="tidesState"></span></h2>
+                <div class="tides-note" id="tidesNote"></div>
+                <div class="tides-grid">
+                    <div><div class="tv" id="tidesShare">--</div><div class="tl">Your share of the window</div></div>
+                    <div><div class="tv" id="tidesNext">--</div><div class="tl">The next pool block pays you</div></div>
+                    <div><div class="tv" id="tidesPending">--</div><div class="tl">Pending (not yet confirmed)</div></div>
+                    <div><div class="tv" id="tidesPaid">--</div><div class="tl">Paid to you (confirmed)</div></div>
+                    <div><div class="tv" id="tidesMiners">--</div><div class="tl">Miners in the window</div></div>
+                    <div><div class="tv" id="tidesFill">--</div><div class="tl">Window filled</div></div>
+                </div>
+                <div class="tides-gw" id="tidesGw"></div>
+                <div class="table-scroll">
+                    <table class="blocks-table">
+                        <caption class="sr-only">Recent blocks found by Forge Pool's TIDES (DATUM) miners</caption>
+                        <thead>
+                            <tr>
+                                <th scope="col">Height</th>
+                                <th scope="col">Found by</th>
+                                <th scope="col">Coinbase</th>
+                                <th scope="col">Paid you</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">Time</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tidesBlocks">
+                            <tr><td colspan="6"><div class="empty-state">No TIDES blocks yet</div></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <p class="tides-note" style="margin-top:12px">Every block a TIDES miner finds pays everyone with work in the window — the last eight network-difficulties of shares — straight from its coinbase: no pool wallet, no fee. Amounts under 546 satoshis carry over to a later block. <a id="tidesLink" href="https://pool.bch2.org/tides" target="_blank" rel="noopener noreferrer" style="color:#38bdf8">Full TIDES dashboard on Forge Pool ↗</a></p>
             </div>
 
             <div class="stats-row" role="region" aria-label="Mining statistics">
@@ -319,6 +371,6 @@
     </footer>
 
     <script src="/js/common.js"></script>
-    <script src="/js/pool-solo-inline.js?v=20260824c"></script>
+    <script src="/js/pool-solo-inline.js?v=20260930t"></script>
 </body>
 </html>
