@@ -758,6 +758,7 @@ func getConnectivity(c *fiber.Ctx) error {
 
 	out := fiber.Map{
 		"publicIp":    public,
+		"lanIp":       lanAddress(),
 		"stratumPort": 3333,
 		"rentalPort":  3335,
 		"bch2": fiber.Map{
@@ -776,6 +777,26 @@ func getConnectivity(c *fiber.Ctx) error {
 		}
 	}
 	return c.JSON(out)
+}
+
+// lanAddress is this machine's address on its own network: the source address of its default
+// route, which is what a miner beside it dials. The dashboard shows it where the page itself is
+// opened on 127.0.0.1 (Windows, Linux), since that address reaches only a miner on this same
+// machine. A UDP "connection" only looks the route up: no packet is sent, and 192.0.2.1 is a
+// documentation address that routes nowhere. Empty when there is no default route. On Umbrel the
+// API runs in a container, so this is the container's address; the dashboard never uses it
+// there, because the page is opened by the Umbrel's own name.
+func lanAddress() string {
+	c, err := net.Dial("udp4", "192.0.2.1:9")
+	if err != nil {
+		return ""
+	}
+	defer c.Close()
+	a, ok := c.LocalAddr().(*net.UDPAddr)
+	if !ok || a.IP == nil || a.IP.IsLoopback() || a.IP.IsUnspecified() {
+		return ""
+	}
+	return a.IP.String()
 }
 
 // mergeMiningAvailable is false where the app runs no 1175 node (MERGE_MINING_AVAILABLE=0, set by

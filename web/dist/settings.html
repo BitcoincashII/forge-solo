@@ -28,6 +28,10 @@
  .mm-none{display:none}
  .no-mm .mm{display:none!important}
  .no-mm .mm-none{display:inline}
+ /* No rental listener (the Windows build): marketplaces use the miner port. */
+ .rental-none{display:none}
+ .no-rental .rental{display:none}
+ .no-rental .rental-none{display:block}
 </style></head><body>
 <header><div class="container header-content">
   <a href="/solo" class="logo" aria-label="Home"><div><div class="logo-text">Forge Solo</div><div class="logo-sub">BCH2<span class="mm"> + 1175 merge-mining</span></div></div></a>
@@ -82,7 +86,8 @@
     <div class="row"><span class="k">Password</span><span class="v">x (anything)</span></div>
     <p class="note">Because each block pays you directly, there is <strong>no minimum payout and no payout schedule</strong> — nothing accumulates, and nothing is waiting to be sent. A block's reward is spendable after the usual 100-block coinbase maturity.</p>
     <p class="note">The worker <strong>username is only a label</strong> for the stats on this dashboard. All BCH2 block rewards go to the single <strong>payout address you set above</strong> — <em>not</em> to the worker username. <span class="mm">Every share also merge-mines <strong>1175 (ESF)</strong> for free when a 1175 address is set.</span></p>
-    <p class="note"><strong>Rented hashpower</strong> uses a port that depends on how the marketplace connects. <strong>Braiins</strong> connects each miner <em>individually</em>, so it uses the same port as your own hardware — <strong>3333</strong> — and every connection finds its own difficulty. <strong>NiceHash</strong> and <strong>MiningRigRentals</strong> put the whole order behind one connection, so they use <strong>port 3335</strong>, whose difficulty <em>floor</em> is much higher to suit an aggregated order. That is a floor, not a starting point: a connection on 3335 is never assigned less, so point a single small rig at 3333 instead.</p>
+    <p class="note rental"><strong>Rented hashpower</strong> uses a port that depends on how the marketplace connects. <strong>Braiins</strong> connects each miner <em>individually</em>, so it uses the same port as your own hardware — <strong>3333</strong> — and every connection finds its own difficulty. <strong>NiceHash</strong> and <strong>MiningRigRentals</strong> put the whole order behind one connection, so they use <strong>port 3335</strong>, whose difficulty <em>floor</em> is much higher to suit an aggregated order. That is a floor, not a starting point: a connection on 3335 is never assigned less, so point a single small rig at 3333 instead.</p>
+    <p class="note rental-none"><strong>Rented hashpower</strong> uses port <strong>3333</strong> too: this install runs no separate port for NiceHash and MiningRigRentals, whose orders arrive as one connection. Every connection on 3333 finds its own difficulty from a floor of 1,024.</p>
     <p class="note">Two things to know either way: the address above is a <em>local</em> one, so a marketplace can only reach it through a port forward or a tunnel; and you can set the <em>starting</em> difficulty by putting <code>d=2000000</code> in the password field to skip the automatic ramp. It is a starting point, not a lock: vardiff still adjusts from there once your real share rate is known, and a connection that has not landed a share in 3 minutes drops back to the port’s floor.</p>
     <a class="cta" href="/solo">Open dashboard →</a>
   </div>
@@ -99,9 +104,24 @@
 <script src="/js/common.js"></script>
 <script>
  (function(){
-   var host=window.location.hostname||'your-umbrel';
-   document.getElementById('stratumUrl').textContent='stratum+tcp://'+host+':3333';
-   document.getElementById('stratumUrlRental').textContent='stratum+tcp://'+host+':3335';
+   // Miners on this network dial the page's own hostname -- except where the page is opened on
+   // this machine itself (Windows, Linux): 127.0.0.1 reaches only a miner running here, so this
+   // machine's network address from /connectivity is shown. The marketplace port is the stratum's
+   // rental listener; where there is none (the Windows build) marketplaces use 3333 too.
+   var host=window.location.hostname||'your-node', rentalPort=3335;
+   function showStratumUrls(){
+     document.getElementById('stratumUrl').textContent='stratum+tcp://'+host+':3333';
+     document.getElementById('stratumUrlRental').textContent='stratum+tcp://'+host+':'+rentalPort;
+   }
+   showStratumUrls();
+   if(host==='localhost'||host==='[::1]'||host==='::1'||/^127\./.test(host)){
+     fetch('/api/v1/connectivity').then(function(r){return r.json()}).then(function(c){
+       if(c&&c.lanIp){ host=c.lanIp; showStratumUrls(); }
+     }).catch(function(){});
+   }
+   fetch('/api/v1/mining-status').then(function(r){return r.json()}).then(function(m){
+     if(m&&m.rental_port===0){ rentalPort=3333; document.body.classList.add('no-rental'); showStratumUrls(); }
+   }).catch(function(){});
 
    fetch('/api/v1/stats')
      .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })

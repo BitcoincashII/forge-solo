@@ -107,10 +107,20 @@
         // from the same host as the stratum, so its own hostname is the right answer --
         // the old copy hardcoded "this PC: 127.0.0.1:3333 · a Bitaxe: your PC LAN IP",
         // which is wrong for the Umbrel this app ships as, and disagreed with Settings
-        // and the README (both of which say <your-umbrel-ip>).
+        // and the README (both of which say <your-umbrel-ip>). Except where the page is
+        // opened on this machine itself (Windows, Linux): 127.0.0.1 reaches only a miner
+        // running here, so this machine's network address from /connectivity is shown.
+        var lanIp = ''; // var: stratumHostHint may run before this line does
+        function isLoopbackHost(h) {
+            return h === 'localhost' || h === '[::1]' || h === '::1' || /^127\./.test(h);
+        }
+        function minerHost() {
+            const h = (window.location && window.location.hostname) || '';
+            if ((!h || isLoopbackHost(h)) && lanIp) return lanIp;
+            return h || 'your-node';
+        }
         function stratumHostHint() {
-            var host = (window.location && window.location.hostname) || 'your-umbrel';
-            return '3333 (stratum+tcp://' + host + ':3333)';
+            return '3333 (stratum+tcp://' + minerHost() + ':3333)';
         }
 
         // How many workers are attached RIGHT NOW.
@@ -530,9 +540,9 @@
                 return; // leave the last good values on screen rather than blanking them
             }
 
-            const host = (window.location && window.location.hostname) || 'your-node';
+            if (c.lanIp) lanIp = c.lanIp;
             const local = document.getElementById('connLocal');
-            if (local) local.textContent = 'stratum+tcp://' + host + ':' + (c.stratumPort || 3333);
+            if (local) local.textContent = 'stratum+tcp://' + minerHost() + ':' + (c.stratumPort || 3333);
 
             // Which port a marketplace should dial. The dedicated rental listener exists to
             // give an aggregated order its own high difficulty floor, but it is not always
