@@ -1439,9 +1439,14 @@ func savePoolConfig(c *fiber.Ctx) error {
 			return c.Status(500).JSON(fiber.Map{"success": false, "error": "Failed to save the payout mode: " + err.Error()})
 		}
 	}
-	msg := "Settings saved. Mining picks up the new payout address within a few seconds — no restart needed."
+	// The stratum reads settings every 8 s and uses them from its next job (at least every 15 s).
+	msg := "Settings saved. Mining uses them within half a minute (the next job) — no restart needed."
 	if mode == stats.PayoutModeTides {
-		msg = "Settings saved. TIDES mode starts within a few seconds: your blocks pay the Forge Pool TIDES split, and you are paid from every DATUM block. 1175 merge-mining is off in TIDES mode."
+		msg = "Settings saved. TIDES mode starts within half a minute (the next job): the blocks your install finds pay " +
+			"everyone with work in Forge Pool's TIDES window, and you are paid from every TIDES block found while you have work in it."
+		if mergeMiningAvailable() {
+			msg += " 1175 merge-mining is off in TIDES mode."
+		}
 	}
 	return c.JSON(fiber.Map{"success": true, "message": msg})
 }
