@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	_ "embed"
 	"encoding/hex"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -54,6 +55,7 @@ var (
 	dataDir    string
 	mu         sync.Mutex
 	procs      = map[string]*exec.Cmd{}
+	stdins     = map[string]io.WriteCloser{} // write ends of the stdin pipes a clean stop closes
 	sec        secrets
 )
 

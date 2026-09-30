@@ -171,7 +171,15 @@ func startStratum() {
 		// different services -- swapping them silently zeroes every stratum-sourced dashboard tile.
 		"INTERNAL_API_TOKEN="+sec.Token, "API_HOST=127.0.0.1", "API_PORT="+apiPort,
 		"INTERNAL_STATS_HOST=127.0.0.1", "INTERNAL_STATS_PORT="+stratumInt,
-		"RPC_USER=forge", "RPC_PASSWORD="+sec.BCH2Pass, "HOME_APP=1")
+		"RPC_USER=forge", "RPC_PASSWORD="+sec.BCH2Pass, "HOME_APP=1",
+		// Windows cannot signal it, so closing its stdin is how it is asked to stop cleanly: it
+		// then disconnects its miners and sends the pool the TIDES shares it still holds.
+		"FORGE_STOP_ON_STDIN_EOF=1")
+	if w, err := c.StdinPipe(); err == nil {
+		mu.Lock()
+		stdins["stratum"] = w
+		mu.Unlock()
+	}
 	_ = run("stratum", c)
 }
 
@@ -188,7 +196,7 @@ func startAPI() {
 
 func restartMiner() {
 	systray.SetTooltip("Forge Solo — restarting miner…")
-	stop("stratum")
+	stopGracefully("stratum", stratumStopGrace)
 	time.Sleep(2 * time.Second)
 	startStratum()
 	systray.SetTooltip("Forge Solo — mining")
@@ -258,9 +266,27 @@ func waitProcExit(key string, timeout time.Duration) {
 	}
 }
 
+// stratumStopGrace is how long the stratum gets to stop cleanly once asked: 2 s for connected
+// miners on each port, then sending the pool its queued TIDES shares (5 s per request).
+const stratumStopGrace = 12 * time.Second
+
+// stopGracefully asks a process to stop by closing its stdin, waits up to grace for it to exit,
+// and kills it only if it has not.
+func stopGracefully(key string, grace time.Duration) {
+	mu.Lock()
+	w := stdins[key]
+	delete(stdins, key)
+	mu.Unlock()
+	if w != nil {
+		_ = w.Close()
+		waitProcExit(key, grace)
+	}
+	stop(key)
+}
+
 func shutdown() {
 	systray.SetTooltip("Forge Solo — shutting down cleanly…")
-	stop("stratum") // miner + api first (they talk to the nodes)
+	stopGracefully("stratum", stratumStopGrace) // miner + api first (they talk to the nodes)
 	stop("api")
 	// Flush + stop the nodes gracefully so the next launch RESUMES instead of resyncing.
 	rpcStop(bch2RPC, "forge", sec.BCH2Pass)
