@@ -567,7 +567,9 @@ pool_uptime_seconds %.0f
 		listenPort = "8080"
 	}
 	go func() {
-		if err := app.Listen(":" + listenPort); err != nil {
+		// API_LISTEN_HOST=127.0.0.1 keeps the API on this machine (Forge Solo for Linux, which may run
+		// on a host with a public address: the API is unauthenticated). Unset: every interface.
+		if err := app.Listen(os.Getenv("API_LISTEN_HOST") + ":" + listenPort); err != nil {
 			zapLogger.Fatal("Server error", zap.Error(err))
 		}
 	}()
@@ -754,11 +756,7 @@ func getConnectivity(c *fiber.Ctx) error {
 		public = publicAddressFromPeers(bchPeers, bchPeersErr)
 	}
 
-	auxTotal, auxInbound, auxOK := peerCounts(rpcCallURL(
-		os.Getenv("AUX1175_URL"), os.Getenv("AUX1175_USER"), os.Getenv("AUX1175_PASSWORD"),
-		"getpeerinfo", []interface{}{}))
-
-	return c.JSON(fiber.Map{
+	out := fiber.Map{
 		"publicIp":    public,
 		"stratumPort": 3333,
 		"rentalPort":  3335,
@@ -766,11 +764,24 @@ func getConnectivity(c *fiber.Ctx) error {
 			"port": 8339, "peers": bchTotal, "inbound": bchInbound,
 			"known": bchOK, "reachable": bchOK && bchInbound > 0,
 		},
-		"aux1175": fiber.Map{
+	}
+	// Without a 1175 node (Forge Solo for Linux) there is no 1175 port to report on.
+	if mergeMiningAvailable() {
+		auxTotal, auxInbound, auxOK := peerCounts(rpcCallURL(
+			os.Getenv("AUX1175_URL"), os.Getenv("AUX1175_USER"), os.Getenv("AUX1175_PASSWORD"),
+			"getpeerinfo", []interface{}{}))
+		out["aux1175"] = fiber.Map{
 			"port": 25360, "peers": auxTotal, "inbound": auxInbound,
 			"known": auxOK, "reachable": auxOK && auxInbound > 0,
-		},
-	})
+		}
+	}
+	return c.JSON(out)
+}
+
+// mergeMiningAvailable is false where the app runs no 1175 node (MERGE_MINING_AVAILABLE=0, set by
+// Forge Solo for Linux): the dashboard then leaves out everything about 1175 merge-mining.
+func mergeMiningAvailable() bool {
+	return os.Getenv("MERGE_MINING_AVAILABLE") != "0"
 }
 
 func rpcCall(method string, params interface{}) (json.RawMessage, error) {
@@ -1314,6 +1325,8 @@ func getPoolConfig(c *fiber.Ctx) error {
 		"coinbase_tag":        tag,
 		"configured":          poolAddr != "",
 		"payout_mode":         payoutModeOrSolo(),
+		// false: this app runs no 1175 node, so the dashboard hides 1175 merge-mining.
+		"merge_mining_available": mergeMiningAvailable(),
 	})
 }
 

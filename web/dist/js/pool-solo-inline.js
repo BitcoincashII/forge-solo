@@ -559,10 +559,11 @@
             }
 
             const p2p = document.getElementById('connP2P');
-            if (p2p && c.bch2 && c.aux1175) {
+            // 1175 only where the app runs a 1175 node (not Forge Solo for Linux).
+            if (p2p && c.bch2) {
                 p2p.textContent = '';
                 p2p.appendChild(connPortRow('BCH2', c.bch2));
-                p2p.appendChild(connPortRow('1175', c.aux1175));
+                if (c.aux1175) p2p.appendChild(connPortRow('1175', c.aux1175));
             }
 
             renderReachBanner(c, rentalPort);

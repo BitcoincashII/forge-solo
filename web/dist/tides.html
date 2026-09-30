@@ -19,9 +19,11 @@
  dl.fields{margin:0}
  dl.fields dt{color:var(--text);font-size:14px;font-weight:600;margin-top:10px}
  dl.fields dd{margin:2px 0 0;color:var(--text-secondary);font-size:14px;line-height:1.6}
+ /* No 1175 node here (Forge Solo for Linux): everything about 1175 merge-mining is hidden. */
+ .no-mm .mm{display:none!important}
 </style></head><body>
 <header><div class="container header-content">
-  <a href="/solo" class="logo" aria-label="Home"><div><div class="logo-text">Forge Solo</div><div class="logo-sub">BCH2 + 1175 merge-mining</div></div></a>
+  <a href="/solo" class="logo" aria-label="Home"><div><div class="logo-text">Forge Solo</div><div class="logo-sub">BCH2<span class="mm"> + 1175 merge-mining</span></div></div></a>
   <nav role="navigation"><a href="/solo">Dashboard</a><a href="/settings">Settings</a><a href="/tides" class="active" aria-current="page">TIDES</a></nav>
 </div></header>
 <main class="wrap">
@@ -35,7 +37,7 @@
       <li>You are paid from every such block found while you have work in the window, not only from blocks you find.</li>
       <li>There is no pool wallet and no pool fee: your payout is an output of the block, paid to your address.</li>
       <li>In Solo mode, by contrast, a block you find pays your address its whole reward, and you are paid nothing otherwise.</li>
-      <li>TIDES mode is BCH2 only: 1175 (ESF) merge-mining is off while it is on.</li>
+      <li class="mm">TIDES mode is BCH2 only: 1175 (ESF) merge-mining is off while it is on.</li>
     </ul>
   </div>
 
@@ -98,4 +100,9 @@
   </div>
 </main>
 <script src="/js/common.js"></script>
+<script>
+ fetch('/api/v1/pool/config').then(function(r){return r.json()}).then(function(d){
+   document.body.classList.toggle('no-mm', d.merge_mining_available === false);
+ }).catch(function(){});
+</script>
 </body></html>
