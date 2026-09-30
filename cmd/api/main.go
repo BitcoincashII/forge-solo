@@ -397,6 +397,9 @@ func main() {
 	api.Get("/mining-status", getMiningStatus)
 	api.Get("/pool/config", getPoolConfig)
 	api.Post("/pool/config", savePoolConfig)
+	// TIDES mode: the pool's window and this install's payouts, read from Forge Pool.
+	api.Get("/tides", getTidesPool)
+	api.Get("/tides/me", getTidesMine)
 
 	// Alias routes for miningpoolstats and other services that expect /api/stats
 	app.Get("/api/stats", getPoolStats)
@@ -1269,24 +1272,16 @@ func getPoolConfig(c *fiber.Ctx) error {
 	// Dashboard-managed config is the source of truth (DB pool_config). Env vars provide the
 	// initial defaults until the miner saves settings from the UI (so a fresh install shows
 	// whatever was seeded in the Umbrel app config, then the DB value once configured).
-	poolAddr, payout1175, tag, err := stats.GetPoolConfig()
+	_, payout1175, tag, err := stats.GetPoolConfig()
 	if err != nil {
-		poolAddr, payout1175, tag = "", "", ""
+		payout1175, tag = "", ""
 	}
-	if poolAddr == "" {
-		// Validate the env fallback before handing it to the page. Unvalidated, an
-		// Umbrel app-config value with a bitcoincash: prefix or a P2SH p… address made the
-		// settings page show the address, hide its "not configured" banner, and then 400
-		// every save -- including a save meant only to change the tag -- while the stratum
-		// sat paused. An invalid value is no configuration at all.
-		if env := strings.TrimSpace(os.Getenv("POOL_ADDRESS")); env != "" {
-			if isValidBCH2Address(env) {
-				poolAddr = strings.ToLower(env)
-			} else {
-				log.Printf("WARNING: POOL_ADDRESS is set but is not a valid mainnet bitcoincashii: P2PKH address (%q); ignoring it", env)
-			}
-		}
-	}
+	// The env fallback is validated before it reaches the page. Unvalidated, an Umbrel
+	// app-config value with a bitcoincash: prefix or a P2SH p… address made the settings page
+	// show the address, hide its "not configured" banner, and then 400 every save -- including
+	// a save meant only to change the tag -- while the stratum sat paused. An invalid value is
+	// no configuration at all.
+	poolAddr := payoutAddressInEffect()
 	if payout1175 == "" {
 		// Validated, like the POOL_ADDRESS fallback beside it. Unvalidated, one typo in the
 		// Umbrel app config pre-filled the form with a bad address and then 400'd EVERY
@@ -1318,7 +1313,16 @@ func getPoolConfig(c *fiber.Ctx) error {
 		"payout_address_1175": payout1175,
 		"coinbase_tag":        tag,
 		"configured":          poolAddr != "",
+		"payout_mode":         payoutModeOrSolo(),
 	})
+}
+
+// payoutModeOrSolo is the dashboard's payout mode: solo unless TIDES was chosen.
+func payoutModeOrSolo() string {
+	if mode, err := stats.GetPayoutMode(); err == nil {
+		return mode
+	}
+	return stats.PayoutModeSolo
 }
 
 func savePoolConfig(c *fiber.Ctx) error {
@@ -1335,6 +1339,9 @@ func savePoolConfig(c *fiber.Ctx) error {
 		PoolAddress       string `json:"pool_address"`
 		PayoutAddress1175 string `json:"payout_address_1175"`
 		CoinbaseTag       string `json:"coinbase_tag"`
+		// Optional: absent leaves the payout mode as it is, so a page that predates TIDES
+		// can still save the other settings.
+		PayoutMode *string `json:"payout_mode"`
 	}
 	if err := c.BodyParser(&input); err != nil {
 		return c.Status(400).JSON(fiber.Map{"success": false, "error": "Invalid request body"})
@@ -1377,10 +1384,32 @@ func savePoolConfig(c *fiber.Ctx) error {
 		tag = ""
 	}
 
+	mode := ""
+	if input.PayoutMode != nil {
+		mode = strings.ToLower(strings.TrimSpace(*input.PayoutMode))
+		if !stats.ValidPayoutMode(mode) {
+			return c.Status(400).JSON(fiber.Map{"success": false, "error": "Payout mode must be solo or tides"})
+		}
+		// TIDES credits the payout address in the pool's share log: without one there is
+		// nothing to credit, and nothing to mine to in solo either.
+		if mode == stats.PayoutModeTides && poolAddr == "" {
+			return c.Status(400).JSON(fiber.Map{"success": false, "error": "Set your BCH2 payout address before choosing TIDES — it is the address TIDES pays"})
+		}
+	}
+
 	if err := stats.SavePoolConfig(poolAddr, payout1175, tag); err != nil {
 		return c.Status(500).JSON(fiber.Map{"success": false, "error": "Failed to save config: " + err.Error()})
 	}
-	return c.JSON(fiber.Map{"success": true, "message": "Settings saved. Mining picks up the new payout address within a few seconds — no restart needed."})
+	if mode != "" {
+		if err := stats.SavePayoutMode(mode); err != nil {
+			return c.Status(500).JSON(fiber.Map{"success": false, "error": "Failed to save the payout mode: " + err.Error()})
+		}
+	}
+	msg := "Settings saved. Mining picks up the new payout address within a few seconds — no restart needed."
+	if mode == stats.PayoutModeTides {
+		msg = "Settings saved. TIDES mode starts within a few seconds: your blocks pay the Forge Pool TIDES split, and you are paid from every DATUM block. 1175 merge-mining is off in TIDES mode."
+	}
+	return c.JSON(fiber.Map{"success": true, "message": msg})
 }
 
 // loadMinerSettingsFromDB loads all miner settings from database into memory

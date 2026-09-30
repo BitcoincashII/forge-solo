@@ -31,6 +31,7 @@ type BlockTemplate struct {
 type TxData struct {
 	Data string `json:"data"`
 	TxID string `json:"txid"`
+	Fee  int64  `json:"fee"` // satoshis; the TIDES gateway needs it to take a transaction back out
 }
 
 type JobManager struct {
@@ -356,6 +357,13 @@ func (jm *JobManager) IsConfigured() bool {
 	return jm.pubkeyHash != nil
 }
 
+// CoinbaseTag returns the tag newly built jobs carry (the sanitised form).
+func (jm *JobManager) CoinbaseTag() []byte {
+	jm.mu.RLock()
+	defer jm.mu.RUnlock()
+	return append([]byte(nil), jm.coinbaseTag...)
+}
+
 // SetCoinbaseTag atomically updates the coinbase tag used for newly built jobs.
 func (jm *JobManager) SetCoinbaseTag(tag string) {
 	t := sanitizeCoinbaseTag(tag)
@@ -645,6 +653,39 @@ func (jm *JobManager) CreateJob(template *BlockTemplate) *Job {
 	}
 }
 
+// CreateJobWithCoinbase builds a job on template around coinbase halves made elsewhere: the TIDES
+// gateway's, which pay Forge Pool's TIDES split instead of this install's own address. txs are the
+// transactions that coinbase's value counts, in block order -- the gateway may register fewer than
+// the template holds -- and coinbaseValue is what it pays in total. Such a job never merge-mines:
+// TIDES mode is BCH2 only (owner decision 2026-09-30).
+func (jm *JobManager) CreateJobWithCoinbase(template *BlockTemplate, cb1, cb2 string, txs []TxData, coinbaseValue int64) *Job {
+	if template == nil {
+		return nil
+	}
+	var txids, txData []string
+	for _, tx := range txs {
+		txids = append(txids, tx.TxID)
+		txData = append(txData, tx.Data)
+	}
+	return &Job{
+		ID:               fmt.Sprintf("%x", atomic.AddUint64(&jm.jobCounter, 1)),
+		Height:           template.Height,
+		PrevBlockHash:    stratumPrevHash(template.PreviousBlockHash),
+		CoinBase1:        cb1,
+		CoinBase2:        cb2,
+		MerkleBranches:   buildMerkleBranches(txids),
+		Version:          fmt.Sprintf("%08x", template.Version),
+		NBits:            template.Bits,
+		NTime:            fmt.Sprintf("%08x", template.CurTime),
+		CleanJobs:        true,
+		Target:           template.Target,
+		OriginalPrevHash: template.PreviousBlockHash,
+		Transactions:     txData,
+		CoinbaseValue:    coinbaseValue,
+		Tides:            true,
+	}
+}
+
 // CoinbaseExtranonceReserve is the total extranonce byte count (extranonce1 +
 // extranonce2, or the V2 single extranonce) reserved in the coinbase scriptSig.
 // One coinbase is shared across all stratum servers, so every enabled server's
@@ -787,6 +828,13 @@ type Job struct {
 	Target           string
 	Transactions     []string             // Raw transaction hex data for block building
 	AuxWork          *mergemining.AuxWork // aux-chain work this job commits to (nil = no merge mining)
+
+	// Tides marks a job whose coinbase pays Forge Pool's TIDES split rather than this install's
+	// address: a block found on it is the pool's, paid to everyone in the split, and is not
+	// recorded as a solo win. TidesFinderSats is the part of that coinbase paying this install's
+	// own payout address (0 when it has no work in the pool's window yet).
+	Tides           bool
+	TidesFinderSats int64
 
 	// CoinbaseValue is the satoshi value this job's own coinbase pays -- subsidy
 	// PLUS the fees of the transactions in THIS job. It is baked into CoinBase2 at

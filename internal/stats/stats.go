@@ -419,6 +419,20 @@ var (
 )
 
 func RecordMinerBlockWithWorkerSolo(minerID, workerName string, height int64, hash string, reward float64, isSolo bool) {
+	noteMinerBlock(minerID, workerName, height, hash, reward)
+	// Save to database with is_solo flag
+	SaveBlockDBWithSolo(minerID, height, hash, reward, isSolo)
+}
+
+// NoteTidesBlock counts a block a worker found in TIDES mode, for the worker stats only. It is
+// Forge Pool's block -- its coinbase paid the TIDES split -- and it is recorded in the pool's
+// TIDES ledger. Writing it to this install's own blocks would list it beside solo wins, counted
+// at a part of the reward, while the TIDES payouts from everyone else's blocks are not there.
+func NoteTidesBlock(minerID, workerName string, height int64, hash string, reward float64) {
+	noteMinerBlock(minerID, workerName, height, hash, reward)
+}
+
+func noteMinerBlock(minerID, workerName string, height int64, hash string, reward float64) {
 	minerBlocksMu.Lock()
 	defer minerBlocksMu.Unlock()
 
@@ -444,9 +458,6 @@ func RecordMinerBlockWithWorkerSolo(minerID, workerName string, height int64, ha
 	if len(minerBlocks[minerID]) > 1000 {
 		minerBlocks[minerID] = minerBlocks[minerID][len(minerBlocks[minerID])-1000:]
 	}
-
-	// Save to database with is_solo flag
-	SaveBlockDBWithSolo(minerID, height, hash, reward, isSolo)
 }
 
 // GetWorkerBlockCount returns the number of blocks found by a specific worker

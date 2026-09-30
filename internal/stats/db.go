@@ -146,7 +146,14 @@ CREATE TABLE IF NOT EXISTS pool_config (
     pool_address TEXT DEFAULT '',
     payout_address_1175 TEXT DEFAULT '',
     coinbase_tag TEXT DEFAULT '',
+    payout_mode TEXT DEFAULT 'solo',
     updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS datum_identity (
+    id INT PRIMARY KEY CHECK (id = 1),
+    key_seed TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_blocks_height ON blocks(height);
@@ -220,6 +227,10 @@ func InitDB(connStr string) error {
 	// settle) reference payouts.status, so a fresh Postgres install must have it.
 	if _, mErr := db.Exec(`ALTER TABLE payouts ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'pending'`); mErr != nil {
 		log.Printf("Warning: payouts.status column migration: %v", mErr)
+	}
+	// TIDES mode (Forge Solo as a DATUM gateway to Forge Pool): which way blocks pay.
+	if _, mErr := db.Exec(`ALTER TABLE pool_config ADD COLUMN IF NOT EXISTS payout_mode TEXT DEFAULT 'solo'`); mErr != nil {
+		log.Printf("Warning: pool_config.payout_mode column migration: %v", mErr)
 	}
 	// Destructive but deliberate: drop the dead minimum-payout columns. A solo block pays its
 	// finder in its own coinbase, so nothing accumulates and there is no threshold to cross --

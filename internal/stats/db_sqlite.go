@@ -175,7 +175,15 @@ func createTables() error {
 		pool_address TEXT DEFAULT '',
 		payout_address_1175 TEXT DEFAULT '',
 		coinbase_tag TEXT DEFAULT '',
+		payout_mode TEXT DEFAULT 'solo',
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
+	-- The TIDES gateway's identity at Forge Pool: an Ed25519 seed made on first use.
+	CREATE TABLE IF NOT EXISTS datum_identity (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		key_seed TEXT NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 	`
 
@@ -188,6 +196,8 @@ func createTables() error {
 	// duplicate-column error here is the expected no-op on an already-migrated file.
 	for _, stmt := range []string{
 		`ALTER TABLE blocks ADD COLUMN confirmed_at DATETIME`,
+		// TIDES mode (Forge Solo as a DATUM gateway to Forge Pool): which way blocks pay.
+		`ALTER TABLE pool_config ADD COLUMN payout_mode TEXT DEFAULT 'solo'`,
 		// A solo block pays its finder in its own coinbase: nothing accumulates and there is
 		// no threshold to cross. These columns outlived the payout sender and kept reporting a
 		// default nothing honours. SQLite has no DROP COLUMN IF EXISTS, so on an already

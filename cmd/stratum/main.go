@@ -24,6 +24,7 @@ import (
 	"github.com/BitcoincashII/forge-solo/internal/mining"
 	"github.com/BitcoincashII/forge-solo/internal/stats"
 	"github.com/BitcoincashII/forge-solo/internal/stratum"
+	"github.com/BitcoincashII/forge-solo/internal/tidesgw"
 	"github.com/go-zeromq/zmq4"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -184,6 +185,9 @@ type miningStatusSnapshot struct {
 	Reason        string `json:"reason"`              // machine-readable pause cause, "" when mining
 	Message       string `json:"message"`             // one line a home user can act on
 	RentalPort    int    `json:"rental_port"`         // 3335 when the rental listener is up, 0 when it is not
+
+	PayoutMode string          `json:"payout_mode"`     // solo | tides (the mode in effect)
+	Tides      *tidesgw.Status `json:"tides,omitempty"` // the TIDES gateway, when one has started
 }
 
 // buildMiningStatus gathers the live inputs and hands them to the reason ladder.
@@ -231,6 +235,11 @@ func buildMiningStatus() miningStatusSnapshot {
 		st.RentalPort = 3335
 	}
 	st.MergeMining, st.AuxError, st.AuxLastOKAge = auxStatusFrom(aux, time.Now())
+	st.PayoutMode = currentPayoutMode()
+	if g := tidesGateway(); g != nil {
+		ts := g.Status()
+		st.Tides = &ts
+	}
 	return st
 }
 
@@ -1003,6 +1012,8 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 	// what actually took effect. Only a transition from a non-empty DB value to an empty
 	// one is a user clearing the field.
 	var lastDB1175 string
+	// lastMode is the payout mode in effect, seeded from what main() applied.
+	lastMode := currentPayoutMode()
 	// Seed with the values that were actually APPLIED at startup, so we only act on real
 	// changes -- and so anything that failed to apply is retried on the first tick.
 	//
@@ -1084,6 +1095,14 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 		if err != nil {
 			continue
 		}
+		// Payout mode: solo or TIDES. Leaving merge-mining to the 1175 branch below on the way
+		// back to solo: clearing last1175 makes it switch 1175 on again if an address is set.
+		if mode, mErr := stats.GetPayoutMode(); mErr == nil && mode != lastMode {
+			lastMode = applyTidesMode(mode, cfg, jm)
+			if lastMode == stats.PayoutModeTides {
+				last1175 = ""
+			}
+		}
 		if pool != lastPool && pool != "" {
 			if serr := jm.SetPoolAddress(pool); serr != nil {
 				logger.Warn("dashboard payout address rejected — keeping previous", zap.String("address", pool), zap.Error(serr))
@@ -1124,7 +1143,7 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 			last1175 = ""
 		}
 		lastDB1175 = p1175
-		if p1175 != last1175 && p1175 != "" {
+		if p1175 != last1175 && p1175 != "" && currentPayoutMode() == stats.PayoutModeSolo {
 			if !merge1175Enabled {
 				ac := enableMergeMining1175(cfg, p1175)
 				if stratumServer != nil {
@@ -1377,10 +1396,21 @@ func main() {
 	// cycle and 1175 is never mined, so enable ONLY when it's set and warn loudly otherwise.
 	// BCH2 mining is unaffected either way. When it is later set in the dashboard,
 	// watchPoolConfig turns merge mining on at runtime via the same enableMergeMining1175 path.
+	// TIDES mode (the dashboard's payout mode) is BCH2 only: an install that is in it does not
+	// start 1175 merge-mining at all, rather than start it and switch it off a moment later.
+	startMode := stats.PayoutModeSolo
+	if stats.IsDBConnected() {
+		if m, mErr := stats.GetPayoutMode(); mErr == nil {
+			startMode = m
+		}
+	}
+	if config.GetBool("mergemining.enabled") && effective1175Payout != "" && startMode == stats.PayoutModeTides {
+		logger.Info("💠 1175 merge-mining stays OFF — this install is in TIDES mode, which mines BCH2 only")
+	}
 	if config.GetBool("mergemining.enabled") && effective1175Payout == "" {
 		logger.Warn("⚠️  Merge mining is enabled but PAYOUT_ADDRESS_1175 (your esf1… address) is not set — 1175 merge-mining is OFF until you set it in the dashboard. BCH2 mining continues normally.")
 	}
-	if config.GetBool("mergemining.enabled") && effective1175Payout != "" {
+	if config.GetBool("mergemining.enabled") && effective1175Payout != "" && startMode != stats.PayoutModeTides {
 		auxClient = enableMergeMining1175(config, effective1175Payout)
 	}
 
@@ -1497,6 +1527,7 @@ func main() {
 	if jobManager.IsConfigured() {
 		applySoloPayoutAddress(effectivePoolAddr)
 	}
+	applyTidesMode(startMode, config, jobManager)
 
 	go watchPoolConfig(jobManager, config)
 
@@ -1622,8 +1653,24 @@ func main() {
 			isNewBlock := template.Height != lastHeight || template.PreviousBlockHash != lastPrevHash || curJob == nil
 			needPeriodicUpdate := time.Since(lastJobTime) >= 15*time.Second // Faster updates for NiceHash
 
-			if isNewBlock || needPeriodicUpdate {
-				job := jobManager.CreateJob(template)
+			// TIDES: jobs come from the gateway, which falls back to solo when the pool will not
+			// take them. A change of payout mode moves miners at once -- leaving TIDES, or a
+			// fallen-back install whose retry of the pool is due.
+			gw := tidesGateway()
+			tides := gw != nil && currentPayoutMode() == stats.PayoutModeTides
+			modeSwitch := curJob != nil && curJob.Tides != tides && (!tides || gw.Due(false))
+
+			if isNewBlock || needPeriodicUpdate || modeSwitch {
+				var job *mining.Job
+				if tides {
+					var keep bool
+					if job, keep = tidesNextJob(gw, template, isNewBlock, curJob); keep {
+						lastJobTime = time.Now()
+						continue
+					}
+				} else {
+					job = jobManager.CreateJob(template)
+				}
 				if job == nil {
 					continue
 				}
@@ -1644,8 +1691,8 @@ func main() {
 				}
 				jobHistoryMu.Unlock()
 
-				// CleanJobs=true only for new blocks, false for periodic updates
-				cleanJobs := isNewBlock
+				// CleanJobs=true for new blocks and payout-mode switches, false for periodic updates
+				cleanJobs := isNewBlock || (curJob != nil && job.Tides != curJob.Tides)
 
 				stratumJob := &stratum.Job{
 					ID:               job.ID,
@@ -1813,7 +1860,10 @@ func (p *BlockFindingShareProcessor) ProcessShare(ctx context.Context, share *st
 			zap.String("ntime", share.NTime),
 			zap.String("nonce", share.Nonce))
 
+		tidesTakeShare(share, true)
 		go p.submitBlock(share)
+	} else {
+		tidesTakeShare(share, false)
 	}
 
 	p.logger.Debug("Share processed",
@@ -1956,12 +2006,42 @@ func (p *BlockFindingShareProcessor) submitBlock(share *stratum.Share) {
 		payoutAmount := effectiveReward
 		hashStr := hex.EncodeToString(blockHash)
 
+		if job.Tides {
+			mode = "TIDES"
+		}
 		p.logger.Info("🎉🎉🎉 BLOCK ACCEPTED BY NODE! 🎉🎉🎉",
 			zap.Int64("height", job.Height),
 			zap.String("miner", share.MinerID),
 			zap.String("mode", mode),
 			zap.Float64("reward", effectiveReward),
 			zap.Float64("payout", payoutAmount))
+
+		if job.Tides {
+			// The coinbase paid Forge Pool's TIDES split, not this install's address in full:
+			// every DATUM miner in the window was paid, this one included. It is the pool's
+			// block, recorded in the pool's TIDES ledger; recording it in the solo ledger here
+			// would claim the whole reward. Counted for this worker at the part it paid us.
+			yours := float64(job.TidesFinderSats) / 1e8
+			p.logger.Info("🌊🎉 TIDES BLOCK FOUND — its coinbase pays the Forge Pool TIDES split",
+				zap.Int64("height", job.Height),
+				zap.String("hash", hashStr),
+				zap.Float64("coinbase", effectiveReward),
+				zap.Float64("your_part", yours))
+			stats.NoteTidesBlock(share.MinerID, share.WorkerName, job.Height, hashStr, yours)
+			stats.GetManager().RecordBlockWithEffort(hashStr, getNetworkDifficulty())
+			go sendWebhookAlert("block_found", map[string]interface{}{
+				"height": job.Height, "hash": hashStr, "miner": share.MinerID, "worker": share.WorkerName,
+				"mode": "TIDES", "reward": effectiveReward, "payout": yours,
+			})
+			// The round still ended here, as below for a solo block.
+			stats.GetManager().ResetWorkerRoundStats(share.MinerID)
+			go func() {
+				if deleted, err := stats.CleanupOldShares(pplnsWindow); err == nil && deleted > 0 {
+					p.logger.Info("Cleaned up old shares", zap.Int64("deleted", deleted))
+				}
+			}()
+			return
+		}
 
 		// Record block for miner stats with effort tracking for luck calculation
 		stats.RecordMinerBlockWithWorkerSolo(share.MinerID, share.WorkerName, job.Height, hashStr, effectiveReward, share.IsSolo)
