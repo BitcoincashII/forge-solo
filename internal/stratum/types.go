@@ -142,6 +142,11 @@ type Client struct {
 	SupportsVersionRolling bool // Client supports version rolling (AsicBoost)
 	VersionRollingMask     string
 
+	// What this client has been told, kept in the order it was told: see sendJob.
+	sendMu       sync.Mutex
+	jobDiff      map[string]float64 // difficulty in force for this client when each job went out to it
+	jobDiffOrder []string           // the job IDs in jobDiff, oldest first
+
 	mu sync.RWMutex
 }
 

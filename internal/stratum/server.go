@@ -379,6 +379,63 @@ func (s *Server) effectiveJudgingDifficulty(assigned, previous float64, changedA
 	return assigned
 }
 
+// judgeShare returns the difficulty a share must meet and the most it may be credited, given the
+// difficulty the client had been sent when the share's job went out to it (jobDiff, 0 if not
+// known).
+//
+// A miner applies mining.set_difficulty to the jobs that come AFTER it. The stratum spec says so,
+// and the firmware does it: ESP-Miner (main/tasks/stratum_v1_client.c) and NerdQAxe
+// (main/tasks/create_jobs_task.cpp) stamp each job with the difficulty in force when its notify
+// arrived and filter that job's shares by the stamp. So a share on a job that went out under a
+// lower difficulty was found against that lower target, however late it arrives -- and it arrives
+// late whenever the pool's messages are held up. On Forge Pool (2026-09-30) a miner on a lossy link
+// (37-44% of the bytes sent to it retransmitted, the retransmit timer backed off to 39 s) worked
+// one job for up to 2 min 40 s while vardiff kept raising a difficulty it had not yet received.
+// The grace in effectiveJudgingDifficulty covers one raise, so its shares were refused by the
+// dozen -- the same happens to a home miner on weak Wi-Fi.
+//
+// Such a share is judged at its job's difficulty AND credited no more than that. A share found
+// against target T is worth T; crediting it min(assigned, proved) instead would count a miner
+// that keeps to old jobs at T*(1+ln(assigned/T)) per share. Both values can only fall below what
+// they were without jobDiff, so nothing accepted before is refused now, and no share is credited
+// more.
+func judgeShare(assigned, effective, jobDiff float64) (judge, creditCap float64) {
+	judge, creditCap = effective, assigned
+	if jobDiff > 0 && jobDiff < judge {
+		judge = jobDiff
+	}
+	if jobDiff > 0 && jobDiff < creditCap {
+		creditCap = jobDiff
+	}
+	return judge, creditCap
+}
+
+// maxJobDiffs bounds each client's record of the difficulty its jobs went out under. Jobs go out
+// every few seconds to a minute, so this reaches back far longer than a miner goes on working a
+// replaced job. A share on a job older than the record is judged by the client's current
+// difficulty, as it was before the record existed.
+const maxJobDiffs = 128
+
+// noteJobDifficulty records diff as the difficulty job id went out to this client under. A job
+// sent twice keeps the lower of the two. Caller holds c.mu.
+func (c *Client) noteJobDifficulty(id string, diff float64) {
+	if old, seen := c.jobDiff[id]; seen {
+		if diff < old {
+			c.jobDiff[id] = diff
+		}
+		return
+	}
+	if c.jobDiff == nil {
+		c.jobDiff = make(map[string]float64, maxJobDiffs)
+	}
+	c.jobDiff[id] = diff
+	c.jobDiffOrder = append(c.jobDiffOrder, id)
+	if len(c.jobDiffOrder) > maxJobDiffs {
+		delete(c.jobDiff, c.jobDiffOrder[0])
+		c.jobDiffOrder = c.jobDiffOrder[1:]
+	}
+}
+
 // shareFloorFor returns the difficulty a submitted share must actually meet.
 //
 // INVARIANT: the pool must never judge a share against a HARDER target than the one it
@@ -1893,12 +1950,16 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 		return &Response{ID: req.ID, Result: false, Error: ErrJobNotFound}
 	}
 	job := jobInterface.(*Job)
+	client.mu.RLock()
+	jobDiff := client.jobDiff[jobID]
+	client.mu.RUnlock()
 
 	// Validate the share - verify proof of work
 	// Accept any share that meets the share floor - don't waste miner's work
 	// Target difficulty is for rate limiting/vardiff, not rejection
 	effectiveDiff := s.effectiveJudgingDifficulty(difficulty, prevDifficulty, difficultyChangedAt, time.Now())
-	shareFloor := s.shareFloorFor(effectiveDiff)
+	judgeDiff, creditCap := judgeShare(difficulty, effectiveDiff, jobDiff)
+	shareFloor := s.shareFloorFor(judgeDiff)
 	isValid, actualDiff, blockHash, err := s.validateShare(job, extranonce1, extranonce2, ntime, nonce, versionBits, shareFloor)
 
 	// Now enforce the intake limit, with the one exception it must always make.
@@ -1928,6 +1989,7 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 			zap.String("miner", minerID),
 			zap.Float64("required", shareFloor),
 			zap.Float64("assigned", difficulty),
+			zap.Float64("job_diff", jobDiff),
 			zap.Float64("actual", actualDiff))
 		s.noteInvalidShare(client, "low_difficulty")
 
@@ -1981,10 +2043,18 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 
 	now := time.Now()
 
+	// A share on a job that went out under a lower difficulty than the current one says nothing
+	// about how fast this miner finds shares at the current one. Timing it made vardiff raise again
+	// and again while a miner that had not yet received the last raise went on working old jobs
+	// (see judgeShare). It is credited, not timed.
+	timed := !(jobDiff > 0 && jobDiff < difficulty)
+
 	client.mu.Lock()
-	client.ShareTimes = append(client.ShareTimes, now)
-	if len(client.ShareTimes) > 100 {
-		client.ShareTimes = client.ShareTimes[1:]
+	if timed {
+		client.ShareTimes = append(client.ShareTimes, now)
+		if len(client.ShareTimes) > 100 {
+			client.ShareTimes = client.ShareTimes[1:]
+		}
 	}
 	// Track accepted submission for rejection rate calculation
 	client.RecentSubmissions = append(client.RecentSubmissions, true)
@@ -2003,7 +2073,8 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	// PPLNS work weight and drain the shared reward pool. Taking min() still credits
 	// an honest miner its full assigned difficulty (its shares meet or exceed it),
 	// while a miner submitting cheap min_diff shares is credited only what it proved.
-	shareDifficulty := difficulty
+	// A share on a job sent under a lower difficulty is capped at that one (judgeShare).
+	shareDifficulty := creditCap
 	if actualDiff < shareDifficulty {
 		shareDifficulty = actualDiff
 	}
@@ -2011,7 +2082,7 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	client.mu.Unlock()
 
 	// Vardiff adjustment - respects retarget_time interval
-	if manualDiff == 0 && s.config.VardiffEnabled && shareCount >= VardiffMinShares {
+	if timed && manualDiff == 0 && s.config.VardiffEnabled && shareCount >= VardiffMinShares {
 		s.adjustVardiff(client)
 	}
 
@@ -2336,6 +2407,8 @@ func (s *Server) sendDifficulty(client *Client, diff float64) {
 	// DIFFERENT value leaves the pool and the miner permanently disagreeing about the
 	// target -- including swallowing the post-rejection back-off, whose whole purpose is to
 	// tell a struggling miner to work easier.
+	client.sendMu.Lock()
+	defer client.sendMu.Unlock()
 	client.mu.Lock()
 	if client.LastDifficultySent == diff && time.Since(client.LastDifficultySentAt) < 500*time.Millisecond {
 		client.mu.Unlock()
@@ -2353,6 +2426,18 @@ func (s *Server) sendDifficulty(client *Client, diff float64) {
 }
 
 func (s *Server) sendJob(client *Client, job *Job) {
+	// The difficulty this job goes out under is recorded and the job sent as one step, serialised
+	// with sendDifficulty, so the record names exactly the last set_difficulty the miner received
+	// before this notify -- the one it will judge this job's shares by (judgeShare). Recorded any
+	// other way, a raise sent from another goroutine between the two could land on the wire
+	// after the notify while the record claimed it came before, and the job's honest shares would
+	// be judged too hard.
+	client.sendMu.Lock()
+	defer client.sendMu.Unlock()
+	client.mu.Lock()
+	client.noteJobDifficulty(job.ID, client.LastDifficultySent)
+	client.mu.Unlock()
+
 	notif := &Notification{
 		Method: MethodNotify,
 		Params: []interface{}{
