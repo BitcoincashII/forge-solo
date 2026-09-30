@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"math/big"
 	"net"
@@ -850,6 +851,14 @@ func (s *Server) Start() error {
 	return nil
 }
 
+// ListenAddr is the address the server is listening on (useful with port 0).
+func (s *Server) ListenAddr() string {
+	if s.listener == nil {
+		return ""
+	}
+	return s.listener.Addr().String()
+}
+
 func (s *Server) Stop() {
 	s.logger.Info("Initiating graceful shutdown...")
 
@@ -1001,7 +1010,14 @@ func (s *Server) handleClient(conn net.Conn) {
 		s.logger.Debug("Client connected", zap.String("ip", client.IP))
 	}
 
-	scanner := bufio.NewScanner(conn)
+	// A stratum client speaks first, and every stratum message is a JSON object. Anything else is
+	// closed at once instead of being held until the read deadline: a TLS handshake (MiningRigRentals'
+	// pool check tries TLS before plain stratum and then runs out of time), an HTTP request, a scanner.
+	first, ok := s.readFirstByte(client, conn)
+	if !ok {
+		return
+	}
+	scanner := bufio.NewScanner(io.MultiReader(bytes.NewReader(first), conn))
 	scanner.Buffer(make([]byte, 64*1024), 64*1024)
 
 	// CRITICAL FIX: Read deadline to prevent Slowloris-style DoS attacks
@@ -1024,7 +1040,16 @@ func (s *Server) handleClient(conn net.Conn) {
 		if len(line) == 0 {
 			continue
 		}
-		s.handleMessage(client, line)
+		if !s.handleMessage(client, line) {
+			// A line that is not JSON: tolerated from a subscribed miner (logged, as ever), but a
+			// connection that has not subscribed has shown it is not a stratum client.
+			client.mu.RLock()
+			subscribed := client.Subscribed
+			client.mu.RUnlock()
+			if !subscribed {
+				break
+			}
+		}
 	}
 
 	// Log disconnection with details
@@ -1066,14 +1091,57 @@ func (s *Server) handleClient(conn net.Conn) {
 	}
 }
 
-func (s *Server) handleMessage(client *Client, data []byte) {
+// firstMessageTimeout is how long a new connection may stay silent: a stratum client sends its
+// first message (mining.subscribe or mining.configure) as soon as it connects.
+var firstMessageTimeout = 60 * time.Second
+
+// readFirstByte reads a new connection up to its first non-blank byte and reports whether that
+// byte opens a JSON object, as every stratum message does. It returns what it read, for the line
+// reader to start from.
+func (s *Server) readFirstByte(client *Client, conn net.Conn) ([]byte, bool) {
+	conn.SetReadDeadline(time.Now().Add(firstMessageTimeout))
+	got := make([]byte, 0, 16)
+	one := make([]byte, 1)
+	for {
+		if _, err := conn.Read(one); err != nil {
+			// The container healthcheck opens a socket and closes it; that is not a miner.
+			if !isLoopback(client.IP) {
+				s.logger.Warn("External client disconnected without subscribing",
+					zap.String("ip", client.IP),
+					zap.Duration("connected_duration", time.Since(client.ConnectedAt)),
+					zap.Error(err))
+			}
+			return nil, false
+		}
+		c := one[0]
+		got = append(got, c)
+		if c == '{' {
+			return got, true
+		}
+		if (c == ' ' || c == '\t' || c == '\r' || c == '\n') && len(got) < 64 {
+			continue
+		}
+		looks := "not stratum"
+		if c == 0x16 {
+			looks = "a TLS handshake"
+		}
+		s.logger.Warn("Closed a connection that did not start with a stratum message",
+			zap.String("ip", client.IP),
+			zap.String("first_byte", fmt.Sprintf("0x%02x", c)),
+			zap.String("looks_like", looks))
+		return nil, false
+	}
+}
+
+// handleMessage handles one line from a client and reports whether it was JSON at all.
+func (s *Server) handleMessage(client *Client, data []byte) bool {
 	var req Request
 	if err := json.Unmarshal(data, &req); err != nil {
 		s.logger.Warn("Failed to parse stratum message",
 			zap.String("ip", client.IP),
 			zap.Error(err),
 			zap.ByteString("data", data))
-		return
+		return false
 	}
 
 	// Log all messages from NiceHash clients for debugging
@@ -1196,6 +1264,7 @@ func (s *Server) handleMessage(client *Client, data []byte) {
 			zap.String("ip", client.IP))
 		s.sendResponse(client, &Response{ID: req.ID, Result: true})
 	}
+	return true
 }
 
 func (s *Server) handleSubscribe(client *Client, req *Request) *Response {
@@ -1303,12 +1372,14 @@ func detectRentalService(userAgent string) RentalService {
 	}
 
 	// Mining Rig Rentals detection patterns
-	// Examples: "MiningRigRentals/1.0", "mrr/", "miningrigrentals"
+	// Examples: "MiningRigRentals/1.0", "mrr/", "miningrigrentals", and MRR's rig proxy, which
+	// connects rented rigs as "xminer-1.2.6" (also "-rc3", "-rc5") with worker "mrr".
 	mrrPatterns := []string{
 		"miningrigrentals",
 		"mrr/",
 		"mrr-",
 		"rigrentals",
+		"xminer",
 	}
 	for _, pattern := range mrrPatterns {
 		if strings.Contains(ua, pattern) {
@@ -1655,7 +1726,7 @@ func detectRentalFromWorker(worker string) RentalService {
 	}
 
 	// MRR often uses worker names like "mrr_xxxx" or "rig_xxxx"
-	if strings.HasPrefix(w, "mrr_") || strings.HasPrefix(w, "mrr-") ||
+	if w == "mrr" || strings.HasPrefix(w, "mrr_") || strings.HasPrefix(w, "mrr-") ||
 		strings.HasPrefix(w, "mrr.") || strings.Contains(w, "miningrigrentals") {
 		return RentalMRR
 	}
