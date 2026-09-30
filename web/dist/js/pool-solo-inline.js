@@ -43,6 +43,11 @@
         // minutes underneath a banner correctly saying no miner was connected -- two true
         // statements that read as a contradiction on one screen.
         let lastMiningStatus = null;
+        // Marketplace orders mining right now (/api/v1/stats rentals.total). While one is, the
+        // rental port plainly works, and a warning that rented hashrate "never arrives" reads as
+        // a fault on an order that is paying off.
+        let rentalsLive = 0;
+        let lastConn = null, lastRentalPort = 0;
         let lastMiningStatusAt = 0;
         let minerBlocksCount = 0;
         let currentHashrateTH = 0;   // latest 5m hashrate (TH/s), for the stable avg-effort estimate
@@ -356,6 +361,11 @@
         async function fetchStats() {
             try {
                 const data = await apiFetch('/api/v1/stats');
+                const rentals = Number(data.rentals && data.rentals.total) || 0;
+                if (rentals !== rentalsLive) {
+                    rentalsLive = rentals;
+                    if (lastConn) { renderRentalNote(lastConn, lastRentalPort); renderReachBanner(lastConn, lastRentalPort); }
+                }
                 // Keep the last good network difficulty. A transient node-RPC hiccup makes the API
                 // return 0 for a poll; never clobber a good tile with 0 (that's the "tiles flash 0" bug).
                 if (data.networkDifficulty > 0) networkDiff = data.networkDifficulty;
@@ -530,15 +540,15 @@
             const group = document.getElementById('connRentalGroup');
             const rentalPort = (lastMiningStatus && Number(lastMiningStatus.rental_port))
                 || Number(c.stratumPort) || 3333;
+            lastConn = c; lastRentalPort = rentalPort;
             if (group) {
                 group.hidden = false;
                 const value = document.getElementById('connRental');
-                const note = document.getElementById('connRentalNote');
                 if (c.publicIp) {
                     value.textContent = 'stratum+tcp://' + c.publicIp + ':' + rentalPort;
-                    note.textContent = 'Forward port ' + rentalPort + ' to this machine in your router, '
-                        + 'or the order will pay for hashrate that never reaches you.';
+                    renderRentalNote(c, rentalPort);
                 } else {
+                    const note = document.getElementById('connRentalNote');
                     value.textContent = 'Public address not known yet';
                     note.textContent = 'Your node learns its public address from the peers that reach it. '
                         + 'While this is blank, port ' + (c.bch2 && c.bch2.port ? c.bch2.port : 8339)
@@ -555,6 +565,15 @@
             }
 
             renderReachBanner(c, rentalPort);
+        }
+
+        function renderRentalNote(c, rentalPort) {
+            const note = document.getElementById('connRentalNote');
+            if (!note || !c.publicIp) return;
+            note.textContent = rentalsLive > 0
+                ? 'Rented hashrate is reaching you on port ' + rentalPort + ' right now.'
+                : 'Forward port ' + rentalPort + ' to this machine in your router, '
+                    + 'or the order will pay for hashrate that never reaches you.';
         }
 
         // Only speak up when there is something to do about it.
@@ -578,9 +597,12 @@
             parts.push('It is connected out to peers, but none have connected in. Accepting '
                 + 'inbound peers is what keeps the network reachable instead of leaning on a '
                 + 'handful of well-connected machines \u2014 it is not required to mine.');
-            parts.push('<b>Mining from outside your network</b>, including rented hashrate, needs '
-                + 'TCP ' + rentalPort + ' forwarded as well \u2014 otherwise an order pays for '
-                + 'hashrate that never arrives.');
+            parts.push(rentalsLive > 0
+                ? 'Rented hashrate <b>is</b> reaching you on port ' + rentalPort + ' right now, so '
+                    + 'that path works; the forward above is for peers only.'
+                : '<b>Mining from outside your network</b>, including rented hashrate, needs '
+                    + 'TCP ' + rentalPort + ' forwarded as well \u2014 otherwise an order pays for '
+                    + 'hashrate that never arrives.');
             // This clears on proof -- an inbound peer -- not on the router rule being saved,
             // and the first peer can take a while to find you. Without saying so, the obvious
             // reading of a warning that survives the fix is that the fix did not work.
