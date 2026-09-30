@@ -51,9 +51,15 @@ func writeConfigs() {
 	// the router was forwarded. Earlier releases wrote prune=2000, but Core prunes nothing
 	// below height 200,000, so no datadir was ever actually pruned and each one starts
 	// unpruned as it is.
+	//
+	// The binds are explicit because the node's mainnet Tor onion target port is 8339 too (its
+	// chainparamsbase; upstream uses the P2P port + 1): with no bind= it takes 127.0.0.1:8339 for
+	// that onion listener first, its own 0.0.0.0:8339 then fails ("Unable to bind ... probably
+	// already running"), and no IPv4 peer could ever connect in. The onion listener moves to 8340.
 	writeAlways(dpath("bch2", "bch2.conf"),
 		"server=1\nlisten=1\nrpcbind=127.0.0.1\nrpcallowip=127.0.0.1\nrpcport="+bch2RPC+
 			"\nrpcuser=forge\nrpcpassword="+sec.BCH2Pass+"\nport="+bch2P2P+"\n"+
+			"bind=0.0.0.0:"+bch2P2P+"\nbind=[::]:"+bch2P2P+"\nbind=127.0.0.1:8340=onion\n"+
 			"upnp=0\nnatpmp=0\ndiscover=1\ndbcache=300\npar=1\nmaxconnections=40\n"+
 			"zmqpubhashblock=tcp://127.0.0.1:"+bch2ZMQ+"\nzmqpubrawblock=tcp://127.0.0.1:"+bch2ZMQ+"\ndnsseed=1\n")
 	writeAlways(dpath("elevenseventyfive", "1175.conf"),

@@ -22,6 +22,13 @@ func TestGeneratedBCH2ConfIsUnpruned(t *testing.T) {
 	if !strings.Contains(string(bch2), "\nlisten=1\n") || !strings.Contains(string(bch2), "\nport="+bch2P2P+"\n") {
 		t.Fatalf("bch2.conf lost its listen/port lines:\n%s", bch2)
 	}
+	// Without explicit binds the node's onion listener (127.0.0.1:8339) takes the P2P port first
+	// and 0.0.0.0:8339 fails: no IPv4 inbound peer, however the router is forwarded.
+	for _, line := range []string{"bind=0.0.0.0:" + bch2P2P, "bind=[::]:" + bch2P2P, "bind=127.0.0.1:8340=onion"} {
+		if !strings.Contains(string(bch2), "\n"+line+"\n") {
+			t.Fatalf("bch2.conf lacks %q:\n%s", line, bch2)
+		}
+	}
 	aux, err := os.ReadFile(dpath("elevenseventyfive", "1175.conf"))
 	if err != nil {
 		t.Fatal(err)
