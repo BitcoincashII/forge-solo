@@ -219,6 +219,15 @@
             } catch (e) {
                 if (!minerAddress) msg = (configReachable ? '⚙️ ' : '⚠️ ') + noAddressNotice(false);
             }
+            // TIDES mode: say which way blocks are paying right now. The fallback line is the
+            // one that matters -- a miner who chose TIDES must not find out from the payouts
+            // that the pool has been unreachable and their blocks have been solo meanwhile.
+            const tl = tidesStatusLine(lastMiningStatus);
+            if (tl.text) {
+                msg = (msg ? msg + '<div style="height:8px"></div>' : '') + tl.text;
+                if (tl.warn) tone = 'gold';
+            }
+            updateModeBadge(lastMiningStatus);
             if (!msg) { el.style.display = 'none'; return; }
             var c = (tone === 'green')
                 ? ['rgba(10,193,142,0.12)', '#0ac18e', 'rgba(10,193,142,0.35)']
@@ -226,6 +235,122 @@
             el.style.background = c[0]; el.style.color = c[1]; el.style.borderColor = c[2];
             el.innerHTML = msg;
             el.style.display = 'block';
+        }
+
+        // ---- TIDES mode ---------------------------------------------------------------
+        //
+        // In TIDES mode this install is a DATUM gateway to Forge Pool: its miners' work goes
+        // into the pool's TIDES window, and every block any TIDES miner finds pays everyone in
+        // the window from its coinbase. The stratum reports what it is doing (mining-status);
+        // the window, payouts and recent pool blocks come from Forge Pool through the api.
+        function tidesInEffect(ms) {
+            // Only a status fetched recently counts: while the node resyncs the banner stops
+            // asking, and a stale copy would keep claiming whatever TIDES was doing then.
+            return !!(ms && ms.payout_mode === 'tides' && ms === lastMiningStatus
+                && (Date.now() - lastMiningStatusAt) < MINING_STATUS_MAX_AGE_MS);
+        }
+
+        function tidesStatusLine(ms) {
+            if (!tidesInEffect(ms) || !ms.tides) return { text: '', warn: false };
+            const t = ms.tides;
+            if (t.state === 'fallback') {
+                return { warn: true, text: '⚠️ <b>TIDES paused — mining SOLO.</b> Forge Pool is not taking this install\'s work'
+                    + (t.reason ? ' (' + escapeHtml(t.reason) + ')' : '') + '. Blocks found meanwhile pay your own address in full; '
+                    + 'TIDES resumes by itself when the pool answers again.' };
+            }
+            if (t.state === 'starting') {
+                return { warn: false, text: '🌊 <b>TIDES starting</b> — registering work with Forge Pool…' };
+            }
+            return { warn: false, text: '🌊 <b>TIDES</b> — your miners work for the Forge Pool TIDES window; every TIDES block pays everyone in it.' };
+        }
+
+        function updateModeBadge(ms) {
+            const b = document.getElementById('modeBadge');
+            if (!b) return;
+            if (!tidesInEffect(ms)) { b.textContent = 'SOLO'; b.className = 'mode-badge'; return; }
+            const fallback = ms.tides && ms.tides.state === 'fallback';
+            b.textContent = fallback ? 'TIDES · SOLO' : 'TIDES';
+            b.className = 'mode-badge ' + (fallback ? 'fallback' : 'tides');
+            b.title = fallback ? 'TIDES chosen, but Forge Pool is unavailable: mining solo meanwhile' : 'Mining for the Forge Pool TIDES window';
+        }
+
+        function fmtBCH2(sats) {
+            const n = Number(sats) || 0;
+            return (n / 1e8).toLocaleString(undefined, { maximumFractionDigits: 8 }) + ' BCH2';
+        }
+
+        function shortAddr(a) {
+            a = String(a || '');
+            const bare = a.indexOf(':') >= 0 ? a.split(':')[1] : a;
+            return bare.length > 14 ? bare.slice(0, 7) + '…' + bare.slice(-5) : bare;
+        }
+
+        function sameAddr(a, b) {
+            const norm = x => String(x || '').toLowerCase().replace(/^bitcoincashii:/, '');
+            return !!a && !!b && norm(a) === norm(b);
+        }
+
+        async function fetchTides() {
+            const card = document.getElementById('tidesCard');
+            if (!card) return;
+            const ms = lastMiningStatus;
+            if (!tidesInEffect(ms)) { card.hidden = true; return; }
+            card.hidden = false;
+
+            const t = ms.tides || {};
+            const st = document.getElementById('tidesState');
+            st.textContent = t.state === 'active' ? 'active' : (t.state === 'fallback' ? 'paused — mining solo' : 'starting');
+            st.className = 'tides-state ' + (t.state || 'starting');
+            document.getElementById('tidesNote').textContent = t.state === 'fallback'
+                ? 'Forge Pool is not taking this install\'s work right now' + (t.reason ? ' (' + t.reason + ')' : '')
+                  + ', so it is mining solo until the pool answers again. The figures below are the pool\'s.'
+                : 'This install builds its own blocks from its own node; their coinbase pays the TIDES split, and your shares are credited to your payout address.';
+            if (t.pool) document.getElementById('tidesLink').href = String(t.pool).replace(/\/+$/, '') + '/tides';
+            const gw = [];
+            if (t.share_difficulty) gw.push('pool share difficulty ' + formatDiff(t.share_difficulty));
+            gw.push('shares sent ' + Number(t.shares_forwarded || 0) + ' · credited ' + Number(t.shares_accepted || 0)
+                + ' · refused ' + Number(t.shares_rejected || 0));
+            if (t.last_reject) gw.push('last refusal: ' + t.last_reject);
+            if (t.gateway) gw.push('gateway ' + String(t.gateway).slice(0, 12) + '…');
+            document.getElementById('tidesGw').textContent = gw.join('  ·  ');
+
+            let pool = null, mine = null;
+            try { pool = await apiFetch('/api/v1/tides'); } catch (e) {}
+            try { mine = await apiFetch('/api/v1/tides/me'); } catch (e) {}
+
+            const w = mine && mine.window;
+            document.getElementById('tidesShare').textContent = w ? (Number(w.share) * 100).toFixed(2) + '%' : (mine ? '0%' : '--');
+            document.getElementById('tidesNext').textContent = w ? fmtBCH2(w.next_payout_sats) : (mine ? fmtBCH2(0) : '--');
+            document.getElementById('tidesPending').textContent = mine ? fmtBCH2(mine.pending_sats) : '--';
+            document.getElementById('tidesPaid').textContent = mine ? fmtBCH2(mine.paid_sats) : '--';
+            document.getElementById('tidesMiners').textContent = pool && pool.miners ? String(pool.miners.length) : '--';
+            const snap = pool && pool.snapshot;
+            document.getElementById('tidesFill').textContent = snap && snap.window_work > 0
+                ? Math.min(100, Number(snap.filled_work) / Number(snap.window_work) * 100).toFixed(1) + '%' : '--';
+
+            const tbody = document.getElementById('tidesBlocks');
+            const blocks = (pool && pool.blocks) || [];
+            if (!pool) {
+                tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">Forge Pool did not answer — the pool\'s figures will appear when it does.</div></td></tr>';
+                return;
+            }
+            if (!blocks.length) {
+                tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">No TIDES blocks yet</div></td></tr>';
+                return;
+            }
+            const paidAt = {};
+            ((mine && mine.payouts) || []).forEach(p => { paidAt[p.height + ':' + p.hash] = p.sats; });
+            tbody.innerHTML = blocks.slice(0, 15).map(b => {
+                const you = sameAddr(b.finder, minerAddress);
+                const got = paidAt[b.height + ':' + b.hash];
+                const when = b.found_at ? new Date(b.found_at).toLocaleString() : '';
+                return '<tr><td>' + Number(b.height) + '</td>'
+                    + '<td>' + (you ? '<span class="tides-you">You</span>' : escapeHtml(shortAddr(b.finder))) + '</td>'
+                    + '<td>' + escapeHtml(fmtBCH2(b.value_sats)) + '</td>'
+                    + '<td>' + (got != null ? escapeHtml(fmtBCH2(got)) : '—') + '</td>'
+                    + '<td>' + escapeHtml(b.status) + '</td>'
+                    + '<td>' + escapeHtml(when) + '</td></tr>';
+            }).join('');
         }
 
         async function fetchStats() {
@@ -699,7 +824,9 @@
             fetchConnectivity();
             fetchBlocks();
             fetchPayouts();
+            fetchTides();
             setInterval(updateStatusBanner, 5000);
+            setInterval(fetchTides, 15000);
             setInterval(fetchConnectivity, 30000);
             setInterval(fetchStats, 30000);
             setInterval(fetchMinerData, 5000);
