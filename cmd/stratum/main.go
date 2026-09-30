@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/BitcoincashII/forge-solo/internal/blockbuild"
 	"github.com/BitcoincashII/forge-solo/internal/mergemining"
 	"github.com/BitcoincashII/forge-solo/internal/mining"
 	"github.com/BitcoincashII/forge-solo/internal/stats"
@@ -2154,116 +2155,14 @@ func (p *BlockFindingShareProcessor) ProcessBlock(ctx context.Context, block *st
 	return nil
 }
 
+// buildCoinbase and buildBlock live in internal/blockbuild, shared with the gateway program so a
+// found block is assembled the same way wherever it is found.
 func buildCoinbase(cb1, extranonce1, extranonce2, cb2 string) ([]byte, error) {
-	cb1Bytes, err := hex.DecodeString(cb1)
-	if err != nil {
-		return nil, fmt.Errorf("invalid cb1 hex: %w", err)
-	}
-	en1Bytes, err := hex.DecodeString(extranonce1)
-	if err != nil {
-		return nil, fmt.Errorf("invalid extranonce1 hex: %w", err)
-	}
-	en2Bytes, err := hex.DecodeString(extranonce2)
-	if err != nil {
-		return nil, fmt.Errorf("invalid extranonce2 hex: %w", err)
-	}
-	cb2Bytes, err := hex.DecodeString(cb2)
-	if err != nil {
-		return nil, fmt.Errorf("invalid cb2 hex: %w", err)
-	}
-
-	var coinbase bytes.Buffer
-	coinbase.Write(cb1Bytes)
-	coinbase.Write(en1Bytes)
-	coinbase.Write(en2Bytes)
-	coinbase.Write(cb2Bytes)
-
-	return coinbase.Bytes(), nil
+	return blockbuild.Coinbase(cb1, extranonce1, extranonce2, cb2)
 }
 
 func buildBlock(job *mining.Job, coinbase []byte, ntime, nonce, versionBits string) (string, error) {
-	var block bytes.Buffer
-
-	// Version (4 bytes) - stratum sends as hex string like "20000000"
-	// For block, we need little-endian, so reverse the bytes.
-	//
-	// stratum.RollVersion is the SAME function the share validator used to decide this
-	// share won. Calling it rather than repeating the merge is what guarantees the
-	// submitted header is the header that was validated -- including for malformed
-	// versionBits, which this path used to treat as a fatal error and so threw away the
-	// block for a share the validator had happily accepted.
-	versionBytes := stratum.RollVersion(job.Version, versionBits)
-	if len(versionBytes) == 0 {
-		return "", fmt.Errorf("invalid version hex: %q", job.Version)
-	}
-	reverseBytes(versionBytes)
-	block.Write(versionBytes)
-
-	// Previous block hash (32 bytes)
-	// Stratum prevhash was reversed, reverse it back for block
-	prevHashBytes, err := hex.DecodeString(job.OriginalPrevHash)
-	if err != nil {
-		return "", fmt.Errorf("invalid prevHash hex: %w", err)
-	}
-	reverseBytes(prevHashBytes)
-	block.Write(prevHashBytes)
-
-	// Merkle root calculation
-	// Start with coinbase hash, then combine with merkle branches
-	merkleRoot := doubleSHA256(coinbase)
-	for i, branchHex := range job.MerkleBranches {
-		branch, err := hex.DecodeString(branchHex)
-		if err != nil {
-			return "", fmt.Errorf("invalid merkle branch[%d] hex: %w", i, err)
-		}
-		combined := make([]byte, 64)
-		copy(combined[:32], merkleRoot)
-		copy(combined[32:], branch)
-		merkleRoot = doubleSHA256(combined)
-	}
-	block.Write(merkleRoot)
-
-	// Time (4 bytes) - ntime from miner is big-endian hex, need little-endian
-	ntimeBytes, err := hex.DecodeString(ntime)
-	if err != nil {
-		return "", fmt.Errorf("invalid ntime hex: %w", err)
-	}
-	reverseBytes(ntimeBytes)
-	block.Write(ntimeBytes)
-
-	// Bits (4 bytes) - big-endian hex, need little-endian
-	bitsBytes, err := hex.DecodeString(job.NBits)
-	if err != nil {
-		return "", fmt.Errorf("invalid nbits hex: %w", err)
-	}
-	reverseBytes(bitsBytes)
-	block.Write(bitsBytes)
-
-	// Nonce (4 bytes) - from miner, big-endian hex, need little-endian
-	nonceBytes, err := hex.DecodeString(nonce)
-	if err != nil {
-		return "", fmt.Errorf("invalid nonce hex: %w", err)
-	}
-	reverseBytes(nonceBytes)
-	block.Write(nonceBytes)
-
-	// TX count (varint) - 1 coinbase + N transactions
-	txCount := 1 + len(job.Transactions)
-	writeVarInt(&block, uint64(txCount))
-
-	// Coinbase transaction
-	block.Write(coinbase)
-
-	// Additional transactions from block template
-	for i, txHex := range job.Transactions {
-		txBytes, err := hex.DecodeString(txHex)
-		if err != nil {
-			return "", fmt.Errorf("invalid transaction[%d] hex: %w", i, err)
-		}
-		block.Write(txBytes)
-	}
-
-	return hex.EncodeToString(block.Bytes()), nil
+	return blockbuild.Block(job, coinbase, ntime, nonce, versionBits)
 }
 
 // writeVarInt writes a variable-length integer to the buffer

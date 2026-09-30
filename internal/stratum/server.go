@@ -55,6 +55,7 @@ type Server struct {
 	clients        sync.Map
 	clientCount    int64
 	currentJob     atomic.Value
+	acceptGate     atomic.Value // func() bool; see SetAcceptGate
 	jobHistory     sync.Map
 	extraNonce     uint32
 	extraNonceMu   sync.Mutex
@@ -958,7 +959,7 @@ func (s *Server) acceptLoop() {
 		if err != nil {
 			continue
 		}
-		if atomic.LoadInt64(&s.clientCount) >= int64(s.config.MaxConnections) {
+		if atomic.LoadInt64(&s.clientCount) >= int64(s.config.MaxConnections) || !s.acceptOpen() {
 			conn.Close()
 			continue
 		}
