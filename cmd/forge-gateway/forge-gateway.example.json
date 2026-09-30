@@ -1,0 +1,31 @@
+{
+  "node": {
+    "rpc_url": "http://127.0.0.1:8342",
+    "rpc_user": "CHANGE-ME",
+    "rpc_password": "CHANGE-ME",
+    "rpc_cookie_file": ""
+  },
+  "mining": {
+    "payout_address": "bitcoincashii:YOUR-BCH2-ADDRESS",
+    "coinbase_tag": "Forge Gateway",
+    "pool_only": false
+  },
+  "stratum": {
+    "listen": "0.0.0.0:3333",
+    "min_difficulty": 1024,
+    "max_difficulty": 1000000000000,
+    "target_share_seconds": 5,
+    "retarget_seconds": 10,
+    "max_connections": 256,
+    "max_connections_per_ip": 128
+  },
+  "pool": {
+    "url": "https://pool.bch2.org",
+    "key_file": "forge-gateway.key"
+  },
+  "status": {
+    "listen": "127.0.0.1:7152"
+  },
+  "log_file": "",
+  "log_level": "info"
+}

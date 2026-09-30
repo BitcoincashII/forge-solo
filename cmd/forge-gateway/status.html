@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Forge Gateway</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--fg:#1c2230;--muted:#5d6678;--line:#e3e6ec;--accent:#0f766e;--warn:#b45309;--bad:#b91c1c;--good:#15803d}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1318;--card:#171c23;--fg:#e6e9ef;--muted:#9aa3b2;--line:#262d37;--accent:#2dd4bf;--warn:#f59e0b;--bad:#f87171;--good:#4ade80}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:16px}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin-bottom:16px}
+h1{font-size:22px;margin:0}
+.ver{color:var(--muted);font-size:13px}
+.badge{padding:4px 10px;border-radius:999px;font-weight:600;font-size:13px;border:1px solid currentColor}
+.badge.tides{color:var(--good)}.badge.solo{color:var(--warn)}.badge.waiting,.badge.starting{color:var(--muted)}
+.why{color:var(--muted);font-size:14px;flex-basis:100%}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+.card h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:0 0 8px}
+dl{margin:0}
+.row{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:2px 12px;padding:3px 0}
+dt{color:var(--muted)}
+dd{margin:0 0 0 auto;text-align:right;font-variant-numeric:tabular-nums;min-width:0;max-width:100%}
+dd .mono{overflow-wrap:anywhere}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+section{margin-top:16px}
+section h2{font-size:15px;margin:0 0 8px}
+.tablewrap{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;min-width:480px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+th{color:var(--muted);font-weight:600;font-size:13px}
+tr:last-child td{border-bottom:0}
+td.num,th.num{text-align:right}
+.err{color:var(--bad)}
+.empty{color:var(--muted);padding:12px}
+footer{margin-top:24px;color:var(--muted);font-size:12px}
+footer a{color:inherit}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>Forge Gateway</h1>
+  <span class="badge starting" id="mode">starting</span>
+  <span class="ver" id="ver"></span>
+  <div class="why" id="why">Connecting…</div>
+</header>
+<div class="grid">
+  <div class="card"><h2>Forge Pool</h2><dl id="pool"></dl></div>
+  <div class="card"><h2>Your node</h2><dl id="node"></dl></div>
+  <div class="card"><h2>Mining</h2><dl id="mining"></dl></div>
+  <div class="card"><h2>Stratum</h2><dl id="stratum"></dl></div>
+</div>
+<section><h2>Workers</h2><div class="tablewrap" id="workers"></div></section>
+<section><h2>Blocks found</h2><div class="tablewrap" id="blocks"></div></section>
+<footer>A DATUM-style gateway: your node builds the block, and every block pays Forge Pool's TIDES split straight from its coinbase, with no pool fee.
+DATUM and TIDES were designed by <a href="https://ocean.xyz" rel="noopener">OCEAN</a>; this project is not affiliated with OCEAN. See LICENSE.</footer>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function rate(h){const u=["H/s","kH/s","MH/s","GH/s","TH/s","PH/s","EH/s"];let i=0;while(h>=1000&&i<u.length-1){h/=1000;i++}return (i?h.toFixed(2):h.toFixed(0))+" "+u[i]}
+function num(n){return n==null?"—":Number(n).toLocaleString()}
+function diff(n){if(!n)return "—";if(n>=1e6)return (n/1e6).toFixed(2)+" M";if(n>=1e3)return (n/1e3).toFixed(1)+" k";return n>=1?n.toFixed(0):n.toPrecision(3)}
+function ago(s){if(s==null||s<0)return "—";s=Math.round(s);if(s<60)return s+" s ago";if(s<3600)return Math.round(s/60)+" min ago";return (s/3600).toFixed(1)+" h ago"}
+function since(t){return ago((Date.now()-new Date(t).getTime())/1000)}
+function bch2(sats){return sats==null?"—":(sats/1e8).toFixed(8)+" BCH2"}
+function dl(el, rows){el.innerHTML = rows.map(([k,v])=>`<div class="row"><dt>${esc(k)}</dt><dd>${v}</dd></div>`).join("")}
+function short(a){a=String(a||"");return a.length>30?a.slice(0,20)+"…"+a.slice(-6):a}
+const WHY = {
+  tides: "Mining into Forge Pool's TIDES window: every block found through its DATUM gateways pays your share straight from its coinbase.",
+  solo: "Forge Pool cannot be reached, so your miners are mining solo on your node meanwhile: a block found now pays your payout address in full. The gateway tries the pool again every minute.",
+  waiting: "Forge Pool cannot be reached and pool_only is set, so miners are turned away until it is back (they fail over to their backup pool). The gateway tries again every minute.",
+  starting: "Waiting for the first block template from your node and the first job the pool registers."
+};
+async function tick(){
+  let s;
+  try { const r = await fetch("/api/status",{cache:"no-store"}); s = await r.json(); }
+  catch(e){ $("why").textContent = "The gateway is not answering."; return; }
+  $("mode").className = "badge "+s.mode;
+  $("mode").textContent = {tides:"TIDES",solo:"Solo fallback",waiting:"Waiting for pool",starting:"Starting"}[s.mode]||s.mode;
+  $("ver").textContent = "v"+s.version+" · up "+ago(s.uptime_seconds).replace(" ago","");
+  $("why").textContent = WHY[s.mode]||"";
+  const p = s.pool;
+  dl($("pool"), [
+    ["State", esc(p.state)+(p.reason?` <span class="err">— ${esc(p.reason)}</span>`:"")],
+    ["Pool", `<span class="mono">${esc(p.url)}</span>`],
+    ["Gateway ID", `<span class="mono">${esc(p.gateway)}</span>`],
+    ["Share difficulty", diff(p.share_difficulty)],
+    ["Last job registered", ago(p.last_registered_age_sec)],
+    ["Shares sent / accepted", num(p.shares_forwarded)+" / "+num(p.shares_accepted)],
+    ["Refused / dropped", num(p.shares_rejected)+" / "+num(p.shares_dropped)],
+    ["Miners in the window", num(p.window_miners)],
+  ]);
+  const n = s.node;
+  dl($("node"), [
+    ["RPC", `<span class="mono">${esc(n.rpc_url)}</span>`],
+    ["Template height", n.template_height?num(n.template_height):"—"],
+    ["Template age", n.template_age_seconds<0?"—":n.template_age_seconds.toFixed(1)+" s"],
+    ["Network difficulty", diff(n.network_difficulty)],
+  ].concat(n.template_error?[["Error",`<span class="err">${esc(n.template_error)}</span>`]]:[]));
+  const j = s.job;
+  dl($("mining"), [
+    ["Payout address", `<span class="mono">${esc(s.payout_address)}</span>`],
+    ["Working on", j?("block "+num(j.height)+(j.tides?" (TIDES)":" (solo)")):"—"],
+    ["Block reward", j?bch2(j.coinbase_sats):"—"],
+    ["Paid to you if found now", j?(j.tides?bch2(j.finder_sats):bch2(j.coinbase_sats)):"—"],
+    ["Pool only", s.pool_only?"yes":"no"],
+  ]);
+  const st = s.stratum;
+  dl($("stratum"), [
+    ["Listening", `<span class="mono">${esc(st.listen)}</span>`],
+    ["Connections", num(st.connections)],
+    ["Authorized miners", num(st.authorized)],
+    ["Shares accepted", num(st.shares_accepted)],
+    ["Shares refused", num(st.shares_rejected)],
+  ]);
+  const w = s.workers||[];
+  $("workers").innerHTML = w.length ? `<table><thead><tr><th>Worker</th><th>Credited to</th><th class="num">Hashrate (10 min)</th><th class="num">Shares</th><th>Last share</th></tr></thead><tbody>`+
+    w.map(x=>`<tr><td>${esc(x.worker)}</td><td class="mono" title="${esc(x.miner)}">${esc(short(x.miner))}</td><td class="num">${rate(x.hashrate)}</td><td class="num">${num(x.shares)}</td><td>${since(x.last_share)}</td></tr>`).join("")+"</tbody></table>"
+    : `<div class="empty">No shares yet. Point your miners at this machine's port ${esc((st.listen||"").split(":").pop())} with your BCH2 address (or any worker name) as the username.</div>`;
+  const b = (s.blocks||[]).slice().reverse();
+  $("blocks").innerHTML = b.length ? `<table><thead><tr><th class="num">Height</th><th>Hash</th><th>Paid</th><th>Result</th><th>Worker</th><th>When</th></tr></thead><tbody>`+
+    b.map(x=>`<tr><td class="num">${num(x.height)}</td><td class="mono">${esc(x.hash.slice(0,16))}…</td><td>${x.tides?"TIDES split":"solo"}</td><td class="${x.result==="accepted"?"":"err"}">${esc(x.result)}</td><td>${esc(x.worker)}</td><td>${since(x.at)}</td></tr>`).join("")+"</tbody></table>"
+    : `<div class="empty">None yet.</div>`;
+}
+tick(); setInterval(tick, 5000);
+</script>
+</body>
+</html>

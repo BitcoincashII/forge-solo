@@ -73,7 +73,10 @@ type Config struct {
 	RetryEvery time.Duration
 	// FlushEvery is how often queued shares go to the pool; a block goes at once.
 	FlushEvery time.Duration
-	Now        func() time.Time
+	// PoolOnly says miners are turned away rather than mining solo while the pool cannot be
+	// reached (the gateway program's pool_only); it only changes what Fallback says.
+	PoolOnly bool
+	Now      func() time.Time
 }
 
 func (c *Config) defaults() {
@@ -371,8 +374,13 @@ func (g *Gateway) Fallback(err error) {
 		why = err.Error()
 	}
 	if g.state != StateFallback {
-		g.logger.Warn("⚠️  TIDES: Forge Pool unavailable — mining SOLO until it is back (blocks found meanwhile pay your own address in full)",
-			zap.String("reason", why))
+		if g.cfg.PoolOnly {
+			g.logger.Warn("⚠️  TIDES: Forge Pool unavailable — miners are turned away until it is back (pool_only)",
+				zap.String("reason", why))
+		} else {
+			g.logger.Warn("⚠️  TIDES: Forge Pool unavailable — mining SOLO until it is back (blocks found meanwhile pay your own address in full)",
+				zap.String("reason", why))
+		}
 		g.since = g.cfg.Now()
 	}
 	g.state, g.reason = StateFallback, why

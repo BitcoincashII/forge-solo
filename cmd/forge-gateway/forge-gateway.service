@@ -1,0 +1,36 @@
+# systemd unit for Forge Gateway. Install with the steps in README.md:
+#   sudo useradd --system --home /var/lib/forge-gateway --shell /usr/sbin/nologin forge-gateway
+#   sudo install -m 755 forge-gateway /usr/local/bin/
+#   sudo install -d -m 750 -o root -g forge-gateway /etc/forge-gateway
+#   sudo install -m 640 -o root -g forge-gateway forge-gateway.json /etc/forge-gateway/
+#   sudo install -m 644 forge-gateway.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now forge-gateway
+# The config should set "key_file": "/var/lib/forge-gateway/forge-gateway.key" -- the gateway's
+# identity at the pool, created on first start and kept in the state directory below.
+[Unit]
+Description=Forge Gateway: mine into Forge Pool's TIDES window from your own BCH2 node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=forge-gateway
+Group=forge-gateway
+ExecStart=/usr/local/bin/forge-gateway -config /etc/forge-gateway/forge-gateway.json
+Restart=always
+RestartSec=10
+StateDirectory=forge-gateway
+StateDirectoryMode=0700
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
