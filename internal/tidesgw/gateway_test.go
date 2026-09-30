@@ -490,3 +490,58 @@ func TestKeepIsBounded(t *testing.T) {
 		t.Fatal("TIDES-GW-KEEP-SOLO: a job the pool never registered was treated as keepable")
 	}
 }
+
+// Forge Solo pays one address, and says so on its Settings page: every share it sends is
+// credited to its payout address as it stands when the share is queued, whatever address the
+// miner logged in with. A rental that logged in with its own address was credited to that
+// address instead, while the dashboard followed the payout address and showed it nothing.
+// Without CreditTo a share keeps its miner's address: the gateway program serves several people.
+func TestCreditToNamesTheAddressCredited(t *testing.T) {
+	p := newFakePool(t)
+	_, key, _ := ed25519.GenerateKey(nil)
+	payout := other
+	g := New(Config{PoolURL: p.srv.URL, Key: key, RegisterFor: 2 * time.Second, RetryEvery: time.Minute,
+		CreditTo: func() string { return payout }})
+	g.Track("7", &Registration{PoolJobID: "pj", ShareDiff: 1, PrevHash: prevHash}, "20000000")
+
+	g.Forward("7", share("7", 5, "")) // the miner logged in as me
+	payout = addr(3)                  // the dashboard changes the payout address
+	sh := share("7", 5, "")
+	sh.Nonce = "00000002"
+	g.Forward("7", sh)
+	payout = "" // no address to credit: the share keeps its miner's
+	sh = share("7", 5, "")
+	sh.Nonce = "00000003"
+	g.Forward("7", sh)
+	if n := g.Flush(); n != 3 {
+		t.Fatalf("TIDES-GW-CREDIT-FLUSH: flushed %d shares", n)
+	}
+	for i, want := range []string{other, addr(3), me} {
+		if got := p.shares[i].Miner; got != want {
+			t.Fatalf("TIDES-GW-CREDIT: share %d credited to %s, want %s", i, got, want)
+		}
+	}
+
+	payout = other
+	blk := share("7", 1e12, "")
+	blk.Nonce = "00000004"
+	p.onShares = func(b []wire.Share) wire.ShareBatchResponse {
+		return wire.ShareBatchResponse{Results: []wire.ShareResult{{Accepted: true, Block: true}}}
+	}
+	if err := g.SendBlock("7", blk); err != nil {
+		t.Fatalf("TIDES-GW-CREDIT-BLOCK: %v", err)
+	}
+	if got := p.shares[3].Miner; got != other {
+		t.Fatalf("TIDES-GW-CREDIT-BLOCK: the block share was credited to %s, want %s", got, other)
+	}
+
+	// The gateway program: no CreditTo, each share to its own miner.
+	p2 := newFakePool(t)
+	g2 := newGateway(t, p2)
+	g2.Track("7", &Registration{PoolJobID: "pj", ShareDiff: 1, PrevHash: prevHash}, "20000000")
+	g2.Forward("7", share("7", 5, ""))
+	g2.Flush()
+	if got := p2.shares[0].Miner; got != me {
+		t.Fatalf("TIDES-GW-CREDIT-OWN: credited to %s, want the miner's own %s", got, me)
+	}
+}

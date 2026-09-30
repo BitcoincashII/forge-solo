@@ -52,7 +52,7 @@ type jobView struct {
 	ID         string `json:"id"`
 	Height     int64  `json:"height"`
 	Tides      bool   `json:"tides"`
-	FinderSats int64  `json:"finder_sats,omitempty"` // what a TIDES block pays the payout address itself
+	FinderSats int64  `json:"finder_sats"` // what a TIDES block pays the payout address itself: 0 when it has no work in the window
 	Coinbase   int64  `json:"coinbase_sats"`
 }
 

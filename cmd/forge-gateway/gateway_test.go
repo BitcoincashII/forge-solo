@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"math/big"
 	"net"
 	"os"
@@ -260,5 +261,18 @@ func TestExampleConfigIsTheDefaults(t *testing.T) {
 	if ex.Node != def.Node || ex.Mining != def.Mining || ex.Stratum != def.Stratum || ex.Pool != def.Pool ||
 		ex.Status != def.Status || ex.LogFile != def.LogFile || ex.LogLevel != def.LogLevel {
 		t.Errorf("EXAMPLE-DEFAULT: the example is not the defaults\nexample: %+v\ndefault: %+v", *ex, *def)
+	}
+}
+
+// A TIDES job whose window holds none of the payout address's work pays it nothing if a block is
+// found now. The status page must say so; with omitempty the field vanished at 0 and the page
+// showed "—", as if it did not know.
+func TestStatusJobReportsZeroFinderSats(t *testing.T) {
+	b, err := json.Marshal(jobView{ID: "1", Height: 83456, Tides: true, Coinbase: 5000000000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"finder_sats":0`) {
+		t.Fatalf("GW-STATUS-FINDER: %s has no finder_sats", b)
 	}
 }

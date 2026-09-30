@@ -228,6 +228,10 @@ type ServerConfig struct {
 	ServerName        string // Name for logging (e.g., "main", "braiins")
 	IsRentalPort      bool   // this listener exists for marketplace hashpower; see GetRentalStats
 	SoloOnly          bool   // Force every miner to SOLO regardless of settings (solo-only deployments)
+	// CreditPayoutAddress (with SoloOnly): every miner is credited to the solo payout address,
+	// the one address the install pays; a username that is another address is only a label.
+	// Off, such a username is credited to itself (Forge Gateway serves several people).
+	CreditPayoutAddress bool
 }
 
 type ServerStats struct {
@@ -1503,6 +1507,16 @@ func (s *Server) SoloPayoutAddress() string {
 // it reaches a database column.
 const maxWorkerLabel = 64
 
+// shortAddress is a CashAddr as a worker label: the start and end of its payload, e.g.
+// "qruu6e2t…crwj94", distinct enough to tell two rigs apart.
+func shortAddress(addr string) string {
+	p := addr[strings.LastIndex(addr, ":")+1:]
+	if len(p) <= 16 {
+		return p
+	}
+	return p[:8] + "…" + p[len(p)-6:]
+}
+
 func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 	var params []string
 	// Debug log
@@ -1537,6 +1551,28 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 				zap.String("worker", workerName),
 				zap.String("credited_to", payout),
 				zap.String("ip", client.IP))
+		}
+	}
+
+	// A username that is some other address is a label too where the install pays one
+	// address (CreditPayoutAddress). Keying its stats to that address hid the miner from the
+	// dashboard, which shows the payout address -- a rental that logged in with its own address
+	// sat at 0 H/s there for its whole length -- and recorded its blocks under an address the
+	// coinbase never paid.
+	if minerID != "" && s.config.SoloOnly && s.config.CreditPayoutAddress {
+		if payout := normalizeMinerAddress(s.SoloPayoutAddress()); payout != "" && minerID != payout {
+			if workerName == "" || workerName == "default" {
+				workerName = shortAddress(minerID)
+			}
+			if len(workerName) > maxWorkerLabel {
+				workerName = workerName[:maxWorkerLabel]
+			}
+			s.logger.Info("Solo miner authorized with another address as its label",
+				zap.String("username_address", minerID),
+				zap.String("worker", workerName),
+				zap.String("credited_to", payout),
+				zap.String("ip", client.IP))
+			minerID = payout
 		}
 	}
 

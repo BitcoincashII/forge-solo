@@ -76,6 +76,11 @@ type Config struct {
 	// PoolOnly says miners are turned away rather than mining solo while the pool cannot be
 	// reached (the gateway program's pool_only); it only changes what Fallback says.
 	PoolOnly bool
+	// CreditTo, when set, is the address every share is credited to at the pool, read as each
+	// share is queued (Forge Solo: the one payout address, which the dashboard can change while
+	// miners stay connected). Nil, or "", credits each share to the address its miner logged
+	// in with (the gateway program, which may serve several people).
+	CreditTo func() string
 	Now      func() time.Time
 }
 
@@ -460,7 +465,13 @@ func (g *Gateway) wireShare(t *tracked, sh *stratum.Share) (wire.Share, bool) {
 	if len(en) != 2*wire.ExtranonceSize {
 		return wire.Share{}, false
 	}
-	ws := wire.Share{JobID: t.reg.PoolJobID, Miner: sh.MinerID, Worker: sh.WorkerName, Extranonce: en,
+	miner := sh.MinerID
+	if g.cfg.CreditTo != nil {
+		if a := g.cfg.CreditTo(); a != "" {
+			miner = a
+		}
+	}
+	ws := wire.Share{JobID: t.reg.PoolJobID, Miner: miner, Worker: sh.WorkerName, Extranonce: en,
 		NTime: strings.ToLower(sh.NTime), Nonce: strings.ToLower(sh.Nonce)}
 	// The miner may send only some of the version bits, or fewer than eight hex digits; the pool
 	// wants the whole rolled version, which gives the same header there.

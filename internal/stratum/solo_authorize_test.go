@@ -6,6 +6,7 @@ import (
 	"net"
 	"testing"
 
+	"github.com/BitcoincashII/forge-solo/internal/cashaddr"
 	"go.uber.org/zap"
 )
 
@@ -192,5 +193,57 @@ func TestSoloAuthorizeBoundsTheWorkerLabel(t *testing.T) {
 	c.mu.RUnlock()
 	if len(worker) > maxWorkerLabel {
 		t.Errorf("WorkerName is %d chars, want at most %d", len(worker), maxWorkerLabel)
+	}
+}
+
+// Forge Solo pays one address. A rental that logs in with an address of its own -- MRR's worker
+// field holds "bitcoincashii:q….mrr" -- is a label there like any other: keyed to its own
+// address, it sat at 0 H/s on the dashboard for its whole length, and a block it found would
+// have been recorded under an address the coinbase never paid.
+func TestSoloCreditsAnotherAddressToThePayoutAddress(t *testing.T) {
+	var h [20]byte
+	h[0] = 7
+	other := cashaddr.Encode(cashaddr.MainnetPrefix, cashaddr.P2PKH, h)
+	s := newSoloServer(t, testPayout)
+	s.config.CreditPayoutAddress = true
+
+	for _, tc := range []struct{ username, worker string }{
+		{other + ".mrr", "mrr"},
+		{other, shortAddress(other)}, // a bare address: its short form tells two rigs apart
+		{testPayout + ".rig1", "rig1"},
+	} {
+		c, resp := authorize(t, s, tc.username)
+		if resp.Result != true {
+			t.Errorf("authorize(%q) refused: %+v", tc.username, resp.Error)
+			continue
+		}
+		c.mu.RLock()
+		minerID, worker := c.MinerID, c.WorkerName
+		c.mu.RUnlock()
+		if minerID != testPayout {
+			t.Errorf("authorize(%q) credited to %q, want the payout address %q", tc.username, minerID, testPayout)
+		}
+		if worker != tc.worker {
+			t.Errorf("authorize(%q): worker %q, want %q", tc.username, worker, tc.worker)
+		}
+	}
+}
+
+// Forge Gateway can serve several people: without CreditPayoutAddress an address username is
+// credited to itself.
+func TestAddressUsernameCreditedToItselfWithoutCreditPayoutAddress(t *testing.T) {
+	var h [20]byte
+	h[0] = 7
+	other := cashaddr.Encode(cashaddr.MainnetPrefix, cashaddr.P2PKH, h)
+	s := newSoloServer(t, testPayout)
+	c, resp := authorize(t, s, other+".rig1")
+	if resp.Result != true {
+		t.Fatalf("address username refused: %+v", resp.Error)
+	}
+	c.mu.RLock()
+	minerID, worker := c.MinerID, c.WorkerName
+	c.mu.RUnlock()
+	if minerID != other || worker != "rig1" {
+		t.Errorf("credited to %q worker %q, want %q worker rig1", minerID, worker, other)
 	}
 }

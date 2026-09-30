@@ -1324,6 +1324,8 @@ func main() {
 		ExtraNonce2Size:   config.GetInt("stratum.extranonce2_size"),
 		ServerName:        "main",
 		SoloOnly:          config.GetString("pool.payout_scheme") == "solo",
+		// This app pays one address, whatever a miner's username says (Settings tells the user so).
+		CreditPayoutAddress: config.GetString("pool.payout_scheme") == "solo",
 	}
 
 	// Build RPC URL from config
@@ -1478,6 +1480,7 @@ func main() {
 			ServerName:          "rental",
 			IsRentalPort:        true,
 			SoloOnly:            config.GetString("pool.payout_scheme") == "solo",
+			CreditPayoutAddress: config.GetString("pool.payout_scheme") == "solo",
 		}
 		if got := rentalConfig.ExtraNonce1Size + rentalConfig.ExtraNonce2Size; got != mining.CoinbaseExtranonceReserve {
 			logger.Fatal("stratum_rental extranonce1_size + extranonce2_size must equal the coinbase reserve, else assembled blocks are malformed and rejected",

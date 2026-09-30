@@ -65,7 +65,7 @@ func ensureTidesGateway(cfg *viper.Viper) error {
 	if err != nil {
 		return err
 	}
-	g := tidesgw.New(tidesgw.Config{PoolURL: tidesPoolURL(cfg), Key: key, Logger: logger})
+	g := tidesgw.New(tidesgw.Config{PoolURL: tidesPoolURL(cfg), Key: key, Logger: logger, CreditTo: tidesPayoutAddress})
 	if !tidesGWPtr.CompareAndSwap(nil, g) {
 		return nil
 	}
@@ -74,8 +74,9 @@ func ensureTidesGateway(cfg *viper.Viper) error {
 	return nil
 }
 
-// tidesPayoutAddress is the address TIDES credits: the one the coinbase would pay in solo, which
-// is also the minerID every share carries.
+// tidesPayoutAddress is the address TIDES credits: the one the coinbase would pay in solo. The
+// gateway credits every share this install sends to it (Config.CreditTo), whatever address a
+// miner logged in with.
 func tidesPayoutAddress() string {
 	if stratumServer != nil {
 		if a := stratumServer.SoloPayoutAddress(); a != "" {
