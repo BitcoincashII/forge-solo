@@ -65,6 +65,7 @@ type Server struct {
 	ipConnsMu      sync.Mutex
 	ipConns        map[string]int // remote host -> live connections, for the per-IP cap
 	shutdownCh     chan struct{}
+	stopOnce       sync.Once // Stop may be called again; closing shutdownCh twice panics
 	stats          *ServerStats
 	// Duplicate share detection
 	submittedShares sync.Map // map[shareKey]time.Time
@@ -922,6 +923,10 @@ func (s *Server) ListenAddr() string {
 }
 
 func (s *Server) Stop() {
+	s.stopOnce.Do(s.stop)
+}
+
+func (s *Server) stop() {
 	s.logger.Info("Initiating graceful shutdown...")
 
 	// Signal all goroutines to stop

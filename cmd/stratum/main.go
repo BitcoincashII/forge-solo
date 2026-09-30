@@ -1751,12 +1751,17 @@ func main() {
 	logger.Info("Shutting down...")
 	close(shutdownCh)        // Signal all goroutines to stop
 	close(workerTimeoutStop) // Stop worker timeout checker
+	// Each server once: a second Stop closed its channel again and every shutdown ended in
+	// "panic: close of closed channel" (Stop is idempotent now as well).
 	if stratumRentalServer != nil {
 		stratumRentalServer.Stop()
 	}
 	stratumServer.Stop()
-	if stratumRentalServer != nil {
-		stratumRentalServer.Stop()
+	// The gateway stops flushing when shutdownCh closes: send what the miners found last.
+	if g := tidesGateway(); g != nil {
+		if n := g.Flush(); n > 0 {
+			logger.Info("TIDES: sent the pool the shares still queued", zap.Int("shares", n))
+		}
 	}
 }
 

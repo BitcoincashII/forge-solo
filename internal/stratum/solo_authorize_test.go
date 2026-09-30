@@ -262,3 +262,16 @@ func TestMaxDifficultyCoversEveryAuthorizedMiner(t *testing.T) {
 		t.Fatalf("MaxDifficulty = %g, want 750000 (the rental's next difficulty; the unauthorized probe does not count)", got)
 	}
 }
+
+// Forge Solo stopped its rental server twice on the way out, and Stop closed its channel each
+// time: every shutdown ended in "panic: close of closed channel". Stop is idempotent.
+func TestStopTwiceDoesNotPanic(t *testing.T) {
+	s := newSoloServer(t, testPayout)
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("second Stop panicked: %v", r)
+		}
+	}()
+	s.Stop()
+	s.Stop()
+}
