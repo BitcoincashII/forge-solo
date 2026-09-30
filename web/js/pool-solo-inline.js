@@ -441,37 +441,32 @@
             const el = document.getElementById('reachBanner');
             if (!el) return;
 
-            const closed = [];
-            if (c.bch2 && c.bch2.known && !c.bch2.reachable) closed.push({ name: 'BCH2', port: c.bch2.port });
-            if (c.aux1175 && c.aux1175.known && !c.aux1175.reachable) closed.push({ name: '1175', port: c.aux1175.port });
+            // BCH2 only. 1175 is merge-mined and is not our chain: its P2P port has no
+            // bearing on whether you can mine, or on BCH2 network health, so asking for a
+            // second router rule over it is noise the reader learns to skip.
+            const n = c.bch2;
+            if (!n || !n.known || n.reachable) { el.style.display = 'none'; return; }
 
-            if (!closed.length) { el.style.display = 'none'; return; }
-
-            const ports = closed.map(p => 'TCP ' + p.port + ' (' + p.name + ')').join(' and ');
-            // Say only what is true. One chain being unreachable while the other is fine is a
-            // different sentence from both being shut, and a banner that overstates the
-            // problem is one the reader learns to skip.
-            const total = [c.bch2, c.aux1175].filter(n => n && n.known).length;
-            const allClosed = closed.length === total;
             const parts = [];
-            parts.push(allClosed
-                ? '<b>Nothing on the internet can reach your node.</b> Forward ' + ports
-                    + ' to this machine in your router.'
-                : '<b>Your ' + closed.map(p => p.name).join(' and ') + ' node is not reachable '
-                    + 'from the internet.</b> Forward ' + ports + ' to this machine in your router.');
-            parts.push((allClosed
-                    ? 'Your node is connected out to peers, but none have connected in. '
-                    : 'It is connected out to peers, but none have connected in on that port. ')
-                + 'Accepting inbound peers is what keeps the network reachable instead of leaning '
-                + 'on a handful of well-connected machines \u2014 it is not required to mine.');
+            parts.push('<b>Your node is not reachable from the internet.</b> Forward TCP '
+                + n.port + ' to this machine in your router.');
+            parts.push('It is connected out to peers, but none have connected in. Accepting '
+                + 'inbound peers is what keeps the network reachable instead of leaning on a '
+                + 'handful of well-connected machines \u2014 it is not required to mine.');
             parts.push('<b>Mining from outside your network</b>, including rented hashrate, needs '
                 + 'TCP ' + rentalPort + ' forwarded as well \u2014 otherwise an order pays for '
                 + 'hashrate that never arrives.');
             // This clears on proof -- an inbound peer -- not on the router rule being saved,
             // and the first peer can take a while to find you. Without saying so, the obvious
             // reading of a warning that survives the fix is that the fix did not work.
+            //
+            // "A while" is hours, not minutes: other nodes learn the address by gossip, the DNS
+            // seeders list it only after it answers their probes, and both come back slowly to
+            // an address that failed while the port was closed (a seeder sets one that failed
+            // for long enough aside for a day or more).
             parts.push('<i>Already forwarded? This clears itself once the first peer connects '
-                + 'in, which can take a few minutes. Nothing to reload.</i>');
+                + 'in. Other nodes have to find yours first, which can take a few hours. '
+                + 'Nothing to reload.</i>');
 
             el.innerHTML = '\uD83D\uDD0C ' + parts.join('<br><br>');
             el.style.display = 'block';

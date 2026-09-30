@@ -44,9 +44,16 @@ func writeConfigs() {
 	// it is not this installer's to make silently. The Umbrel build never did it either, and
 	// Bitcoin Core ships both off. Outbound peering is unaffected; inbound needs a forward.
 	// dbcache/par/maxconnections keep it light on a laptop. writeAlways so upgrades apply.
+	//
+	// The BCH2 node is not pruned. Pruning saved nothing -- the whole chain is about 90 MB --
+	// but it made the node announce NODE_NETWORK_LIMITED instead of NODE_NETWORK, and the DNS
+	// seeders list only NODE_NETWORK nodes, so it waited on chance for inbound peers however
+	// the router was forwarded. Earlier releases wrote prune=2000, but Core prunes nothing
+	// below height 200,000, so no datadir was ever actually pruned and each one starts
+	// unpruned as it is.
 	writeAlways(dpath("bch2", "bch2.conf"),
 		"server=1\nlisten=1\nrpcbind=127.0.0.1\nrpcallowip=127.0.0.1\nrpcport="+bch2RPC+
-			"\nrpcuser=forge\nrpcpassword="+sec.BCH2Pass+"\nport="+bch2P2P+"\nprune=2000\n"+
+			"\nrpcuser=forge\nrpcpassword="+sec.BCH2Pass+"\nport="+bch2P2P+"\n"+
 			"upnp=0\nnatpmp=0\ndiscover=1\ndbcache=300\npar=1\nmaxconnections=40\n"+
 			"zmqpubhashblock=tcp://127.0.0.1:"+bch2ZMQ+"\nzmqpubrawblock=tcp://127.0.0.1:"+bch2ZMQ+"\ndnsseed=1\n")
 	writeAlways(dpath("elevenseventyfive", "1175.conf"),
