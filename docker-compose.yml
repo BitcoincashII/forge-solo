@@ -7,6 +7,12 @@ version: "3.7"
 # service name, and app_proxy fronts the web dashboard (standard Umbrel pattern).
 
 services:
+  # The services reach each other by container name (bch2-apps-forge-solo_<service>_1, the name
+  # umbreld gives every container), never by bare service name. Every Umbrel app joins the one
+  # shared umbrel_main_network, where a bare name such as "postgres", "api" or "node" is also the
+  # alias of other apps' services (BTCPay Server and Immich have a postgres, mempool and LocalAI an
+  # api): a lookup then returns both apps' containers, and in review 22 of 40 fresh database
+  # connections went to the other app's postgres ("role forge does not exist").
   app_proxy:
     environment:
       APP_HOST: bch2-apps-forge-solo_web_1
@@ -122,20 +128,20 @@ services:
       node:
         condition: service_started
     environment:
-      - DB_HOST=postgres
+      - DB_HOST=bch2-apps-forge-solo_postgres_1
       - DB_PORT=5432
       - DB_USER=forge
       - DB_PASSWORD=${APP_DB_PASSWORD}
       - DB_NAME=forgesolo
       - DB_SSLMODE=disable
-      - RPC_URL=http://node:8342
+      - RPC_URL=http://bch2-apps-forge-solo_node_1:8342
       - RPC_USER=forge
       - RPC_PASSWORD=${APP_NODE_RPC_PASSWORD}
-      - STRATUM_INTERNAL_URL=http://stratum:3337
+      - STRATUM_INTERNAL_URL=http://bch2-apps-forge-solo_stratum_1:3337
       - INTERNAL_API_TOKEN=${APP_INTERNAL_API_TOKEN}
       # Read-only: the dashboard reports whether the 1175 P2P forward is working, which needs
       # that node's own peer list. Same private network, never published to the host.
-      - AUX1175_URL=http://node1175:25359
+      - AUX1175_URL=http://bch2-apps-forge-solo_node1175_1:25359
       - AUX1175_USER=forge1175
       - AUX1175_PASSWORD=${APP_1175_RPC_PASSWORD}
       - POOL_ADDRESS=${POOL_ADDRESS:-}
@@ -190,9 +196,9 @@ services:
       # because both call sites are gated on !SoloOnly and this app is payout_scheme
       # "solo", but a wrong value that only a future change would expose is worth not
       # leaving in place.
-      - API_HOST=api
+      - API_HOST=bch2-apps-forge-solo_api_1
       - API_PORT=8080
-      - DB_HOST=postgres
+      - DB_HOST=bch2-apps-forge-solo_postgres_1
       - DB_PORT=5432
       - DB_USER=forge
       - DB_PASSWORD=${APP_DB_PASSWORD}
@@ -200,10 +206,10 @@ services:
       - DB_SSLMODE=disable
       - RPC_USER=forge
       - RPC_PASSWORD=${APP_NODE_RPC_PASSWORD}
-      - NODE_HOST=node
+      - NODE_HOST=bch2-apps-forge-solo_node_1
       - NODE_PORT=8342
-      - ZMQ_ENDPOINT=tcp://node:28332
-      - AUX1175_HOST=node1175
+      - ZMQ_ENDPOINT=tcp://bch2-apps-forge-solo_node_1:28332
+      - AUX1175_HOST=bch2-apps-forge-solo_node1175_1
       - AUX1175_PORT=25359
       - AUX1175_USER=forge1175
       - AUX1175_PASSWORD=${APP_1175_RPC_PASSWORD}
@@ -223,4 +229,4 @@ services:
     depends_on:
       - api
     environment:
-      - API_URL=http://api:8080
+      - API_UPSTREAM=bch2-apps-forge-solo_api_1:8080
