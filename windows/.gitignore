@@ -1,0 +1,15 @@
+# Compiled / built artifacts
+bin/
+ForgeSolo-Setup-*.exe
+launcher/rsrc.syso
+
+# Large external dependencies (fetched separately — see README)
+pgsql/
+
+# Test / scratch
+uploads/
+upload_receiver.py
+*.zip
+*.log
+*.out
+bch2-icon.png

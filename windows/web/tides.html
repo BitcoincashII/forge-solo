@@ -1,0 +1,108 @@
+<!DOCTYPE html><html lang="en"><head>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TIDES Guide - Forge Solo</title>
+<link rel="stylesheet" href="/css/common.css">
+<style>
+ .wrap{max-width:760px;margin:0 auto;padding:32px 20px}
+ h1{font-size:26px;margin:0 0 6px}
+ .lead{color:var(--text-secondary);font-size:14px;line-height:1.6;margin:0 0 20px}
+ .card{background:var(--bg-card);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:20px}
+ .card h2{font-size:16px;margin:0 0 12px}
+ .card p,.card li{color:var(--text-secondary);font-size:14px;line-height:1.65}
+ .card p{margin:0 0 10px}
+ .card ul{margin:0 0 10px;padding-left:20px}
+ .card li{margin-bottom:6px}
+ .card strong{color:var(--text)}
+ .card a{color:var(--bch-green,#0ac18e)}
+ code{background:#000;padding:2px 8px;border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:13px}
+ dl.fields{margin:0}
+ dl.fields dt{color:var(--text);font-size:14px;font-weight:600;margin-top:10px}
+ dl.fields dd{margin:2px 0 0;color:var(--text-secondary);font-size:14px;line-height:1.6}
+ /* No 1175 node here (Forge Solo for Linux): everything about 1175 merge-mining is hidden. */
+ .no-mm .mm{display:none!important}
+</style></head><body>
+<header><div class="container header-content">
+  <a href="/solo" class="logo" aria-label="Home"><div><div class="logo-text">Forge Solo</div><div class="logo-sub">BCH2<span class="mm"> + 1175 merge-mining</span></div></div></a>
+  <nav role="navigation"><a href="/solo">Dashboard</a><a href="/settings">Settings</a><a href="/tides" class="active" aria-current="page">TIDES</a></nav>
+</div></header>
+<main class="wrap">
+  <h1>TIDES mode</h1>
+  <p class="lead">How mining into Forge Pool's TIDES window works in Forge Solo: who is credited, how your shares count, how you are paid, and what the dashboard shows. Forge Pool's own guide, for every gateway, is at <a href="https://pool.bch2.org/tides-guide" target="_blank" rel="noopener noreferrer" style="color:var(--bch-green,#0ac18e)">pool.bch2.org/tides-guide</a>.</p>
+
+  <div class="card">
+    <h2>What TIDES mode does</h2>
+    <p>Your install still builds every block from its own node. In TIDES mode it mines for Forge Pool's TIDES window instead of for itself alone: every block found through a Forge Pool gateway (every Forge Solo in TIDES mode, and every Forge Gateway) pays the miners with work in the window, in proportion to that work, straight from the block's own coinbase.</p>
+    <ul>
+      <li>You are paid from every such block found while you have work in the window, not only from blocks you find.</li>
+      <li>There is no pool wallet and no pool fee: your payout is an output of the block, paid to your address.</li>
+      <li>In Solo mode, by contrast, a block you find pays your address its whole reward, and you are paid nothing otherwise.</li>
+      <li class="mm">TIDES mode is BCH2 only: 1175 (ESF) merge-mining is off while it is on.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>Turning it on or off</h2>
+    <p>In <a href="/settings">Settings</a>, under <strong>How blocks pay</strong>, choose <strong>TIDES pool</strong> (or <strong>Solo</strong> to switch back) and press <strong>Save settings</strong>. It takes effect within half a minute (the next job your install builds); nothing needs restarting.</p>
+  </div>
+
+  <div class="card">
+    <h2>Who is credited</h2>
+    <p>Every share your miners find is credited to your <strong>payout address</strong>, the one in Settings, whatever username each miner uses. A rental whose worker name holds another address is credited to your payout address too. If you change the payout address, shares found from then on are credited to the new one.</p>
+  </div>
+
+  <div class="card">
+    <h2>How your shares count</h2>
+    <p>Your install sends Forge Pool every share that meets the job's share difficulty, and the pool credits each one <strong>at that difficulty</strong>: not at the higher difficulty the share's hash may happen to reach.</p>
+    <p>A job's share difficulty is the higher of two numbers, up to 2<sup>40</sup>:</p>
+    <ul>
+      <li><strong>The pool's difficulty for your install.</strong> It starts at 16,384 and doubles or halves (at most once every 2 minutes) to keep you near 12 credited shares a minute, but never below 1,024.</li>
+      <li><strong>The difficulty your install commits to.</strong> While miners are connected, each job's coinbase carries a share difficulty: the power of two at or above twice the difficulty of your busiest miner. For example, a rental at difficulty 500,000 gets jobs committed to 1,048,576 (2<sup>20</sup>). About half its shares reach that, and each one is credited 1,048,576, so its work is counted in full on average.</li>
+    </ul>
+    <p>Your install registers a fresh job every 15 seconds and at every new block, so a miner that connects, or whose difficulty rises, is covered within 15 seconds.</p>
+  </div>
+
+  <div class="card">
+    <h2>How you are paid</h2>
+    <ul>
+      <li>The window is the most recent <strong>8 × the network difficulty</strong> of credited share work, from every gateway together. It slides: new shares push the oldest out, and a block found does not reset it.</li>
+      <li>Each gateway block pays each address its share of the window times the block's value (its subsidy plus the fees of its transactions), plus any amount carried for it. The paid amounts are scaled slightly so the coinbase pays out exactly the block's value.</li>
+      <li>An amount under <strong>546 satoshis</strong> gets no output. It is carried forward and paid in a later block in which you have work in the window and are due at least 546 satoshis.</li>
+      <li>Your payout is an output of the block's coinbase to your payout address. Like every mined coin, it can be spent 100 blocks after the block that paid it.</li>
+      <li>While the window is empty, a block pays the install that found it in full.</li>
+      <li>Blocks found by miners on Forge Pool's own stratum ports do not pay the TIDES window.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>When Forge Pool cannot be reached</h2>
+    <p>If Forge Pool cannot be reached, or will not take a job, your install mines <strong>solo</strong> in the meantime: a block found then pays your payout address in full. It tries the pool again every minute and returns to TIDES as soon as the pool takes a job. A job the pool already took stays in use for up to 45 seconds while it cannot be refreshed. The TIDES card on the dashboard shows <strong>paused — mining solo</strong> while this lasts.</p>
+  </div>
+
+  <div class="card">
+    <h2>The TIDES card on your dashboard</h2>
+    <dl class="fields">
+      <dt>Your share of the window</dt><dd>Your payout address's credited work divided by all the work in the window.</dd>
+      <dt>The next pool block pays you</dt><dd>What a gateway block found right now would pay your payout address.</dd>
+      <dt>Pending (not yet confirmed)</dt><dd>Your payouts in gateway blocks that do not have 2 confirmations yet.</dd>
+      <dt>Paid to you (confirmed)</dt><dd>Your payouts in confirmed gateway blocks, among the last 500. Each can be spent 100 blocks after the block that paid it.</dd>
+      <dt>Miners in the window</dt><dd>How many addresses have work in the window.</dd>
+      <dt>Window filled</dt><dd>The work in the window so far, as a part of its full size.</dd>
+      <dt>Pool share difficulty · shares sent · credited · refused</dt><dd>This install's current share difficulty at the pool, and its share counts since the mining service last started.</dd>
+      <dt>TIDES blocks</dt><dd>The pool's recent gateway blocks: who found each (<strong>You</strong> when your payout address did), its coinbase value, what it paid you, and whether it is pending, confirmed (2 confirmations) or orphaned (not on the chain 6 blocks later).</dd>
+    </dl>
+    <p style="margin-top:12px">The full window, with every miner's share, is on <a href="https://pool.bch2.org/tides" target="_blank" rel="noopener noreferrer">pool.bch2.org/tides</a>.</p>
+  </div>
+
+  <div class="card">
+    <h2>Credits</h2>
+    <p>DATUM and TIDES were designed and built by OCEAN (<a href="https://ocean.xyz/docs/datum" target="_blank" rel="noopener noreferrer">ocean.xyz/docs/datum</a>, <a href="https://ocean.xyz/docs/tides" target="_blank" rel="noopener noreferrer">ocean.xyz/docs/tides</a>). Forge Solo's TIDES mode follows their design as an independent implementation for Bitcoin Cash II. It does not speak OCEAN's DATUM Protocol, and this project is not affiliated with or endorsed by OCEAN. See LICENSE.</p>
+  </div>
+</main>
+<script src="/js/common.js"></script>
+<script>
+ fetch('/api/v1/pool/config').then(function(r){return r.json()}).then(function(d){
+   document.body.classList.toggle('no-mm', d.merge_mining_available === false);
+ }).catch(function(){});
+</script>
+</body></html>

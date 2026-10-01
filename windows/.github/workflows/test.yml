@@ -1,0 +1,98 @@
+name: Checks
+
+# This repo had no CI on a push at all -- only the release workflow, on tags. A launcher that
+# did not compile, a mirror that had gone stale, or an installer script with a syntax error
+# were all discoverable only by cutting a release. These are the invariants that actually
+# break this repo, and every one of them has broken it at least once.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # The dashboard and schema here are mirrors of the app's, and the generated config has
+      # to stay key-for-key with the app's template. Checking that needs the app.
+      - name: Checkout the app
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: BitcoincashII/forge-solo
+          ref: main
+          path: app
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: app/go.mod
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l launcher)
+          if [ -n "$unformatted" ]; then echo "not gofmt-clean:"; echo "$unformatted"; exit 1; fi
+
+      # The launcher is Windows-only code; vetting and building it for any other GOOS proves
+      # nothing about what ships.
+      - name: Vet and build the launcher for Windows
+        working-directory: launcher
+        run: |
+          GOOS=windows GOARCH=amd64 go vet ./...
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui -s -w" -o /tmp/forge-solo.exe .
+
+      # web/ is a verbatim mirror of the app's web/dist. It has drifted before -- by 194 lines,
+      # still showing a control the app had removed.
+      - name: The dashboard mirror matches the app
+        run: |
+          if ! diff -r app/web/dist web >/dev/null 2>&1; then
+            echo "::error::web/ has drifted from the app's web/dist"
+            diff -rq app/web/dist web || true
+            exit 1
+          fi
+          echo "web/ matches app/web/dist"
+
+      - name: The schema matches the app
+        run: |
+          if ! diff -q app/init-db.sql init-db.sql >/dev/null 2>&1; then
+            echo "::error::init-db.sql has drifted from the app"
+            diff app/init-db.sql init-db.sql || true
+            exit 1
+          fi
+          echo "init-db.sql matches the app"
+
+      # A key the stratum does not read looks configured and does nothing; a key it needs and
+      # the launcher omits is a service that will not start. Both have happened.
+      - name: The generated config matches the app's template, key for key
+        run: |
+          python3 - <<'EOF'
+          import re, sys
+          src = open("launcher/boot.go").read()
+          b = src[src.index("func configYAML() string {"):]
+          b = b[b.index("return `") + len("return `"):]
+          b = b[:b.index("\n`\n}") + 1]
+          win = set(re.findall(r'^\s*([a-z_0-9]+):', b, re.M))
+          tmpl = set(re.findall(r'^\s*([a-z_0-9]+):', open("app/docker/stratum/config.template.yaml").read(), re.M))
+          only_win, only_tmpl = sorted(win - tmpl), sorted(tmpl - win)
+          if only_win or only_tmpl:
+              print(f"::error::config keys differ -- only in launcher: {only_win}; only in template: {only_tmpl}")
+              sys.exit(1)
+          print(f"config keys match ({len(win)} keys)")
+          EOF
+
+      # The installer script is only exercised at release time otherwise, and a syntax error
+      # there fails the release rather than the change that caused it.
+      - name: The installer script compiles
+        run: |
+          mkdir -p bin pgsql/bin web
+          : > bin/placeholder.txt; : > pgsql/bin/placeholder.txt
+          chmod a+w .
+          docker run --rm -v "$PWD":/work amake/innosetup /DMyAppVersion=0.0.0-check forge-solo.iss
+          test -f ForgeSolo-Setup-0.0.0-check.exe
+          echo "installer script compiles"
