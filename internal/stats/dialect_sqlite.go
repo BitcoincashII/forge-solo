@@ -17,7 +17,7 @@ import (
 
 // epochSecondsExpr renders a timestamp column as an integer Unix epoch.
 func epochSecondsExpr(col string) string {
-	return "CAST(strftime('%s', " + col + ") AS INTEGER)"
+	return "CAST(strftime('%s', substr(" + col + ", 1, 19)) AS INTEGER)"
 }
 
 // Init1175Schema creates the 1175 merge-mining ledger tables.

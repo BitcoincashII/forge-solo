@@ -51,6 +51,16 @@ func GetDBPath() string {
 	return filepath.Join(dir, "forgesolo.db")
 }
 
+// sqliteNow is the current time as SQLite writes its own (CURRENT_TIMESTAMP): UTC, to the
+// second, "YYYY-MM-DD HH:MM:SS". Bound as a time.Time, the driver stored Go's String() form,
+// "2026-10-01 01:45:30.009992576 +0000 UTC m=+0.0058", which SQLite's date functions cannot read:
+// strftime('%s', ...) returned NULL, the scan failed, and the dashboard listed no solo blocks at
+// all. The queries read only the first 19 characters of a stored time, so such a row reads too
+// (as UTC: written by a process in another zone, it is off by that zone's offset).
+func sqliteNow() string {
+	return time.Now().UTC().Format("2006-01-02 15:04:05")
+}
+
 // fileExists reports whether a path is present. Used only to adopt a pre-rename database.
 func fileExists(p string) bool {
 	_, err := os.Stat(p)
@@ -269,7 +279,7 @@ func SavePayout(minerID string, blockHeight int64, amount float64) error {
 	_, err := db.Exec(`
 		INSERT OR IGNORE INTO payouts (miner_address, block_height, amount, confirmed, created_at)
 		VALUES (?, ?, ?, 0, ?)`,
-		minerID, blockHeight, amount, time.Now())
+		minerID, blockHeight, amount, sqliteNow())
 	return err
 }
 
@@ -290,7 +300,7 @@ func SaveBlockDBWithSolo(minerID string, height int64, hash string, reward float
 	_, err := db.Exec(`
 		INSERT OR IGNORE INTO blocks (height, hash, miner_address, reward, is_solo, created_at)
 		VALUES (?, ?, ?, ?, ?, ?)`,
-		height, hash, minerID, reward, solo, time.Now())
+		height, hash, minerID, reward, solo, sqliteNow())
 	return err
 }
 
@@ -317,7 +327,7 @@ func SavePayoutAtomicWithSolo(minerID string, blockHeight int64, amount float64,
 	_, err = tx.Exec(`
 		INSERT OR IGNORE INTO blocks (height, hash, miner_address, reward, is_solo, created_at)
 		VALUES (?, ?, ?, ?, ?, ?)`,
-		blockHeight, blockHash, minerID, amount, solo, time.Now())
+		blockHeight, blockHash, minerID, amount, solo, sqliteNow())
 	if err != nil {
 		return fmt.Errorf("failed to insert block: %w", err)
 	}
@@ -325,7 +335,7 @@ func SavePayoutAtomicWithSolo(minerID string, blockHeight int64, amount float64,
 	_, err = tx.Exec(`
 		INSERT OR IGNORE INTO payouts (miner_address, block_height, amount, confirmed, created_at)
 		VALUES (?, ?, ?, 0, ?)`,
-		minerID, blockHeight, amount, time.Now())
+		minerID, blockHeight, amount, sqliteNow())
 	if err != nil {
 		return fmt.Errorf("failed to insert payout: %w", err)
 	}
@@ -415,7 +425,7 @@ func GetAllPoolBlocksDB(page, limit int) ([]PoolBlock, int64) {
 
 	offset := (page - 1) * limit
 	rows, err := db.Query(`
-		SELECT height, hash, reward, miner_address, status, strftime('%s', created_at), COALESCE(is_solo, 0)
+		SELECT height, hash, reward, miner_address, status, strftime('%s', substr(created_at, 1, 19)), COALESCE(is_solo, 0)
 		FROM blocks ORDER BY height DESC LIMIT ? OFFSET ?`,
 		limit, offset)
 	if err != nil {
@@ -453,7 +463,7 @@ func GetMinerSoloBlocksDB(minerID string) []SoloBlock {
 	}
 
 	rows, err := db.Query(`
-		SELECT b.height, b.hash, b.reward, strftime('%s', b.created_at), b.status,
+		SELECT b.height, b.hash, b.reward, strftime('%s', substr(b.created_at, 1, 19)), b.status,
 			COALESCE(p.txid, '') as payout_txid
 		FROM blocks b
 		LEFT JOIN payouts p ON p.block_height = b.height AND p.miner_address = b.miner_address
@@ -859,7 +869,7 @@ func GetMinerBlockContributionsDB(minerID string) []MinerBlockContribution {
 	}
 
 	rows, err := db.Query(`
-		SELECT p.block_height, p.amount, COALESCE(b.reward, 0), strftime('%s', p.created_at),
+		SELECT p.block_height, p.amount, COALESCE(b.reward, 0), strftime('%s', substr(p.created_at, 1, 19)),
 			CASE WHEN p.txid IS NOT NULL AND p.txid != '' THEN 1 ELSE 0 END as is_paid
 		FROM payouts p
 		JOIN blocks b ON b.height = p.block_height
@@ -1007,7 +1017,7 @@ func ReserveMaturePayouts(minerID string, matureHeight int64) (pendingID string,
 	res, err := db.ExecContext(ctx, `
 		UPDATE payouts SET txid = ?, status = 'processing', paid_at = ?
 		WHERE miner_address = ? AND (txid IS NULL OR txid = '') AND block_height <= ?`,
-		pendingID, time.Now(), minerID, matureHeight)
+		pendingID, sqliteNow(), minerID, matureHeight)
 	if err != nil {
 		return "", nil, 0, err
 	}
@@ -1147,7 +1157,7 @@ func VoidOrphanedPayouts(height int64) (int64, float64, error) {
 		WHERE block_height = ? AND (txid IS NULL OR txid = '')`, height).Scan(&amount)
 	res, err := db.Exec(`
 		UPDATE payouts SET txid = 'orphaned', status = 'orphaned', paid_at = ?
-		WHERE block_height = ? AND (txid IS NULL OR txid = '')`, time.Now(), height)
+		WHERE block_height = ? AND (txid IS NULL OR txid = '')`, sqliteNow(), height)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -1169,7 +1179,7 @@ func ConfirmMatureSoloBlocks(confirmHeight int64) error {
 	}
 	// is_solo is INTEGER here, not boolean.
 	_, err := db.Exec(`UPDATE blocks SET status = 'confirmed', confirmed_at = ?
-		WHERE is_solo = 1 AND status = 'pending' AND height <= ?`, time.Now(), confirmHeight)
+		WHERE is_solo = 1 AND status = 'pending' AND height <= ?`, sqliteNow(), confirmHeight)
 	return err
 }
 
@@ -1208,7 +1218,7 @@ func SavePoolConfig(poolAddr, payout1175, tag string) error {
 		    payout_address_1175 = excluded.payout_address_1175,
 		    coinbase_tag = excluded.coinbase_tag,
 		    updated_at = excluded.updated_at`,
-		poolAddr, payout1175, tag, time.Now())
+		poolAddr, payout1175, tag, sqliteNow())
 	return err
 }
 
@@ -1253,7 +1263,7 @@ func recordBlockRow(ex blockRowExecer, height int64, hash, miner string, reward 
 	if isSolo {
 		solo = 1
 	}
-	now := time.Now()
+	now := sqliteNow()
 	// Positional placeholders: postgres reuses $2 for hash in both SET and WHERE, so
 	// hash is passed twice here.
 	res, err := ex.Exec(`
@@ -1337,7 +1347,7 @@ func OrphanSoloBlock(height int64) (int64, error) {
 		return 0, err
 	}
 	if _, err = tx.ExecContext(ctx, `UPDATE payouts SET status = 'orphaned', txid = 'orphaned', confirmed = 0, paid_at = ?
-		WHERE block_height = ? AND txid = 'coinbase-direct'`, time.Now(), height); err != nil {
+		WHERE block_height = ? AND txid = 'coinbase-direct'`, sqliteNow(), height); err != nil {
 		return 0, err
 	}
 	if err = tx.Commit(); err != nil {
@@ -1356,7 +1366,7 @@ func ConfirmSoloBlock(height int64) error {
 		return ErrDatabaseNotInitialized
 	}
 	_, err := db.Exec(`UPDATE blocks SET status = 'confirmed', confirmed_at = ?
-		WHERE height = ? AND is_solo = 1 AND status = 'pending'`, time.Now(), height)
+		WHERE height = ? AND is_solo = 1 AND status = 'pending'`, sqliteNow(), height)
 	return err
 }
 
@@ -1385,7 +1395,7 @@ func SaveSoloBlockCoinbaseDirect(minerID string, blockHeight int64, amount float
 
 	// ON CONFLICT only overwrites an unpaid/orphaned row (never a genuinely paid one),
 	// so re-records are idempotent. Requires uq_payouts_miner_height.
-	now := time.Now()
+	now := sqliteNow()
 	_, err = tx.Exec(`
 		INSERT INTO payouts (miner_address, block_height, amount, confirmed, txid, status, created_at, paid_at)
 		VALUES (?, ?, ?, 1, 'coinbase-direct', 'paid', ?, ?)
