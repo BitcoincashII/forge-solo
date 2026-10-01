@@ -4,7 +4,7 @@
 ; Overridable from the command line so CI can stamp the tag it is building:
 ;   iscc /DMyAppVersion=1.0.10 forge-solo.iss
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.11"
+  #define MyAppVersion "1.0.12"
 #endif
 #define MyAppPublisher "BCH2 Team"
 #define MyAppURL "https://github.com/BitcoincashII/forge-solo"
