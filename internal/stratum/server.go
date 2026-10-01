@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	crand "crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -57,8 +59,9 @@ type Server struct {
 	currentJob     atomic.Value
 	acceptGate     atomic.Value // func() bool; see SetAcceptGate
 	jobHistory     sync.Map
-	extraNonce     uint32
+	extraNonce     uint32 // starts at a random value; see NewServer
 	extraNonceMu   sync.Mutex
+	clientSeq      atomic.Uint64
 	shareProcessor ShareProcessor
 	minerSettings  MinerSettingsStore
 	diffMemory     sync.Map // minerID(address) -> diffMem: last vardiff level, reused across reconnects
@@ -295,6 +298,11 @@ func NewServer(config *ServerConfig, logger *zap.Logger, sp ShareProcessor, ms M
 		minerSettings:  ms,
 		shutdownCh:     make(chan struct{}),
 		stats:          &serverCounters{},
+		// Each server's extranonce1 counter starts at a random value. From 0, the first miner
+		// on 3333 and the first on 3335 both got 00000001 for the same job and searched the
+		// same headers; in TIDES mode so did the first miners of two installs, whose coinbases
+		// are otherwise identical.
+		extraNonce: randomUint32(),
 	}
 
 	// Start periodic share cleanup
@@ -612,43 +620,21 @@ func (s *Server) clearSharesForJob() {
 	})
 }
 
-// isDuplicateShare checks if this share was already submitted
-func (s *Server) isDuplicateShare(jobID, en1, en2, ntime, nonce, versionBits string) bool {
+// isDuplicateShare checks if this share was already submitted. headerVersion is the version
+// the share's header carries (RollVersion of the job's version and the submitted bits), so two
+// submissions that build the same header always share one key.
+func (s *Server) isDuplicateShare(jobID, en1, en2, ntime, nonce, headerVersion string) bool {
 	key := shareKey{
 		JobID:       jobID,
 		ExtraNonce1: en1,
 		ExtraNonce2: en2,
 		NTime:       ntime,
 		Nonce:       nonce,
-		// Dedup on only the BIP320-rollable version bits — the exact bits
-		// buildBlockHeader combines into the header. Keying on the full submitted
-		// version let a miner vary the ignored (non-rollable) bits to replay one
-		// proof of work for repeated PPLNS credit; masking closes that.
-		VersionBits: canonicalRolledVersion(versionBits),
+		VersionBits: headerVersion,
 	}
 
 	_, exists := s.submittedShares.LoadOrStore(key, time.Now())
 	return exists
-}
-
-// canonicalRolledVersion returns only the BIP320-rollable bits (mask 0x1fffe000)
-// of the submitted version as normalized hex. Shares differing only in the
-// non-rollable version bits assemble an identical header, so they must share one
-// dedup key. Falls back to the raw lowercased string if unparseable.
-func canonicalRolledVersion(versionBits string) string {
-	if versionBits == "" {
-		return ""
-	}
-	vb, err := hex.DecodeString(strings.ToLower(versionBits))
-	if err != nil || len(vb) != 4 {
-		return strings.ToLower(versionBits)
-	}
-	mask := []byte{0x1f, 0xff, 0xe0, 0x00}
-	out := make([]byte, 4)
-	for i := 0; i < 4; i++ {
-		out[i] = vb[i] & mask[i]
-	}
-	return hex.EncodeToString(out)
 }
 
 // validateShare verifies that the submitted share meets the difficulty target
@@ -1083,7 +1069,9 @@ func (s *Server) handleClient(conn net.Conn) {
 	}()
 
 	client := &Client{
-		ID:          fmt.Sprintf("%d", time.Now().UnixNano()),
+		// A sequence number, not the time alone: Windows' clock advances only every 0.5-15.6 ms,
+		// so two miners reconnecting at once could get the same ID and one drop out of s.clients.
+		ID:          fmt.Sprintf("%d-%d", time.Now().UnixNano(), s.clientSeq.Add(1)),
 		Conn:        conn,
 		IP:          conn.RemoteAddr().String(),
 		Difficulty:  s.config.AbsoluteMinDiff, // assignment floor, not the judging floor
@@ -1544,6 +1532,28 @@ func (s *Server) SetSoloPayoutAddress(addr string) {
 	s.soloPayoutMu.Lock()
 	s.soloPayout = addr
 	s.soloPayoutMu.Unlock()
+	// Where the install pays one address, connected miners are credited to the new one from
+	// now on. Their address was fixed at authorize, so after a change on the dashboard every
+	// connected miner stayed on the old address (0 H/s for the new one, invalid shares and
+	// blocks recorded under an address the jobs no longer pay), and one that logged in with
+	// its own address before any payout address was set stayed on that. handleSubmit also
+	// credits each share to the address in effect, for a miner authorizing during this loop.
+	if !s.config.SoloOnly || !s.config.CreditPayoutAddress {
+		return
+	}
+	payout := normalizeMinerAddress(addr)
+	if payout == "" {
+		return
+	}
+	s.clients.Range(func(_, v interface{}) bool {
+		c := v.(*Client)
+		c.mu.Lock()
+		if c.Authorized && c.MinerID != "" && c.MinerID != "probe" {
+			c.MinerID = payout
+		}
+		c.mu.Unlock()
+		return true
+	})
 }
 
 // SoloPayoutAddress returns the address set by SetSoloPayoutAddress, or "" if none.
@@ -1610,13 +1620,14 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 	// sat at 0 H/s there for its whole length -- and recorded its blocks under an address the
 	// coinbase never paid.
 	if minerID != "" && s.config.SoloOnly && s.config.CreditPayoutAddress {
-		if payout := normalizeMinerAddress(s.SoloPayoutAddress()); payout != "" && minerID != payout {
-			if workerName == "" || workerName == "default" {
-				workerName = shortAddress(minerID)
-			}
-			if len(workerName) > maxWorkerLabel {
-				workerName = workerName[:maxWorkerLabel]
-			}
+		payout := normalizeMinerAddress(s.SoloPayoutAddress())
+		if minerID != payout && (workerName == "" || workerName == "default") {
+			// Labelled by the address even while no payout address is set yet: shares are
+			// credited to the payout address in effect when they arrive (handleSubmit), so
+			// this miner is credited to it as soon as one is set.
+			workerName = shortAddress(minerID)
+		}
+		if payout != "" && minerID != payout {
 			s.logger.Info("Solo miner authorized with another address as its label",
 				zap.String("username_address", minerID),
 				zap.String("worker", workerName),
@@ -1649,6 +1660,12 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 			zap.String("username", username),
 			zap.String("ip", client.IP))
 		return &Response{ID: req.ID, Result: false, Error: ErrUnauthorized}
+	}
+	// Every label is bounded, on every path above. Uncapped, a username of the payout address
+	// plus a 60 KB label reached the TIDES share queue, made a batch the pool refuses as too
+	// large, and stalled every other miner's shares behind it.
+	if len(workerName) > maxWorkerLabel {
+		workerName = workerName[:maxWorkerLabel]
 	}
 
 	// Detect rental service from worker name patterns. Skipped in solo for the same reason
@@ -2018,15 +2035,6 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 		zap.String("ntime", ntime),
 		zap.String("nonce", nonce))
 
-	// Check for duplicate share FIRST
-	if s.isDuplicateShare(jobID, extranonce1, extranonce2, ntime, nonce, versionBits) {
-		s.logger.Warn("Duplicate share rejected",
-			zap.String("miner", minerID),
-			zap.String("job", jobID))
-		s.noteInvalidShare(client, "duplicate")
-		return &Response{ID: req.ID, Result: false, Error: ErrDuplicateShare}
-	}
-
 	// Get the job from history
 	jobInterface, exists := s.jobHistory.Load(jobID)
 	if !exists {
@@ -2037,6 +2045,19 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 		return &Response{ID: req.ID, Result: false, Error: ErrJobNotFound}
 	}
 	job := jobInterface.(*Job)
+
+	// A duplicate is the same header, so it is keyed on the version the header actually
+	// carries: RollVersion(job, versionBits), the single source of truth. Keying on the
+	// submitted string let one proof of work be accepted again and again under different
+	// spellings of the same version ("", "00000000", "zz", "0x20000000" all build the job's
+	// version), each credited and, in TIDES mode, forwarded to the pool.
+	if s.isDuplicateShare(jobID, extranonce1, extranonce2, ntime, nonce, hex.EncodeToString(RollVersion(job.Version, versionBits))) {
+		s.logger.Warn("Duplicate share rejected",
+			zap.String("miner", minerID),
+			zap.String("job", jobID))
+		s.noteInvalidShare(client, "duplicate")
+		return &Response{ID: req.ID, Result: false, Error: ErrDuplicateShare}
+	}
 	client.mu.RLock()
 	jobDiff := client.jobDiff[jobID]
 	client.mu.RUnlock()
@@ -2171,6 +2192,17 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	// Vardiff adjustment - respects retarget_time interval
 	if timed && manualDiff == 0 && s.config.VardiffEnabled && shareCount >= VardiffMinShares {
 		s.adjustVardiff(client)
+	}
+
+	// Where the install pays one address, a share is credited to the payout address in effect
+	// when it arrives, not the one at authorize. Before, after a change on the dashboard every
+	// connected miner stayed on the old address (the dashboard read 0 H/s for the new one, and a
+	// block was recorded under an address the new jobs no longer pay), and a miner that logged
+	// in with an address before any payout address was set stayed on that address for good.
+	if s.config.SoloOnly && s.config.CreditPayoutAddress {
+		if payout := normalizeMinerAddress(s.SoloPayoutAddress()); payout != "" {
+			minerID = payout
+		}
 	}
 
 	share := &Share{
@@ -2575,7 +2607,10 @@ func (s *Server) BroadcastJob(job *Job) {
 
 	s.clients.Range(func(key, value interface{}) bool {
 		client := value.(*Client)
-		if client.Authorized {
+		client.mu.RLock()
+		authorized := client.Authorized
+		client.mu.RUnlock()
+		if authorized {
 			// For clean jobs (new block), resend difficulty to ensure miners have it
 			// Some miners (like Whatsminer) may miss difficulty notifications
 			if job.CleanJobs {
@@ -3012,4 +3047,14 @@ func NewServerForTest() *Server {
 func (s *Server) AddAuthorizedRentalClientForTest(svc RentalService) {
 	c := &Client{Authorized: true, DetectedMarketplace: svc}
 	s.clients.Store(fmt.Sprintf("test-%d-%p", svc, c), c)
+}
+
+// randomUint32 is a random 32-bit value; zero if the system's random source fails, which only
+// costs the collision avoidance it exists for.
+func randomUint32() uint32 {
+	var b [4]byte
+	if _, err := crand.Read(b[:]); err != nil {
+		return 0
+	}
+	return binary.BigEndian.Uint32(b[:])
 }
