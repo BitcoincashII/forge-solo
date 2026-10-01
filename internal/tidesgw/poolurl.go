@@ -1,0 +1,29 @@
+package tidesgw
+
+import (
+	"fmt"
+	"net"
+	"net/url"
+)
+
+// CheckPoolURL accepts the pool's base URL only over https. Requests to the pool are signed, but its
+// answers are not: they carry the TIDES payout split this gateway writes into every block, so over
+// plain http anyone on the way could change who a block pays. Plain http is accepted only for a pool
+// on this machine, which is how the tests run one.
+func CheckPoolURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return fmt.Errorf("pool URL %q is not a URL like https://pool.bch2.org", raw)
+	}
+	switch u.Scheme {
+	case "https":
+		return nil
+	case "http":
+		h := u.Hostname()
+		if ip := net.ParseIP(h); h == "localhost" || (ip != nil && ip.IsLoopback()) {
+			return nil
+		}
+		return fmt.Errorf("pool URL %q must use https://: the pool's answers carry the payout split, and over plain http anyone on the way could change it (plain http is accepted only for a pool on this machine)", raw)
+	}
+	return fmt.Errorf("pool URL %q must start with https://", raw)
+}

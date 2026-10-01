@@ -74,6 +74,7 @@ func TestConfigRejects(t *testing.T) {
 		{"long tag", `{` + login + `,"mining":{"payout_address":"` + testPayout + `","coinbase_tag":"` + strings.Repeat("x", 33) + `"}}`, "coinbase_tag is 33 bytes"},
 		{"bad listen", `{` + login + `,"mining":{"payout_address":"` + testPayout + `"},"stratum":{"listen":"3333"}}`, "stratum.listen"},
 		{"bad pool url", `{` + login + `,"mining":{"payout_address":"` + testPayout + `"},"pool":{"url":"pool.bch2.org"}}`, "pool.url"},
+		{"plain-http pool", `{` + login + `,"mining":{"payout_address":"` + testPayout + `"},"pool":{"url":"http://pool.bch2.org"}}`, "must use https://"},
 		{"bad level", `{` + login + `,"mining":{"payout_address":"` + testPayout + `"},"log_level":"loud"}`, "log_level"},
 		{"bad range", `{` + login + `,"mining":{"payout_address":"` + testPayout + `"},"stratum":{"min_difficulty":10,"max_difficulty":5}}`, "not a range"},
 	}

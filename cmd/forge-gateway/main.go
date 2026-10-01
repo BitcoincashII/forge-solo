@@ -199,7 +199,7 @@ func newLogger(file, level string) (*zap.Logger, error) {
 		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
 			return nil, err
 		}
-		f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
+		f, err := openRotating(file)
 		if err != nil {
 			return nil, err
 		}

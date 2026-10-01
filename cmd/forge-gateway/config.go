@@ -203,8 +203,8 @@ func (c *Config) check() error {
 	if s.TargetShareSeconds < 1 || s.RetargetSeconds < 1 || s.MaxConnections < 1 || s.MaxConnectionsPerIP < 1 {
 		return errors.New("stratum target_share_seconds, retarget_seconds, max_connections and max_connections_per_ip must be positive")
 	}
-	if !strings.HasPrefix(c.Pool.URL, "https://") && !strings.HasPrefix(c.Pool.URL, "http://") {
-		return fmt.Errorf("pool.url %q must start with https://", c.Pool.URL)
+	if err := tidesgw.CheckPoolURL(c.Pool.URL); err != nil {
+		return fmt.Errorf("pool.url: %w", err)
 	}
 	switch c.LogLevel {
 	case "debug", "info", "warn", "error":

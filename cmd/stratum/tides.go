@@ -54,6 +54,9 @@ func ensureTidesGateway(cfg *viper.Viper) error {
 	if tidesGateway() != nil {
 		return nil
 	}
+	if err := tidesgw.CheckPoolURL(tidesPoolURL(cfg)); err != nil {
+		return err
+	}
 	fresh := make([]byte, ed25519.SeedSize)
 	if _, err := rand.Read(fresh); err != nil {
 		return fmt.Errorf("gateway key: %w", err)
