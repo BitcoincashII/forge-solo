@@ -78,6 +78,15 @@ jobs:
           CGO_ENABLED=0 GOARCH=386 go test -count=1 ./...
           CGO_ENABLED=0 GOARCH=386 go test -count=1 -tags sqlite ./...
 
+      - name: Build Forge Solo for Linux for every architecture it ships
+        run: |
+          for t in amd64: arm64: arm:7 arm:6 386: riscv64:; do
+            arch=${t%%:*} arm=${t#*:}
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch GOARM=$arm go build -o /dev/null ./cmd/forge-solo-linux
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch GOARM=$arm go build -tags sqlite -o /dev/null ./cmd/stratum
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch GOARM=$arm go build -tags sqlite -o /dev/null ./cmd/api
+          done
+
       - name: Test with race detector
         run: go test -count=1 -race ./internal/stratum/ ./cmd/stratum/ ./cmd/api/ ./internal/mining/ ./internal/stats/
 
