@@ -3,12 +3,15 @@ package stratum
 // Regressions found by the 1.0.12 pre-release review. Each test fails on the code before its fix.
 
 import (
+	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -184,4 +187,138 @@ func TestBroadcastWhileMinersAuthorize(t *testing.T) {
 	}
 	close(stop)
 	wg.Wait()
+}
+
+// tcpServer is a started solo server on a free loopback port, crediting cp.
+func tcpServer(t *testing.T, sp ShareProcessor) *Server {
+	t.Helper()
+	s := NewServer(&ServerConfig{Host: "127.0.0.1", Port: 0, MaxConnections: 10, MaxConnectionsPerIP: 10,
+		ExtraNonce1Size: 4, ExtraNonce2Size: 8, MinDiff: 1e-6, AbsoluteMinDiff: 1e-6, MaxDiff: 1e12,
+		TargetShareTime: 10, RetargetTime: 30, VardiffEnabled: true, SoloOnly: true, CreditPayoutAddress: true},
+		zap.NewNop(), sp, nil)
+	s.SetSoloPayoutAddress(testPayout)
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.Stop)
+	return s
+}
+
+type testMiner struct {
+	c   net.Conn
+	r   *bufio.Reader
+	en1 string
+}
+
+// dialTestMiner subscribes and authorizes as user.
+func dialTestMiner(t *testing.T, s *Server, user string) *testMiner {
+	t.Helper()
+	c, err := net.Dial("tcp", s.ListenAddr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	m := &testMiner{c: c, r: bufio.NewReader(c)}
+	m.send(t, `{"id":1,"method":"mining.subscribe","params":["cgminer/4.12"]}`)
+	for {
+		line := m.line(t)
+		if strings.Contains(line, `"id":1`) {
+			var resp struct {
+				Result []json.RawMessage `json:"result"`
+			}
+			json.Unmarshal([]byte(line), &resp)
+			json.Unmarshal(resp.Result[1], &m.en1)
+			break
+		}
+	}
+	m.send(t, `{"id":2,"method":"mining.authorize","params":["`+user+`","x"]}`)
+	for !strings.Contains(m.line(t), `"id":2`) {
+	}
+	return m
+}
+
+func (m *testMiner) send(t *testing.T, s string) {
+	t.Helper()
+	if _, err := m.c.Write([]byte(s + "\n")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (m *testMiner) line(t *testing.T) string {
+	t.Helper()
+	m.c.SetReadDeadline(time.Now().Add(3 * time.Second))
+	l, err := m.r.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	return l
+}
+
+// shareFor finds a nonce with work on job for the miner's extranonce1, at the 1e-6 floor.
+func shareFor(t *testing.T, s *Server, job *Job, en1 string) string {
+	t.Helper()
+	for n := uint32(0); n < 1<<24; n++ {
+		nonce := fmt.Sprintf("%08x", n)
+		ok, _, _, err := s.validateShare(job, en1, "0000000000000001", job.NTime, nonce, "", 1e-6)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ok {
+			return nonce
+		}
+	}
+	t.Fatal("no share found")
+	return ""
+}
+
+// A share sent while Stop gives the miners their moment is processed: it was read and thrown
+// away, and a block found in the last moments before an update or restart was lost with it.
+func TestShareDuringStopGraceIsProcessed(t *testing.T) {
+	cp := &captureProcessor{ch: make(chan *Share, 16)}
+	s := tcpServer(t, cp)
+	m := dialTestMiner(t, s, "rig1")
+	job := soloTestJob("1")
+	s.BroadcastJob(job)
+	time.Sleep(100 * time.Millisecond)
+	nonce := shareFor(t, s, job, m.en1)
+	go s.Stop()
+	time.Sleep(300 * time.Millisecond) // inside the 2 s grace
+	m.send(t, `{"id":9,"method":"mining.submit","params":["rig1","1","0000000000000001","`+job.NTime+`","`+nonce+`"]}`)
+	select {
+	case sh := <-cp.ch:
+		if sh.JobID != "1" {
+			t.Fatalf("processed %+v", sh)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("a share submitted during Stop's grace was never processed")
+	}
+}
+
+// slowProcessor takes its time over each share, like a block share waiting for the pool: longer
+// than Stop's grace for the miners plus its wait for their handlers (3 s), within inflightGrace.
+type slowProcessor struct{ done atomic.Int32 }
+
+func (p *slowProcessor) ProcessShare(context.Context, *Share) error {
+	time.Sleep(3500 * time.Millisecond)
+	p.done.Add(1)
+	return nil
+}
+func (p *slowProcessor) ProcessBlock(context.Context, *Block) error { return nil }
+
+// Stop waits for shares still being processed: exiting under one lost the block it carried.
+func TestStopWaitsForSharesBeingProcessed(t *testing.T) {
+	sp := &slowProcessor{}
+	s := tcpServer(t, sp)
+	m := dialTestMiner(t, s, "rig1")
+	job := soloTestJob("1")
+	s.BroadcastJob(job)
+	time.Sleep(100 * time.Millisecond)
+	nonce := shareFor(t, s, job, m.en1)
+	m.send(t, `{"id":9,"method":"mining.submit","params":["rig1","1","0000000000000001","`+job.NTime+`","`+nonce+`"]}`)
+	for !strings.Contains(m.line(t), `"id":9`) {
+	}
+	s.Stop()
+	if sp.done.Load() != 1 {
+		t.Fatal("Stop returned while the accepted share was still being processed")
+	}
 }

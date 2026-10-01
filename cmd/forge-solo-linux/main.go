@@ -172,10 +172,11 @@ func parseRunFlags(args []string) (dataDir, web string, err error) {
 	return dataDir, web, err
 }
 
-// Stop allowances. The stratum disconnects its miners (2 s per port) and hands Forge Pool the
-// TIDES shares it still holds (5 s per request). The node flushes its chain state to disk.
+// Stop allowances. The stratum gives its miners 2 s (both ports at once), waits for shares and a
+// block still being processed or submitted (up to 15 s, only when there is one), and hands Forge
+// Pool the TIDES shares it still holds (5 s per request). The node flushes its chain state to disk.
 const (
-	stratumGrace = 15 * time.Second
+	stratumGrace = 30 * time.Second
 	apiGrace     = 10 * time.Second
 	nodeGrace    = 120 * time.Second
 	logMax       = 20 << 20

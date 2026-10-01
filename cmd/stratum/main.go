@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -1757,11 +1758,27 @@ func main() {
 	close(shutdownCh)        // Signal all goroutines to stop
 	close(workerTimeoutStop) // Stop worker timeout checker
 	// Each server once: a second Stop closed its channel again and every shutdown ended in
-	// "panic: close of closed channel" (Stop is idempotent now as well).
+	// "panic: close of closed channel" (Stop is idempotent now as well). Both at the same time,
+	// so their grace for connected miners is paid once.
+	var stopping sync.WaitGroup
 	if stratumRentalServer != nil {
-		stratumRentalServer.Stop()
+		stopping.Add(1)
+		go func() {
+			defer stopping.Done()
+			stratumRentalServer.Stop()
+		}()
 	}
 	stratumServer.Stop()
+	stopping.Wait()
+	// A block found in the last moments is still being submitted: wait for it before the
+	// database closes and the process exits, which lost it.
+	end := time.Now().Add(blockSubmitGrace)
+	for blockSubmits.Load() > 0 && time.Now().Before(end) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if n := blockSubmits.Load(); n > 0 {
+		logger.Warn("A block submission was still running at shutdown", zap.Int64("blocks", n))
+	}
 	// The gateway stops flushing when shutdownCh closes: send what the miners found last.
 	if g := tidesGateway(); g != nil {
 		if n := g.Flush(); n > 0 {
@@ -1769,6 +1786,12 @@ func main() {
 		}
 	}
 }
+
+// blockSubmits counts block submissions still running; shutdown waits for them, up to
+// blockSubmitGrace.
+var blockSubmits atomic.Int64
+
+const blockSubmitGrace = 10 * time.Second
 
 // stopOnEOF reads r until it ends, then asks for shutdown as SIGTERM would. It never blocks on a
 // shutdown already asked for.
@@ -1885,7 +1908,11 @@ func (p *BlockFindingShareProcessor) ProcessShare(ctx context.Context, share *st
 			zap.String("nonce", share.Nonce))
 
 		tidesTakeShare(share, true)
-		go p.submitBlock(share)
+		blockSubmits.Add(1)
+		go func() {
+			defer blockSubmits.Add(-1)
+			p.submitBlock(share)
+		}()
 	} else {
 		tidesTakeShare(share, false)
 	}

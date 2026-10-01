@@ -62,6 +62,7 @@ type Server struct {
 	extraNonce     uint32 // starts at a random value; see NewServer
 	extraNonceMu   sync.Mutex
 	clientSeq      atomic.Uint64
+	inflight       atomic.Int64 // shares being processed; Stop waits for them (see inflightGrace)
 	shareProcessor ShareProcessor
 	minerSettings  MinerSettingsStore
 	diffMemory     sync.Map // minerID(address) -> diffMem: last vardiff level, reused across reconnects
@@ -960,8 +961,22 @@ func (s *Server) stop() {
 		}
 	}
 
+	// Shares accepted in the last moments are still being processed: a block share in TIDES mode
+	// waits up to 2 s for the pool before it is submitted to the local node. Exiting under them
+	// lost the block.
+	end := time.Now().Add(inflightGrace)
+	for s.inflight.Load() > 0 && time.Now().Before(end) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if n := s.inflight.Load(); n > 0 {
+		s.logger.Warn("Shares still being processed at shutdown", zap.Int64("shares", n))
+	}
+
 	s.logger.Info("Graceful shutdown complete")
 }
+
+// inflightGrace bounds how long Stop waits for accepted shares still being processed.
+const inflightGrace = 5 * time.Second
 
 // shutdownGrace is how long Stop lets connected miners finish a message before it closes their
 // connections.
@@ -1110,11 +1125,9 @@ func (s *Server) handleClient(conn net.Conn) {
 			break
 		}
 
-		select {
-		case <-s.shutdownCh:
-			return
-		default:
-		}
+		// Messages that arrive during Stop's grace are handled, not dropped: a share sent in the
+		// last moments, a block among them, was read and thrown away. Stop closes the connection
+		// when the grace ends, which ends this loop.
 		line := scanner.Bytes()
 		if len(line) == 0 {
 			continue
@@ -2244,7 +2257,11 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	client.ValidShares.Add(1)
 
 	if s.shareProcessor != nil {
-		go s.shareProcessor.ProcessShare(context.Background(), share)
+		s.inflight.Add(1)
+		go func() {
+			defer s.inflight.Add(-1)
+			s.shareProcessor.ProcessShare(context.Background(), share)
+		}()
 	}
 
 	// Merge mining: if this share's parent hash also meets the aux (1175) target,
