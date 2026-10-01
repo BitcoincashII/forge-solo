@@ -35,10 +35,16 @@ which this version does not open: they use 3333, like your own miners.
 **Mining fixes.**
 - A share is judged by the difficulty its job went out with, not by a newer one the miner had not
   received yet, so a miner on a weak link has far fewer refused shares.
-- Every miner is credited to your payout address, as Settings says, whatever its username. A
-  rental whose username was a BCH2 address used to show 0 H/s on the dashboard.
+- Every miner is credited to your payout address, as Settings says, whatever its username, and a
+  new payout address applies to the miners already connected. A rental whose username was a BCH2
+  address used to show 0 H/s on the dashboard.
+- One share can no longer be counted twice.
 - A connection that does not speak stratum is closed at once. MiningRigRentals' pool check tries
   TLS first, was left waiting, and reported the pool as unable to authenticate. Its rig proxy is
   now recognised as MiningRigRentals.
+
+**Settings are safer.** Another web page you have open can no longer change them, the dashboard's
+API now listens on this PC only, and if the app's database is briefly unavailable, Settings says
+so instead of showing your settings as empty.
 
 Forge Solo is now MIT licensed, with credit to OCEAN, who designed DATUM and TIDES.
