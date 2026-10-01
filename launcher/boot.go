@@ -83,7 +83,7 @@ func configYAML() string {
   address: ""
   block_reward: 50.0
   payout_scheme: "solo"
-  coinbase_tag: "Forge Solo"
+  coinbase_tag: ""
 stratum:
   host: "0.0.0.0"
   port: ` + minerPort + `

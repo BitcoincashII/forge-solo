@@ -43,6 +43,10 @@ which this version does not open: they use 3333, like your own miners.
   TLS first, was left waiting, and reported the pool as unable to authenticate. Its rig proxy is
   now recognised as MiningRigRentals.
 
+**New default coinbase tag: `//forgesolo//`.** Blocks your miners find carry it unless you set
+your own tag in Settings. If yours was still the old default, `Forge`, this update changes it to
+`//forgesolo//`; a tag you chose yourself is kept.
+
 **Settings are safer.** Another web page you have open can no longer change them, the dashboard's
 API now listens on this PC only, and if the app's database is briefly unavailable, Settings says
 so instead of showing your settings as empty.
