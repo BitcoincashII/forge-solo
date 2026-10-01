@@ -246,6 +246,32 @@ func (g *Gateway) snapshot(height int64) (*wire.Snapshot, error) {
 	return s, nil
 }
 
+// retryPace is the wait between registration attempts the pool asked to retry: its rate limit
+// admits 2 a second.
+const retryPace = 500 * time.Millisecond
+
+// rateLimited reports the pool's "429 Too Many Requests" (the client's errors carry the status).
+func rateLimited(err error) bool {
+	return err != nil && strings.Contains(err.Error(), " 429 ")
+}
+
+// briefReason is err as a reason for the dashboard: one line, at most maxReason characters, and
+// without the body of an HTML error page. The client puts up to 8 MB of a failed response into its
+// error, and a proxy's "502 Bad Gateway" page appeared whole in the banner, resent on every poll.
+func briefReason(err error) string {
+	s := err.Error()
+	if i := strings.Index(s, "<"); i > 0 {
+		s = strings.TrimRight(strings.TrimSpace(s[:i]), ":")
+	}
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > maxReason {
+		s = string(r[:maxReason]) + "…"
+	}
+	return s
+}
+
+const maxReason = 200
+
 // refusedTx reports a registration the pool refused over this node's transactions: one its node
 // will not take (a conflicting spend, most likely), or an order or parent it disagrees with.
 func refusedTx(err error) bool {
@@ -342,18 +368,26 @@ func (g *Gateway) register(t *mining.BlockTemplate, finder string, tag []byte, t
 	var resp *wire.JobResponse
 	for {
 		// Two tries per call: when the pool asks for a transaction's data, the client adds it
-		// and needs the second try to send it.
-		resp, err = g.client.Register(req, gt, 2, 0)
+		// and sends it on the second try at once. A "retry" answer waits retryPace before the
+		// second try and again before the next call. The pool admits 2 registrations a second
+		// (burst 10), and asking faster (no wait, then 250 ms) turned a few seconds of "retry"
+		// into "429 slow down", which ended the registration and, on a new block, put the miners
+		// on solo for a minute. A 429 itself is waited out while the deadline allows.
+		resp, err = g.client.Register(req, gt, 2, retryPace)
 		if err == nil {
 			break
 		}
-		if resp == nil || !resp.Retry || !g.cfg.Now().Add(250*time.Millisecond).Before(deadline) {
+		wait, retryable := retryPace, resp != nil && resp.Retry
+		if resp == nil && rateLimited(err) {
+			wait, retryable = time.Second, true
+		}
+		if !retryable || !g.cfg.Now().Add(wait).Before(deadline) {
 			if resp != nil && resp.Error != "" {
 				return nil, errors.New(resp.Error)
 			}
 			return nil, err
 		}
-		time.Sleep(250 * time.Millisecond)
+		time.Sleep(wait)
 	}
 
 	outs, err := wire.Payouts(snap, value, finder)
@@ -398,7 +432,7 @@ func (g *Gateway) Fallback(err error) {
 	defer g.mu.Unlock()
 	why := "the pool did not answer"
 	if err != nil {
-		why = err.Error()
+		why = briefReason(err)
 	}
 	if g.state != StateFallback {
 		if g.cfg.PoolOnly {
@@ -417,7 +451,7 @@ func (g *Gateway) Fallback(err error) {
 func (g *Gateway) Note(err error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.reason = "last refresh failed: " + err.Error()
+	g.reason = "last refresh failed: " + briefReason(err)
 	if g.cfg.Now().Sub(g.lastWarn) >= time.Minute {
 		g.lastWarn = g.cfg.Now()
 		g.logger.Warn("TIDES: could not refresh the job with the pool; miners stay on the current one", zap.Error(err))
