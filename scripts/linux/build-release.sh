@@ -1,6 +1,7 @@
 #!/bin/sh
 # Forge Solo for Linux release tarballs:
-#   dist/forge-solo-<VERSION>-linux-{x86_64,aarch64,armv7l}.tar.gz and dist/SHA256SUMS-linux
+#   dist/forge-solo-<VERSION>-linux-{x86_64,aarch64,armv7l,armv6l,i686,riscv64}.tar.gz and
+#   dist/SHA256SUMS-linux
 #
 # The BCH2 node is built fully static (musl, Alpine 3.20, Bitcoin Core's depends) from the public
 # bitcoincashII-core tag v27.0.2, so one binary runs on any Linux distribution, old or new, glibc
