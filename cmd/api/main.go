@@ -374,6 +374,8 @@ func main() {
 		},
 	}))
 
+	app.Use(rejectCrossSiteWrites)
+
 	// API routes FIRST
 	api := app.Group("/api/v1")
 	api.Get("/stats", getPoolStats)
@@ -777,6 +779,29 @@ func getConnectivity(c *fiber.Ctx) error {
 		}
 	}
 	return c.JSON(out)
+}
+
+// rejectCrossSiteWrites refuses a state-changing request that a browser made on behalf of
+// another site (cross-site request forgery). The home app's settings save has no login of its
+// own -- on Umbrel it sits behind Umbrel's, on Windows and Linux on 127.0.0.1 -- and the body
+// parser also accepts form encoding, so any web page the user had open could post a hidden form
+// to it and set its own payout address. A form cannot send application/json, and a cross-site
+// fetch that does needs a CORS preflight, which this API refuses; Sec-Fetch-Site, which browsers
+// set on every request, must say same-origin when it is present. Clients other than browsers send
+// no Sec-Fetch-Site and are unaffected as long as they post JSON, as the dashboard does.
+func rejectCrossSiteWrites(c *fiber.Ctx) error {
+	switch c.Method() {
+	case fiber.MethodGet, fiber.MethodHead, fiber.MethodOptions:
+		return c.Next()
+	}
+	if site := c.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"success": false, "error": "Refused: a cross-site request cannot change settings"})
+	}
+	ct, _, _ := strings.Cut(c.Get(fiber.HeaderContentType), ";")
+	if !strings.EqualFold(strings.TrimSpace(ct), fiber.MIMEApplicationJSON) {
+		return c.Status(fiber.StatusUnsupportedMediaType).JSON(fiber.Map{"success": false, "error": "Refused: send JSON (Content-Type: application/json)"})
+	}
+	return c.Next()
 }
 
 // lanAddress is this machine's address on its own network: the source address of its default
