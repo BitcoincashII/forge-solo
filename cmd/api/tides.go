@@ -79,10 +79,13 @@ func fetchTides(path string) ([]byte, error) {
 
 // payoutAddressInEffect is the BCH2 payout address the dashboard shows: the saved one, else a
 // valid POOL_ADDRESS from the app config.
-func payoutAddressInEffect() string {
+//
+// An error means the stored settings could not be read: the caller must say so rather than
+// report "not configured", which invites the user to re-enter, and so overwrite, their settings.
+func payoutAddressInEffect() (string, error) {
 	poolAddr, _, _, err := stats.GetPoolConfig()
 	if err != nil {
-		poolAddr = ""
+		return "", err
 	}
 	if poolAddr == "" {
 		if env := strings.TrimSpace(os.Getenv("POOL_ADDRESS")); env != "" {
@@ -93,7 +96,7 @@ func payoutAddressInEffect() string {
 			}
 		}
 	}
-	return poolAddr
+	return poolAddr, nil
 }
 
 func sendTides(c *fiber.Ctx, body []byte, err error) error {
@@ -113,7 +116,10 @@ func getTidesPool(c *fiber.Ctx) error {
 
 // getTidesMine is this install's row in the window and its payouts from DATUM blocks.
 func getTidesMine(c *fiber.Ctx) error {
-	addr := payoutAddressInEffect()
+	addr, err := payoutAddressInEffect()
+	if err != nil {
+		return settingsUnreadable(c, err)
+	}
 	if addr == "" {
 		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "No BCH2 payout address is set yet."})
 	}

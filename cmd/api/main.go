@@ -1331,14 +1331,21 @@ func getPoolConfig(c *fiber.Ctx) error {
 	// whatever was seeded in the Umbrel app config, then the DB value once configured).
 	_, payout1175, tag, err := stats.GetPoolConfig()
 	if err != nil {
-		payout1175, tag = "", ""
+		return settingsUnreadable(c, err)
+	}
+	mode, err := stats.GetPayoutMode()
+	if err != nil {
+		return settingsUnreadable(c, err)
 	}
 	// The env fallback is validated before it reaches the page. Unvalidated, an Umbrel
 	// app-config value with a bitcoincash: prefix or a P2SH p… address made the settings page
 	// show the address, hide its "not configured" banner, and then 400 every save -- including
 	// a save meant only to change the tag -- while the stratum sat paused. An invalid value is
 	// no configuration at all.
-	poolAddr := payoutAddressInEffect()
+	poolAddr, err := payoutAddressInEffect()
+	if err != nil {
+		return settingsUnreadable(c, err)
+	}
 	if payout1175 == "" {
 		// Validated, like the POOL_ADDRESS fallback beside it. Unvalidated, one typo in the
 		// Umbrel app config pre-filled the form with a bad address and then 400'd EVERY
@@ -1370,18 +1377,20 @@ func getPoolConfig(c *fiber.Ctx) error {
 		"payout_address_1175": payout1175,
 		"coinbase_tag":        tag,
 		"configured":          poolAddr != "",
-		"payout_mode":         payoutModeOrSolo(),
+		"payout_mode":         mode,
 		// false: this app runs no 1175 node, so the dashboard hides 1175 merge-mining.
 		"merge_mining_available": mergeMiningAvailable(),
 	})
 }
 
 // payoutModeOrSolo is the dashboard's payout mode: solo unless TIDES was chosen.
-func payoutModeOrSolo() string {
-	if mode, err := stats.GetPayoutMode(); err == nil {
-		return mode
-	}
-	return stats.PayoutModeSolo
+// settingsUnreadable answers a request that needs the stored settings when the database cannot
+// be read. Answering with defaults instead made Settings show "not configured", blank fields and
+// Solo after a database hiccup, and the user's next save then wrote those over the real settings.
+func settingsUnreadable(c *fiber.Ctx, err error) error {
+	log.Printf("pool config: cannot read the stored settings: %v", err)
+	return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"success": false,
+		"error": "Forge Solo cannot read its saved settings right now (database unavailable). Nothing was changed; try again in a minute."})
 }
 
 func savePoolConfig(c *fiber.Ctx) error {
@@ -1409,7 +1418,10 @@ func savePoolConfig(c *fiber.Ctx) error {
 	// Load current DB values so a partial save (e.g. only the coinbase tag) preserves the rest.
 	// Only the BCH2 address and the minimum are carried forward on a partial save; the two
 	// optional fields are cleared by a blank, see below.
-	curPool, _, _, _ := stats.GetPoolConfig()
+	curPool, _, _, err := stats.GetPoolConfig()
+	if err != nil {
+		return settingsUnreadable(c, err)
+	}
 
 	// BCH2 payout address: validate with the full CashAddr checksum validator. Blank keeps
 	// the current value (does NOT clear a configured address).
