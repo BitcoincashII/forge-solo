@@ -177,7 +177,11 @@ func run(cfgPath string, stop <-chan struct{}, asService bool) error {
 		zap.String("gateway_id", gw.ID()))
 
 	<-stop
-	log.Info("stopping: sending the pool the shares still queued")
+	// The miners first: Stop handles what they send in its grace and waits for shares, a block
+	// among them, still being processed. Flushing before it (with Stop deferred) left the shares
+	// accepted in the last seconds queued after the flush, and lost.
+	log.Info("stopping: closing the miners' connections, then sending the pool the shares still queued")
+	srv.Stop()
 	gw.Flush()
 	return nil
 }
