@@ -24,7 +24,8 @@ pool block pays you.
 
 **Quit and Restart Mining stop the mining service cleanly.** They used to kill it outright, so
 its miners were cut off and, in TIDES mode, the shares it still held never reached the pool. It is
-now asked to stop, and killed only if it has not stopped within 12 seconds.
+now asked to stop, which takes a few seconds, and killed only if it has not stopped within 30
+seconds. A block found in its last moments is still submitted.
 
 **Your miners are told this PC's address.** The dashboard and Settings showed
 `stratum+tcp://127.0.0.1:3333`, which only a miner on this same PC can reach. They now show this

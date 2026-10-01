@@ -189,7 +189,9 @@ func startAPI() {
 	c.Env = append(append(os.Environ(), dbEnv()...),
 		"RPC_URL=http://127.0.0.1:"+bch2RPC, "RPC_USER=forge", "RPC_PASSWORD="+sec.BCH2Pass,
 		"STRATUM_INTERNAL_URL=http://127.0.0.1:"+stratumInt, "INTERNAL_API_TOKEN="+sec.Token,
-		"API_HOST=127.0.0.1", "API_PORT="+apiPort, "API_LISTEN_PORT="+apiPort, "HOME_APP=1", "CORS_ORIGINS=",
+		// API_LISTEN_HOST keeps the API on this PC: it has no login of its own (HOME_APP) and the
+		// dashboard server reaches it on 127.0.0.1. Unset, it listened on every interface.
+		"API_HOST=127.0.0.1", "API_PORT="+apiPort, "API_LISTEN_HOST=127.0.0.1", "API_LISTEN_PORT="+apiPort, "HOME_APP=1", "CORS_ORIGINS=",
 		"AUX1175_URL=http://127.0.0.1:"+aux1175RPC, "AUX1175_USER=forge1175", "AUX1175_PASSWORD="+sec.AuxPass)
 	_ = run("api", c)
 }
@@ -267,8 +269,10 @@ func waitProcExit(key string, timeout time.Duration) {
 }
 
 // stratumStopGrace is how long the stratum gets to stop cleanly once asked: 2 s for connected
-// miners on each port, then sending the pool its queued TIDES shares (5 s per request).
-const stratumStopGrace = 12 * time.Second
+// miners (both ports at once), up to 15 s for shares and a block still being processed or
+// submitted (only when there is one), then sending the pool its queued TIDES shares (5 s per
+// request). Usually it takes 2-3 s.
+const stratumStopGrace = 30 * time.Second
 
 // stopGracefully asks a process to stop by closing its stdin, waits up to grace for it to exit,
 // and kills it only if it has not.
