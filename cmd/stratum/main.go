@@ -506,6 +506,18 @@ func aux1175BlockConfirmations(hash string) (int64, bool) {
 	return int64(cf), true
 }
 
+// payout1175Once runs the 1175 payout processor once per process. It was started at boot and
+// again every time merge-mining was switched back on, so each TIDES-to-solo round trip left one
+// more copy polling the 1175 node and retrying distributions alongside the others.
+var payout1175Once sync.Once
+
+// run1175Processor is what start1175PayoutProcessorOnce starts; a test substitutes it.
+var run1175Processor = start1175PayoutProcessor
+
+func start1175PayoutProcessorOnce() {
+	payout1175Once.Do(func() { go run1175Processor() })
+}
+
 func start1175PayoutProcessor() {
 	ticker := time.NewTicker(120 * time.Second)
 	defer ticker.Stop()
@@ -1160,7 +1172,7 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 				// fields are wired — so a produced aux job always has a server ready to submit it.
 				enableJobManagerAuxMergeMining(cfg, p1175)
 				if stats.IsDBConnected() {
-					go start1175PayoutProcessor()
+					start1175PayoutProcessorOnce()
 				}
 				logger.Info("💠 1175 merge-mining enabled from dashboard", zap.String("payout_address_1175", p1175))
 			} else {
@@ -1538,7 +1550,7 @@ func main() {
 
 	// 1175 merge-mining payout processor (pays miners their accrued 1175).
 	if merge1175Enabled && stats.IsDBConnected() {
-		go start1175PayoutProcessor()
+		start1175PayoutProcessorOnce()
 	}
 
 	logger.Info("✅ Stratum server running", zap.Int("port", serverConfig.Port))
