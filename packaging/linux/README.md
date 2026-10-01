@@ -51,8 +51,8 @@ It runs in the foreground; Ctrl-C stops it (see **Stopping**). Then:
    Settings, whatever the worker name. NiceHash and MiningRigRentals, which put a whole order
    behind one connection, use port **3335**.
 
-The node syncs the chain first, which takes a few minutes; the dashboard shows its progress, and
-mining starts once it is done. Everything is kept in the data directory:
+The node syncs the chain first, about a quarter of an hour on a PC and longer on a small board;
+the dashboard shows its progress, and mining starts once it is done. Everything is kept in the data directory:
 `~/.local/share/forge-solo`, or `/var/lib/forge-solo` when run as root or as the service.
 
 ## Run it as a service (systemd)

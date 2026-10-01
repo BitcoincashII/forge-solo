@@ -51,6 +51,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # What changed: the section of cmd/forge-gateway/RELEASE_NOTES.md headed "## <version>".
+          version="${GITHUB_REF_NAME#gateway-v}"
+          awk -v h="## $version" '$0 == h {on = 1; next} /^## / {on = 0} on' \
+            cmd/forge-gateway/RELEASE_NOTES.md > /tmp/notes.md
+          if ! grep -q '[^[:space:]]' /tmp/notes.md; then
+            echo "Mine into Forge Pool's TIDES window from your own BCH2 node. See cmd/forge-gateway/README.md. Verify downloads against SHA256SUMS." > /tmp/notes.md
+          fi
           gh release create "$GITHUB_REF_NAME" dist/* \
-            --title "Forge Gateway ${GITHUB_REF_NAME#gateway-v}" \
-            --notes "Mine into Forge Pool's TIDES window from your own BCH2 node. See cmd/forge-gateway/README.md. Verify downloads against SHA256SUMS."
+            --title "Forge Gateway $version" \
+            --notes-file /tmp/notes.md
