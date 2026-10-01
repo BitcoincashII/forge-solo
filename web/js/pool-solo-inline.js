@@ -149,12 +149,15 @@
         async function updateStatusBanner() {
             var el = document.getElementById('syncBanner');
             if (!el) return;
-            // Pick up a payout address saved in Settings without needing a page reload.
-            if (!minerAddress) {
+            // Pick up a payout address saved in Settings without needing a page reload -- the first
+            // one, and a change: the stratum credits connected miners to the new address at once,
+            // and a dashboard left open on the old one read 0 H/s until it was reloaded. A page
+            // opened for a particular address (?address=) keeps it.
+            if (!minerAddress || !addressFromUrl) {
                 try {
                     const cfg = await apiFetch('/api/v1/pool/config');
                     configReachable = true;
-                    if (cfg && cfg.pool_address) {
+                    if (cfg && cfg.pool_address && cfg.pool_address !== minerAddress) {
                         minerAddress = cfg.pool_address;
                         var a = document.getElementById('minerAddress');
                         if (a) a.textContent = minerAddress;
@@ -282,7 +285,7 @@
         function updateModeBadge(ms) {
             const b = document.getElementById('modeBadge');
             if (!b) return;
-            if (!tidesInEffect(ms)) { b.textContent = 'SOLO'; b.className = 'mode-badge'; return; }
+            if (!tidesInEffect(ms)) { b.textContent = 'SOLO'; b.className = 'mode-badge'; b.title = ''; return; }
             const fallback = ms.tides && ms.tides.state === 'fallback';
             b.textContent = fallback ? 'TIDES · SOLO' : 'TIDES';
             b.className = 'mode-badge ' + (fallback ? 'fallback' : 'tides');
@@ -339,13 +342,14 @@
             document.getElementById('tidesPending').textContent = mine ? fmtBCH2(mine.pending_sats) : '--';
             document.getElementById('tidesPaid').textContent = mine ? fmtBCH2(mine.paid_sats) : '--';
             // Addresses with work in the window: the pool also lists ones that only have a carried amount.
-            document.getElementById('tidesMiners').textContent = pool && pool.miners ? String(pool.miners.filter(m => m.work > 0).length) : '--';
+            // The pool's lists are checked before use: a malformed answer must not stop the card.
+            document.getElementById('tidesMiners').textContent = pool && Array.isArray(pool.miners) ? String(pool.miners.filter(m => m && m.work > 0).length) : '--';
             const snap = pool && pool.snapshot;
             document.getElementById('tidesFill').textContent = snap && snap.window_work > 0
                 ? Math.min(100, Number(snap.filled_work) / Number(snap.window_work) * 100).toFixed(1) + '%' : '--';
 
             const tbody = document.getElementById('tidesBlocks');
-            const blocks = (pool && pool.blocks) || [];
+            const blocks = pool && Array.isArray(pool.blocks) ? pool.blocks : [];
             if (!pool) {
                 tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">Forge Pool did not answer — the pool\'s figures will appear when it does.</div></td></tr>';
                 return;
@@ -355,8 +359,8 @@
                 return;
             }
             const paidAt = {};
-            ((mine && mine.payouts) || []).forEach(p => { paidAt[p.height + ':' + p.hash] = p.sats; });
-            tbody.innerHTML = blocks.slice(0, 15).map(b => {
+            (mine && Array.isArray(mine.payouts) ? mine.payouts : []).forEach(p => { if (p) paidAt[p.height + ':' + p.hash] = p.sats; });
+            tbody.innerHTML = blocks.filter(b => b && typeof b === 'object').slice(0, 15).map(b => {
                 const you = sameAddr(b.finder, minerAddress);
                 const got = paidAt[b.height + ':' + b.hash];
                 const when = b.found_at ? new Date(b.found_at).toLocaleString() : '';
