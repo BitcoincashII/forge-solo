@@ -25,6 +25,7 @@ RUN set -eux; \
     rm -rf /tmp/esf.tar.gz /tmp/elevenseventyfive-${ESF_VERSION}
 
 COPY entrypoint.sh /entrypoint.sh
+COPY peeraddr.sh /peeraddr.sh
 RUN chmod +x /entrypoint.sh
 EXPOSE 25360 25361
 ENTRYPOINT ["/entrypoint.sh"]

@@ -327,21 +327,14 @@ func main() {
 
 	app.Use(logRequests)
 
-	// Configure CORS - MUST set CORS_ORIGINS env var in production
-	// Example: CORS_ORIGINS="https://pool.example.com,https://www.pool.example.com"
-	corsOrigins := os.Getenv("CORS_ORIGINS")
-	if corsOrigins == "" {
-		// Default to localhost only - MUST be configured for production
-		corsOrigins = "http://localhost:3000,http://127.0.0.1:3000"
-		log.Println("WARNING: CORS_ORIGINS not set, defaulting to localhost only. Set CORS_ORIGINS env var for production.")
+	// On this machine only (Forge Solo for Windows and Linux), answer only to this machine's own
+	// names: a web page can rebind its name to 127.0.0.1 and reach the API as same-origin, but the
+	// browser still sends the page's name as Host.
+	if listenHostIsLoopback(os.Getenv("API_LISTEN_HOST")) {
+		app.Use(onlyLocalHost)
 	}
-	app.Use(cors.New(cors.Config{
-		AllowOrigins:     corsOrigins,
-		AllowMethods:     "GET,POST,OPTIONS",
-		AllowHeaders:     "Origin,Content-Type,Accept,Authorization",
-		AllowCredentials: false,
-		MaxAge:           3600,
-	}))
+
+	useCORS(app, os.Getenv("CORS_ORIGINS"))
 
 	// Rate limiting: 1000 requests per minute per IP
 	apiRateMax := 6000
@@ -808,6 +801,45 @@ func logRequests(c *fiber.Ctx) error {
 		log.Printf("%s %s %d %s", m, c.Path(), status, time.Since(start).Round(time.Millisecond))
 	}
 	return err
+}
+
+// useCORS allows cross-origin reads only from the origins CORS_ORIGINS names. The dashboard is
+// served from the API's own origin and needs none; the old default, used whenever the variable was
+// empty (on every platform), let any page on localhost:3000 read the API.
+func useCORS(app *fiber.App, origins string) {
+	if origins == "" {
+		return
+	}
+	app.Use(cors.New(cors.Config{
+		AllowOrigins:     origins,
+		AllowMethods:     "GET,POST,OPTIONS",
+		AllowHeaders:     "Origin,Content-Type,Accept,Authorization",
+		AllowCredentials: false,
+		MaxAge:           3600,
+	}))
+}
+
+// listenHostIsLoopback reports whether API_LISTEN_HOST keeps the API on this machine.
+func listenHostIsLoopback(host string) bool {
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// onlyLocalHost answers 421 to a request whose Host is not this machine's own name.
+func onlyLocalHost(c *fiber.Ctx) error {
+	host := c.Get(fiber.HeaderHost)
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	if !listenHostIsLoopback(host) {
+		return c.Status(fiber.StatusMisdirectedRequest).JSON(fiber.Map{"success": false,
+			"error": "Forge Solo answers only at 127.0.0.1 or localhost"})
+	}
+	return c.Next()
 }
 
 func rejectCrossSiteWrites(c *fiber.Ctx) error {

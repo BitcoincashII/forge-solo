@@ -62,9 +62,20 @@ Filename: "{app}\{#MyAppExe}"; Description: "Launch Forge Solo now"; Flags: nowa
 //  - inbound TCP 3333  : a LAN Bitaxe/ASIC can reach the miner (private/domain only)
 //  - inbound TCP 8339  : the BCH2 node accepts incoming peers (any profile)
 //  - inbound TCP 25360 : the 1175 node accepts incoming peers (any profile)
-//  - Defender exclusion for the data folder so it stops rescanning the blockchain/DB on
-//    every write — the main cause of disk thrash / freezes on a laptop.
+//  - Defender exclusions for the folders written constantly (both nodes' blocks and chainstate,
+//    and the database) so it stops rescanning them on every write, the main cause of disk thrash
+//    and freezes on a laptop. Not the whole data folder: a folder the user can write to and
+//    Defender never scans is a place any other program could hide files. An upgrade removes the
+//    whole-folder exclusion earlier versions added.
 // Mining from THIS PC (127.0.0.1:3333) needs no rule at all.
+// DefenderPaths lists, quoted for PowerShell, the data folders written constantly.
+function DefenderPaths(DataDir: String): String;
+begin
+  Result := '''' + DataDir + '\bch2\blocks'', ''' + DataDir + '\bch2\chainstate'', ''' +
+            DataDir + '\elevenseventyfive\blocks'', ''' + DataDir + '\elevenseventyfive\chainstate'', ''' +
+            DataDir + '\pgdata''';
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var ResultCode: Integer; DataDir, Cmd: String;
 begin
@@ -79,7 +90,7 @@ begin
       'netsh advfirewall firewall add rule name="Forge Solo BCH2 P2P (8339)" dir=in action=allow protocol=TCP localport=8339 profile=any & ' +
       'netsh advfirewall firewall delete rule name="Forge Solo 1175 P2P (25360)" >nul 2>&1 & ' +
       'netsh advfirewall firewall add rule name="Forge Solo 1175 P2P (25360)" dir=in action=allow protocol=TCP localport=25360 profile=any & ' +
-      'powershell -NoProfile -Command "Add-MpPreference -ExclusionPath ''' + DataDir + ''' -ErrorAction SilentlyContinue"';
+      'powershell -NoProfile -Command "Remove-MpPreference -ExclusionPath ''' + DataDir + ''' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionPath ' + DefenderPaths(DataDir) + ' -ErrorAction SilentlyContinue"';
     ShellExec('runas', ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
 end;
@@ -95,7 +106,7 @@ begin
       'netsh advfirewall firewall delete rule name="Forge Solo BCH2 P2P (8339)" & ' +
       'netsh advfirewall firewall delete rule name="Forge Solo BCH2 P2P (8333)" & ' +
       'netsh advfirewall firewall delete rule name="Forge Solo 1175 P2P (25360)" & ' +
-      'powershell -NoProfile -Command "Remove-MpPreference -ExclusionPath ''' + DataDir + ''' -ErrorAction SilentlyContinue"';
+      'powershell -NoProfile -Command "Remove-MpPreference -ExclusionPath ''' + DataDir + ''', ' + DefenderPaths(DataDir) + ' -ErrorAction SilentlyContinue"';
     ShellExec('runas', ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
 

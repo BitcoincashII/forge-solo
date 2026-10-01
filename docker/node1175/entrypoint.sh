@@ -12,6 +12,8 @@ set -e
 # getpeerinfo.addrlocal carries the same fact one hop out: the address a peer observed
 # our connection arriving from. Learn it while running, persist it, and advertise it
 # from the next start.
+. /peeraddr.sh
+
 DATADIR="/data/.elevenseventyfive"
 IPFILE="$DATADIR/external-ip"
 CLI="/usr/local/bin/elevenseventyfive-cli"
@@ -27,19 +29,15 @@ else
     echo "[entrypoint] no external address known yet (1175); learning from peers" >&2
 fi
 
-# Peer-supplied data, so no single peer decides it: take the value at least two peers
-# agree on, and never accept one the outside world could not dial anyway.
+# Peer-supplied data, so no single peer decides it: take the value at least two OUTBOUND peers
+# (ones this node chose) agree on, and never accept one the outside world could not dial anyway.
 learn_external_ip() {
     while true; do
         sleep 300
         peers="$($CLI -datadir="$DATADIR" -rpcuser="${RPC_USER:-}" \
                  -rpcpassword="${RPC_PASSWORD:-}" getpeerinfo 2>/dev/null)" || continue
         [ -n "$peers" ] || continue
-        best="$(printf '%s' "$peers" \
-            | grep -o '"addrlocal"[[:space:]]*:[[:space:]]*"[^"]*"' \
-            | sed 's/.*"\([^"]*\)"$/\1/' \
-            | sed 's/:[0-9]*$//; s/^\[//; s/\]$//' \
-            | sort | uniq -c | sort -rn | head -1)"
+        best="$(printf '%s' "$peers" | outbound_addrlocals | sort | uniq -c | sort -rn | head -1)"
         count="$(printf '%s' "$best" | awk '{print $1}')"
         ip="$(printf '%s' "$best" | awk '{print $2}')"
         [ -n "$ip" ] || continue

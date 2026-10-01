@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -36,5 +37,33 @@ func serveDashboard() {
 			fs.ServeHTTP(w, r)
 		}
 	})
-	_ = http.ListenAndServe("127.0.0.1:"+webPort, mux)
+	// The dashboard has no password, and listens on this machine only. A page on any site could
+	// rebind its own name to 127.0.0.1 and send same-origin requests here, settings included; the
+	// browser still sends that site's name as Host, so anything but this machine's own name is refused.
+	_ = http.ListenAndServe("127.0.0.1:"+webPort, onlyLocalHost(mux))
+}
+
+// onlyLocalHost answers 421 to a request whose Host is not this machine's own name.
+func onlyLocalHost(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !isLocalHost(r.Host) {
+			http.Error(w, "Forge Solo answers only at 127.0.0.1 or localhost.", http.StatusMisdirectedRequest)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
+}
+
+// isLocalHost reports whether a Host header names this machine: localhost or a loopback address.
+func isLocalHost(hostport string) bool {
+	host := hostport
+	if h, _, err := net.SplitHostPort(hostport); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

@@ -33,6 +33,7 @@ func webFixture(t *testing.T) (root string, api *httptest.Server, seen *http.Hea
 func get(t *testing.T, h http.Handler, path string, auth ...string) *httptest.ResponseRecorder {
 	t.Helper()
 	r := httptest.NewRequest("GET", path, nil)
+	r.Host = "127.0.0.1:3080" // the dashboard answers only to this machine's own names
 	if len(auth) == 2 {
 		r.SetBasicAuth(auth[0], auth[1])
 	}

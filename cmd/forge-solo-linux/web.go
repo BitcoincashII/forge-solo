@@ -46,7 +46,10 @@ func dashboardHandler(webRoot, apiAddr, password string) http.Handler {
 		}
 	})
 	if password == "" {
-		return h
+		// Listening on this machine only, with no password: a page on any site could rebind its
+		// own name to 127.0.0.1 and send same-origin requests here, settings included. The browser
+		// still sends that site's name as Host, so anything but this machine's own name is refused.
+		return onlyLocalHost(h)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, pw, ok := r.BasicAuth()
@@ -58,6 +61,31 @@ func dashboardHandler(webRoot, apiAddr, password string) http.Handler {
 		}
 		h.ServeHTTP(w, r)
 	})
+}
+
+// onlyLocalHost answers 421 to a request whose Host is not this machine's own name.
+func onlyLocalHost(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !isLocalHost(r.Host) {
+			http.Error(w, "Forge Solo answers only at 127.0.0.1 or localhost.", http.StatusMisdirectedRequest)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
+}
+
+// isLocalHost reports whether a Host header names this machine: localhost or a loopback address.
+func isLocalHost(hostport string) bool {
+	host := hostport
+	if h, _, err := net.SplitHostPort(hostport); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // webNeedsPassword is true unless the dashboard listens on loopback only.
