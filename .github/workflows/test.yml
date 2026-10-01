@@ -143,3 +143,37 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 scripts/check-store-manifest.py
+
+  windows:
+    name: Windows launcher and installer
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # The launcher is Windows-only code and its own module, so the unit job's ./... skips it.
+      # Vetting and building it for any other GOOS proves nothing about what ships. Its config
+      # is checked against the stratum's template by windows_config_test.go in the unit job.
+      - name: Vet and build the launcher for Windows
+        working-directory: windows/launcher
+        run: |
+          GOOS=windows GOARCH=amd64 go vet ./...
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui -s -w" -o /tmp/forge-solo.exe .
+
+      # The installer script is only exercised at release time otherwise, and a syntax error or a
+      # missing source path there fails the release rather than the change that caused it. The
+      # executables and PostgreSQL are placeholders; the dashboard and schema are the real ones.
+      - name: The installer script compiles
+        run: |
+          mkdir -p windows/bin windows/pgsql/bin
+          : > windows/bin/placeholder.txt; : > windows/pgsql/bin/placeholder.txt
+          chmod a+w windows
+          docker run --rm -v "$PWD":/work amake/innosetup /DMyAppVersion=0.0.0-check windows/forge-solo.iss | tee /tmp/iscc.log
+          test -f windows/ForgeSolo-Setup-0.0.0-check.exe
+          grep -q 'web\\dist\\settings.html' /tmp/iscc.log || { echo "::error::the dashboard is not in the installer"; exit 1; }
+          grep -q 'init-db.sql' /tmp/iscc.log || { echo "::error::the schema is not in the installer"; exit 1; }

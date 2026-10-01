@@ -1,0 +1,212 @@
+name: Release
+
+# The release page for a v* tag, with the signed Windows installer on it. The Umbrel images for the
+# same tag are built by docker-build.yml; the Linux downloads are built with
+# scripts/linux/build-release.sh and added to this page afterwards (README, "Releasing").
+#
+# Everything the installer contains is fetched here and sha256-verified fail-closed: both node
+# binaries from their own published releases, PostgreSQL from EnterpriseDB, and the three Go
+# executables compiled from this checkout. The result is ONE ForgeSolo-Setup-<version>.exe --
+# there is no separate zip, because a user who downloads the wrong one of two assets ends up with
+# something that does not install.
+#
+# The signing certificate is a secret of the `release` environment, which only v* tags may use, and
+# only the publish job asks for it: the build, pull requests and manual runs never see it.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to stamp (default 0.0.0-dev). A manual run builds the installer unsigned and publishes nothing.'
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  # Pinned and verified. Bumping any of these means bumping its hash in the same commit.
+  BCH2_VERSION: '27.0.2'
+  BCH2_SHA256: '751a854418571fc6d0e5a64f52ee4bd54dbc50a10a889ea5a35f0336bdb33519'
+  ESF_VERSION: '29.1.0'
+  ESF_SHA256: 'd9143e968b500ad042402d582d26255a40f52ce57f52fb46673d2b7726d55632'
+  PG_VERSION: '16.10'
+  PG_SHA256: 'ebb3b6af4fa69dea9951b66855bc4d42dc04e56ccb9aa7024ce3c58bd89d6b0c'
+
+jobs:
+  installer:
+    name: Build the Windows installer
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # The input reaches the shell through the environment, never spliced into the script.
+      - name: Resolve the version being built
+        id: ver
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          if [ -n "$INPUT_VERSION" ]; then V="$INPUT_VERSION"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then V="${GITHUB_REF_NAME#v}"
+          else V="0.0.0-dev"; fi
+          case "$V" in ''|*[!0-9A-Za-z.-]*) echo "::error::not a version: '$V'"; exit 1 ;; esac
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Building version $V"
+
+      - name: Build the three executables
+        run: |
+          mkdir -p windows/bin
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags '-s -w' -o windows/bin/stratum.exe ./cmd/stratum
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags '-s -w' -o windows/bin/api.exe     ./cmd/api
+          go install github.com/akavel/rsrc@v0.10.2
+          (cd windows/launcher && "$(go env GOPATH)/bin/rsrc" -ico forge-solo.ico -arch amd64 -o rsrc.syso)
+          (cd windows/launcher && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui -s -w" -o ../bin/forge-solo.exe .)
+
+      # Present on GitHub's Ubuntu images, but the whole build depends on it, so do not
+      # assume the image never changes.
+      - name: Ensure 7z is available
+        run: command -v 7z >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq p7zip-full; }
+
+      - name: Fetch the BCH2 node
+        run: |
+          curl -fsSL -o /tmp/bch2.zip \
+            "https://github.com/BitcoincashII/bitcoincashII-core/releases/download/v${BCH2_VERSION}/bitcoincashII-${BCH2_VERSION}-win64.zip"
+          echo "${BCH2_SHA256}  /tmp/bch2.zip" | sha256sum -c -
+          7z x -y -o/tmp/bch2 /tmp/bch2.zip > /dev/null
+          cp "/tmp/bch2/bitcoincashII-${BCH2_VERSION}-win64/bitcoincashIId.exe" windows/bin/
+
+      # 1175 publishes an NSIS installer rather than a zip, so the daemon is extracted from it.
+      - name: Fetch the 1175 node
+        run: |
+          curl -fsSL -o /tmp/esf.exe \
+            "https://github.com/1175Dev/1175/releases/download/v${ESF_VERSION}/elevenseventyfive-${ESF_VERSION}-win64-setup.exe"
+          echo "${ESF_SHA256}  /tmp/esf.exe" | sha256sum -c -
+          7z x -y -o/tmp/esf /tmp/esf.exe > /dev/null
+          cp /tmp/esf/daemon/elevenseventyfived.exe windows/bin/
+
+      # Only bin, lib and share: the rest of the archive is pgAdmin and headers this never runs.
+      # Stay on 16.x -- a data directory is bound to its major version, so 17.x would leave every
+      # existing install unable to start its database.
+      - name: Fetch PostgreSQL
+        run: |
+          curl -fsSL -o /tmp/pg.zip \
+            "https://get.enterprisedb.com/postgresql/postgresql-${PG_VERSION}-1-windows-x64-binaries.zip"
+          echo "${PG_SHA256}  /tmp/pg.zip" | sha256sum -c -
+          mkdir -p windows/pgsql
+          7z x -y -o/tmp/pg /tmp/pg.zip 'pgsql/bin/*' 'pgsql/lib/*' 'pgsql/share/*' > /dev/null
+          cp -a /tmp/pg/pgsql/bin /tmp/pg/pgsql/lib /tmp/pg/pgsql/share windows/pgsql/
+          test -f windows/pgsql/bin/postgres.exe
+
+      # The Inno Setup image runs as uid 1000 while the runner's workspace is owned by uid
+      # 1001, so the container cannot write its output into windows/ and the compile dies with
+      # "Access denied". Only that directory needs to be writable -- the inputs are
+      # world-readable already. The whole checkout is mounted: the script reads ../web/dist and
+      # ../init-db.sql.
+      - name: Compile the installer
+        run: |
+          chmod a+w windows
+          docker run --rm -v "$PWD":/work amake/innosetup \
+            "/DMyAppVersion=${{ steps.ver.outputs.version }}" windows/forge-solo.iss
+          test -f "windows/ForgeSolo-Setup-${{ steps.ver.outputs.version }}.exe"
+
+      - name: Upload the unsigned installer
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: installer
+          path: windows/ForgeSolo-Setup-${{ steps.ver.outputs.version }}.exe
+          if-no-files-found: error
+
+  publish:
+    name: Sign the installer and publish the release
+    if: github.ref_type == 'tag'
+    needs: installer
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write   # create the release
+    env:
+      V: ${{ needs.installer.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Take the installer from the build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: installer
+
+      # A tag build must not publish an unsigned installer.
+      - name: Sign the installer
+        env:
+          PFX_B64: ${{ secrets.WINDOWS_SIGNING_PFX_B64 }}
+          PFX_PASS: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
+        run: |
+          SETUP="ForgeSolo-Setup-${V}.exe"
+          if [ -z "$PFX_B64" ]; then
+            echo "::error::WINDOWS_SIGNING_PFX_B64 is not set in the release environment; refusing to publish an unsigned installer."
+            exit 1
+          fi
+          printf '%s' "$PFX_B64" | base64 -d > /tmp/signing.pfx
+          chmod a+w .
+          docker run --rm -v "$PWD":/w -v /tmp:/s -w /w --entrypoint osslsigncode amake/innosetup \
+            sign -pkcs12 /s/signing.pfx -pass "$PFX_PASS" \
+            -n "Forge Solo" -i "https://github.com/${GITHUB_REPOSITORY}" \
+            -h sha256 -in "$SETUP" -out "/w/signed.exe"
+          mv signed.exe "$SETUP"
+          shred -u /tmp/signing.pfx 2>/dev/null || rm -f /tmp/signing.pfx
+
+      # Reads the PE certificate table directly rather than trusting the signer's exit code.
+      - name: Verify the signature is present
+        run: |
+          python3 - "ForgeSolo-Setup-${V}.exe" <<'EOF'
+          import struct, sys
+          d = open(sys.argv[1], 'rb').read()
+          pe = struct.unpack_from('<I', d, 0x3c)[0]
+          magic = struct.unpack_from('<H', d, pe + 24)[0]
+          dd = pe + 24 + (112 if magic == 0x20b else 96)
+          _, size = struct.unpack_from('<II', d, dd + 4 * 8)   # index 4 = certificate table
+          print(f"certificate table: {size} bytes")
+          if size == 0:
+              print("::error::the installer is not signed")
+              sys.exit(1)
+          EOF
+
+      # What changed goes first: the section of RELEASE_NOTES.md headed "## <version>". A release
+      # without one stops here rather than publishing a page that says nothing.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SETUP="ForgeSolo-Setup-${V}.exe"
+          sha256sum "$SETUP" | tee SHA256SUMS-windows
+          awk -v h="## ${V}" '$0 == h {on = 1; next} /^## / {on = 0} on' RELEASE_NOTES.md > /tmp/changes.md
+          if ! grep -q '[^[:space:]]' /tmp/changes.md; then
+            echo "::error::RELEASE_NOTES.md has no section headed '## ${V}'"
+            exit 1
+          fi
+          {
+            cat /tmp/changes.md
+            printf '\n---\n\n## Downloads\n\n'
+            echo "- **Umbrel:** update Forge Solo from the App Store on your Umbrel."
+            echo "- **Windows:** \`${SETUP}\`, signed."
+            echo "- **Linux:** \`forge-solo-${V}-linux-<arch>.tar.gz\`, where \`<arch>\` is what \`uname -m\` prints; checksums in \`SHA256SUMS-linux\`."
+            printf '\nThe Windows installer was built and signed by CI from a clean runner:\n\n'
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Services built from | \`${GITHUB_REPOSITORY}@${GITHUB_SHA}\` |"
+            echo "| BCH2 node | ${BCH2_VERSION} |"
+            echo "| 1175 node | ${ESF_VERSION} |"
+            echo "| PostgreSQL | ${PG_VERSION} |"
+            echo
+            echo "Every bundled component is fetched during the build and sha256-verified. \`SHA256SUMS-windows\` covers the installer."
+          } > /tmp/notes.md
+          gh release create "${GITHUB_REF_NAME}" "$SETUP" SHA256SUMS-windows --verify-tag \
+            --title "Forge Solo ${V}" --notes-file /tmp/notes.md

@@ -1,8 +1,11 @@
-# Forge Solo (Umbrel)
+# Forge Solo
 
-Solo-mine **BCH2** at home and **merge-mine 1175 (ESF)** at no extra hashrate cost.
-Built on the hardened Forge Pool engine, packaged for a single household — **solo only,
-no PPLNS, no pool fee**.
+Mine **BCH2** at home on your own full node: **solo**, where a block you find pays you in full,
+or **TIDES**, where blocks are shared through Forge Pool's TIDES window. In solo mode on Umbrel
+and Windows it also **merge-mines 1175 (ESF)** at no extra hashrate cost. Built on the hardened
+Forge Pool engine, packaged for a single household — **no PPLNS, no pool fee**.
+
+It runs on **Umbrel**, **Windows** and **Linux**, all built from this repository.
 
 ## Install on Umbrel
 
@@ -11,6 +14,16 @@ no PPLNS, no pool fee**.
    ⚠️ Add the **app-store** repo — **not** `bitcoincashII-core` (that is the node/wallet source code, not an app store; Umbrel will fail to load it).
 2. Open **BCH2 Community Apps** and install **Forge Solo**.
 3. Set your BCH2 payout address on the app's **Settings** page, then point your miner at `stratum+tcp://<your-umbrel-ip>:3333`. The worker username can be any label.
+
+## Windows and Linux
+
+Download from the [latest release](https://github.com/BitcoincashII/forge-solo/releases/latest):
+
+- **Windows:** `ForgeSolo-Setup-<version>.exe`, a signed installer. See [windows/README.md](windows/README.md).
+- **Linux:** `forge-solo-<version>-linux-<arch>.tar.gz` for x86_64, aarch64, armv7l, armv6l, i686
+  and riscv64, fully static. See [packaging/linux/README.md](packaging/linux/README.md).
+
+Windows 1.0.12 and earlier are on the [old Windows repository's releases](https://github.com/BitcoincashII/forge-solo-windows/releases).
 
 ## What's inside
 - `node` — BCH2 full node (auto-syncs, keeps the whole chain so other nodes can sync from it)
@@ -102,6 +115,20 @@ and the worker label is only a label.
 - Internal API fails **closed** without its token.
 - 1175 node binary is **checksum-verified**; images are version-pinned.
 - Share work is credited as `min(assigned, proven)` — no credit inflation.
+
+## Releasing
+
+1. Write the version's section in [RELEASE_NOTES.md](RELEASE_NOTES.md), which covers every
+   platform, and in `umbrel-app.yml` the `releaseNotes` (Umbrel's update screen) and `version`.
+   Commit, tag `v<version>`, and push `main`, then the tag.
+2. The tag runs two workflows. `docker-build.yml` builds the five Umbrel images and commits their
+   digests to `main`; `packaging_test` fails until it has, by design. `release.yml` builds the
+   Windows installer, signs it in the `release` environment and publishes the release page.
+3. Build the Linux downloads and add them to that page:
+   `scripts/linux/build-release.sh <version> && gh release upload v<version> dist/forge-solo-<version>-linux-*.tar.gz dist/SHA256SUMS-linux`
+4. Copy `umbrel-app.yml` and `docker-compose.yml` into `bch2-apps-forge-solo/` of
+   [BitcoincashII/umbrel-app-store](https://github.com/BitcoincashII/umbrel-app-store), then
+   re-run the Tests workflow on `main`: its store check passes once the store matches.
 
 ## License and credits
 
