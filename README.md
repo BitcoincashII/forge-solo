@@ -129,9 +129,12 @@ and the worker label is only a label.
    Windows installer, signs it in the `release` environment and publishes the release page.
 3. Build the Linux downloads and add them to that page:
    `scripts/linux/build-release.sh <version> && gh release upload v<version> dist/forge-solo-<version>-linux-*.tar.gz dist/SHA256SUMS-linux`
-4. Copy `umbrel-app.yml` and `docker-compose.yml` into `bch2-apps-forge-solo/` of
-   [BitcoincashII/umbrel-app-store](https://github.com/BitcoincashII/umbrel-app-store), then
-   re-run the Tests workflow on `main`: its store check passes once the store matches.
+4. Before the store sees the release, check that every image it pins pulls without a login:
+   a package GHCR creates for the first time can start out private, and then every install and
+   update fails. Change its visibility in the package's settings on GitHub.
+5. Copy `umbrel-app.yml`, `docker-compose.yml`, `exports.sh` and `init-db.sql` into
+   `bch2-apps-forge-solo/` of [BitcoincashII/umbrel-app-store](https://github.com/BitcoincashII/umbrel-app-store),
+   then re-run the Tests workflow on `main`: its store check passes once the store matches.
 
 ## License and credits
 
