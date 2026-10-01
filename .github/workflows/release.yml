@@ -182,7 +182,7 @@ jobs:
         run: |
           SETUP="ForgeSolo-Setup-${{ steps.ver.outputs.version }}.exe"
           sha256sum "$SETUP" | tee SHA256SUMS
-          cat > /tmp/notes.md <<NOTE
+          cat > /tmp/provenance.md <<NOTE
           Built and signed by CI from a clean runner.
 
           | | |
@@ -195,6 +195,13 @@ jobs:
           Every bundled component is fetched during the build and sha256-verified.
           \`SHA256SUMS\` below covers the installer itself.
           NOTE
+          # What changed goes first: the section of RELEASE_NOTES.md headed "## <version>".
+          awk -v h="## ${{ steps.ver.outputs.version }}" '$0 == h {on = 1; next} /^## / {on = 0} on' \
+            RELEASE_NOTES.md > /tmp/changes.md
+          {
+            if grep -q '[^[:space:]]' /tmp/changes.md; then cat /tmp/changes.md; printf '\n---\n\n'; fi
+            cat /tmp/provenance.md
+          } > /tmp/notes.md
           gh release create "${GITHUB_REF_NAME}" "$SETUP" SHA256SUMS \
             --title "Forge Solo ${{ steps.ver.outputs.version }}" \
             --notes-file /tmp/notes.md
