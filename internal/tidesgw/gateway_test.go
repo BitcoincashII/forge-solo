@@ -593,4 +593,25 @@ func TestRegisterCommitsTheShareDifficulty(t *testing.T) {
 	}
 }
 
+// The commitment never exceeds the network difficulty: the pool refuses a share below the job's
+// difficulty before it checks for a block, so a higher commitment would have it refuse real
+// blocks. The fixture template's network difficulty is about 1.54e9, so the cap is 2^30.
+func TestCommitmentNeverExceedsTheNetworkDifficulty(t *testing.T) {
+	p := newFakePool(t)
+	p.snap.Work = map[string]float64{other: 1}
+	_, key, _ := ed25519.GenerateKey(nil)
+	g := New(Config{PoolURL: p.srv.URL, Key: key, RegisterFor: 2 * time.Second, RetryEvery: time.Minute,
+		MaxDifficulty: func() float64 { return 1e12 }})
+	if _, err := g.Register(template(), me, []byte("/Forge Solo/")); err != nil {
+		t.Fatal(err)
+	}
+	req := p.jobs[0]
+	if req.ShareDiffExp == nil {
+		t.Fatal("no exponent committed")
+	}
+	if *req.ShareDiffExp != 30 {
+		t.Fatalf("exponent %d, want 30 (the network difficulty is about 1.54e9)", *req.ShareDiffExp)
+	}
+}
+
 func intp(v int) *int { return &v }

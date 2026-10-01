@@ -1481,20 +1481,36 @@ func detectRentalService(userAgent string) RentalService {
 	return RentalNone
 }
 
-// MaxDifficulty is the highest share difficulty any authorized miner works at: the one it was
-// last sent, or the one vardiff has set for it if that is higher. A TIDES job commits to at least
-// this (see tidesgw.Config.MaxDifficulty), so the pool credits every share in full. 0 with no
-// miner.
+// provenFor and provenAhead bound what a miner counts for in MaxDifficulty: only a miner with a
+// valid share in the last provenFor, and up to provenAhead times that share's credited difficulty.
+// Vardiff raises a working miner by at most that much between shares; a connection that only
+// claims a difficulty (d= in its password, mining.suggest_difficulty) proves nothing.
+const (
+	provenFor   = 5 * time.Minute
+	provenAhead = 4.0
+)
+
+// MaxDifficulty is the highest share difficulty a working miner is on: the one it was last sent,
+// or the one vardiff has set for it if that is higher, as far as its shares have proven it (see
+// provenFor). A TIDES job commits to at least this (see tidesgw.Config.MaxDifficulty), so the pool
+// credits every share in full. Counting claims as well let one connection with
+// d=1000000000000 make every job commit 2^41, so no other miner's share ever qualified. 0 with
+// no proven miner.
 func (s *Server) MaxDifficulty() float64 {
 	var max float64
+	now := time.Now()
 	s.clients.Range(func(_, v interface{}) bool {
 		c, ok := v.(*Client)
 		if !ok {
 			return true
 		}
 		c.mu.RLock()
-		if c.Authorized {
-			max = math.Max(max, math.Max(c.Difficulty, c.LastDifficultySent))
+		if c.Authorized && c.ProvenDifficulty > 0 && now.Sub(c.ProvenAt) < provenFor {
+			d := math.Max(c.Difficulty, c.LastDifficultySent)
+			if limit := provenAhead * c.ProvenDifficulty; d > limit {
+				d = limit
+			}
+			max = math.Max(max, d)
 		}
 		c.mu.RUnlock()
 		return true
@@ -2186,6 +2202,7 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	if actualDiff < shareDifficulty {
 		shareDifficulty = actualDiff
 	}
+	client.ProvenDifficulty, client.ProvenAt = shareDifficulty, now
 
 	client.mu.Unlock()
 

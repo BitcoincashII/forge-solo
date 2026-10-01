@@ -250,18 +250,35 @@ func TestAddressUsernameCreditedToItselfWithoutCreditPayoutAddress(t *testing.T)
 	}
 }
 
-// A TIDES job commits to a share difficulty above MaxDifficulty, so it must cover every authorized
-// miner, including one whose vardiff step is decided but not yet sent, and only authorized ones.
-func TestMaxDifficultyCoversEveryAuthorizedMiner(t *testing.T) {
+// A TIDES job commits to a share difficulty above MaxDifficulty, so it must cover every miner
+// that is really working, including one whose vardiff step is decided but not yet sent. It counts
+// only what a miner has proven with a recent share, and at most provenAhead times that: a
+// connection that merely claims a difficulty (d=1000000000000 in its password) made every job
+// commit 2^41, above the network difficulty, so the install's other miners went uncredited.
+func TestMaxDifficultyCoversEveryProvenMiner(t *testing.T) {
 	s := newSoloServer(t, testPayout)
 	if got := s.MaxDifficulty(); got != 0 {
 		t.Fatalf("no miners: %g, want 0", got)
 	}
-	s.clients.Store("bitaxe", &Client{ID: "bitaxe", Authorized: true, Difficulty: 1024, LastDifficultySent: 1024})
-	s.clients.Store("rental", &Client{ID: "rental", Authorized: true, Difficulty: 750000, LastDifficultySent: 500000})
-	s.clients.Store("probe", &Client{ID: "probe", Authorized: false, Difficulty: 1e9, LastDifficultySent: 1e9})
+	now := time.Now()
+	s.clients.Store("bitaxe", &Client{ID: "bitaxe", Authorized: true, Difficulty: 1024, LastDifficultySent: 1024,
+		ProvenDifficulty: 1024, ProvenAt: now})
+	s.clients.Store("rental", &Client{ID: "rental", Authorized: true, Difficulty: 750000, LastDifficultySent: 500000,
+		ProvenDifficulty: 500000, ProvenAt: now})
+	s.clients.Store("probe", &Client{ID: "probe", Authorized: false, Difficulty: 1e9, LastDifficultySent: 1e9,
+		ProvenDifficulty: 1e9, ProvenAt: now})
+	s.clients.Store("claim", &Client{ID: "claim", Authorized: true, Difficulty: 1e12, LastDifficultySent: 1e12})
+	s.clients.Store("gone quiet", &Client{ID: "gone quiet", Authorized: true, Difficulty: 5e6, LastDifficultySent: 5e6,
+		ProvenDifficulty: 5e6, ProvenAt: now.Add(-provenFor - time.Second)})
 	if got := s.MaxDifficulty(); got != 750000 {
-		t.Fatalf("MaxDifficulty = %g, want 750000 (the rental's next difficulty; the unauthorized probe does not count)", got)
+		t.Fatalf("MaxDifficulty = %g, want 750000 (the rental's next difficulty; not the unauthorized probe, "+
+			"the unproven claim or the miner with no share for %s)", got, provenFor)
+	}
+	s.clients.Store("ramping", &Client{ID: "ramping", Authorized: true, Difficulty: 1e9, LastDifficultySent: 1e9,
+		ProvenDifficulty: 1e6, ProvenAt: now})
+	if got := s.MaxDifficulty(); got != provenAhead*1e6 {
+		t.Fatalf("MaxDifficulty = %g, want %g: a difficulty far above the last share counts only up to %gx it",
+			got, provenAhead*1e6, provenAhead)
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
 	"sync"
@@ -318,6 +319,14 @@ func (g *Gateway) register(t *mining.BlockTemplate, finder string, tag []byte, t
 	var exp *int
 	if g.cfg.MaxDifficulty != nil {
 		if e, ok := gateway.ShareDiffExp(g.cfg.MaxDifficulty()); ok {
+			// Never above the network difficulty. The pool refuses a share below the job's
+			// difficulty before it looks for a block, so a block whose difficulty fell between
+			// the network's and 2^e would have been refused there and never recorded.
+			if nd := stratum.BitsToDifficulty(t.Bits); nd > 0 {
+				if top := int(math.Floor(math.Log2(nd))); e > top {
+					e = top
+				}
+			}
 			exp, tag = &e, wire.CommitShareDiff(tag, e)
 		}
 	}
