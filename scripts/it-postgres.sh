@@ -43,5 +43,6 @@ export MMTEST_DB="postgres://forge:forgepass@127.0.0.1:${PORT}/forgesolo?sslmode
 run_must_pass TestPayout1175Accounting ./internal/stats/ -run TestPayout1175Accounting
 export TIDES_PG_DB="$MMTEST_DB"
 run_must_pass TestPostgresStoredOldDefaultTagReadsAsNoneChosen ./internal/stats/ -run TestPostgresStoredOldDefaultTagReadsAsNoneChosen
+run_must_pass TestPostgresSoloSharesAreNotStoredAndOldOnesAreCleared ./internal/stats/ -run TestPostgresSoloSharesAreNotStoredAndOldOnesAreCleared
 
 echo "✓ postgres integration suite passed"

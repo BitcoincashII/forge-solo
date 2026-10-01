@@ -1099,6 +1099,7 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 			}
 			logger.Info("✅ database connection established — dashboard config is live")
 			stats.LoadAllPendingPayouts()
+			go clearStoredSoloShares()
 			// The payout processor is started from main() only when the DB was up at boot.
 			// It owns solo block reconciliation (reconcileSoloBlocks, ConfirmMatureSoloBlocks,
 			// reconcileOrphanHeights), so without this a block found after a late reconnect
@@ -1287,6 +1288,7 @@ func main() {
 	} else {
 		logger.Info("✅ Connected to database")
 		stats.LoadAllPendingPayouts()
+		go clearStoredSoloShares()
 		// Note: startPayoutProcessor is started later after config is loaded
 	}
 	defer stats.CloseDB()
@@ -1812,6 +1814,20 @@ func stopOnEOF(r io.Reader, stop chan<- os.Signal) {
 	select {
 	case stop <- syscall.SIGTERM:
 	default:
+	}
+}
+
+// clearStoredSoloShares removes the solo shares earlier versions stored (stats.SaveShare), which
+// nothing reads. It runs whenever the database connects; after the first time there is nothing to do.
+func clearStoredSoloShares() {
+	n, err := stats.ClearSoloShares()
+	switch {
+	case err != nil:
+		logger.Warn("could not clear the solo shares earlier versions stored", zap.Error(err))
+	case n < 0:
+		logger.Info("🧹 cleared the solo shares earlier versions stored (nothing reads them)")
+	case n > 0:
+		logger.Info("🧹 cleared the solo shares earlier versions stored (nothing reads them)", zap.Int64("rows", n))
 	}
 }
 

@@ -680,7 +680,14 @@ func GetMinerSoloPayoutsDB(minerID string) ([]PayoutRecord, int, float64) {
 }
 
 // SaveShare saves a PPLNS share to the database
+// SaveShare stores a share for the PPLNS window. A solo share is not stored: the PPLNS window
+// (GetPPLNSShares) reads only non-solo shares, and nothing else reads them. Up to 1.0.12 every solo
+// share was stored anyway, and trimmed only when a block was found, so a home miner's table grew by
+// every share between blocks; ClearSoloShares removes those.
 func SaveShare(minerAddress string, workerName string, difficulty float64, isSolo bool) error {
+	if isSolo {
+		return nil
+	}
 	dbMu.RLock()
 	defer dbMu.RUnlock()
 
@@ -698,6 +705,42 @@ func SaveShare(minerAddress string, workerName string, difficulty float64, isSol
 		VALUES (?, ?, ?, ?)`,
 		minerAddress, workerName, difficulty, solo)
 	return err
+}
+
+// ClearSoloShares removes the solo shares stored before 1.0.13 (see SaveShare). With no PPLNS shares
+// among them, one statement empties the table and frees its space at once (on TimescaleDB, every
+// chunk with it); otherwise only the solo rows go, in batches that never hold a long transaction.
+// It returns the rows removed, or -1 when the whole table was emptied without counting.
+func ClearSoloShares() (int64, error) {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return 0, ErrDatabaseNotInitialized
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	var any, pplns bool
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM shares), EXISTS (SELECT 1 FROM shares WHERE NOT is_solo)`).Scan(&any, &pplns); err != nil {
+		return 0, err
+	}
+	if !any {
+		return 0, nil
+	}
+	if !pplns {
+		_, err := db.ExecContext(ctx, `DELETE FROM shares`) // no WHERE: SQLite drops the pages at once
+		return -1, err
+	}
+	var total int64
+	for {
+		res, err := db.ExecContext(ctx, `DELETE FROM shares WHERE id IN (SELECT id FROM shares WHERE is_solo LIMIT 50000)`)
+		if err != nil {
+			return total, err
+		}
+		n, _ := res.RowsAffected()
+		if total += n; n == 0 {
+			return total, nil
+		}
+	}
 }
 
 // GetPPLNSShares returns the sum of difficulty per miner for the last N shares
