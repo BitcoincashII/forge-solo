@@ -1184,7 +1184,8 @@ func ConfirmMatureSoloBlocks(confirmHeight int64) error {
 }
 
 // GetPoolConfig returns the single-row dashboard-managed pool configuration
-// (pool_config id=1). A missing row yields empty strings and a nil error.
+// (pool_config id=1). A missing row yields empty strings and a nil error. tag is "" when no tag
+// was chosen, the old default included (chosenCoinbaseTag).
 func GetPoolConfig() (poolAddr, payout1175, tag string, err error) {
 	dbMu.RLock()
 	defer dbMu.RUnlock()
@@ -1199,7 +1200,7 @@ func GetPoolConfig() (poolAddr, payout1175, tag string, err error) {
 	if err != nil {
 		return "", "", "", err
 	}
-	return poolAddr, payout1175, tag, nil
+	return poolAddr, payout1175, chosenCoinbaseTag(tag), nil
 }
 
 // SavePoolConfig upserts the single-row pool configuration (id=1). Empty strings are

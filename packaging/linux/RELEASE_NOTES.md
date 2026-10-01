@@ -60,6 +60,8 @@ dashboard from another computer, ports and firewalls, upgrading, and stopping cl
   the password it then asks for.
 - To take rented hashrate from the internet, forward TCP 3335 (NiceHash, MiningRigRentals) or
   3333 (Braiins) in your router; to let other nodes connect to yours, forward 8339.
+- Blocks your miners find carry the coinbase tag `//forgesolo//` unless you set your own in
+  Settings.
 - Stop it with Ctrl-C, or `sudo systemctl stop forge-solo` for the service. The node writes its
   chain state to disk first, which can take up to a few minutes.
 

@@ -1848,7 +1848,7 @@ func loadConfig(path string) (*viper.Viper, error) {
 	// a wallet this app does not have. Solo is the only mode it supports.
 	v.SetDefault("pool.payout_scheme", "solo")
 	v.SetDefault("pool.address", "")
-	v.SetDefault("pool.coinbase_tag", "Forge") // Must be set in config or env
+	v.SetDefault("pool.coinbase_tag", mining.DefaultCoinbaseTag)
 
 	if err := v.ReadInConfig(); err != nil {
 		return nil, err

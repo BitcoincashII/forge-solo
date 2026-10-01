@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/BitcoincashII/forge-solo/internal/mining"
 	"github.com/BitcoincashII/forge-solo/internal/stats"
 	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/gofiber/fiber/v2"
@@ -1362,7 +1363,7 @@ func getPoolConfig(c *fiber.Ctx) error {
 		tag = os.Getenv("COINBASE_TAG")
 	}
 	if tag == "" {
-		tag = "Forge"
+		tag = mining.DefaultCoinbaseTag
 	}
 	return c.JSON(fiber.Map{
 		"stratum_port": 3333,

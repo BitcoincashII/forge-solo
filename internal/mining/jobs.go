@@ -714,10 +714,10 @@ const CoinbaseExtranonceReserve = 12
 // extranonce1/extranonce2 split — so it works unchanged for the standard and
 // Braiins stratum ports. scriptSig layout:
 //
-//	height | <extranonce (reserve)> | "Forge" | [commitment] | <outputs...>
+//	height | <extranonce (reserve)> | tag | [commitment] | <outputs...>
 //
 // Total scriptSig stays well under the 100-byte limit (height ~4 + reserve 12 +
-// tag 5 + commitment 44 = ~65; ~84 with the longest permitted 24-char tag).
+// tag 13 for the default + commitment 44 = ~73; ~84 with the longest permitted 24-char tag).
 func (jm *JobManager) buildCoinbase(template *BlockTemplate, commitment []byte) (string, string) {
 	jm.mu.RLock()
 	pkh := jm.pubkeyHash
@@ -726,7 +726,7 @@ func (jm *JobManager) buildCoinbase(template *BlockTemplate, commitment []byte) 
 
 	heightBytes := makeHeightScript(template.Height)
 	if len(poolMsg) == 0 {
-		poolMsg = []byte("Forge")
+		poolMsg = []byte(DefaultCoinbaseTag)
 	}
 
 	scriptLen := len(heightBytes) + CoinbaseExtranonceReserve + len(poolMsg) + len(commitment)
@@ -759,8 +759,13 @@ func (jm *JobManager) buildCoinbase(template *BlockTemplate, commitment []byte) 
 	return hex.EncodeToString(cb1.Bytes()), hex.EncodeToString(cb2.Bytes())
 }
 
+// DefaultCoinbaseTag is the tag a block carries when none is chosen in Settings. Up to 1.0.11 it
+// was "Forge", the public Forge Pool's own tag, so a Forge Solo block could not be told from a
+// Forge Pool one.
+const DefaultCoinbaseTag = "//forgesolo//"
+
 // sanitizeCoinbaseTag keeps the coinbase scriptSig safe: printable ASCII only,
-// defaults to "Forge", capped at 24 bytes (height+reserve+tag+commitment < 100).
+// defaults to DefaultCoinbaseTag, capped at 24 bytes (height+reserve+tag+commitment < 100).
 func sanitizeCoinbaseTag(tag string) []byte {
 	out := make([]byte, 0, len(tag))
 	for i := 0; i < len(tag); i++ {
@@ -769,7 +774,7 @@ func sanitizeCoinbaseTag(tag string) []byte {
 		}
 	}
 	if len(out) == 0 {
-		out = []byte("Forge")
+		out = []byte(DefaultCoinbaseTag)
 	}
 	if len(out) > 24 {
 		out = out[:24]

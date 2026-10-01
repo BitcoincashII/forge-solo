@@ -43,7 +43,7 @@ func TestStratumConfMatchesShippedTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 	filled := strings.NewReplacer(
-		"${POOL_ADDRESS}", "", "${COINBASE_TAG}", "Forge Solo", "${NODE_HOST}", "127.0.0.1", "${NODE_PORT}", "30301",
+		"${POOL_ADDRESS}", "", "${COINBASE_TAG}", "", "${NODE_HOST}", "127.0.0.1", "${NODE_PORT}", "30301",
 		"${ZMQ_ENDPOINT}", "tcp://127.0.0.1:30601", "${PAYOUT_ADDRESS_1175}", "", "${AUX1175_HOST}", "x",
 		"${AUX1175_PORT}", "1", "${AUX1175_USER}", "x", "${AUX1175_PASSWORD}", "x").Replace(string(tmpl))
 	if err := yaml.Unmarshal([]byte(filled), &want); err != nil {
