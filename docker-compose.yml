@@ -96,7 +96,12 @@ services:
       POSTGRES_DB: forgesolo
     volumes:
       - ${APP_DATA_DIR}/postgres:/var/lib/postgresql/data
-      - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # By its absolute path. Umbrel runs compose with its own fragment file first, and compose
+      # resolves a relative path from the first file's directory: ./init-db.sql named a file in
+      # umbreld's own directory, which does not exist, so Docker created an empty directory there
+      # and postgres failed to read it ("could not read from input file: Is a directory") on
+      # every fresh install. The app's files, this one included, are in APP_DATA_DIR.
+      - ${APP_DATA_DIR}/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U forge -d forgesolo"]
       interval: 10s
