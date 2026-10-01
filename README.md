@@ -25,6 +25,9 @@ Download from the [latest release](https://github.com/BitcoincashII/forge-solo/r
 
 Windows 1.0.12 and earlier are on the [old Windows repository's releases](https://github.com/BitcoincashII/forge-solo-windows/releases).
 
+Running your own node and mining setup instead? [Forge Gateway](https://github.com/BitcoincashII/forge-gateway)
+mines into Forge Pool's TIDES window without Forge Solo. Its source is `cmd/forge-gateway` here.
+
 ## What's inside
 - `node` — BCH2 full node (auto-syncs, keeps the whole chain so other nodes can sync from it)
 - `node1175` — 1175 (ESF) node for AuxPoW merge-mining (fetched + SHA256-verified)
