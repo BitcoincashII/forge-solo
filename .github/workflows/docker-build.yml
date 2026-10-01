@@ -38,6 +38,7 @@ jobs:
       api: ${{ steps.api.outputs.digest }}
       stratum: ${{ steps.stratum.outputs.digest }}
       web: ${{ steps.web.outputs.digest }}
+      postgres: ${{ steps.postgres.outputs.digest }}
       version: ${{ steps.version.outputs.VERSION }}
     steps:
       - name: Checkout repository
@@ -148,6 +149,22 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Build and push Postgres image (PostgreSQL 16.6 + TimescaleDB 2.17.2)
+        id: postgres
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: ./docker/postgres
+          file: ./docker/postgres/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-postgres:${{ steps.version.outputs.VERSION }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.version.outputs.VERSION }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   # Re-pin the compose file and the digest table to what was just published.
   #
   # This is the step that used to be done by hand and silently was not: the 1.0.8 release
@@ -181,11 +198,12 @@ jobs:
           D_API: ${{ needs.build.outputs.api }}
           D_STRATUM: ${{ needs.build.outputs.stratum }}
           D_WEB: ${{ needs.build.outputs.web }}
+          D_POSTGRES: ${{ needs.build.outputs.postgres }}
         run: |
-          for d in "$D_NODE" "$D_NODE1175" "$D_API" "$D_STRATUM" "$D_WEB"; do
+          for d in "$D_NODE" "$D_NODE1175" "$D_API" "$D_STRATUM" "$D_WEB" "$D_POSTGRES"; do
             [ -n "$d" ] || { echo "::error::a build produced no digest; refusing to re-pin"; exit 1; }
           done
-          scripts/repin-release.sh "$V" "$D_NODE" "$D_NODE1175" "$D_API" "$D_STRATUM" "$D_WEB"
+          scripts/repin-release.sh "$V" "$D_NODE" "$D_NODE1175" "$D_API" "$D_STRATUM" "$D_WEB" "$D_POSTGRES"
 
       # The guard that made this necessary must pass before anything is pushed.
       - name: Verify the three files agree
