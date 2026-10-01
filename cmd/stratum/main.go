@@ -2188,33 +2188,6 @@ func buildBlock(job *mining.Job, coinbase []byte, ntime, nonce, versionBits stri
 	return blockbuild.Block(job, coinbase, ntime, nonce, versionBits)
 }
 
-// writeVarInt writes a variable-length integer to the buffer
-func writeVarInt(buf *bytes.Buffer, n uint64) {
-	if n < 0xfd {
-		buf.WriteByte(byte(n))
-	} else if n <= 0xffff {
-		buf.WriteByte(0xfd)
-		buf.WriteByte(byte(n))
-		buf.WriteByte(byte(n >> 8))
-	} else if n <= 0xffffffff {
-		buf.WriteByte(0xfe)
-		buf.WriteByte(byte(n))
-		buf.WriteByte(byte(n >> 8))
-		buf.WriteByte(byte(n >> 16))
-		buf.WriteByte(byte(n >> 24))
-	} else {
-		buf.WriteByte(0xff)
-		buf.WriteByte(byte(n))
-		buf.WriteByte(byte(n >> 8))
-		buf.WriteByte(byte(n >> 16))
-		buf.WriteByte(byte(n >> 24))
-		buf.WriteByte(byte(n >> 32))
-		buf.WriteByte(byte(n >> 40))
-		buf.WriteByte(byte(n >> 48))
-		buf.WriteByte(byte(n >> 56))
-	}
-}
-
 func reverseBytes(b []byte) {
 	for i, j := 0, len(b)-1; i < j; i, j = i+1, j-1 {
 		b[i], b[j] = b[j], b[i]
