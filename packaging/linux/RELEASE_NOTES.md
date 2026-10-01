@@ -1,7 +1,7 @@
 # Forge Solo for Linux: release notes
 
-Each section is the release page text for that version: `scripts/linux/build-release.sh VERSION`
-builds the downloads, and the section headed `## VERSION` describes them.
+Forge Solo for Linux 1.0.12, its first release. From 1.0.13 the notes for every platform are in
+[/RELEASE_NOTES.md](../../RELEASE_NOTES.md), and the Linux downloads go on the same release page.
 
 ## 1.0.12
 

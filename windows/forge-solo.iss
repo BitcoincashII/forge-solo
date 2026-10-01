@@ -45,9 +45,9 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Files]
 Source: "bin\*"; DestDir: "{app}"; Flags: ignoreversion
-Source: "init-db.sql"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\init-db.sql"; DestDir: "{app}"; Flags: ignoreversion
 Source: "pgsql\*"; DestDir: "{app}\pgsql"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "web\*"; DestDir: "{app}\web"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\web\dist\*"; DestDir: "{app}\web"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{userprograms}\Forge Solo"; Filename: "{app}\{#MyAppExe}"

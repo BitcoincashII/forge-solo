@@ -12,11 +12,10 @@ Solo means solo: the full block reward is paid **on-chain, directly by the coinb
 address. There is no pool wallet, no fee, and no minimum payout.
 
 ## Layout
-- `launcher/` — Go tray launcher/orchestrator (`main.go`, `boot.go`, `web.go`) + `forge-solo.ico`
-- `web/` — the dashboard, a verbatim mirror of the app's `web/dist`
-- `forge-solo.iss` — Inno Setup installer script
-- `init-db.sql` — initial Postgres schema (the services also create any missing tables at
-  startup with `CREATE TABLE IF NOT EXISTS`, so this file is a head start, not the whole schema)
+- `launcher/` — Go tray launcher/orchestrator (`main.go`, `boot.go`, `web.go`) + `forge-solo.ico`.
+  Its own Go module: it is Windows-only and does not build for other systems.
+- `forge-solo.iss` — Inno Setup installer script. It takes the dashboard (`../web/dist`) and the
+  initial schema (`../init-db.sql`) straight from this repository, so there is no copy to drift.
 - *(not tracked)* `bin/` — compiled exes + prebuilt node binaries; `pgsql/` — portable PostgreSQL
 
 ## Ports
@@ -44,9 +43,10 @@ before anything binds, and every config and env var is regenerated from them on 
 ## External binaries (place in `bin/` before building the installer)
 - `bitcoincashIId.exe` — BCH2 node (Windows release)
 - `elevenseventyfived.exe` — 1175 node (Windows release)
-- `stratum.exe`, `api.exe` — cross-compiled from the forge-solo app (see Build step 1)
-- `pgsql/` — portable PostgreSQL **16.x**, extracted at the repo root so that
-  `pgsql\bin\postgres.exe` exists
+- `stratum.exe`, `api.exe` — cross-compiled from this repository's `cmd/stratum` and `cmd/api`
+  (see [Building locally](#building-locally))
+- `pgsql/` — portable PostgreSQL **16.x**, extracted into `windows/` so that
+  `windows\pgsql\bin\postgres.exe` exists
 
   Get the "Windows x86-64" binaries zip from
   <https://www.enterprisedb.com/download-postgresql-binaries>. The currently bundled build is
@@ -60,17 +60,20 @@ before anything binds, and every config and env var is regenerated from them on 
 
 ## Releases are built by CI
 
-Tagging `v*` runs `.github/workflows/release.yml`, which builds the whole installer on a clean
-runner and publishes a **single signed `ForgeSolo-Setup-<version>.exe`**. There is deliberately
-no second zip asset: two downloads means a user can pick the one that does not install.
+Tagging `v*` runs `.github/workflows/release.yml` at the repository root, which builds the whole
+installer on a clean runner and publishes a **single signed `ForgeSolo-Setup-<version>.exe`** on
+that version's release page, beside the Linux downloads. There is deliberately no second Windows
+asset: two downloads means a user can pick the one that does not install.
 
 Everything inside the installer is fetched during that run and **sha256-verified fail-closed** --
 both node binaries from their own published releases, PostgreSQL from EnterpriseDB, and the three
-Go executables compiled from the app repo. So a release is reproducible from public sources
+Go executables compiled from this repository at the tag. So a release is reproducible from public sources
 rather than from whatever was on someone's laptop. Bumping any pinned version means bumping its
 hash in the same commit; the versions and hashes are the `env:` block at the top of the workflow.
 
-Signing uses `osslsigncode` inside the same Inno Setup container, from two repository secrets:
+Signing uses `osslsigncode` inside the same Inno Setup container, from two secrets of the
+`release` environment, which only `v*` tags can use, so the certificate never reaches an ordinary
+test run or a pull request:
 
 | Secret | Contents |
 |---|---|
@@ -78,31 +81,32 @@ Signing uses `osslsigncode` inside the same Inno Setup container, from two repos
 | `WINDOWS_SIGNING_PASSWORD` | its export password |
 
 A tag build **fails** rather than publishing unsigned if the secret is missing. A manual
-`workflow_dispatch` run still builds without it, so the build itself can be tested. To encode the
-certificate: `base64 -w0 signing.pfx`.
+`workflow_dispatch` run builds the installer unsigned and publishes nothing, so the build itself
+can be tested. To encode the certificate: `base64 -w0 signing.pfx`.
 
 ## Building locally
 Only needed to test a change before tagging; releases come from CI. Requires Go and Docker
 (Docker only to run Inno Setup, which has no native Linux build).
 
 ```sh
-# 1) app services, from a checkout of the forge-solo app at the release tag:
-cd /path/to/forge-solo
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags '-s -w' -o /path/to/forge-solo-windows/bin/stratum.exe ./cmd/stratum
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags '-s -w' -o /path/to/forge-solo-windows/bin/api.exe     ./cmd/api
+# From the repository root.
+# 1) services:
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags '-s -w' -o windows/bin/stratum.exe ./cmd/stratum
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags '-s -w' -o windows/bin/api.exe     ./cmd/api
 
 # 2) exe icon resource (regenerate only if the icon changes):
-cd launcher && rsrc -ico forge-solo.ico -arch amd64 -o rsrc.syso && cd ..
+(cd windows/launcher && rsrc -ico forge-solo.ico -arch amd64 -o rsrc.syso)
 
 # 3) launcher:
-cd launcher && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui -s -w" -o ../bin/forge-solo.exe . && cd ..
+(cd windows/launcher && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui -s -w" -o ../bin/forge-solo.exe .)
 
-# 4) installer — Inno Setup in a container, so this works on a Linux build host:
-docker run --rm -v "$PWD":/work amake/innosetup forge-solo.iss
+# 4) installer — Inno Setup in a container, so this works on a Linux build host. Mount the
+#    repository root: the script reads ../web/dist and ../init-db.sql.
+docker run --rm -v "$PWD":/work amake/innosetup windows/forge-solo.iss
 ```
 
-The installer is written to `ForgeSolo-Setup-<version>.exe`; the version lives in
-`forge-solo.iss` (`MyAppVersion`) and should track the app release the exes were built from.
+The installer is written to `windows/ForgeSolo-Setup-<version>.exe`. CI stamps the tag's version;
+`MyAppVersion` in `forge-solo.iss` is only the default for a local build.
 
 ## Design notes
 - **Graceful shutdown** — the launcher stops both nodes via RPC `stop` so they flush the
@@ -123,11 +127,13 @@ The installer is written to `ForgeSolo-Setup-<version>.exe`; the version lives i
   without that the folder is protected only by whatever it inherits. `config.yaml` is regenerated on every
   launch (so port changes always take effect); it mirrors the app's
   `docker/stratum/config.template.yaml`, and keys the stratum does not read are ignored silently,
-  so keep the two in step.
+  so keep the two in step: `windows_config_test.go` at the repository root fails when they differ
+  in anything but the rental port, which Windows leaves off.
 - **Payout addresses** are stored in the database and set from the dashboard's Settings page,
   never in a config file in the repo.
 
 ## Not yet done (pre public release)
-- Code signing (unsigned → SmartScreen warning on first run)
+- SmartScreen still warns on first run: the installer is signed, but with a self-signed
+  certificate. A CA-issued (OV/EV) certificate would remove the warning.
 - Fresh-install test on a clean Windows 10 and Windows 11 box
 - Test matrix: varied hardware and antivirus products

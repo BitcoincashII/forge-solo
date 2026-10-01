@@ -1,6 +1,7 @@
 # Forge Solo for Windows: release notes
 
-The release workflow puts the section for the version it builds at the top of the release page.
+Forge Solo for Windows up to 1.0.12, when it had a repository of its own. From 1.0.13 the notes for
+every platform are in [/RELEASE_NOTES.md](../RELEASE_NOTES.md).
 
 ## 1.0.12
 
