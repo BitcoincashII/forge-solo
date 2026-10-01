@@ -89,3 +89,6 @@ dependencies: []
 path: ""
 defaultUsername: ""
 defaultPassword: ""
+# umbrelOS shows this app's own password (APP_PASSWORD, which the api gets as SETTINGS_PASSWORD)
+# under Default credentials. Forge Solo asks for it before it saves a settings change.
+deterministicPassword: true

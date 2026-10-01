@@ -41,6 +41,7 @@ var (
 	rpcPass          string
 	stratumURL       string
 	internalAPIToken string
+	settingsPassword string                // SETTINGS_PASSWORD (settingsPasswordGateFromEnv): a settings change must carry it
 	webRoot          string = "./web/dist" // Web UI root directory, configurable via WEB_ROOT env
 	halvingInterval  int64  = 210000       // BCH2 halving interval, configurable via HALVING_INTERVAL env
 
@@ -369,6 +370,8 @@ func main() {
 	}))
 
 	app.Use(rejectCrossSiteWrites)
+
+	app.Use(settingsPasswordGateFromEnv())
 
 	// API routes FIRST
 	api := app.Group("/api/v1")
@@ -1431,6 +1434,8 @@ func getPoolConfig(c *fiber.Ctx) error {
 		"coinbase_tag":        tag,
 		"configured":          poolAddr != "",
 		"payout_mode":         mode,
+		// true: a save must carry the app's password (settingsPasswordGate).
+		"password_required": settingsPassword != "",
 		// false: this app runs no 1175 node, so the dashboard hides 1175 merge-mining.
 		"merge_mining_available": mergeMiningAvailable(),
 	})

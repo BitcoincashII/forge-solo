@@ -1,0 +1,96 @@
+//go:build sqlite
+
+package main
+
+import (
+	"encoding/json"
+	"io"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/BitcoincashII/forge-solo/internal/stats"
+	"github.com/gofiber/fiber/v2"
+)
+
+// Through the real handlers, as on Umbrel: a request without the app's password changes nothing,
+// whichever endpoint it uses, and the Settings page is told to ask for the password.
+func TestSettingsNeedThePassword(t *testing.T) {
+	if err := stats.InitDB(filepath.Join(t.TempDir(), "api.db")); err != nil {
+		t.Fatal(err)
+	}
+	defer stats.CloseDB()
+	t.Setenv("HOME_APP", "1")
+	t.Setenv("POOL_ADDRESS", "")
+	const pw = "0b4f3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b"
+	old := settingsPassword
+	settingsPassword = pw
+	t.Cleanup(func() { settingsPassword = old })
+
+	app := fiber.New()
+	app.Use(rejectCrossSiteWrites)
+	app.Use(settingsPasswordGate(settingsPassword, settingsPasswordRequired("1", "")))
+	app.Get("/api/v1/pool/config", getPoolConfig)
+	app.Post("/api/v1/pool/config", savePoolConfig)
+	app.Post("/api/v1/miners/settings", saveMinerSettings)
+	post := func(path, body, password string) (int, string) {
+		req := httptest.NewRequest("POST", path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		if password != "" {
+			req.Header.Set(settingsPasswordHeader, password)
+		}
+		resp, err := app.Test(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+	stored := func() string {
+		a, _, _, err := stats.GetPoolConfig()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return a
+	}
+	readFlag := func() any {
+		resp, err := app.Test(httptest.NewRequest("GET", "/api/v1/pool/config", nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var d map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&d); err != nil {
+			t.Fatal(err)
+		}
+		return d["password_required"]
+	}
+
+	if f := readFlag(); f != true {
+		t.Fatalf("PW-E2E-FLAG: the settings read says password_required=%v, so the page would not ask for it", f)
+	}
+	const mine = "bitcoincashii:qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzse6qye33q"
+	body := `{"pool_address":"` + mine + `","payout_mode":"solo"}`
+	if code, b := post("/api/v1/pool/config", body, ""); code != 401 || stored() != "" {
+		t.Fatalf("PW-E2E-NO-PASSWORD: %d %s, stored %q", code, b, stored())
+	}
+	if code, b := post("/api/v1/pool/config", body, strings.Repeat("a", 64)); code != 401 || stored() != "" {
+		t.Fatalf("PW-E2E-WRONG: %d %s, stored %q", code, b, stored())
+	}
+	if code, b := post("/api/v1/pool/config", body, pw); code != 200 || stored() != mine {
+		t.Fatalf("PW-E2E-SAVE: %d %s, stored %q", code, b, stored())
+	}
+	// The per-miner endpoint is open to a home app's own dashboard (HOME_APP authorizes it), so it
+	// is just as much a way in.
+	if code, b := post("/api/v1/miners/settings", `{"address":"`+mine+`","solo_mining":true}`, ""); code != 401 {
+		t.Fatalf("PW-E2E-MINER-SETTINGS: %d %s", code, b)
+	}
+	if n := len(stats.LoadAllMinerSettings()); n != 0 {
+		t.Fatalf("PW-E2E-MINER-SETTINGS-STORED: a refused request stored %d miner settings", n)
+	}
+
+	settingsPassword = ""
+	if f := readFlag(); f != false {
+		t.Fatalf("PW-E2E-FLAG-OFF: password_required=%v with no password set", f)
+	}
+}

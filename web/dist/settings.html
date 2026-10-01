@@ -71,6 +71,13 @@
     <input class="txt mm" id="esfAddr" type="text" spellcheck="false" autocapitalize="none" placeholder="esf1…">
     <label class="fld" for="cbTag">Coinbase tag (optional, ≤24 chars)</label>
     <input class="txt" id="cbTag" type="text" maxlength="24" placeholder="//forgesolo//">
+    <!-- Shown where the API asks for the app's password (Umbrel): every app on an Umbrel can
+         reach Forge Solo directly, so a change must carry Forge Solo's own password. -->
+    <div id="pwBlock" style="display:none">
+      <label class="fld" for="appPw">Forge Solo password (needed to save)</label>
+      <input class="txt" id="appPw" type="password" autocomplete="current-password" spellcheck="false" autocapitalize="none" placeholder="the Default password umbrelOS shows for Forge Solo">
+      <p class="note">Other apps on your Umbrel can reach Forge Solo directly, so a change here needs Forge Solo's own password. umbrelOS shows it when you open Forge Solo, and any time after: right-click the Forge Solo icon on the umbrelOS home screen, then <strong>Settings</strong> → <strong>Default credentials</strong> (on umbrelOS 1.x, <strong>Show default credentials</strong>). This browser remembers it once a save succeeds.</p>
+    </div>
     <div style="margin-top:16px">
       <button class="cta" id="saveBtn">Save settings</button>
       <span class="status" id="saveStatus"></span>
@@ -133,6 +140,18 @@
        document.getElementById('poolHr').textContent='unavailable';
      });
 
+   // On Umbrel a save must carry Forge Solo's password (pool config says password_required).
+   // The page keeps it in this browser once a save with it succeeds, so it is asked for once.
+   var PW_KEY='forgeSoloPassword', pwRequired=false;
+   function rememberedPw(){ try{ return localStorage.getItem(PW_KEY)||''; }catch(e){ return ''; } }
+   function rememberPw(v){ try{ if(v){ localStorage.setItem(PW_KEY,v); } else { localStorage.removeItem(PW_KEY); } }catch(e){} }
+   function askForPw(){
+     pwRequired=true;
+     document.getElementById('pwBlock').style.display='block';
+     var el=document.getElementById('appPw');
+     if(!el.value) el.value=rememberedPw();
+   }
+
    function loadConfig(){
      return fetch('/api/v1/pool/config')
        .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
@@ -157,6 +176,7 @@
    function applyConfig(d){
      d=d||{};
      document.body.classList.toggle('no-mm', d.merge_mining_available === false);
+     if(d.password_required === true) askForPw();
      var pool=d.pool_address||'';
      var esf=d.payout_address_1175||'';
      document.getElementById('poolAddr').value=pool;
@@ -204,12 +224,30 @@
        coinbase_tag:document.getElementById('cbTag').value,
        payout_mode:picked?picked.value:'solo'
      };
-     fetch('/api/v1/pool/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+     var headers={'Content-Type':'application/json'}, pw='';
+     if(pwRequired){
+       pw=document.getElementById('appPw').value.trim();
+       if(!pw){
+         st.className='status err'; st.textContent='Enter Forge Solo\'s password above the Save button first. Nothing was saved.';
+         document.getElementById('appPw').focus();
+         return;
+       }
+       headers['X-Forge-Password']=pw;
+     }
+     fetch('/api/v1/pool/config',{method:'POST',headers:headers,body:JSON.stringify(body)})
        .then(function(r){return r.json()}).then(function(d){
          if(d.success){
+           if(pw) rememberPw(pw);
            st.className='status ok'; st.textContent=d.message||'Saved';
            // Re-pull so the banner/merge-mining status reflect what was stored.
            loadConfig();
+         } else if(d.password_required){
+           // Missing or wrong password: nothing was saved, and what the user typed stays in the
+           // boxes (re-pulling here would wipe it) so the save can simply be repeated.
+           if(d.password_wrong){ rememberPw(''); document.getElementById('appPw').value=''; }
+           askForPw();
+           st.className='status err'; st.textContent='Error: '+(d.error||'Forge Solo\'s password is needed to save.');
+           document.getElementById('appPw').focus();
          } else {
            st.className='status err'; st.textContent='Error: '+(d.error||'failed')+' — nothing was saved; the fields below have been reset to what is stored.';
            // Re-pull on failure too. The save is all-or-nothing across all three fields, so
@@ -219,6 +257,9 @@
            loadConfig();
          }
        }).catch(function(e){ st.className='status err'; st.textContent='Error: '+String(e); });
+   });
+   document.getElementById('appPw').addEventListener('keydown', function(e){
+     if(e.key==='Enter') document.getElementById('saveBtn').click();
    });
  })();
 </script>
