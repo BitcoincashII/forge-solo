@@ -69,6 +69,15 @@ jobs:
       - name: Test (sqlite build)
         run: go test -count=1 -tags sqlite ./...
 
+      # Forge Solo for Linux ships 32-bit builds (armv6l, armv7l, i686). On a 32-bit platform a
+      # 64-bit atomic operation panics unless its word is 8-byte aligned, which only the
+      # sync/atomic types guarantee; the 32-bit stratum crashed on its first miner that way.
+      # 386 runs natively on this runner, so the whole suite runs as 32-bit here.
+      - name: Test as 32-bit (386), both tags
+        run: |
+          CGO_ENABLED=0 GOARCH=386 go test -count=1 ./...
+          CGO_ENABLED=0 GOARCH=386 go test -count=1 -tags sqlite ./...
+
       - name: Test with race detector
         run: go test -count=1 -race ./internal/stratum/ ./cmd/stratum/ ./cmd/api/ ./internal/mining/ ./internal/stats/
 

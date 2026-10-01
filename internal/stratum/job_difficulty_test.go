@@ -46,7 +46,7 @@ func perJobServer() (*Server, *captureProcessor) {
 	return &Server{
 		config: &ServerConfig{ExtraNonce1Size: 4, ExtraNonce2Size: 8, MinDiff: 1, AbsoluteMinDiff: 1e-9,
 			MaxDiff: 1e12, TargetShareTime: 10, RetargetTime: 30, VardiffEnabled: true, SoloOnly: true},
-		logger: zap.NewNop(), stats: &ServerStats{}, shareProcessor: cp,
+		logger: zap.NewNop(), stats: &serverCounters{}, shareProcessor: cp,
 	}, cp
 }
 

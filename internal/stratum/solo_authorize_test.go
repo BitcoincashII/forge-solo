@@ -5,7 +5,6 @@ import (
 	"io"
 	"net"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -304,8 +303,8 @@ func TestStopClosesQuietMinersPromptly(t *testing.T) {
 	if n, err := conn.Read(buf); err != nil || !strings.Contains(string(buf[:n]), `"id":1`) {
 		t.Fatalf("no subscribe answer: %q %v", buf[:n], err)
 	}
-	if atomic.LoadInt64(&s.clientCount) != 1 {
-		t.Fatalf("%d clients connected, want the one miner", atomic.LoadInt64(&s.clientCount))
+	if s.clientCount.Load() != 1 {
+		t.Fatalf("%d clients connected, want the one miner", s.clientCount.Load())
 	}
 	time.Sleep(200 * time.Millisecond) // quiet
 	start := time.Now()
@@ -315,7 +314,7 @@ func TestStopClosesQuietMinersPromptly(t *testing.T) {
 	if took := time.Since(start); took > 4*time.Second {
 		t.Fatalf("Stop took %v with one quiet miner connected", took)
 	}
-	if n := atomic.LoadInt64(&s.clientCount); n != 0 {
+	if n := s.clientCount.Load(); n != 0 {
 		t.Fatalf("%d miners still connected after Stop", n)
 	}
 	// Whatever the server sent before closing, the connection must end.

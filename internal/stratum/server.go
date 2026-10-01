@@ -53,7 +53,7 @@ type Server struct {
 	logger         *zap.Logger
 	listener       net.Listener
 	clients        sync.Map
-	clientCount    int64
+	clientCount    atomic.Int64 // atomic types: 64-bit aligned on 32-bit platforms too; see serverCounters
 	currentJob     atomic.Value
 	acceptGate     atomic.Value // func() bool; see SetAcceptGate
 	jobHistory     sync.Map
@@ -66,7 +66,7 @@ type Server struct {
 	ipConns        map[string]int // remote host -> live connections, for the per-IP cap
 	shutdownCh     chan struct{}
 	stopOnce       sync.Once // Stop may be called again; closing shutdownCh twice panics
-	stats          *ServerStats
+	stats          *serverCounters
 	// Duplicate share detection
 	submittedShares sync.Map // map[shareKey]time.Time
 	shareCleanupMu  sync.Mutex
@@ -156,12 +156,12 @@ func (s *Server) noteInvalidShare(client *Client, reason string) {
 	// NewServer always sets stats, but this runs on the submit path: a nil here
 	// would panic a connection goroutine and take the process with it.
 	if s.stats != nil {
-		atomic.AddInt64(&s.stats.InvalidShares, 1)
+		s.stats.InvalidShares.Add(1)
 	}
 	if client == nil {
 		return
 	}
-	atomic.AddInt64(&client.InvalidShares, 1)
+	client.InvalidShares.Add(1)
 
 	s.auxMu.RLock()
 	cb := s.onInvalidShare
@@ -235,6 +235,19 @@ type ServerConfig struct {
 	CreditPayoutAddress bool
 }
 
+// serverCounters are the live counters behind GetStats. They are atomic.Int64, not int64 fields
+// under sync/atomic's functions: on 32-bit platforms (the Linux armv6l, armv7l and i686 builds) a
+// 64-bit atomic operation panics unless its word is 8-byte aligned, and only the atomic types are
+// guaranteed to be. Every 64-bit counter updated atomically is one of these types for that reason.
+type serverCounters struct {
+	ActiveConnections atomic.Int64
+	ValidShares       atomic.Int64
+	InvalidShares     atomic.Int64
+	BlocksFound       atomic.Int64
+	SoloMiners        atomic.Int64
+	PPLNSMiners       atomic.Int64
+}
+
 type ServerStats struct {
 	TotalConnections  int64
 	ActiveConnections int64
@@ -281,7 +294,7 @@ func NewServer(config *ServerConfig, logger *zap.Logger, sp ShareProcessor, ms M
 		shareProcessor: sp,
 		minerSettings:  ms,
 		shutdownCh:     make(chan struct{}),
-		stats:          &ServerStats{},
+		stats:          &serverCounters{},
 	}
 
 	// Start periodic share cleanup
@@ -518,7 +531,7 @@ func (s *Server) idleDifficultyLoop() {
 			floor := s.vardiffFloor(c.RentalService != RentalNone)
 			prevDiff := c.Difficulty
 			connFor := now.Sub(c.ConnectedAt)
-			stuck := c.Authorized && c.ValidShares == 0 &&
+			stuck := c.Authorized && c.ValidShares.Load() == 0 &&
 				prevDiff > floor && connFor > idleResetAfter
 			if stuck {
 				c.Difficulty = floor
@@ -943,10 +956,10 @@ func (s *Server) stop() {
 	// timeout whenever a rental was quiet for a few seconds, and the process was killed with
 	// the TIDES shares still queued.
 	deadline := time.Now().Add(shutdownGrace)
-	for atomic.LoadInt64(&s.clientCount) > 0 && time.Now().Before(deadline) {
+	for s.clientCount.Load() > 0 && time.Now().Before(deadline) {
 		time.Sleep(50 * time.Millisecond)
 	}
-	if n := atomic.LoadInt64(&s.clientCount); n > 0 {
+	if n := s.clientCount.Load(); n > 0 {
 		s.logger.Info("Closing the miners' connections", zap.Int64("clients", n))
 		s.clients.Range(func(key, value interface{}) bool {
 			if c, ok := value.(*Client); ok && c.Conn != nil {
@@ -956,7 +969,7 @@ func (s *Server) stop() {
 		})
 		// Each handler sees its connection closed at once and exits.
 		end := time.Now().Add(time.Second)
-		for atomic.LoadInt64(&s.clientCount) > 0 && time.Now().Before(end) {
+		for s.clientCount.Load() > 0 && time.Now().Before(end) {
 			time.Sleep(20 * time.Millisecond)
 		}
 	}
@@ -979,7 +992,7 @@ func (s *Server) acceptLoop() {
 		if err != nil {
 			continue
 		}
-		if atomic.LoadInt64(&s.clientCount) >= int64(s.config.MaxConnections) || !s.acceptOpen() {
+		if s.clientCount.Load() >= int64(s.config.MaxConnections) || !s.acceptOpen() {
 			conn.Close()
 			continue
 		}
@@ -1061,11 +1074,11 @@ func (s *Server) handleClient(conn net.Conn) {
 		tc.SetKeepAlivePeriod(30 * time.Second) // Check every 30 seconds
 	}
 
-	atomic.AddInt64(&s.clientCount, 1)
-	atomic.AddInt64(&s.stats.ActiveConnections, 1)
+	s.clientCount.Add(1)
+	s.stats.ActiveConnections.Add(1)
 	defer func() {
-		atomic.AddInt64(&s.clientCount, -1)
-		atomic.AddInt64(&s.stats.ActiveConnections, -1)
+		s.clientCount.Add(-1)
+		s.stats.ActiveConnections.Add(-1)
 		conn.Close()
 	}()
 
@@ -1792,9 +1805,9 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 	client.mu.Unlock()
 
 	if soloMode {
-		atomic.AddInt64(&s.stats.SoloMiners, 1)
+		s.stats.SoloMiners.Add(1)
 	} else {
-		atomic.AddInt64(&s.stats.PPLNSMiners, 1)
+		s.stats.PPLNSMiners.Add(1)
 	}
 
 	modeStr := "PPLNS"
@@ -2178,8 +2191,8 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 		BlockHash:   hex.EncodeToString(blockHash),
 	}
 
-	atomic.AddInt64(&s.stats.ValidShares, 1)
-	atomic.AddInt64(&client.ValidShares, 1)
+	s.stats.ValidShares.Add(1)
+	client.ValidShares.Add(1)
 
 	if s.shareProcessor != nil {
 		go s.shareProcessor.ProcessShare(context.Background(), share)
@@ -2629,12 +2642,12 @@ func (s *Server) cleanupJobHistory(maxJobs int) {
 
 func (s *Server) GetStats() *ServerStats {
 	return &ServerStats{
-		ActiveConnections: atomic.LoadInt64(&s.stats.ActiveConnections),
-		ValidShares:       atomic.LoadInt64(&s.stats.ValidShares),
-		InvalidShares:     atomic.LoadInt64(&s.stats.InvalidShares),
-		BlocksFound:       atomic.LoadInt64(&s.stats.BlocksFound),
-		SoloMiners:        atomic.LoadInt64(&s.stats.SoloMiners),
-		PPLNSMiners:       atomic.LoadInt64(&s.stats.PPLNSMiners),
+		ActiveConnections: s.stats.ActiveConnections.Load(),
+		ValidShares:       s.stats.ValidShares.Load(),
+		InvalidShares:     s.stats.InvalidShares.Load(),
+		BlocksFound:       s.stats.BlocksFound.Load(),
+		SoloMiners:        s.stats.SoloMiners.Load(),
+		PPLNSMiners:       s.stats.PPLNSMiners.Load(),
 	}
 }
 
@@ -2986,7 +2999,7 @@ func parseVersionMask(mask string) (uint32, bool) {
 // NewServerForTest builds a bare Server with just enough state for the rented-hashpower
 // counters to be exercised. Test-only helper; not used by the running app.
 func NewServerForTest() *Server {
-	return &Server{stats: &ServerStats{}}
+	return &Server{stats: &serverCounters{}}
 }
 
 // AddAuthorizedRentalClientForTest registers one authorized client attributed to the given

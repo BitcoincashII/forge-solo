@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/BitcoincashII/forge-solo/internal/mergemining"
@@ -115,8 +116,8 @@ type Client struct {
 	ShareCount            int64
 	ConnectedAt           time.Time
 	LastActivity          time.Time
-	ValidShares           int64
-	InvalidShares         int64
+	ValidShares           atomic.Int64 // atomic types: see serverCounters
+	InvalidShares         atomic.Int64
 	StaleShares           int64
 	ShareTimes            []time.Time
 	submitWindowStart     time.Time // start of the current per-second submit-rate window

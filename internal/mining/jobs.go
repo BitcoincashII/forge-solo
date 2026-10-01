@@ -46,7 +46,7 @@ type JobManager struct {
 	mu          sync.RWMutex
 	pubkeyHash  []byte
 	coinbaseTag []byte
-	jobCounter  uint64
+	jobCounter  atomic.Uint64 // not uint64 under sync/atomic: 64-bit aligned on 32-bit platforms too
 
 	// Merge mining (aux chain, e.g. 1175). Inert unless EnableMergeMining is called.
 	auxClient  *mergemining.Client
@@ -603,7 +603,7 @@ func (jm *JobManager) CreateJob(template *BlockTemplate) *Job {
 	if template == nil || !jm.IsConfigured() {
 		return nil
 	}
-	jobID := fmt.Sprintf("%x", atomic.AddUint64(&jm.jobCounter, 1))
+	jobID := fmt.Sprintf("%x", jm.jobCounter.Add(1))
 
 	// Merge mining: fetch aux work and embed its commitment in the coinbase.
 	// commitment is nil (and the coinbase is unchanged) when merge mining is off or the aux
@@ -668,7 +668,7 @@ func (jm *JobManager) CreateJobWithCoinbase(template *BlockTemplate, cb1, cb2 st
 		txData = append(txData, tx.Data)
 	}
 	return &Job{
-		ID:               fmt.Sprintf("%x", atomic.AddUint64(&jm.jobCounter, 1)),
+		ID:               fmt.Sprintf("%x", jm.jobCounter.Add(1)),
 		Height:           template.Height,
 		PrevBlockHash:    stratumPrevHash(template.PreviousBlockHash),
 		CoinBase1:        cb1,

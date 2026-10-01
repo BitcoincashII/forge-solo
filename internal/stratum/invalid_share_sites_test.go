@@ -37,7 +37,7 @@ func TestEveryRejectionSiteGoesThroughNoteInvalidShare(t *testing.T) {
 		t.Fatal("noteInvalidShare not found in server.go — did the reject accounting move?")
 	}
 
-	inc := regexp.MustCompile(`atomic\.AddInt64\(&(client|s)\.stats?\.?InvalidShares, 1\)`)
+	inc := regexp.MustCompile(`(client|s\.stats)\.InvalidShares\.Add\(1\)`)
 	for i, l := range lines {
 		if i >= start && i <= end {
 			continue // the helper's own increments

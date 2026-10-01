@@ -16,7 +16,7 @@ import (
 // two things an overclocked miner actually produces, and the exact failure a solo
 // miner watches that number to catch.
 func TestNoteInvalidShareReportsToTheStatsHook(t *testing.T) {
-	s := &Server{stats: &ServerStats{}}
+	s := &Server{stats: &serverCounters{}}
 	var mu sync.Mutex
 	var got []string
 	s.SetInvalidShareHandler(func(minerID, workerName, reason string) {
@@ -37,17 +37,17 @@ func TestNoteInvalidShareReportsToTheStatsHook(t *testing.T) {
 	if want := "bitcoincashii:qreject00000000000000000000000000000000/rig1/duplicate"; got[0] != want {
 		t.Fatalf("reject reported as %q, want %q", got[0], want)
 	}
-	if n := atomic.LoadInt64(&c.InvalidShares); n != 1 {
+	if n := c.InvalidShares.Load(); n != 1 {
 		t.Errorf("client counter = %d, want 1", n)
 	}
-	if n := atomic.LoadInt64(&s.stats.InvalidShares); n != 1 {
+	if n := s.stats.InvalidShares.Load(); n != 1 {
 		t.Errorf("server counter = %d, want 1", n)
 	}
 }
 
 // An unauthorized connection has no worker to charge, and must not invent one.
 func TestNoteInvalidShareSkipsUnauthorizedClients(t *testing.T) {
-	s := &Server{stats: &ServerStats{}}
+	s := &Server{stats: &serverCounters{}}
 	var calls int32
 	s.SetInvalidShareHandler(func(_, _, _ string) { atomic.AddInt32(&calls, 1) })
 
@@ -55,16 +55,16 @@ func TestNoteInvalidShareSkipsUnauthorizedClients(t *testing.T) {
 	if n := atomic.LoadInt32(&calls); n != 0 {
 		t.Fatalf("reported %d rejects for a client that has not authorized", n)
 	}
-	if n := atomic.LoadInt64(&s.stats.InvalidShares); n != 1 {
+	if n := s.stats.InvalidShares.Load(); n != 1 {
 		t.Errorf("server total should still count it: got %d, want 1", n)
 	}
 }
 
 // No handler set (the stratum used standalone in tests) must not panic.
 func TestNoteInvalidShareWithoutAHandler(t *testing.T) {
-	s := &Server{stats: &ServerStats{}}
+	s := &Server{stats: &serverCounters{}}
 	s.noteInvalidShare(&Client{MinerID: "m", WorkerName: "w"}, "invalid")
-	if n := atomic.LoadInt64(&s.stats.InvalidShares); n != 1 {
+	if n := s.stats.InvalidShares.Load(); n != 1 {
 		t.Fatalf("server total = %d, want 1", n)
 	}
 }

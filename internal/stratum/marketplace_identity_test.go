@@ -35,7 +35,7 @@ func TestSoloRecordsMarketplaceIdentityWithoutApplyingItsFloor(t *testing.T) {
 
 			// Solo: identity recorded, policy withheld.
 			solo := &Server{
-				stats:  &ServerStats{},
+				stats:  &serverCounters{},
 				config: &ServerConfig{SoloOnly: true, RentalMinDiff: 500000, AbsoluteMinDiff: 1024},
 			}
 			c := &Client{}
@@ -65,7 +65,7 @@ func TestSoloRecordsMarketplaceIdentityWithoutApplyingItsFloor(t *testing.T) {
 // Outside solo the floor is intended, so both fields must be set.
 func TestNonSoloStillAppliesTheMarketplaceFloor(t *testing.T) {
 	srv := &Server{
-		stats:  &ServerStats{},
+		stats:  &serverCounters{},
 		config: &ServerConfig{SoloOnly: false, RentalMinDiff: 500000, AbsoluteMinDiff: 1024},
 	}
 	c := &Client{}
