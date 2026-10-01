@@ -940,7 +940,9 @@ func LoadAllMinerSettings() map[string]*MinerSettings {
 		log.Printf("Warning: error iterating miner settings: %v", err)
 	}
 
-	log.Printf("✅ Loaded %d miner settings from database", len(result))
+	if n := int64(len(result)) + 1; minerSettingsLogged.Swap(n) != n {
+		log.Printf("✅ Loaded %d miner settings from database", len(result))
+	}
 	return result
 }
 
@@ -1107,6 +1109,10 @@ func ClearSoloShares() (int64, error) {
 		}
 	}
 }
+
+// Compact is SQLite's way of giving back the space of rows deleted in bulk. PostgreSQL needs none:
+// TRUNCATE frees the space at once, and autovacuum reuses what a DELETE leaves.
+func Compact() error { return nil }
 
 // PPLNSShare represents a miner's share contribution in the PPLNS window
 type PPLNSShare struct {

@@ -1829,6 +1829,10 @@ func clearStoredSoloShares() {
 	case n > 0:
 		logger.Info("🧹 cleared the solo shares earlier versions stored (nothing reads them)", zap.Int64("rows", n))
 	}
+	// Checked every time, so a rewrite that could not run (another process busy) runs on a later start.
+	if err := stats.Compact(); err != nil {
+		logger.Warn("could not give back the database space of the cleared shares", zap.Error(err))
+	}
 }
 
 func loadConfig(path string) (*viper.Viper, error) {

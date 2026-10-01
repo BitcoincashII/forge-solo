@@ -560,7 +560,9 @@ func LoadAllMinerSettings() map[string]*MinerSettings {
 		log.Printf("Warning: error iterating miner settings: %v", err)
 	}
 
-	log.Printf("✅ Loaded %d miner settings from database", len(result))
+	if n := int64(len(result)) + 1; minerSettingsLogged.Swap(n) != n {
+		log.Printf("✅ Loaded %d miner settings from database", len(result))
+	}
 	return result
 }
 
@@ -741,6 +743,33 @@ func ClearSoloShares() (int64, error) {
 			return total, nil
 		}
 	}
+}
+
+// Compact gives back the space of rows deleted in bulk. SQLite keeps freed pages inside the file
+// (auto_vacuum is off), so clearing the solo shares earlier versions stored would leave the file as
+// large as before. It rewrites the file only when there is a lot to give back: at least 4 MB and a
+// quarter of the file.
+func Compact() error {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return ErrDatabaseNotInitialized
+	}
+	var free, total int64
+	if err := db.QueryRow(`PRAGMA freelist_count`).Scan(&free); err != nil {
+		return err
+	}
+	if err := db.QueryRow(`PRAGMA page_count`).Scan(&total); err != nil {
+		return err
+	}
+	if free < 1024 || free*4 < total {
+		return nil
+	}
+	if _, err := db.Exec(`VACUUM`); err != nil {
+		return err
+	}
+	_, err := db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
+	return err
 }
 
 // GetPPLNSShares returns the sum of difficulty per miner for the last N shares

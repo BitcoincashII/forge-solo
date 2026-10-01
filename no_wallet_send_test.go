@@ -198,3 +198,15 @@ func TestTestAddressesAreObviouslyFake(t *testing.T) {
 		t.Fatalf("walk: %v", err)
 	}
 }
+
+// Neither node names a wallet. The 1175 node used to start with -wallet=pool, for a wallet nothing
+// uses that does not exist; it only warned at every start.
+func TestNoNodeNamesAWallet(t *testing.T) {
+	b, err := os.ReadFile("docker-compose.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "-wallet=") {
+		t.Error("docker-compose.yml starts a node with -wallet=; the app has no wallet")
+	}
+}

@@ -180,8 +180,10 @@ rpcport=%[3]d
 rpcuser=forge
 rpcpassword=%[4]s
 zmqpubhashblock=tcp://127.0.0.1:%[5]d
-zmqpubrawblock=tcp://127.0.0.1:%[5]d
 printtoconsole=0
+dbcache=100
+maxmempool=50
+maxsigcachesize=4
 `, p2pPort, onionPort, p.RPC, s.RPCPassword, p.ZMQ)
 }
 

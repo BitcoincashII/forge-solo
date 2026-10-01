@@ -38,6 +38,10 @@ User=%[1]s
 ExecStart=%[2]s/forge-solo run --data-dir %[3]s --web %[4]s
 KillMode=mixed
 TimeoutStopSec=180
+# Mining software on a machine that is often doing other things: below them for CPU and disk.
+Nice=10
+CPUWeight=50
+IOWeight=50
 Restart=on-failure
 RestartSec=10
 LimitNOFILE=8192

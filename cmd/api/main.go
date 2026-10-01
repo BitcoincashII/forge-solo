@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -25,7 +26,6 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
-	"github.com/gofiber/fiber/v2/middleware/logger"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -325,7 +325,7 @@ func main() {
 		AppName: "Forge Solo API",
 	})
 
-	app.Use(logger.New())
+	app.Use(logRequests)
 
 	// Configure CORS - MUST set CORS_ORIGINS env var in production
 	// Example: CORS_ORIGINS="https://pool.example.com,https://www.pool.example.com"
@@ -790,6 +790,26 @@ func getConnectivity(c *fiber.Ctx) error {
 // fetch that does needs a CORS preflight, which this API refuses; Sec-Fetch-Site, which browsers
 // set on every request, must say same-origin when it is present. Clients other than browsers send
 // no Sec-Fetch-Site and are unaffected as long as they post JSON, as the dashboard does.
+// logRequests logs the requests that change something or fail. Every request used to be logged,
+// the dashboard's polls and the healthcheck's HEAD every 10 s with them; on Umbrel a container's
+// log is kept until the container is replaced, and that alone was megabytes a day.
+func logRequests(c *fiber.Ctx) error {
+	start := time.Now()
+	err := c.Next()
+	status := c.Response().StatusCode()
+	var fe *fiber.Error
+	if errors.As(err, &fe) {
+		status = fe.Code
+	} else if err != nil {
+		status = fiber.StatusInternalServerError
+	}
+	switch m := c.Method(); {
+	case status >= 400, m != fiber.MethodGet && m != fiber.MethodHead && m != fiber.MethodOptions:
+		log.Printf("%s %s %d %s", m, c.Path(), status, time.Since(start).Round(time.Millisecond))
+	}
+	return err
+}
+
 func rejectCrossSiteWrites(c *fiber.Ctx) error {
 	switch c.Method() {
 	case fiber.MethodGet, fiber.MethodHead, fiber.MethodOptions:

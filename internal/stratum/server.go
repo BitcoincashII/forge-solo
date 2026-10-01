@@ -1097,8 +1097,9 @@ func (s *Server) handleClient(conn net.Conn) {
 	s.clients.Store(client.ID, client)
 	defer s.clients.Delete(client.ID)
 
-	// Log external connections at Info level for debugging
-	if !strings.HasPrefix(client.IP, "127.0.0.1") {
+	// Log external connections at Info level for debugging. Loopback either way: the compose
+	// healthcheck's probe arrives from ::1 on some hosts, and was logged as external every 30 s.
+	if !isLoopback(client.IP) {
 		s.logger.Info("External client connected", zap.String("ip", client.IP))
 	} else {
 		s.logger.Debug("Client connected", zap.String("ip", client.IP))
@@ -2056,7 +2057,8 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 		versionBits = params[5]
 	}
 
-	s.logger.Info("Share submitted",
+	// Debug, not Info: two lines for every share filled a busy miner's log by megabytes a day.
+	s.logger.Debug("Share submitted",
 		zap.String("miner", minerID),
 		zap.String("worker", workerName),
 		zap.String("job", jobID),
@@ -2271,7 +2273,7 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 		go s.submitAux(job, extranonce1, extranonce2, ntime, nonce, versionBits, minerID, soloMining)
 	}
 
-	s.logger.Info("Share accepted",
+	s.logger.Debug("Share accepted",
 		zap.String("miner", minerID),
 		zap.String("worker", workerName),
 		zap.Float64("diff", actualDiff),

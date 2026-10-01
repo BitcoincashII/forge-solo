@@ -43,7 +43,7 @@ func writeConfigs() {
 	// NAT-PMP are off: opening a port on someone's router is a change to their network, and
 	// it is not this installer's to make silently. The Umbrel build never did it either, and
 	// Bitcoin Core ships both off. Outbound peering is unaffected; inbound needs a forward.
-	// dbcache/par/maxconnections keep it light on a laptop. writeAlways so upgrades apply.
+	// dbcache/maxmempool/maxsigcachesize/par/maxconnections keep it light on a laptop. writeAlways so upgrades apply.
 	//
 	// The BCH2 node is not pruned. Pruning saved nothing -- the whole chain is about 90 MB --
 	// but it made the node announce NODE_NETWORK_LIMITED instead of NODE_NETWORK, and the DNS
@@ -60,12 +60,12 @@ func writeConfigs() {
 		"server=1\nlisten=1\nrpcbind=127.0.0.1\nrpcallowip=127.0.0.1\nrpcport="+bch2RPC+
 			"\nrpcuser=forge\nrpcpassword="+sec.BCH2Pass+"\nport="+bch2P2P+"\n"+
 			"bind=0.0.0.0:"+bch2P2P+"\nbind=[::]:"+bch2P2P+"\nbind=127.0.0.1:8340=onion\n"+
-			"upnp=0\nnatpmp=0\ndiscover=1\ndbcache=300\npar=1\nmaxconnections=40\n"+
-			"zmqpubhashblock=tcp://127.0.0.1:"+bch2ZMQ+"\nzmqpubrawblock=tcp://127.0.0.1:"+bch2ZMQ+"\ndnsseed=1\n")
+			"upnp=0\nnatpmp=0\ndiscover=1\ndbcache=100\nmaxmempool=50\nmaxsigcachesize=4\npar=1\nmaxconnections=40\n"+
+			"zmqpubhashblock=tcp://127.0.0.1:"+bch2ZMQ+"\ndnsseed=1\n")
 	writeAlways(dpath("elevenseventyfive", "1175.conf"),
 		"server=1\nlisten=1\nrpcbind=127.0.0.1\nrpcallowip=127.0.0.1\nrpcport="+aux1175RPC+
 			"\nrpcuser=forge1175\nrpcpassword="+sec.AuxPass+"\nport="+aux1175P2P+"\nprune=2000\n"+
-			"upnp=0\nnatpmp=0\ndiscover=1\ndbcache=300\npar=1\nmaxconnections=40\ndnsseed=1\n"+
+			"upnp=0\nnatpmp=0\ndiscover=1\ndbcache=100\nmaxmempool=50\nmaxsigcachesize=4\npar=1\nmaxconnections=40\ndnsseed=1\n"+
 			"addnode=213.181.112.83\naddnode=46.7.7.113\naddnode=93.127.117.218\n")
 	// writeAlways so a port change (e.g. moving the 1175 RPC off a Windows-blocked port)
 	// propagates to the stratum's merge-mining config on upgrade. Fully generated file.
@@ -122,6 +122,15 @@ logging:
 `
 }
 
+// rotateLog moves a log past limit bytes to <name>.1, replacing the one before. pg_ctl -l appends to
+// its log for as long as the install lives, and nothing else trims it.
+func rotateLog(path string, limit int64) {
+	if st, err := os.Stat(path); err == nil && st.Size() > limit {
+		_ = os.Remove(path + ".1")
+		_ = os.Rename(path, path+".1")
+	}
+}
+
 func startPostgres() bool {
 	pgdata := dpath("pgdata")
 	if _, err := os.Stat(filepath.Join(pgdata, "PG_VERSION")); os.IsNotExist(err) {
@@ -134,6 +143,7 @@ func startPostgres() bool {
 		_ = os.Remove(pwf)
 	}
 	log := dpath("pglog.txt")
+	rotateLog(log, 10<<20)
 	pgctl := hiddenPrio(belowNormal, "pgsql\\bin\\pg_ctl.exe", "-D", pgdata, "-l", log, "-o", "-p "+pgPort+" -h 127.0.0.1", "-w", "start")
 	_ = pgctl.Run()
 	if !waitTCP("127.0.0.1:"+pgPort, 60*time.Second) {

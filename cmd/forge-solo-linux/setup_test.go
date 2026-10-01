@@ -17,13 +17,16 @@ func TestNodeConfBindsAndIsNotPruned(t *testing.T) {
 	for _, want := range []string{
 		"listen=1\n", "port=8339\n", "bind=0.0.0.0:8339\n", "bind=[::]:8339\n", "bind=127.0.0.1:8340=onion\n",
 		"rpcbind=127.0.0.1\n", "rpcallowip=127.0.0.1\n", "rpcport=30301\n", "rpcuser=forge\n", "rpcpassword=pw\n",
-		"zmqpubhashblock=tcp://127.0.0.1:30601\n", "zmqpubrawblock=tcp://127.0.0.1:30601\n", "upnp=0\n", "natpmp=0\n",
+		"zmqpubhashblock=tcp://127.0.0.1:30601\n", "upnp=0\n", "natpmp=0\n",
+		// Sized for a machine it shares: Core's defaults assume one of its own.
+		"dbcache=100\n", "maxmempool=50\n", "maxsigcachesize=4\n",
 	} {
 		if !strings.Contains(c, want) {
 			t.Errorf("bch2.conf lacks %q:\n%s", want, c)
 		}
 	}
-	for _, bad := range []string{"prune", "0.0.0.0/0", "rpcbind=0.0.0.0"} {
+	// zmqpubrawblock: the stratum subscribes to block hashes only.
+	for _, bad := range []string{"prune", "0.0.0.0/0", "rpcbind=0.0.0.0", "zmqpubrawblock"} {
 		if strings.Contains(c, bad) {
 			t.Errorf("bch2.conf has %q:\n%s", bad, c)
 		}

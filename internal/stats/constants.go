@@ -1,6 +1,9 @@
 package stats
 
-import "time"
+import (
+	"sync/atomic"
+	"time"
+)
 
 // Mining constants
 const (
@@ -28,3 +31,8 @@ const (
 	// overnight; short enough that rotating worker names cannot grow the map without bound.
 	WorkerRetention = 24 * time.Hour
 )
+
+// minerSettingsLogged is the miner-settings count last logged, plus one (zero: never logged). The
+// api reloads the settings every 10 s, and logging every reload filled its log with the same line,
+// about a megabyte a day.
+var minerSettingsLogged atomic.Int64
