@@ -76,7 +76,7 @@
     <div id="pwBlock" style="display:none">
       <label class="fld" for="appPw">Forge Solo password (needed to save)</label>
       <input class="txt" id="appPw" type="password" autocomplete="current-password" spellcheck="false" autocapitalize="none" placeholder="the Default password umbrelOS shows for Forge Solo">
-      <p class="note">Other apps on your Umbrel can reach Forge Solo directly, so a change here needs Forge Solo's own password. umbrelOS shows it when you open Forge Solo, and any time after: right-click the Forge Solo icon on the umbrelOS home screen, then <strong>Settings</strong> → <strong>Default credentials</strong> (on umbrelOS 1.x, <strong>Show default credentials</strong>). This browser remembers it once a save succeeds.</p>
+      <p class="note">Other apps on your Umbrel can reach Forge Solo directly, so a change here needs Forge Solo's own password. umbrelOS shows it when you open Forge Solo, and any time after: right-click the Forge Solo icon on the umbrelOS home screen, then <strong>Settings</strong> → <strong>Default credentials</strong> (on umbrelOS 1.x, <strong>Show default credentials</strong>). It is not your Umbrel login password. This browser remembers it once a save succeeds.</p>
     </div>
     <div style="margin-top:16px">
       <button class="cta" id="saveBtn">Save settings</button>
@@ -143,6 +143,7 @@
    // On Umbrel a save must carry Forge Solo's password (pool config says password_required).
    // The page keeps it in this browser once a save with it succeeds, so it is asked for once.
    var PW_KEY='forgeSoloPassword', pwRequired=false;
+   var PW_WHERE='Copy it again from umbrelOS: right-click the Forge Solo icon, then Settings \u2192 Default credentials.';
    function rememberedPw(){ try{ return localStorage.getItem(PW_KEY)||''; }catch(e){ return ''; } }
    function rememberPw(v){ try{ if(v){ localStorage.setItem(PW_KEY,v); } else { localStorage.removeItem(PW_KEY); } }catch(e){} }
    function askForPw(){
@@ -232,6 +233,13 @@
          document.getElementById('appPw').focus();
          return;
        }
+       // The likeliest slip: copying the payout address after the password replaces the
+       // password on the clipboard, and the address lands in this box.
+       if(/^(bitcoincashii:|bitcoincash:|esf1)/i.test(pw)){
+         st.className='status err'; st.textContent='That is an address, not Forge Solo\'s password. Nothing was saved. '+PW_WHERE;
+         document.getElementById('appPw').focus();
+         return;
+       }
        headers['X-Forge-Password']=pw;
      }
      fetch('/api/v1/pool/config',{method:'POST',headers:headers,body:JSON.stringify(body)})
@@ -244,9 +252,17 @@
          } else if(d.password_required){
            // Missing or wrong password: nothing was saved, and what the user typed stays in the
            // boxes (re-pulling here would wipe it) so the save can simply be repeated.
-           if(d.password_wrong){ rememberPw(''); document.getElementById('appPw').value=''; }
+           var msg='Error: '+(d.error||'Forge Solo\'s password is needed to save.');
+           if(d.password_wrong){
+             rememberPw(''); document.getElementById('appPw').value='';
+             // umbrelOS makes it 64 characters of 0-9 and a-f; saying how long the entry was
+             // shows a cut-off copy or extra text without showing the entry itself.
+             msg='That is not Forge Solo\'s password. Nothing was saved. ';
+             if(!/^[0-9a-fA-F]{64}$/.test(pw)) msg+='It is 64 characters, only 0\u20139 and a\u2013f; what was entered was '+pw.length+' characters. ';
+             msg+=PW_WHERE;
+           }
            askForPw();
-           st.className='status err'; st.textContent='Error: '+(d.error||'Forge Solo\'s password is needed to save.');
+           st.className='status err'; st.textContent=msg;
            document.getElementById('appPw').focus();
          } else {
            st.className='status err'; st.textContent='Error: '+(d.error||'failed')+' — nothing was saved; the fields below have been reset to what is stored.';

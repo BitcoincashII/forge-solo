@@ -73,7 +73,9 @@ func TestSettingsPageSendsThePasswordHeader(t *testing.T) {
 	if !strings.Contains(page, "headers['"+settingsPasswordHeader+"']=pw") {
 		t.Errorf("PW-PAGE-HEADER: settings.html does not send the password as %s", settingsPasswordHeader)
 	}
-	for _, want := range []string{"d.password_required === true", "else if(d.password_required)", "d.password_wrong"} {
+	for _, want := range []string{"d.password_required === true", "else if(d.password_required)", "d.password_wrong",
+		// The slips seen on a real Umbrel: an address pasted instead, and no idea where to look.
+		"That is an address", "Default credentials", "not your Umbrel login password"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("PW-PAGE-FLOW: settings.html no longer has %q", want)
 		}
