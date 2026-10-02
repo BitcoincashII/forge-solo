@@ -115,6 +115,36 @@ func TestDuplicatesAreCaughtForTheWholeBlockAndStaleSharesRefused(t *testing.T) 
 	}
 }
 
+// A block header counts once, whatever job it is submitted under. Two jobs on one block can carry
+// identical work (the coinbase holds nothing per job), so one proof of work rolled to a time both
+// accept builds the same header under either job id.
+func TestOneHeaderCountsOnceWhateverItsJob(t *testing.T) {
+	s, cp := perJobServer()
+	c := perJobClient(t)
+	first, again := soloTestJob("a"), soloTestJob("b") // the same work under two ids
+	s.jobHistory.Store("a", first)
+	s.jobHistory.Store("b", again)
+	s.currentJob.Store(again)
+	c.mu.Lock()
+	c.Difficulty = 1e-6
+	c.mu.Unlock()
+
+	nonce := mineAt(t, s, first, "0000000000000001", first.NTime, 1e-6)
+	if r := submitAt(s, c, "a", "0000000000000001", first.NTime, nonce); r.Result != true {
+		t.Fatalf("DEDUP-FIRST: %+v", r.Error)
+	}
+	credited(t, cp, "DEDUP-FIRST")
+	if r := submitAt(s, c, "b", "0000000000000001", first.NTime, nonce); r.Error != ErrDuplicateShare {
+		t.Fatalf("DEDUP-CROSS-JOB: the same header under the next job got %+v, want %v", r.Error, ErrDuplicateShare)
+	}
+	// Other work under the second id is still accepted: the record holds headers, not jobs.
+	other := mineAt(t, s, again, "0000000000000002", again.NTime, 1e-6)
+	if r := submitAt(s, c, "b", "0000000000000002", again.NTime, other); r.Result != true {
+		t.Fatalf("DEDUP-CROSS-JOB-OTHER: a different share under the second job got %+v, want accepted", r.Error)
+	}
+	credited(t, cp, "DEDUP-CROSS-JOB-OTHER")
+}
+
 // ntime may roll forward up to 7000 seconds from the job's, and never back (ckpool's bounds).
 func TestShareNTimeBounds(t *testing.T) {
 	s, cp := perJobServer()

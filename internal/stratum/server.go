@@ -77,7 +77,7 @@ type Server struct {
 	stopOnce       sync.Once // Stop may be called again; closing shutdownCh twice panics
 	stats          *serverCounters
 	// Duplicate share detection
-	submittedShares sync.Map // map[shareKey]string: the tip (job PrevBlockHash) the share was found on
+	submittedShares sync.Map // block header hash -> the tip (job PrevBlockHash) it was found on
 	shareCleanupMu  sync.Mutex
 
 	// auxMu guards auxClient + onAuxBlock, which the pool_config watcher sets at runtime
@@ -200,16 +200,6 @@ func isLoopback(addr string) bool {
 		return ip.IsLoopback()
 	}
 	return false
-}
-
-// shareKey uniquely identifies a submitted share
-type shareKey struct {
-	JobID       string
-	ExtraNonce1 string
-	ExtraNonce2 string
-	NTime       string
-	Nonce       string
-	VersionBits string
 }
 
 type ServerConfig struct {
@@ -621,20 +611,10 @@ func (s *Server) pruneSubmittedShares() {
 	})
 }
 
-// isDuplicateShare checks if this share was already submitted. headerVersion is the version
-// the share's header carries (RollVersion of the job's version and the submitted bits), so two
-// submissions that build the same header always share one key.
-func (s *Server) isDuplicateShare(jobID, en1, en2, ntime, nonce, headerVersion, tip string) bool {
-	key := shareKey{
-		JobID:       jobID,
-		ExtraNonce1: en1,
-		ExtraNonce2: en2,
-		NTime:       ntime,
-		Nonce:       nonce,
-		VersionBits: headerVersion,
-	}
-
-	_, exists := s.submittedShares.LoadOrStore(key, tip)
+// isDuplicateShare reports whether a share with this block header hash was already accepted, and
+// records it if not. tip is the PrevBlockHash of the job it was found on.
+func (s *Server) isDuplicateShare(headerHash []byte, tip string) bool {
+	_, exists := s.submittedShares.LoadOrStore(string(headerHash), tip)
 	return exists
 }
 
@@ -2269,12 +2249,10 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	}
 
 	// Only work that passed is remembered, so the record grows with real hashing, not with what
-	// a client sends. A duplicate is the same header, so it is keyed on the version the header
-	// actually carries: RollVersion(job, versionBits), the single source of truth. Keying on the
-	// submitted string let one proof of work be accepted again and again under different
-	// spellings of the same version ("", "00000000", "zz", "0x20000000" all build the job's
-	// version), each credited and, in TIDES mode, forwarded to the pool.
-	if s.isDuplicateShare(jobID, extranonce1, extranonce2, ntime, nonce, hex.EncodeToString(RollVersion(job.Version, versionBits)), job.PrevBlockHash) {
+	// a client sends. A duplicate is the same block header, whatever job id or spelling it comes
+	// under: two jobs on one block can carry identical work, since the coinbase holds nothing per
+	// job, and several spellings of a version build the same header.
+	if s.isDuplicateShare(blockHash, job.PrevBlockHash) {
 		s.clientLog(client, true, "Duplicate share rejected",
 			zap.String("miner", minerID),
 			zap.String("job", jobID))
