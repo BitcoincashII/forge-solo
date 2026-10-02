@@ -1605,6 +1605,30 @@ func (s *Server) SoloPayoutAddress() string {
 // it reaches a database column.
 const maxWorkerLabel = 64
 
+// workerLabel is a miner's chosen worker name as it is kept and shown: letters, digits and . _ - @ +
+// stay, every other byte (spaces, colons, slashes, control and non-ASCII characters) becomes "_",
+// and it is at most maxWorkerLabel long. Anyone who can reach the stratum chooses a name -- the
+// rental port is open to the internet -- and the dashboard showed it as written, so a name such as
+// "WARNING: payout address changed, see …" read there as a message to the owner.
+func workerLabel(name string) string {
+	if len(name) > maxWorkerLabel {
+		name = name[:maxWorkerLabel]
+	}
+	b := []byte(name)
+	for i, c := range b {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9',
+			c == '.', c == '_', c == '-', c == '@', c == '+':
+		default:
+			b[i] = '_'
+		}
+	}
+	if len(b) == 0 {
+		return "default"
+	}
+	return string(b)
+}
+
 // shortAddress is a CashAddr as a worker label: the start and end of its payload, e.g.
 // "qruu6e2t…crwj94", distinct enough to tell two rigs apart.
 func shortAddress(addr string) string {
@@ -1624,6 +1648,7 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 
 	username := params[0]
 	minerID, workerName := parseUsername(username)
+	workerName = workerLabel(workerName)
 
 	// Solo: any worker name is a valid username, because the username is not a payout
 	// identity here. The coinbase pays the configured address (see SaveSoloBlockCoinbaseDirect);
@@ -1638,13 +1663,7 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 	if minerID == "" && s.config.SoloOnly {
 		if payout := s.SoloPayoutAddress(); payout != "" {
 			minerID = payout
-			workerName = username
-			if len(workerName) > maxWorkerLabel {
-				workerName = workerName[:maxWorkerLabel]
-			}
-			if workerName == "" {
-				workerName = "default"
-			}
+			workerName = workerLabel(username)
 			s.clientLog(client, false, "Solo miner authorized by worker label",
 				zap.String("worker", workerName),
 				zap.String("credited_to", payout),
@@ -1689,7 +1708,7 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 			zap.String("ip", client.IP))
 		// Set a dummy address for probe - won't receive payouts
 		minerID = "probe"
-		workerName = username
+		workerName = workerLabel(username)
 	}
 
 	// Reject invalid addresses - they cannot receive payouts
