@@ -173,8 +173,8 @@ func (m *StatsManager) UpdateWorker(minerID, workerName string, valid bool, targ
 
 	// Calculate hashrates using shares from the last hour
 	shares := w.ShareBuffer.GetRecordsAfter(time.Now().Add(-ShareHistoryDuration))
-	w.Hashrate5m = m.calculateHashrate(shares, 5*time.Minute)
-	w.Hashrate60m = m.calculateHashrate(shares, 60*time.Minute)
+	w.Hashrate5m = m.calculateHashrate(shares, 5*time.Minute, w.ConnectedAt)
+	w.Hashrate60m = m.calculateHashrate(shares, 60*time.Minute, w.ConnectedAt)
 }
 
 // MaxRejectOnlyWorkers is how many workers that have only ever had shares refused are kept.
@@ -218,8 +218,17 @@ func (m *StatsManager) RecordInvalidShare(minerID, workerName string) {
 	w.InvalidShares++
 }
 
-func (m *StatsManager) calculateHashrate(shares []ShareRecord, window time.Duration) float64 {
-	cutoff := time.Now().Add(-window)
+// hashrateMinSpan is the shortest time a hashrate is averaged over: a worker's first few shares, a
+// few seconds apart, say little about its rate.
+const hashrateMinSpan = time.Minute
+
+// calculateHashrate is the work in shares over the last window, per second, in TH/s. A worker seen
+// for less than the window (since: its first share in this process) is averaged over the time it
+// has been seen, but never under hashrateMinSpan. Dividing by the whole window read every rig at a
+// fifth of its rate a minute after each restart or update, and at a sixtieth on the hour figure.
+func (m *StatsManager) calculateHashrate(shares []ShareRecord, window time.Duration, since time.Time) float64 {
+	now := time.Now()
+	cutoff := now.Add(-window)
 
 	var totalWork float64
 	for _, s := range shares {
@@ -232,10 +241,13 @@ func (m *StatsManager) calculateHashrate(shares []ShareRecord, window time.Durat
 		return 0
 	}
 
-	seconds := window.Seconds()
+	span := window
+	if seen := now.Sub(since); seen < span {
+		span = max(seen, hashrateMinSpan)
+	}
 	// Hashrate = total_difficulty * 2^32 / seconds
 	// Result in TH/s
-	hashrate := totalWork * 4294967296.0 / seconds / 1e12
+	hashrate := totalWork * 4294967296.0 / span.Seconds() / 1e12
 	return hashrate
 }
 
@@ -342,8 +354,8 @@ func (m *StatsManager) GetAllWorkerStats() []*WorkerStats {
 		// as the shares age out of the buffer.
 		if w.ShareBuffer != nil {
 			shares := w.ShareBuffer.GetRecordsAfter(now.Add(-ShareHistoryDuration))
-			wCopy.Hashrate5m = m.calculateHashrate(shares, 5*time.Minute)
-			wCopy.Hashrate60m = m.calculateHashrate(shares, 60*time.Minute)
+			wCopy.Hashrate5m = m.calculateHashrate(shares, 5*time.Minute, w.ConnectedAt)
+			wCopy.Hashrate60m = m.calculateHashrate(shares, 60*time.Minute, w.ConnectedAt)
 		}
 
 		// Get block count for this worker
