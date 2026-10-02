@@ -506,8 +506,11 @@ func aux1175BlockHandler(height int64, hash string, coinbaseValueSat int64, find
 	// supersede replaces whatever is recorded with whatever arrived LAST, so without this
 	// the loser overwrites the winner and the block actually on the chain vanishes from the
 	// ledger entirely. The chain decides, not arrival order.
+	//
+	// On the chain means confirmations above zero: the node also knows a block it has left off
+	// its chain, at -1, and keeping that one dropped the block that won (PAY-4).
 	if existing, ok := stats.Get1175BlockHashAtHeight(height); ok && existing != hash {
-		if _, onChain := aux1175BlockConfirmations(existing); onChain {
+		if confs, _ := aux1175BlockConfirmations(existing); confs > 0 {
 			logger.Info("💠 1175 sibling at an already-recorded height; the recorded block is the one on the aux chain — keeping it",
 				zap.Int64("height", height),
 				zap.String("recorded", existing),
