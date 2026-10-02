@@ -19,10 +19,15 @@ IPFILE="$DATADIR/external-ip"
 CLI="/usr/local/bin/elevenseventyfive-cli"
 P2P_PORT="25360"
 
-if [ -z "${EXTERNAL_IP:-}" ] && [ -r "$IPFILE" ]; then
-    EXTERNAL_IP="$(tr -d '[:space:]' < "$IPFILE" 2>/dev/null || true)"
+if [ -z "${EXTERNAL_IP:-}" ]; then
+    EXTERNAL_IP="$(saved_external_ip "$IPFILE")"
 fi
 if [ -n "${EXTERNAL_IP:-}" ]; then
+    # Set by hand, EXTERNAL_IP may be IPv6, which the node takes only in brackets before a port.
+    case "$EXTERNAL_IP" in
+        \[*) ;;
+        *:*) EXTERNAL_IP="[$EXTERNAL_IP]" ;;
+    esac
     set -- "$@" "-externalip=${EXTERNAL_IP}:${P2P_PORT}"
     echo "[entrypoint] advertising ${EXTERNAL_IP}:${P2P_PORT} (1175)" >&2
 else
@@ -30,7 +35,8 @@ else
 fi
 
 # Peer-supplied data, so no single peer decides it: take the value at least two OUTBOUND peers
-# (ones this node chose) agree on, and never accept one the outside world could not dial anyway.
+# (ones this node chose) agree on, and only a public IPv4 address: one the outside world could dial,
+# and one the node is sure to accept at its next start.
 learn_external_ip() {
     while true; do
         sleep 300
@@ -42,11 +48,7 @@ learn_external_ip() {
         ip="$(printf '%s' "$best" | awk '{print $2}')"
         [ -n "$ip" ] || continue
         [ "${count:-0}" -ge 2 ] || continue
-        case "$ip" in
-            10.*|127.*|0.*|192.168.*|169.254.*) continue ;;
-            172.1[6-9].*|172.2[0-9].*|172.3[01].*) continue ;;
-            100.6[4-9].*|100.[7-9][0-9].*|100.1[01][0-9].*|100.12[0-7].*) continue ;;
-        esac
+        public_ipv4 "$ip" || continue
         if [ "$(cat "$IPFILE" 2>/dev/null || true)" != "$ip" ]; then
             printf '%s\n' "$ip" > "$IPFILE" 2>/dev/null \
                 && echo "[entrypoint] learned external address $ip ($count peers agree);" \
