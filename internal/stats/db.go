@@ -1075,9 +1075,14 @@ func SaveShare(minerAddress string, workerName string, difficulty float64, isSol
 }
 
 // ClearSoloShares removes the solo shares stored before 1.0.13 (see SaveShare). With no PPLNS shares
-// among them, one statement empties the table and frees its space at once (on TimescaleDB, every
-// chunk with it); otherwise only the solo rows go, in batches that never hold a long transaction.
-// It returns the rows removed, or -1 when the whole table was emptied without counting.
+// among them the table is emptied; otherwise only the solo rows go. It returns the rows removed, or
+// -1 when the whole table was emptied without counting.
+//
+// On TimescaleDB every hour of shares is its own chunk, and a statement that touches every chunk
+// takes locks on all of them at once. An install that mined around the clock for some weeks has
+// more chunks than a small board's lock table holds, so emptying the table in one statement failed
+// with "out of shared memory" on every start. The work goes a few chunks at a time instead, each
+// batch in its own transaction.
 func ClearSoloShares() (int64, error) {
 	dbMu.RLock()
 	defer dbMu.RUnlock()
@@ -1093,11 +1098,44 @@ func ClearSoloShares() (int64, error) {
 	if !any {
 		return 0, nil
 	}
+	chunks, err := shareChunks(ctx)
+	if err != nil {
+		return 0, err
+	}
 	if !pplns {
+		// Oldest first, shareChunkBatch chunks per call; the few left go with TRUNCATE.
+		for i := shareChunkBatch - 1; i < len(chunks); i += shareChunkBatch {
+			if _, err := db.ExecContext(ctx, `SELECT drop_chunks('shares', older_than => $1::timestamptz)`, chunks[i].end); err != nil {
+				return 0, err
+			}
+		}
 		_, err := db.ExecContext(ctx, `TRUNCATE shares`)
 		return -1, err
 	}
 	var total int64
+	if len(chunks) > 0 {
+		// One chunk per statement: the time range lets TimescaleDB touch only that chunk. A chunk
+		// left empty is dropped, or every later statement over the whole table would still have
+		// to lock it.
+		for _, c := range chunks {
+			res, err := db.ExecContext(ctx, `DELETE FROM shares WHERE is_solo AND time >= $1 AND time < $2`, c.start, c.end)
+			if err != nil {
+				return total, err
+			}
+			n, _ := res.RowsAffected()
+			total += n
+			var empty bool
+			if err := db.QueryRowContext(ctx, `SELECT NOT EXISTS (SELECT 1 FROM shares WHERE time >= $1 AND time < $2)`, c.start, c.end).Scan(&empty); err != nil {
+				return total, err
+			}
+			if empty {
+				if _, err := db.ExecContext(ctx, `SELECT drop_chunks('shares', older_than => $2::timestamptz, newer_than => $1::timestamptz)`, c.start, c.end); err != nil {
+					return total, err
+				}
+			}
+		}
+		return total, nil
+	}
 	for {
 		res, err := db.ExecContext(ctx, `DELETE FROM shares WHERE id IN (SELECT id FROM shares WHERE is_solo LIMIT 50000)`)
 		if err != nil {
@@ -1108,6 +1146,36 @@ func ClearSoloShares() (int64, error) {
 			return total, nil
 		}
 	}
+}
+
+// shareChunkBatch is how many chunks one statement drops: about 17 locks each, so a batch fits the
+// smallest lock table a tuned install has (128 locks per transaction, 40 connections).
+const shareChunkBatch = 100
+
+type chunkRange struct{ start, end time.Time }
+
+// shareChunks returns the shares table's TimescaleDB chunks, oldest first, or none where the table
+// is a plain one (PostgreSQL without TimescaleDB, as on Windows).
+func shareChunks(ctx context.Context) ([]chunkRange, error) {
+	var hyper bool
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb')`).Scan(&hyper); err != nil || !hyper {
+		return nil, err
+	}
+	rows, err := db.QueryContext(ctx, `SELECT range_start, range_end FROM timescaledb_information.chunks
+		WHERE hypertable_name = 'shares' ORDER BY range_end`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []chunkRange
+	for rows.Next() {
+		var c chunkRange
+		if err := rows.Scan(&c.start, &c.end); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
 }
 
 // Compact is SQLite's way of giving back the space of rows deleted in bulk. PostgreSQL needs none:
