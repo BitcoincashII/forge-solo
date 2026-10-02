@@ -1143,14 +1143,8 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 		if err != nil {
 			continue
 		}
-		// Payout mode: solo or TIDES. Leaving merge-mining to the 1175 branch below on the way
-		// back to solo: clearing last1175 makes it switch 1175 on again if an address is set.
-		if mode, mErr := stats.GetPayoutMode(); mErr == nil && mode != lastMode {
-			lastMode = applyTidesMode(mode, cfg, jm)
-			if lastMode == stats.PayoutModeTides {
-				last1175 = ""
-			}
-		}
+		// The address before the payout mode: one save can set both, and TIDES starts with the
+		// address in effect (the mode switch logged an empty one).
 		if pool != lastPool && pool != "" {
 			if serr := jm.SetPoolAddress(pool); serr != nil {
 				logger.Warn("dashboard payout address rejected — keeping previous", zap.String("address", pool), zap.Error(serr))
@@ -1158,6 +1152,14 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 				applySoloPayoutAddress(pool)
 				logger.Info("✅ payout address updated from dashboard — mining active", zap.String("address", pool))
 				lastPool = pool
+			}
+		}
+		// Payout mode: solo or TIDES. Leaving merge-mining to the 1175 branch below on the way
+		// back to solo: clearing last1175 makes it switch 1175 on again if an address is set.
+		if mode, mErr := stats.GetPayoutMode(); mErr == nil && mode != lastMode {
+			lastMode = applyTidesMode(mode, cfg, jm)
+			if lastMode == stats.PayoutModeTides {
+				last1175 = ""
 			}
 		}
 		// Blank is a real value here: the dashboard clears a tag by sending an empty one,

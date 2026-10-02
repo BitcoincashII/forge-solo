@@ -1888,14 +1888,14 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 		s.logger.Info("Rental miner authorized",
 			zap.String("miner", minerID),
 			zap.String("worker", workerName),
-			zap.String("mode", modeStr),
+			zap.String("accounting", modeStr), // how this miner's shares are counted, not the payout mode
 			zap.String("rental_service", rental.String()),
 			zap.Float64("difficulty", client.Difficulty))
 	} else {
 		s.clientLog(client, false, "Miner authorized",
 			zap.String("miner", minerID),
 			zap.String("worker", workerName),
-			zap.String("mode", modeStr),
+			zap.String("accounting", modeStr), // how this miner's shares are counted, not the payout mode
 			zap.Float64("difficulty", client.Difficulty))
 	}
 
