@@ -1672,7 +1672,7 @@ func main() {
 			tides := gw != nil && currentPayoutMode() == stats.PayoutModeTides
 			modeSwitch := curJob != nil && curJob.Tides != tides && (!tides || gw.Due(false))
 
-			if isNewBlock || needPeriodicUpdate || modeSwitch {
+			if jobDue(curJob, isNewBlock, needPeriodicUpdate, modeSwitch, tides, jobManager.PayoutAddress()) {
 				var job *mining.Job
 				if tides {
 					var keep bool
@@ -1703,8 +1703,7 @@ func main() {
 				}
 				jobHistoryMu.Unlock()
 
-				// CleanJobs=true for new blocks and payout-mode switches, false for periodic updates
-				cleanJobs := isNewBlock || (curJob != nil && job.Tides != curJob.Tides)
+				cleanJobs := mustDropWork(curJob, job, isNewBlock)
 
 				stratumJob := &stratum.Job{
 					ID:               job.ID,
@@ -2175,8 +2174,15 @@ func (p *BlockFindingShareProcessor) submitBlock(share *stratum.Share) {
 			return
 		}
 
+		// A solo block is recorded under the address its job's coinbase pays: one found on a job
+		// from before an address change paid the old address, whatever its miner is credited to now.
+		owner := share.MinerID
+		if share.IsSolo {
+			owner = soloBlockOwner(share.MinerID, job)
+		}
+
 		// Record block for miner stats with effort tracking for luck calculation
-		stats.RecordMinerBlockWithWorkerSolo(share.MinerID, share.WorkerName, job.Height, hashStr, effectiveReward, share.IsSolo)
+		stats.RecordMinerBlockWithWorkerSolo(owner, share.WorkerName, job.Height, hashStr, effectiveReward, share.IsSolo)
 		stats.GetManager().RecordBlockWithEffort(hashStr, getNetworkDifficulty())
 
 		// Send webhook alert for block found
@@ -2197,7 +2203,7 @@ func (p *BlockFindingShareProcessor) submitBlock(share *stratum.Share) {
 			// nonexistent wallet, would fail forever, and risks a double-pay. Mirrors the
 			// 1175 coinbase-direct settle.
 			record := func() error {
-				return stats.SaveSoloBlockCoinbaseDirect(share.MinerID, job.Height, payoutAmount, hashStr)
+				return stats.SaveSoloBlockCoinbaseDirect(owner, job.Height, payoutAmount, hashStr)
 			}
 			if err := record(); err != nil {
 				// The block is on the chain and paid all the same: only its record is missing,

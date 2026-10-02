@@ -24,7 +24,7 @@ func TestBlocksCarryTheDefaultTagWhenNoneIsChosen(t *testing.T) {
 		}
 	}
 	jm := &JobManager{pubkeyHash: make([]byte, 20)}
-	_, cb2 := jm.buildCoinbase(&BlockTemplate{Height: 83470, CoinbaseValue: 5000000000}, nil)
+	_, cb2, _ := jm.buildCoinbase(&BlockTemplate{Height: 83470, CoinbaseValue: 5000000000}, nil)
 	if want := hex.EncodeToString([]byte(DefaultCoinbaseTag)); !strings.HasPrefix(cb2, want) {
 		t.Errorf("a coinbase built with no tag set has fixed part %s…, want it to start with the default tag %s", cb2[:len(want)], want)
 	}

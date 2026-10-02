@@ -45,6 +45,7 @@ type JobManager struct {
 	// EnableMergeMining write them under Lock.
 	mu          sync.RWMutex
 	pubkeyHash  []byte
+	payoutAddr  string // the address pubkeyHash was resolved from, as it was given
 	coinbaseTag []byte
 	jobCounter  atomic.Uint64 // not uint64 under sync/atomic: 64-bit aligned on 32-bit platforms too
 
@@ -319,11 +320,16 @@ func NewJobManager(rpcURL, rpcUser, rpcPassword, poolAddress, coinbaseTag string
 		log.Printf("WARNING: no payout address configured - mining paused until set in the dashboard")
 	}
 
+	var payTo string
+	if pkh != nil {
+		payTo = poolAddress
+	}
 	return &JobManager{
 		rpcURL:      rpcURL,
 		rpcUser:     rpcUser,
 		rpcPassword: rpcPassword,
 		pubkeyHash:  pkh,
+		payoutAddr:  payTo,
 		coinbaseTag: sanitizeCoinbaseTag(coinbaseTag),
 	}
 }
@@ -345,8 +351,17 @@ func (jm *JobManager) SetPoolAddress(addr string) error {
 	}
 	jm.mu.Lock()
 	jm.pubkeyHash = pkh
+	jm.payoutAddr = addr
 	jm.mu.Unlock()
 	return nil
+}
+
+// PayoutAddress is the address new jobs pay, as SetPoolAddress (or NewJobManager) was given it;
+// "" while mining is paused for want of one.
+func (jm *JobManager) PayoutAddress() string {
+	jm.mu.RLock()
+	defer jm.mu.RUnlock()
+	return jm.payoutAddr
 }
 
 // IsConfigured reports whether a payout address is set. When false the job manager
@@ -617,7 +632,7 @@ func (jm *JobManager) CreateJob(template *BlockTemplate) *Job {
 	// using the last known-good commitment; until then, keep that timeout short.
 	auxWork, commitment := jm.fetchAuxWork()
 
-	coinbase1, coinbase2 := jm.buildCoinbase(template, commitment)
+	coinbase1, coinbase2, payTo := jm.buildCoinbase(template, commitment)
 
 	// Full byte reversal for stratum prevhash
 	prevHash := stratumPrevHash(template.PreviousBlockHash)
@@ -650,6 +665,7 @@ func (jm *JobManager) CreateJob(template *BlockTemplate) *Job {
 		Transactions:     txData,
 		AuxWork:          auxWork,
 		CoinbaseValue:    template.CoinbaseValue,
+		PayTo:            payTo,
 	}
 }
 
@@ -718,9 +734,13 @@ const CoinbaseExtranonceReserve = 12
 //
 // Total scriptSig stays well under the 100-byte limit (height ~4 + reserve 12 +
 // tag 13 for the default + commitment 44 = ~73; ~84 with the longest permitted 24-char tag).
-func (jm *JobManager) buildCoinbase(template *BlockTemplate, commitment []byte) (string, string) {
+//
+// The third value is the address the coinbase pays, read under the same lock as the pubkey hash it
+// is built from, so the two always agree.
+func (jm *JobManager) buildCoinbase(template *BlockTemplate, commitment []byte) (string, string, string) {
 	jm.mu.RLock()
 	pkh := jm.pubkeyHash
+	payTo := jm.payoutAddr
 	poolMsg := jm.coinbaseTag
 	jm.mu.RUnlock()
 
@@ -756,7 +776,7 @@ func (jm *JobManager) buildCoinbase(template *BlockTemplate, commitment []byte) 
 	cb2.WriteByte(0xac)
 	binary.Write(&cb2, binary.LittleEndian, uint32(0))
 
-	return hex.EncodeToString(cb1.Bytes()), hex.EncodeToString(cb2.Bytes())
+	return hex.EncodeToString(cb1.Bytes()), hex.EncodeToString(cb2.Bytes()), payTo
 }
 
 // DefaultCoinbaseTag is the tag a block carries when none is chosen in Settings. Up to 1.0.11 it
@@ -840,6 +860,11 @@ type Job struct {
 	// own payout address (0 when it has no work in the pool's window yet).
 	Tides           bool
 	TidesFinderSats int64
+
+	// PayTo is the address a solo job's coinbase pays, as the job manager had it when the job was
+	// built: a block found on a job from before the dashboard changed the address pays the old
+	// one, and is recorded under it. "" for a TIDES job.
+	PayTo string
 
 	// CoinbaseValue is the satoshi value this job's own coinbase pays -- subsidy
 	// PLUS the fees of the transactions in THIS job. It is baked into CoinBase2 at

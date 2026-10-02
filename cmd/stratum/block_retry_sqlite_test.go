@@ -94,6 +94,13 @@ func shortRetries(t *testing.T) {
 // findBlock runs a solo block found at height through submitBlock against node.
 func findBlock(t *testing.T, node *fakeNode, height int64) {
 	t.Helper()
+	findBlockPaying(t, node, height, "")
+}
+
+// findBlockPaying is findBlock on a job whose coinbase pays payTo and says so (blockTestPayout,
+// unsaid, when payTo is ""), found by a miner credited to blockTestPayout.
+func findBlockPaying(t *testing.T, node *fakeNode, height int64, payTo string) {
+	t.Helper()
 	srv := httptest.NewServer(node)
 	t.Cleanup(srv.Close)
 	savedURL, savedLogger := rpcURL, logger
@@ -101,14 +108,19 @@ func findBlock(t *testing.T, node *fakeNode, height int64) {
 	t.Cleanup(func() { rpcURL, logger = savedURL, savedLogger })
 	t.Setenv("RPC_USER", "u") // the stratum always has the node's credentials
 	t.Setenv("RPC_PASSWORD", "p")
-	cb1, cb2, err := wire.BuildCoinbase(height, []byte("test"), []tides.Output{{Address: blockTestPayout, Sats: 50_0000_0000}})
+	coinbaseTo := payTo
+	if coinbaseTo == "" {
+		coinbaseTo = blockTestPayout
+	}
+	cb1, cb2, err := wire.BuildCoinbase(height, []byte("test"), []tides.Output{{Address: coinbaseTo, Sats: 50_0000_0000}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	id := "job-" + hex.EncodeToString([]byte{byte(height)})
 	jobHistoryMu.Lock()
 	jobHistory[id] = &mining.Job{ID: id, Height: height, CoinBase1: cb1, CoinBase2: cb2, Version: "20000000", NBits: "207fffff",
-		NTime: "66f8a1b2", PrevBlockHash: "00000000000000000000000000000000000000000000000000000000000000aa", CoinbaseValue: 50_0000_0000}
+		NTime: "66f8a1b2", PrevBlockHash: "00000000000000000000000000000000000000000000000000000000000000aa", CoinbaseValue: 50_0000_0000,
+		PayTo: payTo}
 	jobHistoryMu.Unlock()
 	share := &stratum.Share{JobID: id, MinerID: blockTestPayout, WorkerName: "rig1", ExtraNonce1: "00000001",
 		ExtraNonce2: "0000000000000001", NTime: "66f8a1b2", Nonce: "00000000", IsSolo: true}
@@ -117,8 +129,10 @@ func findBlock(t *testing.T, node *fakeNode, height int64) {
 
 const blockTestPayout = "bitcoincashii:qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzse6qye33q"
 
-func recorded(height int64) bool {
-	for _, b := range stats.GetMinerBlocksDB(blockTestPayout) {
+func recorded(height int64) bool { return recordedFor(blockTestPayout, height) }
+
+func recordedFor(addr string, height int64) bool {
+	for _, b := range stats.GetMinerBlocksDB(addr) {
 		if b.Height == height {
 			return true
 		}
@@ -185,5 +199,25 @@ func TestABlockFoundWhileTheDatabaseIsDownIsRecordedLater(t *testing.T) {
 			t.Fatal("DATA2-DB-BACK: a block found while the database was down was never recorded once it was back")
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// A block found on a job from before an address change paid the old address, and is recorded
+// under it: it was recorded under the address the miner was credited to by then.
+func TestABlockIsRecordedUnderTheAddressItPaid(t *testing.T) {
+	if err := stats.InitDB(filepath.Join(t.TempDir(), "b.db")); err != nil {
+		t.Fatal(err)
+	}
+	defer stats.CloseDB()
+	shortRetries(t)
+	old := testAddr(7)
+	findBlockPaying(t, &fakeNode{}, 305, old)
+	if !recordedFor(old, 305) || recorded(305) {
+		t.Fatalf("PAY3-RECORD: a block paying %s is recorded under it: %v, under the miner's new address: %v", old, recordedFor(old, 305), recorded(305))
+	}
+	for _, b := range stats.GetMinerBlocksDB(old) {
+		if b.Height == 305 && b.PayoutTxid == "" {
+			t.Fatal("PAY3-RECORD-PAYOUT: the block is under the address it paid, but its payout is under another")
+		}
 	}
 }

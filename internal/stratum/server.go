@@ -2976,6 +2976,10 @@ func cashaddrPolymodStratum(v []byte) uint64 {
 	return c ^ 1
 }
 
+// NormalizeMinerAddress is addr in the form miners are credited and looked up under, or "" if it
+// is not a BCH2 address.
+func NormalizeMinerAddress(addr string) string { return normalizeMinerAddress(addr) }
+
 func normalizeMinerAddress(addr string) string {
 	// Convert to lowercase for comparison
 	lowerAddr := strings.ToLower(addr)
