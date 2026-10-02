@@ -52,6 +52,7 @@ stratum_rental:
   port: 3335
   max_connections: 64
   max_connections_per_ip: 32   # marketplaces aggregate behind one connection; see the note above
+  max_shares_per_second: 100   # per connection, as on the main port
   extranonce1_size: 4      # must sum with extranonce2_size to the coinbase reserve (12)
   extranonce2_size: 8      # >7; NiceHash/MRR and Braiins all require it
   vardiff:

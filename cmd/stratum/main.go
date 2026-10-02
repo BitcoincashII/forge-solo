@@ -1485,6 +1485,7 @@ func main() {
 			Port:                config.GetInt("stratum_rental.port"),
 			MaxConnections:      config.GetInt("stratum_rental.max_connections"),
 			MaxConnectionsPerIP: perIPLimit(config, "stratum_rental.max_connections_per_ip", config.GetInt("stratum_rental.max_connections")),
+			MaxSharesPerSecond:  config.GetInt("stratum_rental.max_shares_per_second"),
 			VardiffEnabled:      config.GetBool("stratum_rental.vardiff.enabled"),
 			MinDiff:             config.GetFloat64("stratum_rental.vardiff.min_diff"),
 			MaxDiff:             config.GetFloat64("stratum_rental.vardiff.max_diff"),
@@ -1846,6 +1847,7 @@ func loadConfig(path string) (*viper.Viper, error) {
 	v.SetDefault("stratum.max_connections", 10000)
 	v.SetDefault("stratum.ban_duration", "10m")
 	v.SetDefault("stratum.max_shares_per_second", 100)
+	v.SetDefault("stratum_rental.max_shares_per_second", 100)
 	v.SetDefault("stratum.vardiff.enabled", true)
 	v.SetDefault("stratum.vardiff.min_diff", 32768)
 	v.SetDefault("stratum.vardiff.rental_min_diff", 500000)   // NiceHash/MRR require 500k+

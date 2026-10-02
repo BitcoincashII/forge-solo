@@ -990,7 +990,7 @@ func (s *Server) acceptLoop() {
 		if err != nil {
 			continue
 		}
-		if s.clientCount.Load() >= int64(s.config.MaxConnections) || !s.acceptOpen() {
+		if s.clientCount.Load() >= s.connectionLimitFor(conn.RemoteAddr()) || !s.acceptOpen() {
 			conn.Close()
 			continue
 		}
@@ -1112,12 +1112,17 @@ func (s *Server) handleClient(conn net.Conn) {
 	scanner := bufio.NewScanner(io.MultiReader(bytes.NewReader(first), conn))
 	scanner.Buffer(make([]byte, 64*1024), 64*1024)
 
-	// CRITICAL FIX: Read deadline to prevent Slowloris-style DoS attacks
-	const readTimeout = 5 * time.Minute
-
 	for {
-		// Set read deadline before each scan to prevent connection holding
-		conn.SetReadDeadline(time.Now().Add(readTimeout))
+		// Until it authorizes, a connection has authTimeout from its start in all; after, each
+		// line may take up to authorizedIdleTimeout.
+		client.mu.RLock()
+		authorized := client.Authorized
+		client.mu.RUnlock()
+		if authorized {
+			conn.SetReadDeadline(time.Now().Add(authorizedIdleTimeout))
+		} else {
+			conn.SetReadDeadline(client.ConnectedAt.Add(authTimeout))
+		}
 
 		if !scanner.Scan() {
 			break
@@ -2952,6 +2957,48 @@ func normalizeMinerAddress(addr string) string {
 }
 
 // normalizeHex pads a hex string to the required length with leading zeros
+// connectionLimitFor is how many connections may be open when one from addr arrives. A quarter of
+// the slots are kept for this network's own miners (private, loopback and link-local addresses):
+// connections from the internet, where a forwarded port lets anyone in, can take only the rest,
+// so two addresses holding open as many as they may (the per-IP cap is half the total) can no
+// longer keep the owner's own rigs out.
+func (s *Server) connectionLimitFor(addr net.Addr) int64 {
+	limit := int64(s.config.MaxConnections)
+	if isLocalNetwork(addr) {
+		return limit
+	}
+	return limit - limit/4
+}
+
+// isLocalNetwork reports whether addr is on this machine or its local network.
+func isLocalNetwork(addr net.Addr) bool {
+	var ip net.IP
+	switch a := addr.(type) {
+	case *net.TCPAddr:
+		ip = a.IP
+	default:
+		ip = net.ParseIP(hostOf(addr.String()))
+	}
+	if ip == nil {
+		return false
+	}
+	if ip4 := ip.To4(); ip4 != nil && ip4[0] == 100 && ip4[1]&0xc0 == 64 {
+		return true // 100.64.0.0/10, the address a carrier-grade NAT gives this network
+	}
+	return ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast()
+}
+
+// authTimeout is how long a connection may take to authorize. A miner subscribes and authorizes in
+// its first seconds; a connection that has not by then is holding a slot without mining in it.
+var authTimeout = 60 * time.Second
+
+// authorizedIdleTimeout is how long an authorized miner may stay silent. Silence is normal: a rig
+// sends nothing between shares, and at its difficulty floor a small one can go many minutes
+// between them, while a marketplace keeps spare connections that send nothing at all. These were
+// dropped every five minutes and reconnected, over and over. A dead peer is found by TCP
+// keepalive and by the job notifications that fail to send. It must stay above idleResetAfter.
+const authorizedIdleTimeout = 30 * time.Minute
+
 // clientLogBudget is how many log lines one connection's own messages may write a minute. Past it
 // the lines are counted, not written, and the next one written says how many were left out. A
 // client could otherwise write the log full -- the stratum's is kept at 30 MB on Umbrel -- and

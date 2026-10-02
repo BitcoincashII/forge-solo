@@ -224,6 +224,7 @@ stratum_rental:
   port: %d
   max_connections: 64
   max_connections_per_ip: 32
+  max_shares_per_second: 100
   extranonce1_size: 4
   extranonce2_size: 8
   vardiff:
