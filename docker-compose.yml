@@ -158,7 +158,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      # An install waits for the database to be healthy before it starts the api and stratum, and
+      # fails ("exit code 1") if it is not by start_period plus retries x interval. A first start on
+      # a slow or busy Umbrel, with another app syncing a chain, could take longer than the 80 s
+      # this used to allow. It is healthy, and the install goes on, the moment it answers.
+      start_period: 600s
 
   api:
     image: ghcr.io/bitcoincashii/forge-solo-api:1.0.12@sha256:82428bc4299a949c776c8cb7386cc5175f2aec0cdcca50bb927125224c5037f5
