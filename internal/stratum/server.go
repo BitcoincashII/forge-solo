@@ -1131,12 +1131,14 @@ func (s *Server) handleClient(conn net.Conn) {
 			continue
 		}
 		if !s.handleMessage(client, line) {
-			// A line that is not JSON: tolerated from a subscribed miner (logged, as ever), but a
-			// connection that has not subscribed has shown it is not a stratum client.
-			client.mu.RLock()
+			// A line that is not JSON: a few are tolerated from a subscribed miner (logged, as
+			// ever), but a connection that has not subscribed has shown it is not a stratum client.
+			client.mu.Lock()
 			subscribed := client.Subscribed
-			client.mu.RUnlock()
-			if !subscribed {
+			client.badLines++
+			bad := client.badLines
+			client.mu.Unlock()
+			if !subscribed || bad > maxBadLines {
 				break
 			}
 		}
@@ -1227,10 +1229,10 @@ func (s *Server) readFirstByte(client *Client, conn net.Conn) ([]byte, bool) {
 func (s *Server) handleMessage(client *Client, data []byte) bool {
 	var req Request
 	if err := json.Unmarshal(data, &req); err != nil {
-		s.logger.Warn("Failed to parse stratum message",
+		s.clientLog(client, true, "Failed to parse stratum message",
 			zap.String("ip", client.IP),
 			zap.Error(err),
-			zap.ByteString("data", data))
+			zap.String("data", clip(string(data), 128)))
 		return false
 	}
 
@@ -1293,7 +1295,7 @@ func (s *Server) handleMessage(client *Client, data []byte) bool {
 			}
 		}
 	case MethodConfigure:
-		s.logger.Info("mining.configure received",
+		s.clientLog(client, false, "mining.configure received",
 			zap.String("ip", client.IP),
 			zap.String("user_agent", client.UserAgent))
 		resp := s.handleConfigure(client, &req)
@@ -1349,8 +1351,8 @@ func (s *Server) handleMessage(client *Client, data []byte) bool {
 		}
 		s.sendResponse(client, &Response{ID: req.ID, Result: true})
 	default:
-		s.logger.Info("Ignoring unsupported stratum method",
-			zap.String("method", req.Method),
+		s.clientLog(client, false, "Ignoring unsupported stratum method",
+			zap.String("method", clip(req.Method, 64)),
 			zap.String("ip", client.IP))
 		s.sendResponse(client, &Response{ID: req.ID, Result: true})
 	}
@@ -1366,7 +1368,7 @@ func (s *Server) handleSubscribe(client *Client, req *Request) *Response {
 	var params []interface{}
 	if err := json.Unmarshal(req.Params, &params); err == nil && len(params) > 0 {
 		if ua, ok := params[0].(string); ok {
-			client.UserAgent = ua
+			client.UserAgent = clip(ua, maxUserAgent)
 			// Not in a solo home app: there is no rental payout identity here, the floor it
 			// would impose (RentalMinDiff, 500000) has no operator knob in the shipped
 			// config, and nothing can climb back down from it -- vardiffFloor returns it, so
@@ -1428,13 +1430,13 @@ func (s *Server) handleSubscribe(client *Client, req *Request) *Response {
 
 	// Log with rental service detection
 	if client.RentalService != RentalNone {
-		s.logger.Info("Rental service client subscribed",
+		s.clientLog(client, false, "Rental service client subscribed",
 			zap.String("ip", client.IP),
 			zap.String("extranonce", client.ExtraNonce1),
 			zap.String("rental_service", client.RentalService.String()),
 			zap.String("user_agent", client.UserAgent))
 	} else {
-		s.logger.Info("Client subscribed",
+		s.clientLog(client, false, "Client subscribed",
 			zap.String("ip", client.IP),
 			zap.String("extranonce", client.ExtraNonce1),
 			zap.String("user_agent", client.UserAgent))
@@ -1634,7 +1636,7 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 			if workerName == "" {
 				workerName = "default"
 			}
-			s.logger.Info("Solo miner authorized by worker label",
+			s.clientLog(client, false, "Solo miner authorized by worker label",
 				zap.String("worker", workerName),
 				zap.String("credited_to", payout),
 				zap.String("ip", client.IP))
@@ -1655,7 +1657,7 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 			workerName = shortAddress(minerID)
 		}
 		if payout != "" && minerID != payout {
-			s.logger.Info("Solo miner authorized with another address as its label",
+			s.clientLog(client, false, "Solo miner authorized with another address as its label",
 				zap.String("username_address", minerID),
 				zap.String("worker", workerName),
 				zap.String("credited_to", payout),
@@ -1881,7 +1883,7 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 			zap.String("rental_service", rental.String()),
 			zap.Float64("difficulty", client.Difficulty))
 	} else {
-		s.logger.Info("Miner authorized",
+		s.clientLog(client, false, "Miner authorized",
 			zap.String("miner", minerID),
 			zap.String("worker", workerName),
 			zap.String("mode", modeStr),
@@ -1967,7 +1969,7 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	client.mu.RLock()
 	if !client.Authorized {
 		client.mu.RUnlock()
-		s.logger.Warn("Submit from unauthorized client", zap.String("ip", client.IP))
+		s.clientLog(client, true, "Submit from unauthorized client", zap.String("ip", client.IP))
 		return &Response{ID: req.ID, Result: false, Error: ErrUnauthorized}
 	}
 	minerID := client.MinerID
@@ -2007,16 +2009,16 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	// Parse params as []interface{} to handle miners that send mixed types
 	var rawParams []interface{}
 	if err := json.Unmarshal(req.Params, &rawParams); err != nil {
-		s.logger.Warn("Failed to parse submit params",
+		s.clientLog(client, true, "Failed to parse submit params",
 			zap.String("miner", minerID),
 			zap.Error(err),
-			zap.ByteString("params", req.Params))
+			zap.String("params", clip(string(req.Params), 128)))
 		s.noteInvalidShare(client, "malformed_params")
 		return &Response{ID: req.ID, Result: false, Error: ErrLowDifficulty}
 	}
 
 	if len(rawParams) < 5 {
-		s.logger.Warn("Insufficient submit params",
+		s.clientLog(client, true, "Insufficient submit params",
 			zap.String("miner", minerID),
 			zap.Int("count", len(rawParams)))
 		s.noteInvalidShare(client, "malformed_params")
@@ -2033,7 +2035,7 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 		case float64:
 			// SECURITY: Validate range before casting to prevent overflow
 			if v < 0 || v > float64(^uint32(0)) {
-				s.logger.Warn("Invalid numeric parameter - out of range",
+				s.clientLog(client, true, "Invalid numeric parameter - out of range",
 					zap.Int("param_index", i),
 					zap.Float64("value", v))
 				s.noteInvalidShare(client, "param_out_of_range")
@@ -2044,7 +2046,7 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 			if n, err := v.Int64(); err == nil {
 				// SECURITY: Validate range before casting
 				if n < 0 || n > int64(^uint32(0)) {
-					s.logger.Warn("Invalid numeric parameter - out of range",
+					s.clientLog(client, true, "Invalid numeric parameter - out of range",
 						zap.Int("param_index", i),
 						zap.Int64("value", n))
 					s.noteInvalidShare(client, "param_out_of_range")
@@ -2087,7 +2089,7 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	// Get the job from history
 	jobInterface, exists := s.jobHistory.Load(jobID)
 	if !exists {
-		s.logger.Warn("Job not found",
+		s.clientLog(client, true, "Job not found",
 			zap.String("miner", minerID),
 			zap.String("job", jobID))
 		s.noteInvalidShare(client, "stale_job")
@@ -2133,7 +2135,7 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 			zap.Float64("network_diff", netDiff))
 	}
 	if err != nil {
-		s.logger.Warn("Share validation error",
+		s.clientLog(client, true, "Share validation error",
 			zap.String("miner", minerID),
 			zap.Error(err))
 		s.noteInvalidShare(client, "invalid")
@@ -2144,7 +2146,7 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 		// Report the floor ACTUALLY applied plus what the miner was assigned. Logging
 		// s.config.MinDiff here would hide exactly the mismatch this fix exists to
 		// prevent: an operator debugging a 100%-reject miner needs to see both numbers.
-		s.logger.Warn("Share below minimum difficulty",
+		s.clientLog(client, true, "Share below minimum difficulty",
 			zap.String("miner", minerID),
 			zap.Float64("required", shareFloor),
 			zap.Float64("assigned", difficulty),
@@ -2207,7 +2209,7 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	// spellings of the same version ("", "00000000", "zz", "0x20000000" all build the job's
 	// version), each credited and, in TIDES mode, forwarded to the pool.
 	if s.isDuplicateShare(jobID, extranonce1, extranonce2, ntime, nonce, hex.EncodeToString(RollVersion(job.Version, versionBits)), job.PrevBlockHash) {
-		s.logger.Warn("Duplicate share rejected",
+		s.clientLog(client, true, "Duplicate share rejected",
 			zap.String("miner", minerID),
 			zap.String("job", jobID))
 		s.noteInvalidShare(client, "duplicate")
@@ -2950,6 +2952,70 @@ func normalizeMinerAddress(addr string) string {
 }
 
 // normalizeHex pads a hex string to the required length with leading zeros
+// clientLogBudget is how many log lines one connection's own messages may write a minute. Past it
+// the lines are counted, not written, and the next one written says how many were left out. A
+// client could otherwise write the log full -- the stratum's is kept at 30 MB on Umbrel -- and
+// rotate away everything else in it, a found block's lines included. Counting what was left out
+// matters as much as the limit: a throttle that hides the evidence would hide a miner losing all
+// its work.
+const clientLogBudget = 20
+
+// maxUserAgent is how much of a client's user agent is kept and logged.
+const maxUserAgent = 128
+
+// maxBadLines is how many lines that are not JSON a subscribed client may send before it is
+// disconnected. ckpool disconnects at the first ("Invalid JSON, disconnecting").
+const maxBadLines = 5
+
+// logLimit is a connection's log budget.
+type logLimit struct {
+	mu          sync.Mutex
+	windowStart time.Time
+	n           int
+	suppressed  int64
+}
+
+// take reports whether a line may be written now, and how many were left out before it.
+func (l *logLimit) take(now time.Time) (bool, int64) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if now.Sub(l.windowStart) >= time.Minute {
+		l.windowStart, l.n = now, 0
+	}
+	if l.n >= clientLogBudget {
+		l.suppressed++
+		return false, 0
+	}
+	l.n++
+	skipped := l.suppressed
+	l.suppressed = 0
+	return true, skipped
+}
+
+// clientLog writes a line that a client's own message caused, within that connection's budget.
+func (s *Server) clientLog(client *Client, warn bool, msg string, fields ...zap.Field) {
+	ok, skipped := client.logs.take(time.Now())
+	if !ok {
+		return
+	}
+	if skipped > 0 {
+		fields = append(fields, zap.Int64("suppressed_since_last", skipped))
+	}
+	if warn {
+		s.logger.Warn(msg, fields...)
+	} else {
+		s.logger.Info(msg, fields...)
+	}
+}
+
+// clip shortens a client-supplied string for keeping or logging.
+func clip(v string, n int) string {
+	if len(v) <= n {
+		return v
+	}
+	return v[:n] + "…"
+}
+
 // maxWorkerNamesPerConnection is how many different worker names one connection may authorize.
 const maxWorkerNamesPerConnection = 8
 
