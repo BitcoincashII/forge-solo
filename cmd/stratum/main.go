@@ -1850,8 +1850,8 @@ var (
 // won the height. Otherwise it submits again, which is harmless if the node already has it. A
 // definite refusal ("high-hash", "bad-...") ends it at once; no answer, "inconclusive" or
 // "duplicate" means try again, until blockSubmitRetryFor.
-func reconcileBlock(blockHex, ourHash string, height int64, firstReason string) string {
-	result := firstReason
+func reconcileBlock(blockHex, ourHash string, height int64) string {
+	var result string
 	deadline := time.Now().Add(blockSubmitRetryFor)
 	for wait := blockRetryFirstWait; ; wait = min(2*wait, blockRetryMaxWait) {
 		var chainHash string
@@ -2124,7 +2124,7 @@ func (p *BlockFindingShareProcessor) submitBlock(share *stratum.Share) {
 		}
 		p.logger.Warn("submitblock was not a clean accept; reconciling against chain",
 			zap.String("reason", reason), zap.String("our_hash", ourHash), zap.Int64("height", job.Height))
-		result = reconcileBlock(blockHex, ourHash, job.Height, reason)
+		result = reconcileBlock(blockHex, ourHash, job.Height)
 		if result == "" {
 			p.logger.Info("Block confirmed on chain after reconciliation",
 				zap.String("our_hash", ourHash), zap.Int64("height", job.Height))

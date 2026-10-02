@@ -2010,7 +2010,7 @@ func internalFigures(u string) (map[string]interface{}, error) {
 
 var (
 	errMiningServiceSilent = errors.New("the mining service is not answering")
-	errDatabaseSilent      = errors.New("Forge Solo's database is not answering")
+	errDatabaseSilent      = errors.New("the database is not answering")
 )
 
 // figuresUnavailable answers 503 for figures that could not be read, saying which part did not

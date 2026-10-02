@@ -2,10 +2,11 @@ module github.com/BitcoincashII/forge-solo
 
 go 1.25.0
 
-// Pinned to a stdlib with the net/url, crypto/tls and crypto/x509 fixes
-// (GO-2026-6218 needs 1.25.13). The Docker build images are pinned to the
-// matching golang:1.25-bookworm digest.
-toolchain go1.25.14
+// Built with Go 1.26.8: Go 1.25 left support when Go 1.27 came out
+// (2026-08-19), so its security fixes stopped. The language version stays
+// 1.25, so no GODEBUG default changes with the move. The Docker build images
+// are pinned to the matching golang:1.26.8-bookworm digest.
+toolchain go1.26.8
 
 require (
 	github.com/btcsuite/btcd/btcutil v1.2.0
@@ -21,13 +22,13 @@ require (
 )
 
 require (
-	github.com/andybalholm/brotli v1.1.0 // indirect
+	github.com/andybalholm/brotli v1.2.2 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/go-zeromq/goczmq/v4 v4.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/klauspost/compress v1.17.9 // indirect
+	github.com/klauspost/compress v1.19.1 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
@@ -44,8 +45,7 @@ require (
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tinylib/msgp v1.2.5 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
-	github.com/valyala/fasthttp v1.51.0 // indirect
-	github.com/valyala/tcplisten v1.0.0 // indirect
+	github.com/valyala/fasthttp v1.73.0 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/sync v0.22.0 // indirect
