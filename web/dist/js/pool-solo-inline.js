@@ -50,6 +50,24 @@
         let lastConn = null, lastRentalPort = 0;
         let lastMiningStatusAt = 0;
         let minerBlocksCount = 0;
+        let soloBlocksKnown = false;  // minerBlocksCount was read from the API
+        // TIDES blocks this install's payout address found (the pool's count), or null: not in TIDES
+        // mode, or the pool has not said. They pay the TIDES window, so they are not in the solo list.
+        let tidesBlocksFound = null;
+
+        // The blocks-found tile: the solo blocks, plus the TIDES blocks this address found, which the
+        // TIDES card below lists as found by "You". Before, it counted the solo blocks alone and read
+        // 0 for a miner whose TIDES blocks were all found by its own install.
+        function renderBlocksFound() {
+            const el = document.getElementById('blocksFound');
+            const note = document.getElementById('blocksFoundTides');
+            el.textContent = soloBlocksKnown ? formatNumber(minerBlocksCount + (tidesBlocksFound || 0)) : '--';
+            if (!note) return;
+            note.hidden = !(tidesBlocksFound > 0);
+            note.textContent = tidesBlocksFound > 0
+                ? 'Includes ' + formatNumber(tidesBlocksFound) + ' TIDES block' + (tidesBlocksFound === 1 ? '' : 's') + ' (payouts below)'
+                : '';
+        }
         let currentHashrateTH = 0;   // latest 5m hashrate (TH/s), for the stable avg-effort estimate
 
         // Stable per-miner average effort: your ACTUAL block cadence vs the cadence
@@ -317,7 +335,11 @@
             const card = document.getElementById('tidesCard');
             if (!card) return;
             const ms = lastMiningStatus;
-            if (!tidesInEffect(ms)) { card.hidden = true; return; }
+            if (!tidesInEffect(ms)) {
+                card.hidden = true;
+                if (tidesBlocksFound !== null) { tidesBlocksFound = null; renderBlocksFound(); }
+                return;
+            }
             card.hidden = false;
 
             const t = ms.tides || {};
@@ -341,6 +363,12 @@
             let pool = null, mine = null;
             try { pool = await apiFetch('/api/v1/tides'); } catch (e) {}
             try { mine = await apiFetch('/api/v1/tides/me'); } catch (e) {}
+            // Kept as it was when the pool did not answer; a pool that answers without a count (an
+            // older one) leaves it unknown.
+            if (mine) {
+                tidesBlocksFound = Number.isFinite(mine.blocks_found) && mine.blocks_found >= 0 ? mine.blocks_found : null;
+                renderBlocksFound();
+            }
 
             const w = mine && mine.window;
             document.getElementById('tidesShare').textContent = w ? (Number(w.share) * 100).toFixed(2) + '%' : (mine ? '0%' : '--');
@@ -679,7 +707,8 @@
                 if (!data.blocks || data.blocks.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state" data-i18n="p_solo_no_blocks">' + (typeof PT !== 'undefined' && PT.p_solo_no_blocks ? PT.p_solo_no_blocks : 'No blocks found yet. Keep mining!') + '</div></td></tr>';
                     minerBlocksCount = 0;
-                    document.getElementById('blocksFound').textContent = '0';
+                    soloBlocksKnown = true;
+                    renderBlocksFound();
                     document.getElementById('totalEarned').textContent = 'Total: 0 BCH2';
                 } else {
                     const sorted = data.blocks.slice().sort((a, b) => (b.time || 0) - (a.time || 0));
@@ -756,7 +785,8 @@
                             <td>${payoutCell}</td>
                         </tr>
                     `}).join("");
-                    document.getElementById('blocksFound').textContent = formatNumber(minerBlocksCount);
+                    soloBlocksKnown = true;
+                    renderBlocksFound();
                     let totalStr = 'Total: ' + formatBCH2(bch2Reward, 8) + ' BCH2';
                     if (esfCount > 0) totalStr += ' + ' + formatBCH2(esfReward, 8) + ' ESF';
                     if (sorted.length > shownLimit) totalStr += ' (latest ' + shownLimit + ' shown)';
@@ -766,7 +796,8 @@
             } catch(e) {
                 console.error("Failed to fetch blocks", e);
                 // Not known right now: not zero.
-                document.getElementById('blocksFound').textContent = '--';
+                soloBlocksKnown = false;
+                renderBlocksFound();
                 document.getElementById('totalEarned').textContent = 'Total: --';
                 tbody.innerHTML = '<tr><td colspan="7"><div class="error-state"><span class="error-icon">!</span><span data-i18n="p_error_load_blocks">' + (typeof PT !== 'undefined' && PT.p_error_load_blocks ? PT.p_error_load_blocks : 'Failed to load blocks') + '</span></div></td></tr>';
             }

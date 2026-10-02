@@ -83,3 +83,19 @@ func TestWorkersTileCountsWhatIsConnectedNow(t *testing.T) {
 		}
 	}
 }
+
+// "Your Blocks Found" counted the solo blocks alone, so in TIDES mode it read 0 for a miner whose
+// TIDES blocks were all found by its own install (the TIDES card listed them as found by "You").
+// The tile adds the pool's count of TIDES blocks this address found, which the TIDES card reads.
+func TestBlocksFoundTileCountsTidesBlocks(t *testing.T) {
+	src := readDashboardJS(t)
+	if !strings.Contains(src, "formatNumber(minerBlocksCount + (tidesBlocksFound || 0))") {
+		t.Errorf("BLOCKS-TILE-TIDES: the blocks-found tile no longer adds the TIDES blocks found")
+	}
+	if !regexp.MustCompile(`tidesBlocksFound = [^;]*mine\.blocks_found`).MatchString(src) {
+		t.Errorf("BLOCKS-TILE-TIDES-SOURCE: the TIDES count is no longer read from the pool's blocks_found")
+	}
+	if strings.Contains(src, "getElementById('blocksFound').textContent = formatNumber(minerBlocksCount);") {
+		t.Errorf("BLOCKS-TILE-SOLO-ONLY: a solo-only write to the tile is back, and overwrites the TIDES count")
+	}
+}
