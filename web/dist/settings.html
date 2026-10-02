@@ -46,13 +46,13 @@
        marked required -- invited the user to retype an address they had already saved,
        over the top of a correct one they simply could not see. -->
   <div class="banner" id="apiDownBanner" style="display:none">
-    Can't reach Forge Solo — your saved settings could not be loaded, so the boxes below are
+    Can't reach Forge Solo: your saved settings could not be loaded, so the boxes below are
     blank. <strong>Don't re-enter anything yet</strong>: saving now would overwrite what is
     already stored. If the app just started or updated, give it a minute and reload.
   </div>
 
   <div class="banner" id="notConfiguredBanner" style="display:none">
-    Not configured — set your BCH2 payout address below to start mining. Until then a miner cannot log in at all: with no address there is nothing to credit, so the stratum refuses every worker and your rig will sit in a reconnect loop at 0 H/s.
+    Not configured: set your BCH2 payout address below to start mining. Until then a miner cannot log in at all: with no address there is nothing to credit, so the stratum refuses every worker and your rig will sit in a reconnect loop at 0 H/s.
   </div>
 
   <div class="card">
@@ -60,11 +60,11 @@
     <span class="fld" id="modeLabel">How blocks pay</span>
     <div class="modes" role="radiogroup" aria-labelledby="modeLabel">
       <label class="mode"><input type="radio" name="payoutMode" value="solo" checked>
-        <span><strong>Solo</strong> — every block you find pays your address in full.
+        <span><strong>Solo</strong>: every block you find pays your address in full.
         <small>The lottery: nothing until you find a block, then all of it.<span class="mm"> Merge-mines 1175 when a 1175 address is set.</span></small></span></label>
       <label class="mode"><input type="radio" name="payoutMode" value="tides">
-        <span><strong>TIDES pool</strong> — share blocks with other Forge Solo miners through Forge Pool.
-        <small>Your node still builds its own blocks, but each one pays everyone with work in the pool's TIDES window, straight from its coinbase — and you are paid from every TIDES block found while you have work in the window. Steadier payouts for the same expected amount; no pool wallet, no fee.<span class="mm"> BCH2 only: 1175 merge-mining is off in this mode.</span> If Forge Pool cannot be reached, this app mines solo until it can. <a href="/tides" style="color:var(--bch-green,#0ac18e)">How TIDES mode works</a></small></span></label>
+        <span><strong>TIDES pool</strong>: share blocks with other Forge Solo miners through Forge Pool.
+        <small>Your node still builds its own blocks, but each one pays everyone with work in the pool's TIDES window, straight from its coinbase, and you are paid from every TIDES block found while you have work in the window. Steadier payouts for the same expected amount; no pool wallet, no fee.<span class="mm"> BCH2 only: 1175 merge-mining is off in this mode.</span> If Forge Pool cannot be reached, this app mines solo until it can. <a href="/tides" style="color:var(--bch-green,#0ac18e)">How TIDES mode works</a></small></span></label>
     </div>
     <label class="fld" for="poolAddr">BCH2 payout address (required)</label>
     <input class="txt" id="poolAddr" type="text" spellcheck="false" autocapitalize="none" placeholder="bitcoincashii:q…">
@@ -85,7 +85,7 @@
       <button class="cta" id="saveBtn">Save settings</button>
       <span class="status" id="saveStatus"></span>
     </div>
-    <p class="note">Your <strong>BCH2 payout address</strong> receives every block you solo-mine — the block's coinbase pays it directly on-chain (no separate payout transaction). In <strong>TIDES</strong> mode it is the address your share of every TIDES block is paid to. Changes apply within half a minute (the next job); <strong>no restart needed</strong>. A valid-but-wrong address is unrecoverable, so double-check it.</p>
+    <p class="note">Your <strong>BCH2 payout address</strong> receives every block you solo-mine: the block's coinbase pays it directly on-chain (no separate payout transaction). In <strong>TIDES</strong> mode it is the address your share of every TIDES block is paid to. Changes apply within half a minute (the next job); <strong>no restart needed</strong>. A valid-but-wrong address is unrecoverable, so double-check it.</p>
   </div>
 
   <div class="card">
@@ -94,9 +94,9 @@
     <div class="row"><span class="k"><strong>NiceHash</strong> / <strong>MiningRigRentals</strong></span><span class="v" id="stratumUrlRental">stratum+tcp://…:3335</span></div>
     <div class="row"><span class="k">Worker username</span><span class="v">any label (e.g. rig1)</span></div>
     <div class="row"><span class="k">Password</span><span class="v">x (anything)</span></div>
-    <p class="note">Because each block pays you directly, there is <strong>no minimum payout and no payout schedule</strong> — nothing accumulates, and nothing is waiting to be sent. A block's reward is spendable after the usual 100-block coinbase maturity.</p>
-    <p class="note">The worker <strong>username is only a label</strong> for the stats on this dashboard. All BCH2 block rewards go to the single <strong>payout address you set above</strong> — <em>not</em> to the worker username. <span class="mm">Every share also merge-mines <strong>1175 (ESF)</strong> for free when a 1175 address is set.</span></p>
-    <p class="note rental"><strong>Rented hashpower</strong> uses a port that depends on how the marketplace connects. <strong>Braiins</strong> connects each miner <em>individually</em>, so it uses the same port as your own hardware — <strong>3333</strong> — and every connection finds its own difficulty. <strong>NiceHash</strong> and <strong>MiningRigRentals</strong> put the whole order behind one connection, so they use <strong>port 3335</strong>, whose difficulty <em>floor</em> is much higher to suit an aggregated order. That is a floor, not a starting point: a connection on 3335 is never assigned less, so point a single small rig at 3333 instead.</p>
+    <p class="note">Because each block pays you directly, there is <strong>no minimum payout and no payout schedule</strong>: nothing accumulates, and nothing is waiting to be sent. A block's reward is spendable after the usual 100-block coinbase maturity.</p>
+    <p class="note">The worker <strong>username is only a label</strong> for the stats on this dashboard. All BCH2 block rewards go to the single <strong>payout address you set above</strong>, <em>not</em> to the worker username. <span class="mm">Every share also merge-mines <strong>1175 (ESF)</strong> for free when a 1175 address is set.</span></p>
+    <p class="note rental"><strong>Rented hashpower</strong> uses a port that depends on how the marketplace connects. <strong>Braiins</strong> connects each miner <em>individually</em>, so it uses the same port as your own hardware, <strong>3333</strong>, and every connection finds its own difficulty. <strong>NiceHash</strong> and <strong>MiningRigRentals</strong> put the whole order behind one connection, so they use <strong>port 3335</strong>, whose difficulty <em>floor</em> is much higher to suit an aggregated order. That is a floor, not a starting point: a connection on 3335 is never assigned less, so point a single small rig at 3333 instead.</p>
     <p class="note rental-none"><strong>Rented hashpower</strong> uses port <strong>3333</strong> too: this install runs no separate port for NiceHash and MiningRigRentals, whose orders arrive as one connection. Every connection on 3333 finds its own difficulty from a floor of 1,024.</p>
     <p class="note">Two things to know either way: the address above is a <em>local</em> one, so a marketplace can only reach it through a port forward or a tunnel; and you can set the <em>starting</em> difficulty by putting <code>d=2000000</code> in the password field to skip the automatic ramp. It is a starting point, not a lock: vardiff still adjusts from there once your real share rate is known, and a connection that has landed no share in its first 3 minutes drops back to the port’s floor.</p>
     <a class="cta" href="/solo">Open dashboard →</a>
@@ -169,10 +169,10 @@
          document.getElementById('notConfiguredBanner').style.display='none';
          document.getElementById('apiDownBanner').style.display='block';
          var es=document.getElementById('esfStatus');
-         if(es){ es.textContent='unknown — cannot reach Forge Solo'; es.className='v mm-off'; }
+         if(es){ es.textContent='unknown: cannot reach Forge Solo'; es.className='v mm-off'; }
          ['poolAddr','esfAddr','cbTag'].forEach(function(id){
            var el=document.getElementById(id);
-           if(el){ el.placeholder='unavailable — cannot reach Forge Solo'; }
+           if(el){ el.placeholder='unavailable: cannot reach Forge Solo'; }
          });
        });
    }
@@ -192,9 +192,9 @@
      document.getElementById('notConfiguredBanner').style.display = pool ? 'none' : 'block';
      // Merge-mining status (#9): the ESF address, or an explicit "OFF" when empty.
      var es=document.getElementById('esfStatus');
-     if(tides){ es.textContent='OFF — TIDES mode mines BCH2 only'+(esf?' (your address is kept for Solo)':''); es.className='v mm-off'; return; }
+     if(tides){ es.textContent='OFF: TIDES mode mines BCH2 only'+(esf?' (your address is kept for Solo)':''); es.className='v mm-off'; return; }
      if(esf){ es.textContent=esf; es.className='v'; }
-     else { es.textContent='not configured — merge-mining OFF'; es.className='v mm-off'; }
+     else { es.textContent='not configured, merge-mining OFF'; es.className='v mm-off'; }
      if(esf) refreshMergeMiningHealth();
    }
 
@@ -209,9 +209,9 @@
        if(ms.merge_mining==='ok'){ es.className='v'; return; }
        es.className='v mm-off';
        var why = ms.merge_mining==='never_worked'
-         ? 'configured, but has NOT produced any 1175 work yet — the 1175 node may still be syncing'
+         ? 'configured, but has NOT produced any 1175 work yet; the 1175 node may still be syncing'
          : 'configured, but 1175 work has STOPPED';
-       es.textContent = es.textContent + ' — ' + why;
+       es.textContent = es.textContent + ' (' + why + ')';
        if(ms.aux_error){ es.title = ms.aux_error; }
      }).catch(function(){});
    }
@@ -268,7 +268,7 @@
            st.className='status err'; st.textContent=msg;
            document.getElementById('appPw').focus();
          } else {
-           st.className='status err'; st.textContent='Error: '+(d.error||'failed')+' — nothing was saved; the fields below have been reset to what is stored.';
+           st.className='status err'; st.textContent='Error: '+(d.error||'failed')+'. Nothing was saved; the fields below have been reset to what is stored.';
            // Re-pull on failure too. The save is all-or-nothing across all three fields, so
            // a user who corrected their BCH2 address and mistyped the optional ESF address
            // got an ESF-only error while the corrected address sat in its input looking

@@ -9,7 +9,7 @@
 
 # Umbrel does not guarantee APP_DATA_DIR in the exports.sh context and may source this
 # script with `set -u` (nounset) active. exports.sh lives in the app data dir, so derive
-# APP_DATA_DIR from this file's own location when unset — never abort on an unbound var.
+# APP_DATA_DIR from this file's own location when unset; never abort on an unbound var.
 : "${APP_DATA_DIR:=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)}"
 
 APP_SECRETS_FILE="${APP_DATA_DIR}/.secrets.env"
@@ -22,7 +22,7 @@ if ! (for k in APP_NODE_RPC_PASSWORD APP_1175_RPC_PASSWORD APP_DB_PASSWORD APP_I
       done) && [ ! -e "${APP_DATA_DIR}/postgres/PG_VERSION" ]; then
   (
     set -eo pipefail
-    umask 077   # the secrets file is created 0600 from the start — no world-readable window
+    umask 077   # the secrets file is created 0600 from the start: no world-readable window
     mkdir -p "${APP_DATA_DIR}"
     # Portable, dependency-free CSPRNG: 32 bytes from /dev/urandom hashed to 64 hex chars.
     # Deliberately avoids `openssl`, which is NOT guaranteed in Umbrel's exports.sh context:

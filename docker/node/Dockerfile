@@ -1,4 +1,4 @@
-# BCH2 (bitcoincashII) full node — v27.0.2, the live-network version (v27.0.0/v27.0.1 are
+# BCH2 (bitcoincashII) full node: v27.0.2, the live-network version (v27.0.0/v27.0.1 are
 # DO-NOT-USE upstream). Multi-arch (amd64 + arm64): buildx sets TARGETARCH and we fetch the
 # matching release tarball, sha256-verified FAIL-CLOSED for BOTH arches. Mirrors the published
 # Forge Pool node image. The v27.0.2 release binary does NOT need BerkeleyDB (only v27.0.0 did).

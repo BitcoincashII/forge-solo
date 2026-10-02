@@ -1,4 +1,4 @@
-# Forge Solo — stratum config (rendered from env by entrypoint.sh via envsubst).
+# Forge Solo: stratum config (rendered from env by entrypoint.sh via envsubst).
 # SOLO ONLY: no PPLNS, and no Stratum V2 (not implemented; setting stratumv2.enabled
 # only logs a refusal -- see cmd/stratum).
 # Merge-mines 1175 (ESF). Two stratum ports: 3333 for your own hardware and for Braiins
@@ -18,7 +18,7 @@ pool:
 stratum:
   host: "0.0.0.0"
   port: 3333
-  max_connections: 256          # home use — a handful of miners
+  max_connections: 256          # home use: a handful of miners
   # Cap on connections from ONE address. This port is published and unauthenticated on
   # purpose -- a stranger's hashrate is paid to your coinbase -- but without this one source
   # could hold all 256 slots and lock your own miners out. Generous rather than tight: a
@@ -27,7 +27,7 @@ stratum:
   max_connections_per_ip: 128
   max_shares_per_second: 100
   extranonce1_size: 4          # full 32-bit session counter; 2 aliased after 65536 subscribes
-  extranonce2_size: 8          # Braiins requires >7 — do not shrink this to rebalance
+  extranonce2_size: 8          # Braiins requires >7; do not shrink this to rebalance
   vardiff:
     enabled: true
     min_diff: 1024              # low floor so small ASICs (e.g. Bitaxe) submit steadily
@@ -68,7 +68,7 @@ node:
   use_ssl: false
   zmq_endpoint: "${ZMQ_ENDPOINT}"
 
-# Merge-mining 1175 (ESF) via AuxPoW — inert until the 1175 chain activates AuxPoW,
+# Merge-mining 1175 (ESF) via AuxPoW: inert until the 1175 chain activates AuxPoW,
 # then automatically engages. Set your 1175 (esf1...) address in the app settings.
 mergemining:
   enabled: true

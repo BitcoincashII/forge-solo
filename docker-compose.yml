@@ -1,4 +1,4 @@
-# Forge Solo — self-hosted SOLO mining for home miners.
+# Forge Solo: self-hosted SOLO mining for home miners.
 # Mine BCH2 solo to your OWN address and merge-mine 1175 (ESF) at no extra hashrate cost.
 # One household, solo only. All secrets are generated per-install by exports.sh; node RPC
 # ports are never published to the host, and app_proxy fronts the web dashboard (standard
@@ -209,7 +209,7 @@ services:
       - POOL_NAME=${POOL_NAME:-Forge Solo}
       # The api reads these as fallbacks for a fresh install; without them here its
       # fallback branches could never fire, so a user who configured the tag or the 1175
-      # address in the Umbrel app config saw "not configured — merge-mining OFF" while
+      # address in the Umbrel app config saw "not configured, merge-mining OFF" while
       # merge mining was in fact running, and a tag box showing the default while blocks
       # carried the real one -- which the next Save would then overwrite. Empty means
       # Forge Solo's default tag, //forgesolo//, which the api and stratum both build in.

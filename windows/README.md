@@ -1,10 +1,10 @@
-# Forge Solo — Windows build
+# Forge Solo for Windows: the build
 
 Native Windows installer for **Forge Solo**: solo-mine BCH2 and merge-mine 1175 (ESF) from a
 home PC. A Go tray launcher orchestrates a bundled PostgreSQL, the BCH2 and 1175 nodes, and the
 stratum + api services, then serves the dashboard on `127.0.0.1:3080`.
 
-The installed product contains no Docker and no container runtime — everything ships as plain
+The installed product contains no Docker and no container runtime: everything ships as plain
 Windows executables. Docker appears only in the *build* instructions below, where it is used on
 a Linux build host to run Inno Setup; see [Build](#build).
 
@@ -12,19 +12,19 @@ Solo means solo: the full block reward is paid **on-chain, directly by the coinb
 address. There is no pool wallet, no fee, and no minimum payout.
 
 ## Layout
-- `launcher/` — Go tray launcher/orchestrator (`main.go`, `boot.go`, `web.go`) + `forge-solo.ico`.
+- `launcher/`: Go tray launcher/orchestrator (`main.go`, `boot.go`, `web.go`) + `forge-solo.ico`.
   Its own Go module: it is Windows-only and does not build for other systems.
-- `forge-solo.iss` — Inno Setup installer script. It takes the dashboard (`../web/dist`) and the
+- `forge-solo.iss`: Inno Setup installer script. It takes the dashboard (`../web/dist`) and the
   initial schema (`../init-db.sql`) straight from this repository, so there is no copy to drift.
-- *(not tracked)* `bin/` — compiled exes + prebuilt node binaries; `pgsql/` — portable PostgreSQL
+- *(not tracked)* `bin/`: compiled exes + prebuilt node binaries; `pgsql/`: portable PostgreSQL
 
 ## Ports
 Fixed, because the installer's firewall rules and the miner URL you type must match:
 
 | Port | Purpose | Firewall rule |
 |---|---|---|
-| 3333 | stratum — point your ASIC/Bitaxe here | inbound, private+domain |
-| 3080 | dashboard (`http://127.0.0.1:3080`) | none — loopback only |
+| 3333 | stratum: point your ASIC/Bitaxe here | inbound, private+domain |
+| 3080 | dashboard (`http://127.0.0.1:3080`) | none (loopback only) |
 | 8339 | BCH2 P2P (incoming peers) | inbound, any profile |
 | 25360 | 1175 P2P (incoming peers) | inbound, any profile |
 
@@ -35,17 +35,17 @@ your router: both nodes run with `upnp=0` and `natpmp=0`, so the app never recon
 network on its own. Outbound peering works regardless; to *accept* inbound peers, forward 8339
 and 25360 yourself.
 
-Everything else — PostgreSQL, both node RPCs, ZMQ, the stratum's internal stats listener, and
-the api — binds a **dynamically chosen loopback port** (`pickPort`) so it can never collide with
+Everything else (PostgreSQL, both node RPCs, ZMQ, the stratum's internal stats listener, and
+the api) binds a **dynamically chosen loopback port** (`pickPort`) so it can never collide with
 other software or land in a Windows reserved/excluded range. Those ports are picked in `main()`
 before anything binds, and every config and env var is regenerated from them on each launch.
 
 ## External binaries (place in `bin/` before building the installer)
-- `bitcoincashIId.exe` — BCH2 node (Windows release)
-- `elevenseventyfived.exe` — 1175 node (Windows release)
-- `stratum.exe`, `api.exe` — cross-compiled from this repository's `cmd/stratum` and `cmd/api`
+- `bitcoincashIId.exe`: BCH2 node (Windows release)
+- `elevenseventyfived.exe`: 1175 node (Windows release)
+- `stratum.exe`, `api.exe`: cross-compiled from this repository's `cmd/stratum` and `cmd/api`
   (see [Building locally](#building-locally))
-- `pgsql/` — portable PostgreSQL **16.x**, extracted into `windows/` so that
+- `pgsql/`: portable PostgreSQL **16.x**, extracted into `windows/` so that
   `windows\pgsql\bin\postgres.exe` exists
 
   Get the "Windows x86-64" binaries zip from
@@ -100,7 +100,7 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags '-s -w' -o windows/bin
 # 3) launcher:
 (cd windows/launcher && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui -s -w" -o ../bin/forge-solo.exe .)
 
-# 4) installer — Inno Setup in a container, so this works on a Linux build host. Mount the
+# 4) installer: Inno Setup in a container, so this works on a Linux build host. Mount the
 #    repository root: the script reads ../web/dist and ../init-db.sql.
 docker run --rm -v "$PWD":/work amake/innosetup windows/forge-solo.iss
 ```
@@ -109,16 +109,17 @@ The installer is written to `windows/ForgeSolo-Setup-<version>.exe`. CI stamps t
 `MyAppVersion` in `forge-solo.iss` is only the default for a local build.
 
 ## Design notes
-- **Graceful shutdown** — the launcher stops both nodes via RPC `stop` so they flush the
+- **Graceful shutdown:** the launcher stops both nodes via RPC `stop` so they flush the
   chainstate before exit, and a restart resumes instead of resyncing.
-- **Installer** — one elevated step (a single UAC prompt) adds the firewall rules above and a
-  Defender exclusion for `%APPDATA%\ForgeSolo`, which otherwise gets rescanned on every
-  blockchain/DB write — the main cause of disk thrash on a laptop. The file copy itself is a
-  per-user install and needs no admin rights.
-- **Startup** — mining runs only while the app is open. The installer offers an opt-in
+- **Installer:** one elevated step (a single UAC prompt) adds the firewall rules above and
+  Defender exclusions for the folders written constantly (both nodes' blocks and chainstate,
+  and the database), which Defender otherwise rescans on every write, the main cause of disk
+  thrash on a laptop. The rest of `%APPDATA%\ForgeSolo` is still scanned. The file copy
+  itself is a per-user install and needs no admin rights.
+- **Startup:** mining runs only while the app is open. The installer offers an opt-in
   "Start Forge Solo when I sign in" (per-user `HKCU` entry, removed with the app); without it,
   a reboot silently stops mining until someone launches it again.
-- **Uninstall** — asks whether to delete `%APPDATA%\ForgeSolo`. Answering no keeps the chain
+- **Uninstall:** asks whether to delete `%APPDATA%\ForgeSolo`. Answering no keeps the chain
   data for a reinstall; answering yes also removes the file holding this install's node and
   database passwords. It is all-or-nothing on purpose: deleting only the secrets would leave a
   database the app can no longer open.

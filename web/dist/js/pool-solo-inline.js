@@ -11,7 +11,7 @@
         // Message for a table body or banner when we genuinely do not know the address.
         function noAddressNotice(forTable) {
             if (!configReachable) {
-                return "Can't reach Forge Solo — the numbers below aren't live yet. " +
+                return "Can't reach Forge Solo: the numbers below aren't live yet. " +
                        "If the app just started or updated, give it a minute.";
             }
             return forTable
@@ -170,7 +170,7 @@
                 nodeSynced = (s.status === 'synced');
                 if (s.status === 'syncing') {
                     const pct = (s.progress != null ? (s.progress * 100) : 0);
-                    msg = '⏳ <b>BCH2 node syncing — ' + pct.toFixed(2) + '%</b> (block ' + (Number(s.blocks) || 0) + ' / ' + (Number(s.headers) || 0) + '). You can mine once it reaches 100%.'
+                    msg = '⏳ <b>BCH2 node syncing: ' + pct.toFixed(2) + '%</b> (block ' + (Number(s.blocks) || 0) + ' / ' + (Number(s.headers) || 0) + '). You can mine once it reaches 100%.'
                         + '<div style="margin-top:7px;height:7px;background:rgba(255,255,255,0.18);border-radius:4px;overflow:hidden">'
                         + '<div style="height:100%;width:' + pct.toFixed(1) + '%;background:#0ac18e;transition:width .6s"></div></div>';
                     if (!minerAddress) msg += '<div style="height:8px"></div>⚙️ Meanwhile, set your <a href="/settings" style="color:inherit;font-weight:600;text-decoration:underline">payout address</a> in Settings.';
@@ -199,7 +199,7 @@
                         // but it must NOT be dressed up as mining either -- the previous
                         // code said "a miner is connected" in exactly this state.
                         tone = 'gold';
-                        msg = '⏸️ <b>No miner connected.</b> Node synced and work is ready — point a miner at <b>port ' + stratumHostHint() + '</b>.';
+                        msg = '⏸️ <b>No miner connected.</b> Node synced and work is ready: point a miner at <b>port ' + stratumHostHint() + '</b>.';
                     } else if (ms && ms.mining === false && ms.message) {
                         // escapeHtml: ms.message can carry the node's raw JSON-RPC error
                         // text, which is the one dynamic string on this page that does not
@@ -222,16 +222,16 @@
                         }
                     } else if (ms && ms.mining === true && Number(ms.authorized) > 0) {
                         tone = 'green';
-                        msg = '⛏️ <b>Mining</b> — node synced, ' + Number(ms.authorized) + ' miner(s) authorized and submitting shares. Good luck!';
+                        msg = '⛏️ <b>Mining.</b> Node synced, ' + Number(ms.authorized) + ' miner(s) authorized and submitting shares. Good luck!';
                     } else if (minerHashing) {
                         // Reached only when mining-status is unavailable. All this branch
                         // actually knows is that a worker submitted a share recently --
                         // it says nothing about connections, so it must not claim one.
                         tone = 'green';
-                        msg = '⛏️ <b>Mining</b> — a worker is submitting shares. Good luck!';
+                        msg = '⛏️ <b>Mining.</b> A worker is submitting shares. Good luck!';
                     } else {
                         tone = 'green';
-                        msg = '✅ <b>Node synced — ready to mine.</b> Point a miner at <b>port ' + stratumHostHint() + '</b>.';
+                        msg = '✅ <b>Node synced, ready to mine.</b> Point a miner at <b>port ' + stratumHostHint() + '</b>.';
                     }
                 }
             } catch (e) {
@@ -272,19 +272,19 @@
             if (!tidesInEffect(ms) || !ms.tides) return { text: '', warn: false };
             const t = ms.tides;
             if (t.state === 'fallback') {
-                return { warn: true, text: '⚠️ <b>TIDES paused — mining SOLO.</b> Forge Pool is not taking this install\'s work'
+                return { warn: true, text: '⚠️ <b>TIDES paused, mining SOLO.</b> Forge Pool is not taking this install\'s work'
                     + (t.reason ? ' (' + escapeHtml(t.reason) + ')' : '') + '. Blocks found meanwhile pay your own address in full; '
                     + 'TIDES resumes by itself when the pool answers again.' };
             }
             if (t.state === 'starting') {
-                return { warn: false, text: '🌊 <b>TIDES starting</b> — registering work with Forge Pool…' };
+                return { warn: false, text: '🌊 <b>TIDES starting:</b> registering work with Forge Pool…' };
             }
             if (t.not_in_window) {
                 return { warn: true, text: '⚠️ <b>Your address is not in Forge Pool\'s TIDES window,</b> though the pool has credited '
                     + Number(t.shares_accepted || 0) + ' of your shares: a block your miners find now pays the others in the window only. '
                     + 'Check the window on the pool\'s TIDES page, or choose Solo in Settings.' };
             }
-            return { warn: false, text: '🌊 <b>TIDES</b> — your miners work for the Forge Pool TIDES window; every TIDES block pays everyone in it.' };
+            return { warn: false, text: '🌊 <b>TIDES:</b> your miners work for the Forge Pool TIDES window, and every TIDES block pays everyone in it.' };
         }
 
         function updateModeBadge(ms) {
@@ -322,7 +322,7 @@
 
             const t = ms.tides || {};
             const st = document.getElementById('tidesState');
-            st.textContent = t.state === 'active' ? 'active' : (t.state === 'fallback' ? 'paused — mining solo' : 'starting');
+            st.textContent = t.state === 'active' ? 'active' : (t.state === 'fallback' ? 'paused, mining solo' : 'starting');
             st.className = 'tides-state ' + (t.state || 'starting');
             document.getElementById('tidesNote').textContent = t.state === 'fallback'
                 ? 'Forge Pool is not taking this install\'s work right now' + (t.reason ? ' (' + t.reason + ')' : '')
@@ -357,7 +357,7 @@
             const tbody = document.getElementById('tidesBlocks');
             const blocks = pool && Array.isArray(pool.blocks) ? pool.blocks : [];
             if (!pool) {
-                tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">Forge Pool did not answer — the pool\'s figures will appear when it does.</div></td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">Forge Pool did not answer. The pool\'s figures will appear when it does.</div></td></tr>';
                 return;
             }
             if (!blocks.length) {
@@ -391,7 +391,7 @@
                 // return 0 for a poll; never clobber a good tile with 0 (that's the "tiles flash 0" bug).
                 if (data.networkDifficulty > 0) networkDiff = data.networkDifficulty;
                 // Until the node reaches the chain tip, getdifficulty/getnetworkhashps report the
-                // value at the CURRENT (low) sync height — wildly off — so show "syncing…" instead.
+                // value at the CURRENT (low) sync height, wildly off, so show "syncing…" instead.
                 if (nodeSynced) {
                     // Only update a tile when this poll actually carried a value; otherwise leave the
                     // last good reading on screen instead of blanking it to 0 / "--".
@@ -576,7 +576,7 @@
                     value.textContent = 'Public address not known yet';
                     note.textContent = 'Your node learns its public address from the peers that reach it. '
                         + 'While this is blank, port ' + (c.bch2 && c.bch2.port ? c.bch2.port : 8339)
-                        + ' is almost certainly not forwarded either \u2014 and a rental would not reach '
+                        + ' is almost certainly not forwarded either, and a rental would not reach '
                         + 'you on port ' + rentalPort + ' until you forward that too.';
                 }
             }
@@ -621,12 +621,12 @@
                 + n.port + ' to this machine in your router.');
             parts.push('It is connected out to peers, but none have connected in. Accepting '
                 + 'inbound peers is what keeps the network reachable instead of leaning on a '
-                + 'handful of well-connected machines \u2014 it is not required to mine.');
+                + 'handful of well-connected machines. It is not required to mine.');
             parts.push(rentalsLive > 0
                 ? 'Rented hashrate <b>is</b> reaching you on port ' + rentalPort + ' right now, so '
                     + 'that path works; the forward above is for peers only.'
                 : '<b>Mining from outside your network</b>, including rented hashrate, needs '
-                    + 'TCP ' + rentalPort + ' forwarded as well \u2014 otherwise an order pays for '
+                    + 'TCP ' + rentalPort + ' forwarded as well; otherwise an order pays for '
                     + 'hashrate that never arrives.');
             // This clears on proof -- an inbound peer -- not on the router rule being saved,
             // and the first peer can take a while to find you. Without saying so, the obvious
@@ -733,7 +733,7 @@
                         if (isOrphaned) {
                             payoutCell = '<span style="color:var(--red)" title="This block was superseded on the chain and paid nothing">Orphaned</span>';
                         } else if (paidByCoinbase) {
-                            payoutCell = '<span style="color:var(--bch-green)" title="Paid directly by this block\u2019s coinbase — there is no separate payout transaction">Paid by coinbase</span>';
+                            payoutCell = '<span style="color:var(--bch-green)" title="Paid directly by this block\u2019s coinbase; there is no separate payout transaction">Paid by coinbase</span>';
                         } else if (is1175) {
                             payoutCell = b.confirmed ? '<span style="color:var(--gold)">' + processingText + '</span>' : '<span style="color:var(--text-secondary)">' + pendingText + '</span>';
                         } else if (safeTxid) {
@@ -873,7 +873,7 @@
                     if (cfg && cfg.pool_address) minerAddress = cfg.pool_address;
                 } catch (e) {}
                 var _el = document.getElementById('minerAddress');
-                if (_el) _el.textContent = minerAddress || (configReachable ? '(configure payout address)' : '(unavailable — cannot reach Forge Solo)');
+                if (_el) _el.textContent = minerAddress || (configReachable ? '(configure payout address)' : '(unavailable: cannot reach Forge Solo)');
             }
             await updateStatusBanner();
             fetchStats();
