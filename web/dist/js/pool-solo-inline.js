@@ -323,7 +323,8 @@
                 ? 'Forge Pool is not taking this install\'s work right now' + (t.reason ? ' (' + t.reason + ')' : '')
                   + ', so it is mining solo until the pool answers again. The figures below are the pool\'s.'
                 : 'This install builds its own blocks from its own node; their coinbase pays the TIDES split, and your shares are credited to your payout address.';
-            if (t.pool) document.getElementById('tidesLink').href = String(t.pool).replace(/\/+$/, '') + '/tides';
+            // An http(s) address only: the link must not run anything when clicked.
+            if (t.pool && /^https?:\/\//i.test(String(t.pool))) document.getElementById('tidesLink').href = String(t.pool).replace(/\/+$/, '') + '/tides';
             const gw = [];
             if (t.share_difficulty) gw.push('pool share difficulty ' + formatDiff(t.share_difficulty));
             gw.push('shares sent ' + Number(t.shares_forwarded || 0) + ' · credited ' + Number(t.shares_accepted || 0)

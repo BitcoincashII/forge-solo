@@ -13,14 +13,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/BitcoincashII/forge-solo/internal/datum/gateway"
 	"github.com/BitcoincashII/forge-solo/internal/stats"
+	"github.com/BitcoincashII/forge-solo/internal/tidesgw"
 	"github.com/gofiber/fiber/v2"
 )
 
 // TIDES mode on the dashboard: Forge Pool's TIDES window and this install's DATUM payouts. The
 // browser cannot ask the pool itself -- the pool sends no CORS headers -- and the payout address
 // is already known here, so the api fetches both and keeps them for a few seconds. Nothing is
-// fetched unless the dashboard asks, and it asks only in TIDES mode.
+// fetched unless the dashboard asks, and only in TIDES mode (tidesModeOff).
 
 // tidesPoolURL is Forge Pool's base URL: DATUM_POOL_URL, else the public pool.
 func tidesPoolURL() string {
@@ -41,7 +43,9 @@ type tidesCached struct {
 }
 
 var (
-	tidesHTTP    = &http.Client{Timeout: 8 * time.Second}
+	// No redirects: the pool's address is checked to be https (CheckPoolURL), and a redirect
+	// could send the request, the payout address in its path, anywhere, plain http too.
+	tidesHTTP    = &http.Client{Timeout: 8 * time.Second, CheckRedirect: gateway.NoRedirects}
 	tidesCacheMu sync.Mutex
 	tidesCache   = map[string]tidesCached{}
 )
@@ -56,7 +60,11 @@ func fetchTides(path string) ([]byte, error) {
 	}
 	tidesCacheMu.Unlock()
 
-	resp, err := tidesHTTP.Get(tidesPoolURL() + path)
+	base := tidesPoolURL()
+	if err := tidesgw.CheckPoolURL(base); err != nil {
+		return nil, err
+	}
+	resp, err := tidesHTTP.Get(base + path)
 	if err != nil {
 		return nil, err
 	}
@@ -107,15 +115,39 @@ func sendTides(c *fiber.Ctx, body []byte, err error) error {
 	return c.Send(body)
 }
 
+// tidesPayoutMode reads the payout mode; a variable so a test without a database can choose it.
+var tidesPayoutMode = stats.GetPayoutMode
+
+// tidesModeOff answers for a TIDES endpoint, and reports true, unless TIDES mode is chosen: in
+// solo mode the api asks Forge Pool nothing. The dashboard asks only in TIDES mode; any other
+// caller asking in solo mode had the pool sent this install's payout address for nothing.
+func tidesModeOff(c *fiber.Ctx) (bool, error) {
+	mode, err := tidesPayoutMode()
+	if err != nil {
+		return true, settingsUnreadable(c, err)
+	}
+	if mode != stats.PayoutModeTides {
+		return true, c.Status(http.StatusConflict).JSON(fiber.Map{"available": false,
+			"error": "TIDES mode is off: in solo mode Forge Solo asks Forge Pool nothing."})
+	}
+	return false, nil
+}
+
 // getTidesPool is the pool's TIDES window: who is in it, what the next DATUM block pays each,
 // and the recent DATUM blocks.
 func getTidesPool(c *fiber.Ctx) error {
+	if off, err := tidesModeOff(c); off {
+		return err
+	}
 	body, err := fetchTides("/api/v1/tides")
 	return sendTides(c, body, err)
 }
 
 // getTidesMine is this install's row in the window and its payouts from DATUM blocks.
 func getTidesMine(c *fiber.Ctx) error {
+	if off, err := tidesModeOff(c); off {
+		return err
+	}
 	addr, err := payoutAddressInEffect()
 	if err != nil {
 		return settingsUnreadable(c, err)
