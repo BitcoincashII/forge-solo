@@ -3,16 +3,24 @@ version: "3.7"
 # Forge Solo — self-hosted SOLO mining for home miners.
 # Mine BCH2 solo to your OWN address and merge-mine 1175 (ESF) at no extra hashrate cost.
 # One household, solo only. All secrets are generated per-install by exports.sh; node RPC
-# ports are never published to the host — services talk over the private app network by
-# service name, and app_proxy fronts the web dashboard (standard Umbrel pattern).
+# ports are never published to the host, and app_proxy fronts the web dashboard (standard
+# Umbrel pattern).
+
+# The app's own containers talk on a network of their own. Every Umbrel app joins the one shared
+# umbrel_main_network by default, so the database, both nodes' RPC and the stratum's stats API were
+# reachable from every other app's containers, and their traffic (the database password among it,
+# on a connection without TLS) crossed that shared segment. Only web is on both networks: umbrelOS
+# reaches the dashboard through it there.
+networks:
+  forge: {}
 
 services:
   # The services reach each other by container name (bch2-apps-forge-solo_<service>_1, the name
-  # umbreld gives every container), never by bare service name. Every Umbrel app joins the one
-  # shared umbrel_main_network, where a bare name such as "postgres", "api" or "node" is also the
-  # alias of other apps' services (BTCPay Server and Immich have a postgres, mempool and LocalAI an
-  # api): a lookup then returns both apps' containers, and in review 22 of 40 fresh database
-  # connections went to the other app's postgres ("role forge does not exist").
+  # umbreld gives every container), never by bare service name. On umbrel_main_network a bare name
+  # such as "postgres", "api" or "node" is also the alias of other apps' services (BTCPay Server and
+  # Immich have a postgres, mempool and LocalAI an api): a lookup then returned both apps'
+  # containers, and in review 22 of 40 fresh database connections went to the other app's postgres
+  # ("role forge does not exist").
   app_proxy:
     environment:
       APP_HOST: bch2-apps-forge-solo_web_1
@@ -20,6 +28,8 @@ services:
 
   node:
     image: ghcr.io/bitcoincashii/forge-solo-node:1.0.12@sha256:6598ac97c2525cd217315e5e1a6cc219386bdf4d2c4d218bb046f4341c9263bb
+    networks:
+      - forge
     # Kept at most 30 MB: Docker keeps a container's log until the container is replaced,
     # and nothing else trims it.
     logging:
@@ -77,6 +87,8 @@ services:
 
   node1175:
     image: ghcr.io/bitcoincashii/forge-solo-node1175:1.0.12@sha256:6db2288a4efe415f4f55deab80f15073f1af6cbc6f84bbbed76d8e9d27c64d73
+    networks:
+      - forge
     # Kept at most 30 MB: Docker keeps a container's log until the container is replaced,
     # and nothing else trims it.
     logging:
@@ -118,6 +130,8 @@ services:
 
   postgres:
     image: timescale/timescaledb:2.17.2-pg16@sha256:4e459e217f00cbb09920c34d245501e63427e6767a495de57ce76823ff280f12
+    networks:
+      - forge
     # Kept at most 30 MB: Docker keeps a container's log until the container is replaced,
     # and nothing else trims it.
     logging:
@@ -148,6 +162,8 @@ services:
 
   api:
     image: ghcr.io/bitcoincashii/forge-solo-api:1.0.12@sha256:82428bc4299a949c776c8cb7386cc5175f2aec0cdcca50bb927125224c5037f5
+    networks:
+      - forge
     # Kept at most 30 MB: Docker keeps a container's log until the container is replaced,
     # and nothing else trims it.
     logging:
@@ -212,6 +228,8 @@ services:
 
   stratum:
     image: ghcr.io/bitcoincashii/forge-solo-stratum:1.0.12@sha256:3b75a92739f41b0240a5c04457a23fe965bcd83e08ea5047fe41b944ffeb873c
+    networks:
+      - forge
     # Kept at most 30 MB: Docker keeps a container's log until the container is replaced,
     # and nothing else trims it.
     logging:
@@ -283,6 +301,9 @@ services:
 
   web:
     image: ghcr.io/bitcoincashii/forge-solo-web:1.0.12@sha256:e9787ad60148371f380cc7616d5586a090b5f9cca43326dcf76ddcf7e1db8333
+    networks:
+      - default
+      - forge
     # Kept at most 30 MB: Docker keeps a container's log until the container is replaced,
     # and nothing else trims it.
     logging:
