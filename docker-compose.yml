@@ -1,5 +1,3 @@
-version: "3.7"
-
 # Forge Solo — self-hosted SOLO mining for home miners.
 # Mine BCH2 solo to your OWN address and merge-mine 1175 (ESF) at no extra hashrate cost.
 # One household, solo only. All secrets are generated per-install by exports.sh; node RPC
@@ -51,6 +49,7 @@ services:
       - RPC_PASSWORD=${APP_NODE_RPC_PASSWORD}
     command:
       - -datadir=/data/.bch2
+      - -disablewallet           # no wallet is used; none can be created over RPC either
       - -printtoconsole
       # Memory: a 100 MB database cache, a 50 MB mempool and a 4 MB signature cache. Core's defaults
       # (450, 300, 32 MB) are sized for a machine of its own; this node shares one, often a small
@@ -108,6 +107,7 @@ services:
       - RPC_PASSWORD=${APP_1175_RPC_PASSWORD}
     command:
       - -datadir=/data/.elevenseventyfive
+      - -disablewallet           # no wallet is used; none can be created over RPC either
       - -printtoconsole
       # Memory: a 100 MB database cache, a 50 MB mempool and a 4 MB signature cache. Core's defaults
       # (450, 300, 32 MB) are sized for a machine of its own; this node shares one, often a small

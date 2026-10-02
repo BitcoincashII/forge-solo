@@ -58,14 +58,17 @@ mkdir -p "$WORKDIR/node"
 CLI=("$ESF_CLI" -regtest -datadir="$WORKDIR/node" -rpcuser=esf -rpcpassword=esfpass -rpcport="$RPC_PORT")
 
 echo "── starting 1175 regtest node on :$RPC_PORT"
-"$ESF_D" -regtest -datadir="$WORKDIR/node" -daemon -server=1 \
+# -disablewallet, as docker-compose.yml runs it: merge-mining must not need a wallet.
+"$ESF_D" -regtest -datadir="$WORKDIR/node" -daemon -server=1 -disablewallet \
   -rpcuser=esf -rpcpassword=esfpass -rpcport="$RPC_PORT" -listen=0 >/dev/null
 wait_for "1175 node" 60 "${CLI[@]}" getblockchaininfo
 
-"${CLI[@]}" createwallet esfwallet >/dev/null
-PAYOUT=$("${CLI[@]}" -rpcwallet=esfwallet getnewaddress)
+# No wallet to ask for an address: derive one from a fixed public key (secp256k1's generator).
+DESC=$("${CLI[@]}" getdescriptorinfo "wpkh(0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798)" \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["descriptor"])')
+PAYOUT=$("${CLI[@]}" deriveaddresses "$DESC" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0])')
 echo "── generating past AuxPoW activation (height ${AUXPOW_ACTIVATION_HEIGHT})"
-"${CLI[@]}" -rpcwallet=esfwallet generatetoaddress $((AUXPOW_ACTIVATION_HEIGHT + 5)) "$PAYOUT" >/dev/null
+"${CLI[@]}" generatetoaddress $((AUXPOW_ACTIVATION_HEIGHT + 5)) "$PAYOUT" >/dev/null
 echo "   aux chain at height $("${CLI[@]}" getblockcount), payout ${PAYOUT}"
 
 export MM_REGTEST_RPC="http://127.0.0.1:${RPC_PORT}"
