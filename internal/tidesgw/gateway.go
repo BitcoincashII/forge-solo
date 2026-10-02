@@ -13,6 +13,7 @@
 package tidesgw
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/hex"
 	"errors"
@@ -183,7 +184,7 @@ const snapUsable = 7 * time.Minute
 func New(cfg Config) *Gateway {
 	cfg.defaults()
 	c := gateway.New(cfg.PoolURL, cfg.Key)
-	c.HTTP = &http.Client{Timeout: cfg.RequestTimeout}
+	c.HTTP = &http.Client{Timeout: cfg.RequestTimeout, CheckRedirect: gateway.NoRedirects}
 	c.Now = cfg.Now
 	return &Gateway{cfg: cfg, client: c, logger: cfg.Logger, jobs: map[string]*tracked{},
 		state: StateStarting, since: cfg.Now(), wake: make(chan struct{}, 1)}
@@ -225,7 +226,7 @@ func (g *Gateway) Due(newBlock bool) bool {
 	return !newBlock && g.cfg.Now().Sub(g.lastTry) >= g.cfg.RetryEvery
 }
 
-func (g *Gateway) snapshot(height int64) (*wire.Snapshot, error) {
+func (g *Gateway) snapshot(ctx context.Context, height int64) (*wire.Snapshot, error) {
 	now := g.cfg.Now()
 	g.mu.Lock()
 	cached, at := g.snap, g.snapAt
@@ -233,7 +234,7 @@ func (g *Gateway) snapshot(height int64) (*wire.Snapshot, error) {
 	if cached != nil && cached.Height == height && now.Sub(at) < snapFresh {
 		return cached, nil
 	}
-	s, err := g.client.Snapshot()
+	s, err := g.client.SnapshotCtx(ctx)
 	if err != nil {
 		if cached != nil && now.Sub(at) < snapUsable {
 			return cached, nil
@@ -295,20 +296,27 @@ func (g *Gateway) Register(t *mining.BlockTemplate, finder string, tag []byte) (
 	if err != nil {
 		return nil, fmt.Errorf("payout address: %w", err)
 	}
+	// One deadline for all of it, the fallbacks below included, and every request to the pool
+	// ends with it. Registration runs on the stratum's job loop, where a new block's work waits for
+	// it: each fallback used to get a deadline of its own and each request its own timeout, so a
+	// slow pool held new-block work for 10 seconds and a hostile one for 40, while the miners
+	// hashed the old tip.
 	deadline := g.cfg.Now().Add(g.cfg.RegisterFor)
-	reg, err := g.register(t, finder, tag, t.Transactions, deadline)
+	ctx, cancel := context.WithTimeout(context.Background(), g.cfg.RegisterFor)
+	defer cancel()
+	reg, err := g.register(ctx, t, finder, tag, t.Transactions, deadline)
 	if err != nil && strings.Contains(err.Error(), "unknown or expired snapshot") {
 		// The pool restarted (its snapshot versions start over) or this one aged out: fetch
 		// its current snapshot rather than fall back to solo over a stale cache.
 		g.mu.Lock()
 		g.snap = nil
 		g.mu.Unlock()
-		reg, err = g.register(t, finder, tag, t.Transactions, deadline.Add(g.cfg.RegisterFor))
+		reg, err = g.register(ctx, t, finder, tag, t.Transactions, deadline)
 	}
-	if err != nil && len(t.Transactions) > 0 && refusedTx(err) {
-		g.logger.Warn("TIDES: the pool refused this node's transactions; registering the block without them",
+	if err != nil && len(t.Transactions) > 0 && (refusedTx(err) || errors.Is(err, errBlockTooBig)) {
+		g.logger.Warn("TIDES: registering the block without this node's transactions",
 			zap.Int64("height", t.Height), zap.Error(err))
-		reg, err = g.register(t, finder, tag, nil, deadline.Add(g.cfg.RegisterFor))
+		reg, err = g.register(ctx, t, finder, tag, nil, deadline)
 	}
 	if err != nil {
 		return nil, err
@@ -321,7 +329,23 @@ func (g *Gateway) Register(t *mining.BlockTemplate, finder string, tag []byte) (
 	return reg, nil
 }
 
-func (g *Gateway) register(t *mining.BlockTemplate, finder string, tag []byte, txs []mining.TxData, deadline time.Time) (*Registration, error) {
+// maxCoinbaseOutputs is the most outputs a TIDES coinbase built here may have. Nothing bounded the
+// pool's split: a snapshot of a million entries built a 34 MB coinbase (an invalid block) and held
+// a gigabyte of memory, and every job the stratum keeps carries its coinbase. OCEAN's gateway takes
+// at most 512 outputs from its pool; a split larger than this is refused, and the miners mine solo.
+const maxCoinbaseOutputs = 2000
+
+// maxBlockBytes is the BCH2 block size limit as far as a block built here may rely on it: the
+// node's ABLA limit never goes below 32,000,000 bytes (abla.cpp: epsilon0 + beta0, each half the
+// 32 MB default, are floors), and its block assembler fills a template to that size less 4,000
+// bytes kept for a coinbase (miner.cpp). A TIDES coinbase paying many miners is larger than that, so
+// on a full template it would have made the block too big. A variable so a test can reach it.
+var maxBlockBytes = 32_000_000
+
+// errBlockTooBig is a registration whose coinbase and transactions would not fit in a block.
+var errBlockTooBig = errors.New("the coinbase and the transactions would exceed the block size limit")
+
+func (g *Gateway) register(ctx context.Context, t *mining.BlockTemplate, finder string, tag []byte, txs []mining.TxData, deadline time.Time) (*Registration, error) {
 	value := t.CoinbaseValue
 	if len(txs) < len(t.Transactions) {
 		// Only the subsidy and these transactions' fees are earned without the rest.
@@ -333,9 +357,16 @@ func (g *Gateway) register(t *mining.BlockTemplate, finder string, tag []byte, t
 			value += tx.Fee
 		}
 	}
-	snap, err := g.snapshot(t.Height)
+	snap, err := g.snapshot(ctx, t.Height)
 	if err != nil {
 		return nil, err
+	}
+	outs, err := wire.Payouts(snap, value, finder)
+	if err != nil {
+		return nil, err
+	}
+	if len(outs) > maxCoinbaseOutputs {
+		return nil, fmt.Errorf("the pool's TIDES split has %d outputs, more than the %d a coinbase here may carry", len(outs), maxCoinbaseOutputs)
 	}
 	gt := &gateway.Template{Height: t.Height, PrevHash: t.PreviousBlockHash, Version: uint32(t.Version),
 		Bits: t.Bits, CurTime: uint32(t.CurTime), CoinbaseValue: value}
@@ -361,6 +392,13 @@ func (g *Gateway) register(t *mining.BlockTemplate, finder string, tag []byte, t
 		return nil, err
 	}
 	req.ShareDiffExp = exp
+	size := 80 + 9 + (len(req.Coinb1)+len(req.Coinb2))/2 + mining.CoinbaseExtranonceReserve
+	for _, tx := range txs {
+		size += len(tx.Data) / 2
+	}
+	if size > maxBlockBytes {
+		return nil, errBlockTooBig
+	}
 
 	// The pool answers "retry" while its node has not yet seen the block this one is building
 	// on, or has just taken one of this node's transactions; that usually clears in well under
@@ -373,7 +411,7 @@ func (g *Gateway) register(t *mining.BlockTemplate, finder string, tag []byte, t
 		// (burst 10), and asking faster (no wait, then 250 ms) turned a few seconds of "retry"
 		// into "429 slow down", which ended the registration and, on a new block, put the miners
 		// on solo for a minute. A 429 itself is waited out while the deadline allows.
-		resp, err = g.client.Register(req, gt, 2, retryPace)
+		resp, err = g.client.RegisterCtx(ctx, req, gt, 2, retryPace)
 		if err == nil {
 			break
 		}
@@ -387,13 +425,9 @@ func (g *Gateway) register(t *mining.BlockTemplate, finder string, tag []byte, t
 			}
 			return nil, err
 		}
-		time.Sleep(wait)
+		time.Sleep(wait) // ends before the deadline, so before ctx does
 	}
 
-	outs, err := wire.Payouts(snap, value, finder)
-	if err != nil {
-		return nil, err
-	}
 	var mine int64
 	for _, o := range outs {
 		if canon, cerr := CanonicalAddress(o.Address); cerr == nil && canon == finder {
@@ -616,7 +650,7 @@ func (g *Gateway) tally(sent []queued, resp *wire.ShareBatchResponse) []queued {
 			resend = append(resend, sent[i])
 		default:
 			g.counts.Rejected++
-			g.counts.LastReject = r.Error
+			g.counts.LastReject = briefReason(errors.New(r.Error)) // the pool's text, one short line
 		}
 	}
 	// resp.ShareDifficulty is the pool's own difficulty for this gateway, which the next job

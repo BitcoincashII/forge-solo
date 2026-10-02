@@ -49,6 +49,9 @@ type fakePool struct {
 	onShares   func(batch []wire.Share) wire.ShareBatchResponse
 	down       bool
 	badSigSeen bool
+	delay      time.Duration // every answer waits this long
+	redirectTo string        // the snapshot GET answers 302 to this URL
+	snapBody   []byte        // the snapshot GET answers this instead
 }
 
 func newFakePool(t *testing.T) *fakePool {
@@ -71,10 +74,19 @@ func newFakePool(t *testing.T) *fakePool {
 
 func (p *fakePool) serve(w http.ResponseWriter, r *http.Request) {
 	p.mu.Lock()
-	down := p.down
+	down, delay, redirect, raw := p.down, p.delay, p.redirectTo, p.snapBody
 	p.mu.Unlock()
+	time.Sleep(delay)
 	if down {
 		http.Error(w, "down", http.StatusBadGateway)
+		return
+	}
+	if r.Method == "GET" && r.URL.Path == "/datum/v1/tides" && redirect != "" {
+		http.Redirect(w, r, redirect, http.StatusFound)
+		return
+	}
+	if r.Method == "GET" && r.URL.Path == "/datum/v1/tides" && raw != nil {
+		w.Write(raw)
 		return
 	}
 	if r.Method == "GET" && r.URL.Path == "/datum/v1/tides" {

@@ -5,6 +5,7 @@ package gateway
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
@@ -31,7 +32,28 @@ type Client struct {
 
 // New builds a client for the pool at base.
 func New(base string, key ed25519.PrivateKey) *Client {
-	return &Client{Base: strings.TrimRight(base, "/"), Key: key, HTTP: &http.Client{Timeout: 20 * time.Second}, Now: time.Now}
+	return &Client{Base: strings.TrimRight(base, "/"), Key: key, HTTP: &http.Client{Timeout: 20 * time.Second, CheckRedirect: NoRedirects}, Now: time.Now}
+}
+
+// NoRedirects is an http.Client's CheckRedirect that follows none. The pool's address is checked
+// to be https before use (tidesgw.CheckPoolURL), and following a redirect took a request -- its
+// signed headers included -- wherever the answer pointed, plain http too.
+func NoRedirects(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+
+// maxSnapshotBytes bounds the pool's TIDES snapshot. One window entry is under 100 bytes, so this
+// is tens of thousands of miners; a snapshot larger than that is refused, not read into memory.
+const maxSnapshotBytes = 4 << 20
+
+// maxErrorText is how much of a failed answer's body goes into an error: the rest is a page the
+// dashboard and the logs have no use for.
+const maxErrorText = 300
+
+func clipText(b []byte) string {
+	s := strings.TrimSpace(string(b))
+	if len(s) > maxErrorText {
+		s = s[:maxErrorText] + "…"
+	}
+	return s
 }
 
 // LoadOrCreateKey reads the gateway's key from path, making one (0600) on first run. The key is
@@ -60,29 +82,47 @@ func LoadOrCreateKey(path string) (ed25519.PrivateKey, error) {
 func (c *Client) ID() string { return hex.EncodeToString(c.Key.Public().(ed25519.PublicKey)) }
 
 // Snapshot fetches the pool's newest TIDES snapshot.
-func (c *Client) Snapshot() (*wire.Snapshot, error) {
-	resp, err := c.HTTP.Get(c.Base + "/datum/v1/tides")
+func (c *Client) Snapshot() (*wire.Snapshot, error) { return c.SnapshotCtx(context.Background()) }
+
+// SnapshotCtx fetches the pool's newest TIDES snapshot, giving up when ctx ends.
+func (c *Client) SnapshotCtx(ctx context.Context) (*wire.Snapshot, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.Base+"/datum/v1/tides", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, fmt.Errorf("tides: %s: %s", resp.Status, strings.TrimSpace(string(b)))
+		return nil, fmt.Errorf("tides: %s: %s", resp.Status, clipText(b))
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, maxSnapshotBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("tides: %w", err)
+	}
+	if len(b) > maxSnapshotBytes {
+		return nil, fmt.Errorf("tides: the snapshot is larger than %d bytes", maxSnapshotBytes)
 	}
 	var s wire.Snapshot
-	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
+	if err := json.Unmarshal(b, &s); err != nil {
 		return nil, fmt.Errorf("tides: %w", err)
 	}
 	return &s, nil
 }
 
 func (c *Client) post(path string, in, out interface{}) error {
+	return c.postCtx(context.Background(), path, in, out)
+}
+
+func (c *Client) postCtx(ctx context.Context, path string, in, out interface{}) error {
 	body, err := json.Marshal(in)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest("POST", c.Base+path, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.Base+path, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -98,7 +138,7 @@ func (c *Client) post(path string, in, out interface{}) error {
 		return err
 	}
 	if err := json.Unmarshal(b, out); err != nil || resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s: %s: %s", path, resp.Status, strings.TrimSpace(string(b)))
+		return fmt.Errorf("%s: %s: %s", path, resp.Status, clipText(b))
 	}
 	return nil
 }
@@ -160,10 +200,15 @@ func BuildJob(snap *wire.Snapshot, t *Template, finder string, tag []byte) (*wir
 // Register registers a job, sending transaction data if the pool asks for it and retrying while the
 // pool catches up, until the pool accepts or refuses it for good (or tries runs out).
 func (c *Client) Register(req *wire.JobRequest, t *Template, tries int, wait time.Duration) (*wire.JobResponse, error) {
+	return c.RegisterCtx(context.Background(), req, t, tries, wait)
+}
+
+// RegisterCtx is Register, giving up when ctx ends.
+func (c *Client) RegisterCtx(ctx context.Context, req *wire.JobRequest, t *Template, tries int, wait time.Duration) (*wire.JobResponse, error) {
 	var resp wire.JobResponse
 	for i := 0; i < tries; i++ {
 		resp = wire.JobResponse{}
-		if err := c.post("/datum/v1/jobs", req, &resp); err != nil {
+		if err := c.postCtx(ctx, "/datum/v1/jobs", req, &resp); err != nil {
 			return nil, err
 		}
 		if resp.JobID != "" {
@@ -179,7 +224,14 @@ func (c *Client) Register(req *wire.JobRequest, t *Template, tries int, wait tim
 		if !resp.Retry {
 			return &resp, fmt.Errorf("the pool refused the job: %s", resp.Error)
 		}
-		time.Sleep(wait)
+		if i == tries-1 {
+			break // the caller waits before it asks again; waiting here too only lost time
+		}
+		select {
+		case <-time.After(wait):
+		case <-ctx.Done():
+			return &resp, ctx.Err()
+		}
 	}
 	return &resp, fmt.Errorf("the pool did not take the job after %d tries: %s", tries, resp.Error)
 }
