@@ -402,9 +402,7 @@ func normalizeDifficultyFloors(config *ServerConfig) {
 // share that only proves the old target is credited only what it proved.
 //
 // `now` is a parameter, and this is a named function rather than an inline expression, so a
-// test can drive the real decision deterministically. The previous test carried a copy of
-// this logic and a comment promising to keep it in sync by review -- a copy stays green when
-// the original is deleted.
+// test can drive the real decision deterministically.
 func (s *Server) effectiveJudgingDifficulty(assigned, previous float64, changedAt time.Time, now time.Time) float64 {
 	if previous > 0 && previous < assigned && now.Sub(changedAt) < difficultyGracePeriod {
 		return previous
@@ -421,7 +419,7 @@ func (s *Server) effectiveJudgingDifficulty(assigned, previous float64, changedA
 // (main/tasks/create_jobs_task.cpp) stamp each job with the difficulty in force when its notify
 // arrived and filter that job's shares by the stamp. So a share on a job that went out under a
 // lower difficulty was found against that lower target, however late it arrives -- and it arrives
-// late whenever the pool's messages are held up. On Forge Pool (2026-09-30) a miner on a lossy link
+// late whenever the pool's messages are held up. On Forge Pool a miner on a lossy link
 // (37-44% of the bytes sent to it retransmitted, the retransmit timer backed off to 39 s) worked
 // one job for up to 2 min 40 s while vardiff kept raising a difficulty it had not yet received.
 // The grace in effectiveJudgingDifficulty covers one raise, so its shares were refused by the
@@ -2472,13 +2470,10 @@ func (c *Client) addShareSample(at time.Time, diff float64) int {
 //
 // Each share counts as the work it was found against. Counted as one share at the current
 // difficulty, the shares from before a change made the rate they were found at look like the
-// rate at the new difficulty: vardiff raised again after a raise, and cut again after a cut. With
-// that and a sample of 10, a steady 5 PH/s rental on 1.0.13rc8 swung between 0.5x and 3.4x of its
-// level, a dozen changes in 7 minutes (2026-10-02); the simulated miner of
-// TestVardiffHoldsASteadyMinerNearItsLevel typically ranged 0.3x to 3.3x, about 130 changes an
-// hour. Weighted, over 30 shares: 0.75x to 1.7x, about 15. The cost is in following a real change:
-// a miner that falls to a fifth of its hashrate takes about 7 minutes to reach its new level
-// instead of about 2 (TestVardiffFollowsAHashrateDrop), its shares meanwhile slower, not refused.
+// rate at the new difficulty: vardiff raised again after a raise and cut again after a cut, and a
+// steady miner swung between a fraction and several times its level. Thirty shares rather than
+// ten keep ordinary luck from moving it. The cost: a miner whose hashrate falls takes a few
+// minutes longer to reach its new level, its shares meanwhile slower, not refused.
 func measuredShareTime(samples []shareSample, current float64) float64 {
 	if current <= 0 {
 		return 0

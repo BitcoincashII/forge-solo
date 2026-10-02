@@ -105,9 +105,8 @@ func tidesPayoutAddress() string {
 }
 
 // tidesNextJob picks this turn's job in TIDES mode: one the pool registered, or -- when the pool
-// will not answer or will not take it -- a solo job meanwhile (owner decision 2026-09-30: fall
-// back to solo). keep=true means miners stay on the TIDES job they have, which the pool still
-// holds while the tip stands still.
+// will not answer or will not take it -- a solo job meanwhile. keep=true means miners stay on the
+// TIDES job they have, which the pool still holds while the tip stands still.
 func tidesNextJob(g *tidesgw.Gateway, template *mining.BlockTemplate, isNewBlock bool, cur *mining.Job) (job *mining.Job, keep bool) {
 	if !g.Due(isNewBlock) {
 		return jobManager.CreateJob(template), false
@@ -160,8 +159,8 @@ func tidesTakeShare(share *stratum.Share, isBlock bool) {
 }
 
 // applyTidesMode puts mode into effect: TIDES starts the gateway and switches 1175 merge-mining
-// off (TIDES is BCH2 only, owner decision 2026-09-30); solo leaves merge-mining to the watcher,
-// which turns it back on when a 1175 address is set. It returns the mode now in effect, which is
+// off (TIDES is BCH2 only); solo leaves merge-mining to the watcher, which turns it back on when
+// a 1175 address is set. It returns the mode now in effect, which is
 // solo if TIDES could not start.
 func applyTidesMode(mode string, cfg *viper.Viper, jm *mining.JobManager) string {
 	if mode != stats.PayoutModeTides {

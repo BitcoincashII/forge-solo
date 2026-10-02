@@ -97,7 +97,7 @@ type diffChange struct{ sec, diff float64 }
 // simulated miner, for seconds, and returns every difficulty it was set to. The miner finds shares
 // at random, at the rate hashrate (H/s) gives at the difficulty its job went out under; a job goes
 // out every 10 seconds, and the miner applies mining.set_difficulty from the next job on, as the
-// stratum spec says and as the Braiins OS rental of 2026-10-02 did.
+// stratum spec says and as Braiins OS does.
 func simulateVardiff(t *testing.T, s *Server, seed int64, start float64, hashrate func(sec float64) float64, seconds float64) []diffChange {
 	t.Helper()
 	poolSide, minerSide := net.Pipe()
@@ -165,9 +165,8 @@ func median(xs []float64) float64 {
 }
 
 // A steady miner stays near its level. With each share counted at the current difficulty, over 10
-// shares, the 5 PH/s rental of 2026-10-02 swung between 0.5x and 3.4x of its level, a dozen changes
-// in 7 minutes; this simulation of the same miner on that code ranged about 0.3x to 3.3x in the
-// typical hour, with about 130 changes.
+// shares, this simulation of a steady 5 PH/s miner typically ranged about 0.3x to 3.3x of its level
+// in an hour, with about 130 changes.
 func TestVardiffHoldsASteadyMinerNearItsLevel(t *testing.T) {
 	s := rentalPortServer()
 	hashrate := 5e15

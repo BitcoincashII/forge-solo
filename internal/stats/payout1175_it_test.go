@@ -14,7 +14,7 @@ func abs1175(x float64) float64 {
 
 // TestPayout1175Accounting exercises the hardened 1175 merge-mining payout ledger
 // against a real postgres test DB (MMTEST_DB connStr). It validates the fund-safety
-// invariants from the 2026-07-17 audit:
+// invariants:
 //   - proportional PPLNS distribution (60/40) of the full reward
 //   - idempotent re-distribution (no double-credit)
 //   - the CONFIRMATION GATE: credits are unpayable until the aux block is confirmed

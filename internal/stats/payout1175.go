@@ -6,10 +6,9 @@ import (
 	"log"
 )
 
-// 1175 merge-mining payout ledger — a reorg-safe parallel of the BCH2 payout
-// subsystem. Hardened per the 2026-07-17 fund-safety audit:
+// 1175 merge-mining payout ledger: a reorg-safe parallel of the BCH2 payout subsystem.
 //   - Payout is gated on the aux node's ACTIVE-CHAIN CONFIRMATIONS (blocks_1175.status
-//     = 'confirmed'), never on height arithmetic — so orphaned aux blocks are never paid.
+//     = 'confirmed'), never on height arithmetic, so orphaned aux blocks are never paid.
 //   - Distribution is idempotent + reorg-aware per height (refuse if any row is already
 //     paid; otherwise recompute the whole unpaid set) so a height can never over-distribute.
 //   - Solo-found blocks credit the finder; a degenerate empty PPLNS window falls back to

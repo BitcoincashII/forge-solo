@@ -673,7 +673,7 @@ func (jm *JobManager) CreateJob(template *BlockTemplate) *Job {
 // gateway's, which pay Forge Pool's TIDES split instead of this install's own address. txs are the
 // transactions that coinbase's value counts, in block order -- the gateway may register fewer than
 // the template holds -- and coinbaseValue is what it pays in total. Such a job never merge-mines:
-// TIDES mode is BCH2 only (owner decision 2026-09-30).
+// TIDES mode is BCH2 only.
 func (jm *JobManager) CreateJobWithCoinbase(template *BlockTemplate, cb1, cb2 string, txs []TxData, coinbaseValue int64) *Job {
 	if template == nil {
 		return nil

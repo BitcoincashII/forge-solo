@@ -6,7 +6,7 @@
 //
 //   - The checksum is taken under the chain prefix "bitcoincashii". An address with no prefix is
 //     read under it; one naming another prefix is refused. v27.0.2 validateaddress refuses
-//     bitcoincash: addresses (probed 2026-09-29), and Landnám's cashaddr.cpp Decode refuses
+//     bitcoincash: addresses (probed), and Landnám's cashaddr.cpp Decode refuses
 //     them too: "if (prefix != expected_prefix) return false;".
 //   - One case throughout. Landnám: "Mixed case is refused rather than folded". v27.0.2 folds it.
 //   - One spelling per address. Landnám refuses non-zero padding bits and a spare symbol ("Left-over

@@ -5,11 +5,11 @@
 // the pool has checked and registered it before any miner sees it. The shares the miners find at
 // or above the pool's share difficulty are sent on and credited to the payout address in that
 // share log, so whichever gateway finds a block, it pays every DATUM miner with work in the
-// window -- this one included. The pool keeps no wallet and takes no fee (owner decisions
-// 2026-09-29), and TIDES mode is BCH2 only: no 1175 merge-mining (owner decision 2026-09-30).
+// window -- this one included. The pool keeps no wallet and takes no fee, and TIDES mode is BCH2
+// only: no 1175 merge-mining.
 //
-// When the pool cannot be reached, or will not take a job, the stratum mines solo meanwhile
-// (owner decision 2026-09-30); this package records which it is doing so the dashboard can say.
+// When the pool cannot be reached, or will not take a job, the stratum mines solo meanwhile; this
+// package records which it is doing so the dashboard can say.
 package tidesgw
 
 import (
@@ -539,7 +539,7 @@ func (g *Gateway) Reset() {
 // KeepFor is how long miners may stay on a job the pool registered while refreshing it keeps
 // failing. The pool holds the job until the tip moves, so one missed refresh is not worth leaving
 // TIDES over -- but a pool that is really down credits none of that work, and an install that
-// chose TIDES mines solo meanwhile (owner decision 2026-09-30), so this is two missed refreshes.
+// chose TIDES mines solo meanwhile, so this is two missed refreshes.
 const KeepFor = 45 * time.Second
 
 // Keep reports whether miners may stay on local job localID after a failed refresh: it is a
