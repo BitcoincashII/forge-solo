@@ -279,6 +279,11 @@
             if (t.state === 'starting') {
                 return { warn: false, text: '🌊 <b>TIDES starting</b> — registering work with Forge Pool…' };
             }
+            if (t.not_in_window) {
+                return { warn: true, text: '⚠️ <b>Your address is not in Forge Pool\'s TIDES window,</b> though the pool has credited '
+                    + Number(t.shares_accepted || 0) + ' of your shares: a block your miners find now pays the others in the window only. '
+                    + 'Check the window on the pool\'s TIDES page, or choose Solo in Settings.' };
+            }
             return { warn: false, text: '🌊 <b>TIDES</b> — your miners work for the Forge Pool TIDES window; every TIDES block pays everyone in it.' };
         }
 

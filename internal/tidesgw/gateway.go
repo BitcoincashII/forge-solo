@@ -151,6 +151,12 @@ type Gateway struct {
 	counts    Counts
 	lastWarn  time.Time
 	wake      chan struct{}
+
+	// acceptedBy is the address the pool last credited one of this install's shares to, and
+	// firstAccepted when it first did (notInWindow).
+	acceptedBy    string
+	firstAccepted time.Time
+	warnedWindow  bool
 }
 
 // Counts are the gateway's running totals since start.
@@ -325,8 +331,37 @@ func (g *Gateway) Register(t *mining.BlockTemplate, finder string, tag []byte) (
 	g.lastOK = g.cfg.Now()
 	g.shareDiff = reg.ShareDiff
 	g.counts.Registered++
+	if missing := g.notInWindow(); missing && !g.warnedWindow {
+		g.logger.Warn("TIDES: Forge Pool's window lists none of this install's work, though the pool credits its shares: "+
+			"blocks found in TIDES mode pay the others in the window only. See the pool's TIDES page, or choose solo.",
+			zap.String("credited_to", g.acceptedBy), zap.Int64("shares_accepted", g.counts.Accepted))
+		g.warnedWindow = true
+	} else if !missing {
+		g.warnedWindow = false
+	}
 	g.mu.Unlock()
 	return reg, nil
+}
+
+// windowGrace is how long after the pool first credits this install's shares its TIDES window may
+// still leave them out: the pool takes its snapshot from time to time, not at every share, and its
+// clock and this one may differ.
+const windowGrace = 10 * time.Minute
+
+// notInWindow reports the pool crediting this install's shares while its window -- as of a
+// snapshot taken windowGrace after the first of them -- holds none of this install's work. Nothing
+// else would show it: every block mined in TIDES mode then pays the others in the window only, and
+// the registration takes the pool's split as it comes. g.mu is held.
+func (g *Gateway) notInWindow() bool {
+	if g.snap == nil || g.acceptedBy == "" || len(g.snap.Work) == 0 || g.snap.At.Sub(g.firstAccepted) < windowGrace {
+		return false
+	}
+	for addr, work := range g.snap.Work {
+		if canon, err := CanonicalAddress(addr); err == nil && canon == g.acceptedBy && work > 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // maxCoinbaseOutputs is the most outputs a TIDES coinbase built here may have. Nothing bounded the
@@ -643,6 +678,9 @@ func (g *Gateway) tally(sent []queued, resp *wire.ShareBatchResponse) []queued {
 		switch {
 		case r.Accepted:
 			g.counts.Accepted++
+			if miner := sent[i].share.Miner; miner != g.acceptedBy {
+				g.acceptedBy, g.firstAccepted = miner, g.cfg.Now()
+			}
 			if r.Block {
 				g.counts.Blocks++
 			}
@@ -738,6 +776,8 @@ type Status struct {
 	Snapshot        int64   `json:"snapshot"`
 	WindowMiners    int     `json:"window_miners"`
 	Queued          int     `json:"shares_queued"`
+	// NotInWindow: the pool credits this install's shares, but its window holds none of its work.
+	NotInWindow bool `json:"not_in_window,omitempty"`
 	Counts
 }
 
@@ -754,6 +794,7 @@ func (g *Gateway) Status() Status {
 	if g.snap != nil {
 		st.Snapshot = g.snap.Version
 		st.WindowMiners = len(g.snap.Work)
+		st.NotInWindow = g.notInWindow()
 	}
 	return st
 }
