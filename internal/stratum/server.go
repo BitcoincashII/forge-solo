@@ -40,6 +40,10 @@ const (
 	// VardiffMinShares is the minimum shares needed before vardiff adjusts
 	VardiffMinShares = 10
 
+	// VardiffSampleShares is how many of a miner's latest shares vardiff measures its rate over
+	// (all of them while it has fewer). See measuredShareTime.
+	VardiffSampleShares = 30
+
 	// RecentSubmissionsWindow is the number of submissions to track for rejection rate
 	RecentSubmissionsWindow = 50
 
@@ -1084,12 +1088,12 @@ func (s *Server) handleClient(conn net.Conn) {
 	client := &Client{
 		// A sequence number, not the time alone: Windows' clock advances only every 0.5-15.6 ms,
 		// so two miners reconnecting at once could get the same ID and one drop out of s.clients.
-		ID:          fmt.Sprintf("%d-%d", time.Now().UnixNano(), s.clientSeq.Add(1)),
-		Conn:        conn,
-		IP:          conn.RemoteAddr().String(),
-		Difficulty:  s.config.AbsoluteMinDiff, // assignment floor, not the judging floor
-		ConnectedAt: time.Now(),
-		ShareTimes:  make([]time.Time, 0, 100),
+		ID:           fmt.Sprintf("%d-%d", time.Now().UnixNano(), s.clientSeq.Add(1)),
+		Conn:         conn,
+		IP:           conn.RemoteAddr().String(),
+		Difficulty:   s.config.AbsoluteMinDiff, // assignment floor, not the judging floor
+		ConnectedAt:  time.Now(),
+		ShareSamples: make([]shareSample, 0, maxShareSamples),
 	}
 
 	client.out = make(chan []byte, clientQueue)
@@ -2282,25 +2286,22 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 
 	now := time.Now()
 
-	// A share on a job that went out under a lower difficulty than the current one says nothing
-	// about how fast this miner finds shares at the current one. Timing it made vardiff raise again
-	// and again while a miner that had not yet received the last raise went on working old jobs
-	// (see judgeShare). It is credited, not timed.
-	timed := !(jobDiff > 0 && jobDiff < difficulty)
+	// The share is timed at the difficulty it was found against: its job's (see judgeShare), or
+	// the current one where the job is not on record. Timed at the current one, a share on a job
+	// sent before a raise read as a miner faster than it is, and vardiff raised again and again
+	// while a miner that had not yet received the last raise went on working old jobs.
+	foundAt := difficulty
+	if jobDiff > 0 {
+		foundAt = jobDiff
+	}
 
 	client.mu.Lock()
-	if timed {
-		client.ShareTimes = append(client.ShareTimes, now)
-		if len(client.ShareTimes) > 100 {
-			client.ShareTimes = client.ShareTimes[1:]
-		}
-	}
+	shareCount := client.addShareSample(now, foundAt)
 	// Track accepted submission for rejection rate calculation
 	client.RecentSubmissions = append(client.RecentSubmissions, true)
 	if len(client.RecentSubmissions) > RecentSubmissionsWindow {
 		client.RecentSubmissions = client.RecentSubmissions[1:]
 	}
-	shareCount := len(client.ShareTimes)
 
 	// Save the difficulty at which this share was actually submitted
 	// (before any adjustments that apply to future shares).
@@ -2322,8 +2323,8 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	client.mu.Unlock()
 
 	// Vardiff adjustment - respects retarget_time interval
-	if timed && manualDiff == 0 && s.config.VardiffEnabled && shareCount >= VardiffMinShares {
-		s.adjustVardiff(client)
+	if manualDiff == 0 && s.config.VardiffEnabled && shareCount >= VardiffMinShares {
+		s.adjustVardiffAt(client, now)
 	}
 
 	// Where the install pays one address, a share is credited to the payout address in effect
@@ -2445,7 +2446,71 @@ func (s *Server) recallDifficulty(minerID, workerName string) (float64, bool) {
 	return m.diff, true
 }
 
+// maxShareSamples bounds each client's record of its accepted shares.
+const maxShareSamples = 100
+
+// shareSample is an accepted share: when it arrived, and the difficulty it was found against.
+type shareSample struct {
+	at   time.Time
+	diff float64 // 0: not known, taken as the difficulty in force when the sample is read
+}
+
+// addShareSample records an accepted share for vardiff and returns how many are on record.
+// Caller holds c.mu.
+func (c *Client) addShareSample(at time.Time, diff float64) int {
+	c.ShareSamples = append(c.ShareSamples, shareSample{at: at, diff: diff})
+	if len(c.ShareSamples) > maxShareSamples {
+		c.ShareSamples = c.ShareSamples[1:]
+	}
+	return len(c.ShareSamples)
+}
+
+// measuredShareTime is how long the miner takes to find a share at difficulty current, in
+// seconds, measured over its latest VardiffSampleShares shares (all of them while it has fewer):
+// the time they span, over the work found after the first, counted in shares at current. It is 0
+// where that cannot be measured.
+//
+// Each share counts as the work it was found against. Counted as one share at the current
+// difficulty, the shares from before a change made the rate they were found at look like the
+// rate at the new difficulty: vardiff raised again after a raise, and cut again after a cut. With
+// that and a sample of 10, a steady 5 PH/s rental on 1.0.13rc8 swung between 0.5x and 3.4x of its
+// level, a dozen changes in 7 minutes (2026-10-02); the simulated miner of
+// TestVardiffHoldsASteadyMinerNearItsLevel typically ranged 0.3x to 3.3x, about 130 changes an
+// hour. Weighted, over 30 shares: 0.75x to 1.7x, about 15. The cost is in following a real change:
+// a miner that falls to a fifth of its hashrate takes about 7 minutes to reach its new level
+// instead of about 2 (TestVardiffFollowsAHashrateDrop), its shares meanwhile slower, not refused.
+func measuredShareTime(samples []shareSample, current float64) float64 {
+	if current <= 0 {
+		return 0
+	}
+	if len(samples) > VardiffSampleShares {
+		samples = samples[len(samples)-VardiffSampleShares:]
+	}
+	if len(samples) < 2 {
+		return 0
+	}
+	span := samples[len(samples)-1].at.Sub(samples[0].at).Seconds()
+	shares := 0.0
+	for _, sm := range samples[1:] {
+		diff := sm.diff
+		if diff <= 0 {
+			diff = current
+		}
+		shares += diff / current
+	}
+	if span <= 0 || shares <= 0 {
+		return 0
+	}
+	return span / shares
+}
+
+// adjustVardiff retargets client's difficulty from its latest shares.
 func (s *Server) adjustVardiff(client *Client) {
+	s.adjustVardiffAt(client, time.Now())
+}
+
+// adjustVardiffAt is adjustVardiff at time now.
+func (s *Server) adjustVardiffAt(client *Client, now time.Time) {
 	client.mu.Lock()
 
 	// Only adjust every RetargetTime seconds (default 60)
@@ -2453,25 +2518,20 @@ func (s *Server) adjustVardiff(client *Client) {
 	if retargetTime == 0 {
 		retargetTime = 60
 	}
-	if time.Since(client.DifficultyChangedAt) < time.Duration(retargetTime)*time.Second {
+	if now.Sub(client.DifficultyChangedAt) < time.Duration(retargetTime)*time.Second {
 		client.mu.Unlock()
 		return
 	}
 
-	// Use larger sample window for more stable measurements
-	sampleSize := VardiffMinShares
-	if len(client.ShareTimes) < sampleSize {
+	if len(client.ShareSamples) < VardiffMinShares {
 		client.mu.Unlock()
 		return
 	}
-
-	recent := client.ShareTimes[len(client.ShareTimes)-sampleSize:]
-	totalTime := recent[sampleSize-1].Sub(recent[0]).Seconds()
-	if totalTime <= 0 {
+	avgTime := measuredShareTime(client.ShareSamples, client.Difficulty)
+	if avgTime <= 0 {
 		client.mu.Unlock()
 		return
 	}
-	avgTime := totalTime / float64(sampleSize-1)
 
 	targetTime := float64(s.config.TargetShareTime)
 	ratio := targetTime / avgTime
@@ -2588,7 +2648,7 @@ func (s *Server) adjustVardiff(client *Client) {
 	// client.Difficulty > floor, which this very line had just made false.
 	// Do NOT "fix" this by clamping the ceiling back up to the floor -- that re-imposes
 	// the difficulty that was causing rejections in the first place.
-	if client.DifficultyReducedFrom > 0 && time.Since(client.DifficultyReducedAt) < DifficultyReductionCooldown {
+	if client.DifficultyReducedFrom > 0 && now.Sub(client.DifficultyReducedAt) < DifficultyReductionCooldown {
 		ceiling := client.DifficultyReducedFrom * 0.8
 		if newDiff > ceiling {
 			newDiff = ceiling
@@ -2602,7 +2662,7 @@ func (s *Server) adjustVardiff(client *Client) {
 	if newDiff != client.Difficulty {
 		oldDiff := client.Difficulty
 		client.PreviousDifficulty = oldDiff
-		client.DifficultyChangedAt = time.Now()
+		client.DifficultyChangedAt = now
 		client.Difficulty = newDiff
 		minerID := client.MinerID
 		workerName := client.WorkerName

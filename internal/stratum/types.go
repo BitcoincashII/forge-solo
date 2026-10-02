@@ -131,7 +131,7 @@ type Client struct {
 	ValidShares           atomic.Int64 // atomic types: see serverCounters
 	InvalidShares         atomic.Int64
 	StaleShares           int64
-	ShareTimes            []time.Time
+	ShareSamples          []shareSample
 	submitWindowStart     time.Time // start of the current per-second submit-rate window
 	submitCount           int       // submits counted in the current window (intake DoS cap)
 	RecentSubmissions     []bool    // true=accepted, false=rejected for last N submissions

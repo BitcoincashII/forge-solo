@@ -153,17 +153,23 @@ func TestShareOnAJobSentUnderALowerDifficultyIsJudgedByIt(t *testing.T) {
 	}
 }
 
-// A share on an old job is credited but not timed: it says nothing about the share rate at the
-// current difficulty, and timing it made vardiff raise again and again while the miner was stuck.
-func TestOldJobSharesDoNotDriveVardiff(t *testing.T) {
+// A share is timed at the difficulty it was found against: its job's. A miner still on an old job,
+// finding shares exactly as fast as its hashrate gives at that job's difficulty, is at its level
+// and is left there. Timed at the current difficulty, those shares read as a far faster miner, and
+// vardiff raised again and again while the miner was stuck.
+func TestOldJobSharesAreTimedAtTheirJobsDifficulty(t *testing.T) {
 	s, cp := perJobServer()
 	c := perJobClient(t)
 	toldLowThenRaisedTwice(s, c, time.Now().Add(-time.Hour)) // long enough ago that vardiff may retarget
+
+	// Its hashrate puts it at jobHigh: a share every TargetShareTime seconds at jobHigh, so every
+	// TargetShareTime*jobLow/jobHigh seconds on job "a", which went out under jobLow.
+	every := time.Duration(float64(s.config.TargetShareTime) * jobLow / jobHigh * float64(time.Second))
+	now := time.Now()
 	c.mu.Lock()
-	for i := VardiffMinShares; i > 0; i-- { // ten shares a millisecond apart: far faster than the target
-		c.ShareTimes = append(c.ShareTimes, time.Now().Add(-time.Duration(i)*time.Millisecond))
+	for i := VardiffMinShares; i > 0; i-- {
+		c.addShareSample(now.Add(-time.Duration(i)*every), jobLow)
 	}
-	timesBefore := len(c.ShareTimes)
 	c.mu.Unlock()
 
 	nonce, _ := mineShare(t, s, soloTestJob("a"), "0000000000000001", jobLow, 1e9)
@@ -172,25 +178,50 @@ func TestOldJobSharesDoNotDriveVardiff(t *testing.T) {
 	}
 	credited(t, cp, "TIMED-OLD-JOB-ACCEPT")
 	c.mu.RLock()
-	times, diff := len(c.ShareTimes), c.Difficulty
+	n, last, diff := len(c.ShareSamples), c.ShareSamples[len(c.ShareSamples)-1], c.Difficulty
 	c.mu.RUnlock()
-	if times != timesBefore || diff != jobHigh {
-		t.Fatalf("TIMED-OLD-JOB: a share on an old job was timed (%d -> %d samples) or moved the difficulty (%g -> %g)",
-			timesBefore, times, jobHigh, diff)
+	if n != VardiffMinShares+1 || last.diff != jobLow || last.at.Before(now) {
+		t.Fatalf("TIMED-AT-JOB-DIFF: a share on a job sent under %g left %d samples (want %d), the latest timed at %g",
+			jobLow, n, VardiffMinShares+1, last.diff)
+	}
+	if diff != jobHigh {
+		t.Fatalf("TIMED-OLD-JOB: a miner at its level, still on an old job, was moved from %g to %g", jobHigh, diff)
 	}
 
-	// The same samples with a share on the current job do move it: the gate above is not vacuous.
+	// A share on a job the record no longer holds is timed at the current difficulty.
+	s.jobHistory.Store("f", soloTestJob("f"))
+	nonce, _ = mineShare(t, s, soloTestJob("f"), "0000000000000003", jobHigh, 1e9)
+	if r := submitShare(s, c, "f", "0000000000000003", nonce); r.Result != true {
+		t.Fatalf("TIMED-UNKNOWN-JOB-ACCEPT: %+v", r.Error)
+	}
+	credited(t, cp, "TIMED-UNKNOWN-JOB-ACCEPT")
+	c.mu.RLock()
+	last = c.ShareSamples[len(c.ShareSamples)-1]
+	c.mu.RUnlock()
+	if last.diff != jobHigh {
+		t.Fatalf("TIMED-UNKNOWN-JOB: a share on a job not on record was timed at %g, want the current %g", last.diff, jobHigh)
+	}
+
+	// The same arrival times, as shares found at the current difficulty, do raise it: the
+	// difficulty each share was found against is what holds the first miner, not another gate.
+	c2 := perJobClient(t)
+	toldLowThenRaisedTwice(s, c2, time.Now().Add(-time.Hour))
+	c2.mu.Lock()
+	for i := VardiffMinShares; i > 0; i-- {
+		c2.addShareSample(now.Add(-time.Duration(i)*every), jobHigh)
+	}
+	c2.mu.Unlock()
 	nonce, _ = mineShare(t, s, soloTestJob("b"), "0000000000000002", jobHigh, 1e9)
-	if r := submitShare(s, c, "b", "0000000000000002", nonce); r.Result != true {
+	if r := submitShare(s, c2, "b", "0000000000000002", nonce); r.Result != true {
 		t.Fatalf("TIMED-NEW-JOB-ACCEPT: %+v", r.Error)
 	}
 	credited(t, cp, "TIMED-NEW-JOB-ACCEPT")
-	c.mu.RLock()
-	times, diff = len(c.ShareTimes), c.Difficulty
-	c.mu.RUnlock()
-	if times != timesBefore+1 || !(diff > jobHigh) {
-		t.Fatalf("TIMED-NEW-JOB: a share on the current job left %d samples (want %d) and difficulty %g (want a raise from %g)",
-			times, timesBefore+1, diff, jobHigh)
+	c2.mu.RLock()
+	diff = c2.Difficulty
+	c2.mu.RUnlock()
+	if !(diff > jobHigh) {
+		t.Fatalf("TIMED-NEW-JOB: shares four times faster than the target at the current difficulty left it at %g (want a raise from %g)",
+			diff, jobHigh)
 	}
 }
 

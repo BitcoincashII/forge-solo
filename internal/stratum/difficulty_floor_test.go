@@ -170,11 +170,11 @@ func TestVardiffCeilingUndershootStaysJudgeable(t *testing.T) {
 	go io.Copy(io.Discard, minerSide) // drain mining.set_difficulty
 
 	now := time.Now()
-	shareTimes := make([]time.Time, 0, VardiffMinShares)
+	shareTimes := make([]shareSample, 0, VardiffMinShares)
 	for i := 0; i < VardiffMinShares; i++ {
 		// 100s between shares against a 10s target -> ratio far below 1, so vardiff wants
 		// to REDUCE difficulty and we reach the ceiling check with a live adjustment.
-		shareTimes = append(shareTimes, now.Add(time.Duration(i-VardiffMinShares)*100*time.Second))
+		shareTimes = append(shareTimes, shareSample{at: now.Add(time.Duration(i-VardiffMinShares) * 100 * time.Second)})
 	}
 
 	client := &Client{
@@ -186,7 +186,7 @@ func TestVardiffCeilingUndershootStaysJudgeable(t *testing.T) {
 		DifficultyChangedAt:   now.Add(-time.Hour), // older than RetargetTime
 		DifficultyReducedFrom: 1200,                // > floor, so ceiling 960 < floor 1024
 		DifficultyReducedAt:   now,
-		ShareTimes:            shareTimes,
+		ShareSamples:          shareTimes,
 		ConnectedAt:           now.Add(-time.Hour),
 	}
 

@@ -32,19 +32,19 @@ func rampClient(t *testing.T, s *Server, startDiff, shareIntervalSec float64) (*
 	go io.Copy(io.Discard, minerSide) // drain mining.set_difficulty
 
 	now := time.Now()
-	shareTimes := make([]time.Time, 0, VardiffMinShares)
+	shareTimes := make([]shareSample, 0, VardiffMinShares)
 	for i := 0; i < VardiffMinShares; i++ {
 		offset := time.Duration(float64(i-VardiffMinShares) * shareIntervalSec * float64(time.Second))
-		shareTimes = append(shareTimes, now.Add(offset))
+		shareTimes = append(shareTimes, shareSample{at: now.Add(offset)})
 	}
 	c := &Client{
-		ID:          "ramp",
-		Conn:        poolSide,
-		MinerID:     "test-ramp",
-		Authorized:  true,
-		Difficulty:  startDiff,
-		ShareTimes:  shareTimes,
-		ConnectedAt: now.Add(-time.Minute),
+		ID:           "ramp",
+		Conn:         poolSide,
+		MinerID:      "test-ramp",
+		Authorized:   true,
+		Difficulty:   startDiff,
+		ShareSamples: shareTimes,
+		ConnectedAt:  now.Add(-time.Minute),
 		// DifficultyChangedAt is deliberately left zero: that is a real fresh connection,
 		// and it is why the first adjustment is not held off by RetargetTime.
 	}
