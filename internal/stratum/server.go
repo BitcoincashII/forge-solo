@@ -72,7 +72,7 @@ type Server struct {
 	stopOnce       sync.Once // Stop may be called again; closing shutdownCh twice panics
 	stats          *serverCounters
 	// Duplicate share detection
-	submittedShares sync.Map // map[shareKey]time.Time
+	submittedShares sync.Map // map[shareKey]string: the tip (job PrevBlockHash) the share was found on
 	shareCleanupMu  sync.Mutex
 
 	// auxMu guards auxClient + onAuxBlock, which the pool_config watcher sets at runtime
@@ -594,27 +594,24 @@ func (s *Server) cleanupDiffMemory() {
 }
 
 // cleanupOldShares removes shares older than 5 minutes
-func (s *Server) cleanupOldShares() {
-	cutoff := time.Now().Add(-5 * time.Minute)
-	s.submittedShares.Range(func(key, value interface{}) bool {
-		if t, ok := value.(time.Time); ok && t.Before(cutoff) {
-			s.submittedShares.Delete(key)
-		}
-		return true
-	})
-}
+func (s *Server) cleanupOldShares() { s.pruneSubmittedShares() }
 
-// clearSharesForJob performs cleanup when a new job is broadcast
-// SECURITY: Don't wipe all shares - this would allow replay attacks
-// Instead, do time-based cleanup to remove old shares while keeping recent ones
-func (s *Server) clearSharesForJob() {
+// clearSharesForJob prunes the duplicate record when a new job is broadcast.
+func (s *Server) clearSharesForJob() { s.pruneSubmittedShares() }
+
+// pruneSubmittedShares forgets the shares found on any tip but the current one. Those are refused
+// as stale before the duplicate check, so their records are no longer needed; the current tip's
+// are kept for as long as its jobs are accepted. Pruning by age instead let a share be accepted a
+// second time once its record aged out while its job was still valid.
+func (s *Server) pruneSubmittedShares() {
 	s.shareCleanupMu.Lock()
 	defer s.shareCleanupMu.Unlock()
-	// Only remove shares older than 2 minutes to prevent replay while allowing
-	// legitimate shares from recent jobs that miners might still be working on
-	cutoff := time.Now().Add(-2 * time.Minute)
+	cur, ok := s.currentJob.Load().(*Job)
+	if !ok || cur == nil {
+		return
+	}
 	s.submittedShares.Range(func(key, value interface{}) bool {
-		if t, ok := value.(time.Time); ok && t.Before(cutoff) {
+		if tip, _ := value.(string); tip != cur.PrevBlockHash {
 			s.submittedShares.Delete(key)
 		}
 		return true
@@ -624,7 +621,7 @@ func (s *Server) clearSharesForJob() {
 // isDuplicateShare checks if this share was already submitted. headerVersion is the version
 // the share's header carries (RollVersion of the job's version and the submitted bits), so two
 // submissions that build the same header always share one key.
-func (s *Server) isDuplicateShare(jobID, en1, en2, ntime, nonce, headerVersion string) bool {
+func (s *Server) isDuplicateShare(jobID, en1, en2, ntime, nonce, headerVersion, tip string) bool {
 	key := shareKey{
 		JobID:       jobID,
 		ExtraNonce1: en1,
@@ -634,7 +631,7 @@ func (s *Server) isDuplicateShare(jobID, en1, en2, ntime, nonce, headerVersion s
 		VersionBits: headerVersion,
 	}
 
-	_, exists := s.submittedShares.LoadOrStore(key, time.Now())
+	_, exists := s.submittedShares.LoadOrStore(key, tip)
 	return exists
 }
 
@@ -2056,6 +2053,13 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	if len(params) > 5 {
 		versionBits = params[5]
 	}
+	// Every field has a fixed, short form. Anything else is refused before it is looked up,
+	// logged or remembered: a submit could carry tens of kilobytes in one field, and the
+	// duplicate record used to keep each one for minutes.
+	if !wellFormedSubmit(jobID, extranonce2, ntime, nonce, versionBits, extranonce2Size) {
+		s.noteInvalidShare(client, "malformed_params")
+		return &Response{ID: req.ID, Result: false, Error: ErrMalformedShare}
+	}
 
 	// Debug, not Info: two lines for every share filled a busy miner's log by megabytes a day.
 	s.logger.Debug("Share submitted",
@@ -2077,18 +2081,20 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	}
 	job := jobInterface.(*Job)
 
-	// A duplicate is the same header, so it is keyed on the version the header actually
-	// carries: RollVersion(job, versionBits), the single source of truth. Keying on the
-	// submitted string let one proof of work be accepted again and again under different
-	// spellings of the same version ("", "00000000", "zz", "0x20000000" all build the job's
-	// version), each credited and, in TIDES mode, forwarded to the pool.
-	if s.isDuplicateShare(jobID, extranonce1, extranonce2, ntime, nonce, hex.EncodeToString(RollVersion(job.Version, versionBits))) {
-		s.logger.Warn("Duplicate share rejected",
-			zap.String("miner", minerID),
-			zap.String("job", jobID))
-		s.noteInvalidShare(client, "duplicate")
-		return &Response{ID: req.ID, Result: false, Error: ErrDuplicateShare}
+	// A share on a job from before the last block can no longer become a block: it is stale, as
+	// ckpool marks every share on a workbase older than the last block change (stratifier.c:
+	// "if (id < sdata->blockchange_id) stale = true;").
+	if cur, ok := s.currentJob.Load().(*Job); ok && cur != nil && cur.PrevBlockHash != job.PrevBlockHash {
+		s.noteInvalidShare(client, "stale_job")
+		return &Response{ID: req.ID, Result: false, Error: ErrJobNotFound}
 	}
+	// ckpool: "Ntime cannot be less, but allow forward ntime rolling up to max" -- not before the
+	// job's time, nor more than 7000 seconds after it.
+	if !ntimeInRange(ntime, job.NTime) {
+		s.noteInvalidShare(client, "invalid_ntime")
+		return &Response{ID: req.ID, Result: false, Error: ErrInvalidNTime}
+	}
+
 	client.mu.RLock()
 	jobDiff := client.jobDiff[jobID]
 	client.mu.RUnlock()
@@ -2178,6 +2184,20 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 		client.mu.Unlock()
 
 		return &Response{ID: req.ID, Result: false, Error: ErrLowDifficulty}
+	}
+
+	// Only work that passed is remembered, so the record grows with real hashing, not with what
+	// a client sends. A duplicate is the same header, so it is keyed on the version the header
+	// actually carries: RollVersion(job, versionBits), the single source of truth. Keying on the
+	// submitted string let one proof of work be accepted again and again under different
+	// spellings of the same version ("", "00000000", "zz", "0x20000000" all build the job's
+	// version), each credited and, in TIDES mode, forwarded to the pool.
+	if s.isDuplicateShare(jobID, extranonce1, extranonce2, ntime, nonce, hex.EncodeToString(RollVersion(job.Version, versionBits)), job.PrevBlockHash) {
+		s.logger.Warn("Duplicate share rejected",
+			zap.String("miner", minerID),
+			zap.String("job", jobID))
+		s.noteInvalidShare(client, "duplicate")
+		return &Response{ID: req.ID, Result: false, Error: ErrDuplicateShare}
 	}
 
 	now := time.Now()
@@ -2916,6 +2936,35 @@ func normalizeMinerAddress(addr string) string {
 }
 
 // normalizeHex pads a hex string to the required length with leading zeros
+// wellFormedSubmit reports whether a submit's fields have the form a share's do: a job id this
+// server issues (hex, at most 16 characters), an extranonce2 of the client's size, ntime and nonce
+// of 8 hex characters each, and version bits of at most 8.
+func wellFormedSubmit(jobID, extranonce2, ntime, nonce, versionBits string, extranonce2Size int) bool {
+	return len(jobID) >= 1 && len(jobID) <= 16 && isHex(jobID) &&
+		len(extranonce2) == extranonce2Size*2 && isHex(extranonce2) &&
+		len(ntime) == 8 && isHex(ntime) && len(nonce) == 8 && isHex(nonce) &&
+		len(versionBits) <= 8 && isHex(versionBits)
+}
+
+func isHex(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
+			return false
+		}
+	}
+	return true
+}
+
+// ntimeInRange reports whether a share's ntime is no earlier than its job's and at most 7000
+// seconds later, ckpool's bounds (stratifier.c: "if (ntime32 < wb->ntime32 || ntime32 >
+// wb->ntime32 + 7000)"). Both are 8 hex characters.
+func ntimeInRange(ntime, jobNTime string) bool {
+	got, err1 := strconv.ParseUint(ntime, 16, 32)
+	base, err2 := strconv.ParseUint(jobNTime, 16, 32)
+	return err1 == nil && err2 == nil && got >= base && got <= base+7000
+}
+
 func normalizeHex(s string, length int) string {
 	// Remove any "0x" prefix
 	s = strings.TrimPrefix(s, "0x")

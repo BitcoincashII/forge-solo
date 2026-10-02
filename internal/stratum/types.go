@@ -68,6 +68,8 @@ var (
 	ErrUnauthorized   = &Error{24, "Unauthorized worker"}
 	ErrNotSubscribed  = &Error{25, "Not subscribed"}
 	ErrRateLimited    = &Error{26, "Rate limit exceeded"}
+	ErrMalformedShare = &Error{20, "Malformed share"}
+	ErrInvalidNTime   = &Error{20, "Invalid ntime"}
 )
 
 // RentalService identifies the rental platform a miner is using
