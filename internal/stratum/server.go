@@ -1091,6 +1091,10 @@ func (s *Server) handleClient(conn net.Conn) {
 		ShareTimes:  make([]time.Time, 0, 100),
 	}
 
+	client.out = make(chan []byte, clientQueue)
+	go s.writeLoop(client)
+	defer client.closeOut()
+
 	s.clients.Store(client.ID, client)
 	defer s.clients.Delete(client.ID)
 
@@ -2565,20 +2569,80 @@ func (s *Server) adjustVardiff(client *Client) {
 	client.mu.Unlock()
 }
 
+// clientQueue is how many messages may wait for one miner. A miner that stops reading is dropped
+// when its queue is full, rather than holding up everyone else's messages.
+const clientQueue = 64
+
+// enqueue queues data for client's writer, and reports whether it was queued. A full queue means
+// the miner has stopped reading: it is disconnected.
+func (c *Client) enqueue(data []byte) bool {
+	c.outMu.Lock()
+	defer c.outMu.Unlock()
+	if c.outClosed {
+		return false
+	}
+	select {
+	case c.out <- data:
+		return true
+	default:
+		c.outClosed = true
+		close(c.out)
+		c.Conn.Close()
+		return false
+	}
+}
+
+// closeOut ends client's queue; its writer finishes what is queued and stops.
+func (c *Client) closeOut() {
+	c.outMu.Lock()
+	defer c.outMu.Unlock()
+	if !c.outClosed {
+		c.outClosed = true
+		close(c.out)
+	}
+}
+
+// writeLoop sends client's queued messages in order. It is the only writer of a connection that
+// has a queue: a job broadcast used to write to each miner in turn, waiting up to 10 seconds on
+// each, so one miner gone without closing (a power cut, Wi-Fi dropped) held every other miner's
+// new-block job back by that long. ckpool likewise sends "non-blocking to only send to those
+// clients ready to receive data".
+func (s *Server) writeLoop(client *Client) {
+	for data := range client.out {
+		client.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		if _, err := client.Conn.Write(data); err != nil {
+			client.Conn.Close() // the rest fail at once, and the reader ends the connection
+		}
+	}
+}
+
+// send sends data to client: through its queue where it has one (every real connection), or
+// written at once where it has none.
+func (s *Server) send(client *Client, data []byte) error {
+	if client.out != nil {
+		if !client.enqueue(data) {
+			return net.ErrClosed
+		}
+		return nil
+	}
+	client.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	_, err := client.Conn.Write(data)
+	if err != nil {
+		client.Conn.Close() // Force disconnect on write error
+	}
+	return err
+}
+
 func (s *Server) sendResponse(client *Client, resp *Response) {
 	data, _ := json.Marshal(resp)
 	data = append(data, '\n')
-	client.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if _, err := client.Conn.Write(data); err != nil {
-		client.Conn.Close() // Force disconnect on write error
-	}
+	_ = s.send(client, data)
 }
 
 func (s *Server) sendNotification(client *Client, notif *Notification) {
 	data, _ := json.Marshal(notif)
 	data = append(data, '\n')
-	client.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if _, err := client.Conn.Write(data); err != nil {
+	if err := s.send(client, data); err != nil {
 		// Log write error for NiceHash clients
 		client.mu.RLock()
 		rental := client.RentalService

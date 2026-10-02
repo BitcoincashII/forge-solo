@@ -109,7 +109,10 @@ type Client struct {
 	WorkerName            string
 	workerNames           map[string]struct{} // the names this connection has authorized; see maxWorkerNamesPerConnection
 	logs                  logLimit            // this connection's log budget; see Server.clientLog
-	badLines              int                 // lines that were not JSON; see maxBadLines
+	out                   chan []byte         // messages to send, in order; see Client.enqueue
+	outMu                 sync.Mutex
+	outClosed             bool
+	badLines              int // lines that were not JSON; see maxBadLines
 	Difficulty            float64
 	PreviousDifficulty    float64
 	DifficultyChangedAt   time.Time
