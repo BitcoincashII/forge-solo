@@ -24,7 +24,7 @@
     "key_file": "forge-gateway.key"
   },
   "status": {
-    "listen": "127.0.0.1:7152"
+    "listen": "127.0.0.1:3090"
   },
   "log_file": "",
   "log_level": "info"

@@ -105,7 +105,7 @@ func (g *gatewayState) view(now time.Time) statusView {
 }
 
 // statusHandler serves the page, its JSON, and /notify -- the target for the node's blocknotify,
-// e.g. blocknotify=curl -s -X POST http://127.0.0.1:7152/notify
+// e.g. blocknotify=curl -s -X POST http://127.0.0.1:3090/notify
 func (g *gatewayState) statusHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

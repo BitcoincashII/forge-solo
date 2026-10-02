@@ -74,9 +74,11 @@ const (
 	defaultRPCURL        = "http://127.0.0.1:8342"
 	defaultCoinbaseTag   = "Forge Gateway"
 	defaultStratumListen = "0.0.0.0:3333"
-	defaultStatusListen  = "127.0.0.1:7152"
-	defaultKeyFile       = "forge-gateway.key"
-	maxCoinbaseTag       = 32 // the DATUM coinbase layout's limit
+	// Not 7152: that is the dashboard port OCEAN's example config gives every DATUM gateway, so a
+	// machine already running one (an XBT DATUM node, say) would refuse this gateway's status page.
+	defaultStatusListen = "127.0.0.1:3090"
+	defaultKeyFile      = "forge-gateway.key"
+	maxCoinbaseTag      = 32 // the DATUM coinbase layout's limit
 )
 
 // loadConfig reads, defaults and checks the config at path. Unknown keys are an error: a

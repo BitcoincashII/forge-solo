@@ -277,3 +277,17 @@ func TestStatusJobReportsZeroFinderSats(t *testing.T) {
 		t.Fatalf("GW-STATUS-FINDER: %s has no finder_sats", b)
 	}
 }
+
+// The status page's default port is one nothing nearby takes: not a DATUM gateway's (OCEAN's example
+// config: dashboard 7152, stratum 23334, pool 28915) and not Forge Solo's on any platform.
+func TestTheStatusPortIsFreeOfDATUMAndForgeSolo(t *testing.T) {
+	_, port, err := net.SplitHostPort(defaultStatusListen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, taken := range []string{"7152", "23334", "28915", "3333", "3335", "3080", "8080", "8339", "8342", "25360", "25361", "31175"} {
+		if port == taken {
+			t.Errorf("FG-STATUS-PORT: the status page defaults to %s, which a DATUM gateway or Forge Solo already uses", port)
+		}
+	}
+}
