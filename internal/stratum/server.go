@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -947,7 +948,7 @@ func (s *Server) stop() {
 		s.logger.Info("Closing the miners' connections", zap.Int64("clients", n))
 		s.clients.Range(func(key, value interface{}) bool {
 			if c, ok := value.(*Client); ok && c.Conn != nil {
-				c.Conn.Close()
+				c.closeFor("the stratum is stopping")
 			}
 			return true
 		})
@@ -1148,6 +1149,7 @@ func (s *Server) handleClient(conn net.Conn) {
 			bad := client.badLines
 			client.mu.Unlock()
 			if !subscribed || bad > maxBadLines {
+				client.closeFor("it sent lines that are not stratum")
 				break
 			}
 		}
@@ -1165,6 +1167,7 @@ func (s *Server) handleClient(conn net.Conn) {
 
 	duration := time.Since(client.ConnectedAt)
 	scanErr := scanner.Err()
+	reason := client.whyClosed(scanErr, authorized)
 
 	// Log EXTERNAL connections that never subscribed. A local probe that opens a socket
 	// and closes it is the container healthcheck, not a miner with a problem.
@@ -1177,8 +1180,16 @@ func (s *Server) handleClient(conn net.Conn) {
 	if !isLoopback(client.IP) && !subscribed {
 		s.logger.Warn("External client disconnected without subscribing",
 			zap.String("ip", client.IP),
+			zap.String("reason", reason),
 			zap.Duration("connected_duration", duration),
 			zap.Error(scanErr))
+	}
+	// Subscribed but never logged in: a miner with a username the stratum refuses, or a probe.
+	if !isLoopback(client.IP) && subscribed && !authorized {
+		s.logger.Info("External client disconnected before logging in",
+			zap.String("ip", client.IP),
+			zap.String("reason", reason),
+			zap.Duration("connected_duration", duration))
 	}
 
 	if authorized && minerID != "" {
@@ -1186,6 +1197,7 @@ func (s *Server) handleClient(conn net.Conn) {
 			zap.String("miner", minerID),
 			zap.String("worker", workerName),
 			zap.String("rental_service", rental.String()),
+			zap.String("reason", reason),
 			zap.Float64("difficulty", difficulty),
 			zap.Duration("connected_duration", duration),
 			zap.Error(scanErr))
@@ -2629,9 +2641,49 @@ func (c *Client) enqueue(data []byte) bool {
 		return true
 	default:
 		c.outClosed = true
+		if c.closeReason == "" {
+			c.closeReason = fmt.Sprintf("it stopped reading: %d messages were waiting for it", clientQueue)
+		}
 		close(c.out)
 		c.Conn.Close()
 		return false
+	}
+}
+
+// closeFor closes client's connection, recording why. The first reason given is the one logged
+// when the connection ends ("Client disconnected"): without it a connection the stratum closed and
+// one the miner closed read the same, and a marketplace's complaint could not be told from either.
+func (c *Client) closeFor(reason string) {
+	c.outMu.Lock()
+	if c.closeReason == "" {
+		c.closeReason = reason
+	}
+	c.outMu.Unlock()
+	c.Conn.Close()
+}
+
+// whyClosed is why a connection ended: the reason the stratum gave when it closed it, or else
+// what the read that ended it says (readErr is the line reader's error, nil at end of input).
+func (c *Client) whyClosed(readErr error, authorized bool) string {
+	c.outMu.Lock()
+	reason := c.closeReason
+	c.outMu.Unlock()
+	if reason != "" {
+		return reason
+	}
+	var ne net.Error
+	switch {
+	case readErr == nil:
+		return "the miner closed the connection"
+	case errors.Is(readErr, bufio.ErrTooLong):
+		return "it sent a message over 64 KB"
+	case errors.As(readErr, &ne) && ne.Timeout():
+		if authorized {
+			return fmt.Sprintf("it was silent for %.0f minutes", authorizedIdleTimeout.Minutes())
+		}
+		return fmt.Sprintf("it did not log in within %.0f seconds", authTimeout.Seconds())
+	default:
+		return "the connection broke: " + readErr.Error()
 	}
 }
 
@@ -2654,7 +2706,7 @@ func (s *Server) writeLoop(client *Client) {
 	for data := range client.out {
 		client.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 		if _, err := client.Conn.Write(data); err != nil {
-			client.Conn.Close() // the rest fail at once, and the reader ends the connection
+			client.closeFor("a write to it failed: " + err.Error()) // the rest fail at once, and the reader ends the connection
 		}
 	}
 }
@@ -2671,7 +2723,7 @@ func (s *Server) send(client *Client, data []byte) error {
 	client.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	_, err := client.Conn.Write(data)
 	if err != nil {
-		client.Conn.Close() // Force disconnect on write error
+		client.closeFor("a write to it failed: " + err.Error()) // Force disconnect on write error
 	}
 	return err
 }
@@ -2697,7 +2749,7 @@ func (s *Server) sendNotification(client *Client, notif *Notification) {
 				zap.String("method", notif.Method),
 				zap.Error(err))
 		}
-		client.Conn.Close() // Force disconnect on write error
+		client.closeFor("a write to it failed: " + err.Error()) // Force disconnect on write error
 	}
 }
 
@@ -3108,7 +3160,8 @@ var authTimeout = 60 * time.Second
 // between them, while a marketplace keeps spare connections that send nothing at all. These were
 // dropped every five minutes and reconnected, over and over. A dead peer is found by TCP
 // keepalive and by the job notifications that fail to send. It must stay above idleResetAfter.
-const authorizedIdleTimeout = 30 * time.Minute
+// A variable so a test can shorten it.
+var authorizedIdleTimeout = 30 * time.Minute
 
 // clientLogBudget is how many log lines one connection's own messages may write a minute. Past it
 // the lines are counted, not written, and the next one written says how many were left out. A

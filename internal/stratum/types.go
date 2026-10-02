@@ -112,7 +112,8 @@ type Client struct {
 	out                   chan []byte         // messages to send, in order; see Client.enqueue
 	outMu                 sync.Mutex
 	outClosed             bool
-	badLines              int // lines that were not JSON; see maxBadLines
+	closeReason           string // why the stratum closed this connection, the first reason given; see Client.closeFor
+	badLines              int    // lines that were not JSON; see maxBadLines
 	Difficulty            float64
 	PreviousDifficulty    float64
 	DifficultyChangedAt   time.Time
