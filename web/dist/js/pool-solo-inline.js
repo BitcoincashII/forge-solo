@@ -653,7 +653,9 @@
                         <td style="color:var(--gold)">${formatDiff(w.roundBestDiff || w.bestDiff || 0)}</td>
                         <td style="color:var(--bch-green)">${formatDiff(w.athDiff || w.bestDiff || 0)}</td>
                     </tr>
-                `).join('');
+                `).join('') + (data.total > data.workers.length
+                    ? '<tr><td colspan="6" style="color:var(--text-secondary)">Showing the ' + formatNumber(data.workers.length) + ' busiest of ' + formatNumber(data.total) + ' workers.</td></tr>'
+                    : '');
             } catch(e) {
                 console.error('Failed to fetch workers', e);
                 tbody.innerHTML = '<tr><td colspan="6"><div class="error-state"><span class="error-icon">!</span><span data-i18n="p_error_load_workers">' + (typeof PT !== 'undefined' && PT.p_error_load_workers ? PT.p_error_load_workers : 'Failed to load workers') + '</span></div></td></tr>';

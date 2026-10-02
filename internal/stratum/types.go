@@ -70,6 +70,7 @@ var (
 	ErrRateLimited    = &Error{26, "Rate limit exceeded"}
 	ErrMalformedShare = &Error{20, "Malformed share"}
 	ErrInvalidNTime   = &Error{20, "Invalid ntime"}
+	ErrTooManyWorkers = &Error{24, "Too many worker names on one connection"}
 )
 
 // RentalService identifies the rental platform a miner is using
@@ -106,6 +107,7 @@ type Client struct {
 	Authorized            bool
 	MinerID               string
 	WorkerName            string
+	workerNames           map[string]struct{} // the names this connection has authorized; see maxWorkerNamesPerConnection
 	Difficulty            float64
 	PreviousDifficulty    float64
 	DifficultyChangedAt   time.Time

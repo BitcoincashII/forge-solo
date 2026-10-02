@@ -177,6 +177,9 @@ func (m *StatsManager) UpdateWorker(minerID, workerName string, valid bool, targ
 	w.Hashrate60m = m.calculateHashrate(shares, 60*time.Minute)
 }
 
+// MaxRejectOnlyWorkers is how many workers that have only ever had shares refused are kept.
+const MaxRejectOnlyWorkers = 64
+
 // RecordInvalidShare counts a rejected share against a worker.
 //
 // Deliberately NOT UpdateWorker(valid=false): that path also pushes the share
@@ -190,6 +193,19 @@ func (m *StatsManager) RecordInvalidShare(minerID, workerName string) {
 	key := minerID + ":" + workerName
 	w, exists := m.workers[key]
 	if !exists {
+		// A worker that has never had a share accepted costs nothing to invent: a client
+		// could log in under a new name and send junk, over and over, and every name became
+		// an entry here (nearly half a million in 10 s, until the stratum ran out of memory).
+		// A few such entries help find a misconfigured miner; past that, new ones aren't kept.
+		rejectOnly := 0
+		for _, other := range m.workers {
+			if other.ValidShares == 0 {
+				rejectOnly++
+			}
+		}
+		if rejectOnly >= MaxRejectOnlyWorkers {
+			return
+		}
 		w = &WorkerStats{
 			MinerID:     minerID,
 			WorkerName:  workerName,

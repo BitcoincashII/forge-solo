@@ -1748,6 +1748,20 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 	}
 
 	client.mu.Lock()
+	// A connection may authorize a few names (a proxy can carry several rigs), and the same
+	// name any number of times. Each new name is a worker entry on the dashboard, so a client
+	// cycling through new names could otherwise create them without end.
+	nameKey := minerID + ":" + workerName
+	if _, known := client.workerNames[nameKey]; !known {
+		if len(client.workerNames) >= maxWorkerNamesPerConnection {
+			client.mu.Unlock()
+			return &Response{ID: req.ID, Result: false, Error: ErrTooManyWorkers}
+		}
+		if client.workerNames == nil {
+			client.workerNames = make(map[string]struct{})
+		}
+		client.workerNames[nameKey] = struct{}{}
+	}
 	client.Authorized = true
 	client.MinerID = minerID
 	client.WorkerName = workerName
@@ -2936,6 +2950,9 @@ func normalizeMinerAddress(addr string) string {
 }
 
 // normalizeHex pads a hex string to the required length with leading zeros
+// maxWorkerNamesPerConnection is how many different worker names one connection may authorize.
+const maxWorkerNamesPerConnection = 8
+
 // wellFormedSubmit reports whether a submit's fields have the form a share's do: a job id this
 // server issues (hex, at most 16 characters), an extranonce2 of the client's size, ntime and nonce
 // of 8 hex characters each, and version bits of at most 8.

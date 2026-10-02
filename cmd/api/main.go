@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -1297,38 +1298,60 @@ func getMinerWorkers(c *fiber.Ctx) error {
 	if !isValidBCH2Address(address) {
 		return c.Status(400).JSON(fiber.Map{"error": "Invalid BCH2 address format"})
 	}
-	allWorkers := getStratumWorkers()
+	var mine []WorkerStats
+	for _, w := range getStratumWorkers() {
+		if addressMatches(w.MinerID, address) {
+			mine = append(mine, w)
+		}
+	}
+	// The busiest first, and no more than the page can show: a list of hundreds of thousands
+	// of names (before the stratum capped them) was 35 MB per poll and froze the dashboard.
+	sort.SliceStable(mine, func(i, j int) bool {
+		if mine[i].Online != mine[j].Online {
+			return mine[i].Online
+		}
+		if mine[i].Hashrate5m != mine[j].Hashrate5m {
+			return mine[i].Hashrate5m > mine[j].Hashrate5m
+		}
+		return mine[i].ValidShares > mine[j].ValidShares
+	})
+	total := len(mine)
+	if len(mine) > maxWorkersListed {
+		mine = mine[:maxWorkersListed]
+	}
 
 	var result []fiber.Map
-	for _, w := range allWorkers {
-		if addressMatches(w.MinerID, address) {
-			rejectRate := 0.0
-			if w.ValidShares+w.InvalidShares > 0 {
-				rejectRate = float64(w.InvalidShares) / float64(w.ValidShares+w.InvalidShares) * 100
-			}
-
-			result = append(result, fiber.Map{
-				"name":          w.WorkerName,
-				"online":        w.Online,
-				"hashrate5m":    w.Hashrate5m,
-				"hashrate60m":   w.Hashrate60m,
-				"validShares":   w.ValidShares,
-				"invalidShares": w.InvalidShares,
-				"rejectRate":    rejectRate,
-				"bestDiff":      w.BestDiff,
-				"roundBestDiff": w.RoundBestDiff,
-				"athDiff":       w.ATHDiff,
-				"blocksFound":   w.BlocksFound,
-				"lastShare":     w.LastShareAt,
-				"connectedAt":   w.ConnectedAt,
-			})
+	for _, w := range mine {
+		rejectRate := 0.0
+		if w.ValidShares+w.InvalidShares > 0 {
+			rejectRate = float64(w.InvalidShares) / float64(w.ValidShares+w.InvalidShares) * 100
 		}
+
+		result = append(result, fiber.Map{
+			"name":          w.WorkerName,
+			"online":        w.Online,
+			"hashrate5m":    w.Hashrate5m,
+			"hashrate60m":   w.Hashrate60m,
+			"validShares":   w.ValidShares,
+			"invalidShares": w.InvalidShares,
+			"rejectRate":    rejectRate,
+			"bestDiff":      w.BestDiff,
+			"roundBestDiff": w.RoundBestDiff,
+			"athDiff":       w.ATHDiff,
+			"blocksFound":   w.BlocksFound,
+			"lastShare":     w.LastShareAt,
+			"connectedAt":   w.ConnectedAt,
+		})
 	}
 
 	return c.JSON(fiber.Map{
 		"workers": result,
+		"total":   total,
 	})
 }
+
+// maxWorkersListed is the most workers one response lists.
+const maxWorkersListed = 500
 
 func getMinersListAPI(c *fiber.Ctx) error {
 	// Privacy: do not enumerate miner addresses publicly. Return aggregate count only.
