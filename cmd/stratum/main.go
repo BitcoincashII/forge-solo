@@ -1802,6 +1802,74 @@ func main() {
 	}
 }
 
+// How long a found block is kept trying, and the waits between tries. A block found while the node
+// is restarting or too busy to answer is still valid when it comes back on the same tip, and it is
+// worth a whole block reward: three tries in six seconds gave it up (seen on regtest: the node
+// accepted the same block by hand after the stratum had dropped it).
+var (
+	blockRetryFirstWait = time.Second
+	blockRetryMaxWait   = 15 * time.Second
+	blockSubmitRetryFor = 30 * time.Minute
+)
+
+// reconcileBlock keeps a found block in front of the node until it is decided, and returns "" if
+// it is on the active chain, or why it is not. It checks the chain at the block's height first:
+// our hash there means accepted (a late accept counts too); another hash there means another block
+// won the height. Otherwise it submits again, which is harmless if the node already has it. A
+// definite refusal ("high-hash", "bad-...") ends it at once; no answer, "inconclusive" or
+// "duplicate" means try again, until blockSubmitRetryFor.
+func reconcileBlock(blockHex, ourHash string, height int64, firstReason string) string {
+	result := firstReason
+	deadline := time.Now().Add(blockSubmitRetryFor)
+	for wait := blockRetryFirstWait; ; wait = min(2*wait, blockRetryMaxWait) {
+		var chainHash string
+		if e := rpcCallRaw(rpcURL, "getblockhash", []interface{}{height}, &chainHash); e == nil {
+			if strings.EqualFold(chainHash, ourHash) {
+				return ""
+			}
+			return "another block holds height " + strconv.FormatInt(height, 10) + ": " + chainHash
+		}
+		r, e := submitBlockToNode(blockHex)
+		switch {
+		case e != nil:
+			result = e.Error()
+		case r == "":
+			return ""
+		case r == "inconclusive" || r == "duplicate" || r == "duplicate-inconclusive":
+			result = r
+		default:
+			return r // the node refused the block itself
+		}
+		if time.Now().Add(wait).After(deadline) {
+			return result
+		}
+		time.Sleep(wait)
+	}
+}
+
+// blockRecordRetryFor is how long a found block's record is kept for a database that is down, and
+// blockRecordMaxWait the longest wait between tries.
+var (
+	blockRecordRetryFor = 24 * time.Hour
+	blockRecordMaxWait  = time.Minute
+)
+
+// keepTrying runs op until it succeeds or limit passes, waiting longer between tries up to
+// blockRecordMaxWait, and returns op's last error if it never did.
+func keepTrying(limit time.Duration, op func() error) error {
+	deadline := time.Now().Add(limit)
+	for wait := blockRetryFirstWait; ; wait = min(2*wait, blockRecordMaxWait) {
+		err := op()
+		if err == nil {
+			return nil
+		}
+		if time.Now().Add(wait).After(deadline) {
+			return err
+		}
+		time.Sleep(wait)
+	}
+}
+
 // blockSubmits counts block submissions still running; shutdown waits for them, up to
 // blockSubmitGrace.
 var blockSubmits atomic.Int64
@@ -2024,20 +2092,7 @@ func (p *BlockFindingShareProcessor) submitBlock(share *stratum.Share) {
 		}
 		p.logger.Warn("submitblock was not a clean accept; reconciling against chain",
 			zap.String("reason", reason), zap.String("our_hash", ourHash), zap.Int64("height", job.Height))
-		result = reason // default to rejected unless reconciliation confirms our block
-		for attempt := 1; attempt <= 3; attempt++ {
-			var chainHash string
-			if e := rpcCallRaw(rpcURL, "getblockhash", []interface{}{job.Height}, &chainHash); e == nil && strings.EqualFold(chainHash, ourHash) {
-				result = "" // our block is on the active chain -> accepted
-				break
-			}
-			// Re-submit (idempotent) in case the first attempt never reached the node.
-			if r, e := submitBlockToNode(blockHex); e == nil && r == "" {
-				result = ""
-				break
-			}
-			time.Sleep(time.Duration(attempt) * time.Second)
-		}
+		result = reconcileBlock(blockHex, ourHash, job.Height, reason)
 		if result == "" {
 			p.logger.Info("Block confirmed on chain after reconciliation",
 				zap.String("our_hash", ourHash), zap.Int64("height", job.Height))
@@ -2149,12 +2204,29 @@ func (p *BlockFindingShareProcessor) submitBlock(share *stratum.Share) {
 			// create a sendable payout row: the wallet sendtoaddress path targets a
 			// nonexistent wallet, would fail forever, and risks a double-pay. Mirrors the
 			// 1175 coinbase-direct settle.
-			if err := stats.SaveSoloBlockCoinbaseDirect(share.MinerID, job.Height, payoutAmount, hashStr); err != nil {
-				p.logger.Error("Failed to record solo block", zap.Error(err))
+			record := func() error {
+				return stats.SaveSoloBlockCoinbaseDirect(share.MinerID, job.Height, payoutAmount, hashStr)
 			}
-			p.logger.Info("💰 Solo block reward settled (paid on-chain by coinbase)",
-				zap.String("miner", share.MinerID),
-				zap.Float64("amount", payoutAmount))
+			if err := record(); err != nil {
+				// The block is on the chain and paid all the same: only its record is missing,
+				// and with it the block from the dashboard -- for good, before. The database is
+				// restarting, full or stalled, so keep the record until it takes it.
+				p.logger.Error("Failed to record solo block; retrying until the database takes it",
+					zap.Int64("height", job.Height), zap.String("hash", hashStr), zap.Error(err))
+				go func() {
+					if err := keepTrying(blockRecordRetryFor, record); err != nil {
+						p.logger.Error("Gave up recording a solo block: it is on the chain, but not on the dashboard",
+							zap.Int64("height", job.Height), zap.String("hash", hashStr), zap.Error(err))
+						return
+					}
+					p.logger.Info("💰 Solo block recorded after the database came back",
+						zap.Int64("height", job.Height), zap.String("hash", hashStr), zap.Float64("amount", payoutAmount))
+				}()
+			} else {
+				p.logger.Info("💰 Solo block reward settled (paid on-chain by coinbase)",
+					zap.String("miner", share.MinerID),
+					zap.Float64("amount", payoutAmount))
+			}
 		} else {
 			// PPLNS MODE: Distribute reward among all PPLNS contributors
 			pplnsShares, totalWork, err := stats.GetPPLNSShares(pplnsWindow)
