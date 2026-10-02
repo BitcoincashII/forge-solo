@@ -1540,6 +1540,30 @@ func (s *Server) MaxDifficulty() float64 {
 	return max
 }
 
+// WorkerRef names a worker: the miner it is credited to and its label.
+type WorkerRef struct {
+	MinerID, WorkerName string
+}
+
+// AuthorizedWorkers names the workers of the clients connected and authorized now (Braiins'
+// probes left out).
+func (s *Server) AuthorizedWorkers() []WorkerRef {
+	var out []WorkerRef
+	s.clients.Range(func(_, v interface{}) bool {
+		c, ok := v.(*Client)
+		if !ok {
+			return true
+		}
+		c.mu.RLock()
+		if c.Authorized && c.MinerID != "" && c.MinerID != "probe" {
+			out = append(out, WorkerRef{MinerID: c.MinerID, WorkerName: c.WorkerName})
+		}
+		c.mu.RUnlock()
+		return true
+	})
+	return out
+}
+
 // CountAuthorized returns the number of clients that have completed mining.authorize.
 //
 // Deliberately distinct from ActiveConnections, which counts TCP accepts: a rig that is

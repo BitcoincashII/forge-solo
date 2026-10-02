@@ -49,3 +49,19 @@ func TestWorkerLabelsAreKeptToASafeCharset(t *testing.T) {
 		t.Errorf("WEB6-PROBE: the probe's name was kept as %q", got)
 	}
 }
+
+// AuthorizedWorkers names the authorized clients, not the probes or the ones still logging in.
+func TestAuthorizedWorkersNamesTheConnectedMiners(t *testing.T) {
+	s := newSoloServer(t, testPayout)
+	for id, c := range map[string]*Client{
+		"a": {ID: "a", Authorized: true, MinerID: testPayout, WorkerName: "rig1"},
+		"b": {ID: "b", Authorized: false, MinerID: testPayout, WorkerName: "logging-in"},
+		"c": {ID: "c", Authorized: true, MinerID: "probe", WorkerName: "braiinstest"},
+	} {
+		s.clients.Store(id, c)
+	}
+	got := s.AuthorizedWorkers()
+	if len(got) != 1 || got[0] != (WorkerRef{testPayout, "rig1"}) {
+		t.Fatalf("DATA13-AUTHORIZED: %+v", got)
+	}
+}
