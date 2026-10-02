@@ -225,6 +225,28 @@ func Get1175BlocksForMiner(minerID string, isSolo bool, limit int) ([]Miner1175B
 	return out, rows.Err()
 }
 
+// Miner1175Totals is what all of a miner's 1175 blocks not orphaned come to: how many, and what
+// they paid it. Get1175BlocksForMiner lists only the latest; totals summed from that list stopped
+// growing once there were more.
+func Miner1175Totals(minerID string, isSolo bool) (int, float64, error) {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return 0, 0, ErrDatabaseNotInitialized
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), DashboardReadTimeout)
+	defer cancel()
+	var n int
+	var paid float64
+	err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*), COALESCE(SUM(p.amount), 0)
+		FROM payouts_1175 p
+		JOIN blocks_1175 b ON p.block_height = b.height
+		WHERE p.miner_address = $1 AND b.is_solo = $2 AND COALESCE(b.status, '') <> 'orphaned'`,
+		minerID, isSolo).Scan(&n, &paid)
+	return n, paid, err
+}
+
 // UndistributedBlocks1175 returns heights recorded but not yet distributed and not
 // orphaned — the retry set for a distribution that failed transiently.
 func UndistributedBlocks1175() ([]int64, error) {

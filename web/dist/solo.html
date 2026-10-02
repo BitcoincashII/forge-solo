@@ -255,6 +255,7 @@
                             <div class="effort-stat-label" data-i18n="p_solo_best_diff">Best Difficulty</div>
                         </div>
                     </div>
+                    <p style="margin:10px 0 0;font-size:12px;opacity:.7">Current effort, round shares and best difficulty count from the last block found, or from the last restart of the mining service if that came later.</p>
                     <div class="time-to-block">
                         <div class="label" data-i18n="p_solo_est_time">Estimated Time to Block</div>
                         <div class="value" id="timeToBlock">--</div>
@@ -269,7 +270,7 @@
                             <thead>
                                 <tr>
                                     <th scope="col" data-i18n="p_solo_th_worker">Worker</th>
-                                    <th scope="col" data-i18n="p_solo_th_blocks">Blocks</th>
+                                    <th scope="col" data-i18n="p_solo_th_blocks" title="Blocks each worker found since the mining service last started. Every block you found is in the Blocks table, stored for good.">Blocks (since restart)</th>
                                     <th scope="col" data-i18n="p_solo_th_5m_hash">5m Hash</th>
                                     <th scope="col" data-i18n="p_solo_th_60m_hash">60m Hash</th>
                                     <th scope="col" data-i18n="p_solo_th_round_best">Round Best</th>

@@ -406,8 +406,11 @@
             try {
                 const data = await apiFetch('/api/v1/miners/' + encodeURIComponent(minerAddress));
                 // Solo-only home app: always render this dashboard.
-                document.getElementById('matureBalance').textContent = formatBCH2(data.matureBalance || 0, 2);
-                document.getElementById('immatureBalance').textContent = formatBCH2(data.immatureBalance || 0, 2);
+                // Not known (the node or the database is not answering) is shown as not known,
+                // never as 0.00 or as everything still maturing.
+                const balanceKnown = data.balanceKnown !== false;
+                document.getElementById('matureBalance').textContent = balanceKnown ? formatBCH2(data.matureBalance || 0, 2) : '--';
+                document.getElementById('immatureBalance').textContent = balanceKnown ? formatBCH2(data.immatureBalance || 0, 2) : '--';
                 document.getElementById('hashrate5m').textContent = formatHashrate((data.hashrate5m || 0) * 1e12);
                 document.getElementById('hashrate60m').textContent = formatHashrate((data.hashrate60m || 0) * 1e12);
                 // Never data.workers: that counts every worker ever seen. The stats manager
@@ -694,6 +697,10 @@
                         const r = (b.reward != null ? b.reward : (b.coin === '1175' ? 0 : 50));
                         if (b.coin === '1175') { esfReward += r; esfCount++; } else { bch2Reward += r; }
                     }
+                    // The server's figures cover every block; the rows are only the latest (100
+                    // BCH2, 50 1175), and sums of them stopped growing past that.
+                    if (typeof data.totalReward === 'number') bch2Reward = data.totalReward;
+                    if (typeof data.totalReward1175 === 'number') { esfReward = data.totalReward1175; esfCount = data.total1175 || 0; }
                     tbody.innerHTML = sorted.slice(0, shownLimit).map(b => {
                         const is1175 = b.coin === '1175';
                         const coinBadge = is1175
@@ -753,6 +760,9 @@
                 updateAvgEffort(data.blocks || []);
             } catch(e) {
                 console.error("Failed to fetch blocks", e);
+                // Not known right now: not zero.
+                document.getElementById('blocksFound').textContent = '--';
+                document.getElementById('totalEarned').textContent = 'Total: --';
                 tbody.innerHTML = '<tr><td colspan="7"><div class="error-state"><span class="error-icon">!</span><span data-i18n="p_error_load_blocks">' + (typeof PT !== 'undefined' && PT.p_error_load_blocks ? PT.p_error_load_blocks : 'Failed to load blocks') + '</span></div></td></tr>';
             }
         }
@@ -805,6 +815,8 @@
                 `}).join("");
             } catch(e) {
                 console.error("Failed to fetch payouts", e);
+                document.getElementById("payoutCount").textContent = "(--)";
+                document.getElementById("totalPaidAmount").textContent = "--";
                 tbody.innerHTML = '<tr><td colspan="4"><div class="error-state"><span class="error-icon">!</span><span data-i18n="p_error_load_payouts">' + (typeof PT !== 'undefined' && PT.p_error_load_payouts ? PT.p_error_load_payouts : 'Failed to load payouts') + '</span></div></td></tr>';
             }
         }

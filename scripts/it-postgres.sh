@@ -51,5 +51,6 @@ export TIDES_PG_DB="$MMTEST_DB"
 run_must_pass TestPostgresStoredOldDefaultTagReadsAsNoneChosen ./internal/stats/ -run TestPostgresStoredOldDefaultTagReadsAsNoneChosen
 run_must_pass TestPostgresSoloSharesAreNotStoredAndOldOnesAreCleared ./internal/stats/ -run TestPostgresSoloSharesAreNotStoredAndOldOnesAreCleared
 run_must_pass TestPostgresClearsThousandsOfShareChunks ./internal/stats/ -run TestPostgresClearsThousandsOfShareChunks
+run_must_pass TestPostgresDashboardTotalsCoverEveryBlock ./internal/stats/ -run TestPostgresDashboardTotalsCoverEveryBlock
 
 echo "✓ postgres integration suite passed"

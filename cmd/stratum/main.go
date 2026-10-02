@@ -94,6 +94,47 @@ func setCurrentJob(job *mining.Job) {
 	currentJob = job
 }
 
+// databaseUnavailable answers an internal request for figures the database did not give: 503,
+// so the dashboard says it cannot show them. Answering with an empty list put "No blocks found yet"
+// on the dashboard of a miner with blocks whenever the database was restarting.
+func databaseUnavailable(w http.ResponseWriter, err error) {
+	logger.Debug("internal API: the database did not answer", zap.Error(err))
+	w.WriteHeader(http.StatusServiceUnavailable)
+	json.NewEncoder(w).Encode(map[string]string{"error": "the database is not answering"})
+}
+
+// minerSoloBlocks is /internal/miner-solo-blocks: a miner's latest solo blocks and what all of
+// them come to.
+func minerSoloBlocks(w http.ResponseWriter, r *http.Request) {
+	blocks, found, earned, err := stats.SoloBlocksSummary(r.URL.Query().Get("miner"))
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		databaseUnavailable(w, err)
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"blocks":      blocks, // the latest 100
+		"total":       found,  // all of them
+		"totalReward": earned, // what those not orphaned paid
+	})
+}
+
+// minerSoloPayouts is /internal/miner-solo-payouts: a miner's latest solo payouts and what all of
+// them come to.
+func minerSoloPayouts(w http.ResponseWriter, r *http.Request) {
+	payouts, total, totalPaid, err := stats.SoloPayoutsSummary(r.URL.Query().Get("miner"))
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		databaseUnavailable(w, err)
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"payouts":   payouts,
+		"total":     total,
+		"totalPaid": totalPaid,
+	})
+}
+
 // payoutProcessorOnce guards the payout processor against being started twice: main()
 // starts it when the database is up at boot, and watchPoolConfig starts it if the database
 // only becomes available later.
@@ -2490,16 +2531,7 @@ func startStatsServer() {
 			"totalPaid": totalPaid,
 		})
 	}))
-	http.HandleFunc("/internal/miner-solo-payouts", internalAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		minerID := r.URL.Query().Get("miner")
-		payouts, total, totalPaid := stats.GetMinerSoloPayoutsDB(minerID)
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"payouts":   payouts,
-			"total":     total,
-			"totalPaid": totalPaid,
-		})
-	}))
+	http.HandleFunc("/internal/miner-solo-payouts", internalAuthMiddleware(minerSoloPayouts))
 	http.HandleFunc("/internal/miner-contributions", internalAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		minerID := r.URL.Query().Get("miner")
 		contributions := stats.GetMinerBlockContributionsDB(minerID)
@@ -2509,15 +2541,7 @@ func startStatsServer() {
 			"total":         len(contributions),
 		})
 	}))
-	http.HandleFunc("/internal/miner-solo-blocks", internalAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		minerID := r.URL.Query().Get("miner")
-		blocks := stats.GetMinerSoloBlocksDB(minerID)
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"blocks": blocks,
-			"total":  len(blocks),
-		})
-	}))
+	http.HandleFunc("/internal/miner-solo-blocks", internalAuthMiddleware(minerSoloBlocks))
 	http.HandleFunc("/internal/miner-balance", internalAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		minerID := r.URL.Query().Get("miner")
 		heightStr := r.URL.Query().Get("height")

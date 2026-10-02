@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
+	fiberrecover "github.com/gofiber/fiber/v2/middleware/recover"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -327,6 +329,9 @@ func main() {
 		AppName: "Forge Solo API",
 	})
 
+	// A handler that panics answers 500 and the api goes on: fiber does not recover by itself, so
+	// one (a read racing the database's reconnect, say) took the whole dashboard down with it.
+	app.Use(fiberrecover.New())
 	app.Use(logRequests)
 
 	// On this machine only (Forge Solo for Windows and Linux), answer only to this machine's own
@@ -1240,10 +1245,13 @@ func getMiner(c *fiber.Ctx) error {
 	}
 	settingsMu.RUnlock()
 
-	// Get current height
+	// Get current height: the last one the node gave when it does not answer now, since which
+	// blocks have matured depends on it.
 	currentHeight := int64(0)
-	if heightResult, err := rpcCall("getblockcount", []interface{}{}); err == nil {
-		json.Unmarshal(heightResult, &currentHeight)
+	if heightResult, err := rpcCall("getblockcount", []interface{}{}); err == nil && json.Unmarshal(heightResult, &currentHeight) == nil && currentHeight > 0 {
+		lastNodeHeight.Store(currentHeight)
+	} else {
+		currentHeight = lastNodeHeight.Load()
 	}
 
 	// Get balance from stratum internal endpoint (use normalized address for lookup)
@@ -1267,8 +1275,16 @@ func getMiner(c *fiber.Ctx) error {
 	// txid='coinbase-direct' the instant it is recorded. Report what is actually true
 	// instead -- how much of what this miner MINED has matured -- so the card stops saying
 	// "0.00 waiting 100 confirms" with a hundred BCH2 genuinely maturing.
+	//
+	// Unknown is said, not shown as 0.00 or as all maturing: with no height from the node every
+	// block counted as maturing, and with no answer from the database nothing was earned.
+	balanceKnown := true
 	if os.Getenv("HOME_APP") == "1" && matureBalance == 0 && immatureBalance == 0 {
-		if m, im := stats.SoloEarnings(normalizedAddr, currentHeight); m > 0 || im > 0 {
+		if currentHeight <= 0 {
+			balanceKnown = false
+		} else if m, im, err := stats.SoloEarningsErr(normalizedAddr, currentHeight); err != nil {
+			balanceKnown = false
+		} else if m > 0 || im > 0 {
 			matureBalance, immatureBalance = m, im
 		}
 	}
@@ -1290,10 +1306,14 @@ func getMiner(c *fiber.Ctx) error {
 		"balance":         matureBalance + immatureBalance,
 		"matureBalance":   matureBalance,
 		"immatureBalance": immatureBalance,
+		"balanceKnown":    balanceKnown,
 		"currentHeight":   currentHeight,
 		"paid":            0.0,
 	})
 }
+
+// lastNodeHeight is the last block count the node gave getMiner.
+var lastNodeHeight atomic.Int64
 
 func getMinerWorkers(c *fiber.Ctx) error {
 	address, _ := url.QueryUnescape(c.Params("address"))
@@ -1933,18 +1953,13 @@ func getMinerSoloBlocks(c *fiber.Ctx) error {
 
 	// Fetch BCH2 solo blocks found by this miner (from stratum internal endpoint).
 	normalizedAddr := normalizeAddress(address)
-	var data map[string]interface{}
-	if resp, err := internalAPIGet(stratumURL + "/internal/miner-solo-blocks?miner=" + url.QueryEscape(normalizedAddr)); err == nil {
-		defer resp.Body.Close()
-		_ = json.NewDecoder(resp.Body).Decode(&data)
-	}
-	if data == nil {
-		data = map[string]interface{}{}
+	data, err := internalFigures(stratumURL + "/internal/miner-solo-blocks?miner=" + url.QueryEscape(normalizedAddr))
+	if err != nil {
+		return figuresUnavailable(c, err)
 	}
 
 	// Tag existing (BCH2) solo blocks, then merge in this miner's 1175 (ESF) solo
-	// blocks — same table, tagged by coin. Resilient: 1175 blocks still show even if
-	// the stratum internal call above failed.
+	// blocks — same table, tagged by coin.
 	blocks, _ := data["blocks"].([]interface{})
 	for _, item := range blocks {
 		if m, ok := item.(map[string]interface{}); ok {
@@ -1968,8 +1983,41 @@ func getMinerSoloBlocks(c *fiber.Ctx) error {
 		}
 	}
 	data["blocks"] = blocks
+	// What all of them come to: the list above holds only the latest 50.
+	if n, paid, err := stats.Miner1175Totals(normalizedAddr, true); err == nil {
+		data["total1175"], data["totalReward1175"] = n, paid
+	}
 
 	return c.JSON(data)
+}
+
+// internalFigures reads one of the stratum's internal figures endpoints.
+func internalFigures(u string) (map[string]interface{}, error) {
+	resp, err := internalAPIGet(u)
+	if err != nil {
+		return nil, errMiningServiceSilent
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusServiceUnavailable {
+		return nil, errDatabaseSilent
+	}
+	var data map[string]interface{}
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&data) != nil || data == nil {
+		return nil, errMiningServiceSilent
+	}
+	return data, nil
+}
+
+var (
+	errMiningServiceSilent = errors.New("the mining service is not answering")
+	errDatabaseSilent      = errors.New("Forge Solo's database is not answering")
+)
+
+// figuresUnavailable answers 503 for figures that could not be read, saying which part did not
+// answer. Answering with empty lists and zeros, as before, put "No blocks found yet" and 0.00 on
+// the dashboard of a miner with blocks whenever the database or the mining service restarted.
+func figuresUnavailable(c *fiber.Ctx, err error) error {
+	return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "These figures cannot be shown right now: " + err.Error() + "."})
 }
 
 func getMinerPayouts(c *fiber.Ctx) error {
@@ -2018,26 +2066,9 @@ func getMinerSoloPayouts(c *fiber.Ctx) error {
 
 	// Fetch from stratum internal endpoint (use normalized address for lookup)
 	normalizedAddr := normalizeAddress(address)
-	payoutsURL := fmt.Sprintf("%s/internal/miner-solo-payouts?miner=%s", stratumURL, url.QueryEscape(normalizedAddr))
-	resp, err := internalAPIGet(payoutsURL)
+	data, err := internalFigures(fmt.Sprintf("%s/internal/miner-solo-payouts?miner=%s", stratumURL, url.QueryEscape(normalizedAddr)))
 	if err != nil {
-		return c.JSON(fiber.Map{
-			"address":   address,
-			"payouts":   []interface{}{},
-			"total":     0,
-			"totalPaid": 0,
-		})
-	}
-	defer resp.Body.Close()
-
-	var data map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil || data == nil {
-		return c.JSON(fiber.Map{
-			"address":   address,
-			"payouts":   nil,
-			"total":     0,
-			"totalPaid": 0,
-		})
+		return figuresUnavailable(c, err)
 	}
 
 	return c.JSON(fiber.Map{

@@ -264,7 +264,9 @@ func IsDBConnected() bool {
 	if db == nil {
 		return false
 	}
-	return db.Ping() == nil
+	ctx, cancel := context.WithTimeout(context.Background(), PingTimeout)
+	defer cancel()
+	return db.PingContext(ctx) == nil
 }
 
 // SavePayout saves a payout to the database
@@ -455,14 +457,34 @@ func GetAllPoolBlocksDB(page, limit int) ([]PoolBlock, int64) {
 
 // GetMinerSoloBlocksDB gets solo blocks found by a specific miner
 func GetMinerSoloBlocksDB(minerID string) []SoloBlock {
-	dbMu.RLock()
-	defer dbMu.RUnlock()
-
-	if db == nil {
+	blocks, _, _, err := SoloBlocksSummary(minerID)
+	if err != nil {
+		log.Printf("Warning: failed to query solo blocks: %v", err)
 		return []SoloBlock{}
 	}
+	return blocks
+}
 
-	rows, err := db.Query(`
+// SoloBlocksSummary is a miner's latest solo blocks (at most 100, newest first) and what all of
+// them come to: how many were found, and what those not orphaned paid. The list is capped for the
+// page; the figures are not -- past 100 blocks they were the newest 100's. An error means the
+// database did not answer, which the dashboard must not show as "no blocks found".
+func SoloBlocksSummary(minerID string) ([]SoloBlock, int, float64, error) {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return nil, 0, 0, ErrDatabaseNotInitialized
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), DashboardReadTimeout)
+	defer cancel()
+	var found int
+	var earned float64
+	if err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*), COALESCE(SUM(CASE WHEN COALESCE(status,'') = 'orphaned' THEN 0 ELSE reward END), 0)
+		FROM blocks WHERE miner_address = ? AND is_solo = 1`, minerID).Scan(&found, &earned); err != nil {
+		return nil, 0, 0, err
+	}
+	rows, err := db.QueryContext(ctx, `
 		SELECT b.height, b.hash, b.reward, strftime('%s', substr(b.created_at, 1, 19)), b.status,
 			COALESCE(p.txid, '') as payout_txid
 		FROM blocks b
@@ -471,30 +493,26 @@ func GetMinerSoloBlocksDB(minerID string) []SoloBlock {
 		ORDER BY b.height DESC LIMIT 100`,
 		minerID)
 	if err != nil {
-		log.Printf("Warning: failed to query solo blocks: %v", err)
-		return []SoloBlock{}
+		return nil, 0, 0, err
 	}
 	defer rows.Close()
 
-	var blocks []SoloBlock
+	blocks := []SoloBlock{}
 	for rows.Next() {
 		var b SoloBlock
 		var status, payoutTxid string
 		if err := rows.Scan(&b.Height, &b.Hash, &b.Reward, &b.Time, &status, &payoutTxid); err != nil {
-			log.Printf("Warning: failed to scan solo block: %v", err)
-			continue
+			return nil, 0, 0, err
 		}
 		b.Status = status
 		b.Confirmed = (status == "confirmed")
 		b.PayoutTxid = payoutTxid
 		blocks = append(blocks, b)
 	}
-
 	if err := rows.Err(); err != nil {
-		log.Printf("Warning: error iterating solo blocks: %v", err)
+		return nil, 0, 0, err
 	}
-
-	return blocks
+	return blocks, found, earned, nil
 }
 
 // SaveMinerSettings saves or updates miner settings
@@ -623,62 +641,78 @@ func GetMinerPayoutsDB(minerID string) ([]PayoutRecord, int, float64) {
 
 // GetMinerSoloPayoutsDB returns payout history for solo blocks only
 func GetMinerSoloPayoutsDB(minerID string) ([]PayoutRecord, int, float64) {
-	dbMu.RLock()
-	defer dbMu.RUnlock()
-
-	if db == nil {
+	payouts, count, paid, err := SoloPayoutsSummary(minerID)
+	if err != nil {
+		log.Printf("Warning: failed to query solo payouts: %v", err)
 		return []PayoutRecord{}, 0, 0
 	}
+	return payouts, count, paid
+}
 
-	rows, err := db.Query(`
+// soloPayoutsFrom is the payouts of a miner's solo blocks: the ones with a txid. A payout counts as
+// paid unless its block was orphaned or it is still pending.
+const soloPayoutsFrom = `
+		FROM payouts p
+		JOIN blocks b ON b.height = p.block_height AND b.miner_address = p.miner_address
+		WHERE p.miner_address = ?
+		  AND b.is_solo = 1
+		  AND p.txid IS NOT NULL
+		  AND p.txid != ''`
+
+// SoloPayoutsSummary is a miner's latest solo payouts (at most 100) and what all of them come to:
+// how many, and how much was paid. The figures cover every payout; past 100 they were the newest
+// 100's. An error means the database did not answer.
+func SoloPayoutsSummary(minerID string) ([]PayoutRecord, int, float64, error) {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return nil, 0, 0, ErrDatabaseNotInitialized
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), DashboardReadTimeout)
+	defer cancel()
+	var count int
+	var paid float64
+	if err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*), COALESCE(SUM(CASE WHEN COALESCE(p.status,'') = 'orphaned' THEN 0
+		                                   WHEN p.txid LIKE 'pending_%' THEN 0 ELSE p.amount END), 0)`+soloPayoutsFrom,
+		minerID).Scan(&count, &paid); err != nil {
+		return nil, 0, 0, err
+	}
+
+	rows, err := db.QueryContext(ctx, `
 		SELECT p.txid, p.amount, p.paid_at, 1 as blocks, COALESCE(p.status,'') as status,
 		       -- Read the ledger's own columns. Deriving this from the txid STRING treated an
 		       -- orphaned payout (status='orphaned', confirmed=false, txid='orphaned') as
 		       -- confirmed, so a voided reward stayed inside Total Paid -- contradicting the
 		       -- balance card on the same screen, which does filter orphans out.
 		       CASE WHEN COALESCE(p.status,'') = 'orphaned' THEN 0
-		            WHEN p.txid LIKE 'pending_%' THEN 0 ELSE 1 END as is_confirmed
-		FROM payouts p
-		JOIN blocks b ON b.height = p.block_height AND b.miner_address = p.miner_address
-		WHERE p.miner_address = ?
-		  AND b.is_solo = 1
-		  AND p.txid IS NOT NULL
-		  AND p.txid != ''
+		            WHEN p.txid LIKE 'pending_%' THEN 0 ELSE 1 END as is_confirmed`+soloPayoutsFrom+`
 		ORDER BY p.paid_at DESC
 		LIMIT 100`,
 		minerID)
 	if err != nil {
-		log.Printf("Warning: failed to query solo payouts: %v", err)
-		return []PayoutRecord{}, 0, 0
+		return nil, 0, 0, err
 	}
 	defer rows.Close()
 
-	var payouts []PayoutRecord
-	var totalPaid float64
-
+	payouts := []PayoutRecord{}
 	for rows.Next() {
 		var p PayoutRecord
 		var paidAt sql.NullTime
 		var confirmed int
 		if err := rows.Scan(&p.TxID, &p.Amount, &paidAt, &p.Blocks, &p.Status, &confirmed); err != nil {
-			log.Printf("Warning: failed to scan solo payout: %v", err)
-			continue
+			return nil, 0, 0, err
 		}
 		p.Confirmed = confirmed == 1
 		if paidAt.Valid {
 			p.PaidAt = paidAt.Time
 		}
-		if p.Confirmed {
-			totalPaid += p.Amount
-		}
 		payouts = append(payouts, p)
 	}
-
 	if err := rows.Err(); err != nil {
-		log.Printf("Warning: error iterating solo payouts: %v", err)
+		return nil, 0, 0, err
 	}
-
-	return payouts, len(payouts), totalPaid
+	return payouts, count, paid, nil
 }
 
 // SaveShare saves a PPLNS share to the database
@@ -1491,22 +1525,31 @@ const SOLO_EARNINGS_QUERY = `
 // anything in solo: the coinbase already paid them, so the question is not what is owed but
 // what has matured.
 func SoloEarnings(minerID string, currentHeight int64) (mature, immature float64) {
+	mature, immature, _ = SoloEarningsErr(minerID, currentHeight)
+	return mature, immature
+}
+
+// SoloEarningsErr is SoloEarnings, saying when the database did not answer: the dashboard must
+// not show that as nothing earned.
+func SoloEarningsErr(minerID string, currentHeight int64) (mature, immature float64, err error) {
 	dbMu.RLock()
 	defer dbMu.RUnlock()
 	if db == nil {
-		return 0, 0
+		return 0, 0, ErrDatabaseNotInitialized
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), DashboardReadTimeout)
+	defer cancel()
 	matureBelow := currentHeight - COINBASE_MATURITY
-	rows, err := db.Query(SOLO_EARNINGS_QUERY, matureBelow, minerID, matureBelow)
+	rows, err := db.QueryContext(ctx, SOLO_EARNINGS_QUERY, matureBelow, minerID, matureBelow)
 	if err != nil {
-		return 0, 0
+		return 0, 0, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var isMature bool
 		var total float64
 		if err := rows.Scan(&isMature, &total); err != nil {
-			continue
+			return 0, 0, err
 		}
 		if isMature {
 			mature = total
@@ -1514,7 +1557,10 @@ func SoloEarnings(minerID string, currentHeight int64) (mature, immature float64
 			immature = total
 		}
 	}
-	return mature, immature
+	if err := rows.Err(); err != nil {
+		return 0, 0, err
+	}
+	return mature, immature, nil
 }
 
 const GET_1175_HASH_QUERY = `SELECT COALESCE(hash, '') FROM blocks_1175 WHERE height = ?`

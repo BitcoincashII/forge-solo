@@ -14,6 +14,15 @@ const (
 	// DBTimeout is the default timeout for database operations
 	DBTimeout = 30 * time.Second
 
+	// DashboardReadTimeout bounds a read made for the dashboard. The api waits 10 s for the
+	// stratum, so a stalled database is reported as one within it, not as a mining service that
+	// does not answer.
+	DashboardReadTimeout = 5 * time.Second
+
+	// PingTimeout bounds IsDBConnected: a stalled database answered no ping, and every caller
+	// (the health check, the stratum's settings loop) waited with it.
+	PingTimeout = 3 * time.Second
+
 	// MaxPayoutBatch is the maximum number of payouts to process in one transaction
 	MaxPayoutBatch = 100
 
