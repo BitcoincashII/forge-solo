@@ -1238,23 +1238,6 @@ func VoidOrphanedPayouts(height int64) (int64, float64, error) {
 	return n, amount, nil
 }
 
-// ConfirmMatureSoloBlocks marks pending solo BCH2 blocks at height <= confirmHeight as
-// confirmed. The caller passes a height BELOW the reorg-plausible band, so these blocks
-// are buried too deep to reorganize. Blocks still inside that band are reconciled by an
-// active-chain hash check instead, so an orphaned solo block is never blindly confirmed.
-// Purely a status/display transition -- rewards arrive on-chain via the coinbase.
-func ConfirmMatureSoloBlocks(confirmHeight int64) error {
-	dbMu.RLock()
-	defer dbMu.RUnlock()
-	if db == nil {
-		return ErrDatabaseNotInitialized
-	}
-	// is_solo is INTEGER here, not boolean.
-	_, err := db.Exec(`UPDATE blocks SET status = 'confirmed', confirmed_at = ?
-		WHERE is_solo = 1 AND status = 'pending' AND height <= ?`, sqliteNow(), confirmHeight)
-	return err
-}
-
 // GetPoolConfig returns the single-row dashboard-managed pool configuration
 // (pool_config id=1). A missing row yields empty strings and a nil error. tag is "" when no tag
 // was chosen, the old default included (chosenCoinbaseTag).

@@ -739,7 +739,7 @@
                             <td>${blockCell}</td>
                             <td>${rewardDisplay}</td>
                             <td>${timeAgo(b.time)}</td>
-                            <td><span class="status-badge ${b.confirmed ? 'status-confirmed' : 'status-pending'}">${b.confirmed ? confirmedText : pendingText}</span></td>
+                            <td>${isOrphaned ? '<span class="status-badge" style="color:var(--red)">Orphaned</span>' : `<span class="status-badge ${b.confirmed ? 'status-confirmed' : 'status-pending'}">${b.confirmed ? confirmedText : pendingText}</span>`}</td>
                             <td>${payoutCell}</td>
                         </tr>
                     `}).join("");

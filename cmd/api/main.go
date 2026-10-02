@@ -1167,12 +1167,14 @@ func getBlocksAPI(c *fiber.Ctx) error {
 			blockType = "SOLO"
 		}
 		blocks = append(blocks, fiber.Map{
-			"height":    b.Height,
-			"hash":      b.Hash,
-			"time":      b.Time,
-			"miner":     poolNameFromEnv(),
-			"reward":    b.Reward,
-			"confirmed": b.Status == "confirmed" || (currentHeight > 0 && currentHeight-b.Height >= 6),
+			"height": b.Height,
+			"hash":   b.Hash,
+			"time":   b.Time,
+			"miner":  poolNameFromEnv(),
+			"reward": b.Reward,
+			// Six deep reads as confirmed, but never an orphan: those used to be reported confirmed.
+			"confirmed": b.Status == "confirmed" || (b.Status != "orphaned" && currentHeight > 0 && currentHeight-b.Height >= 6),
+			"status":    b.Status,
 			"type":      blockType,
 		})
 	}

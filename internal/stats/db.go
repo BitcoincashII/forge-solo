@@ -390,24 +390,6 @@ func SaveSoloBlockCoinbaseDirect(minerID string, blockHeight int64, amount float
 	return nil
 }
 
-// ConfirmMatureSoloBlocks marks pending solo BCH2 blocks at height <= confirmHeight as
-// confirmed. The stratum passes a confirmHeight BELOW the reorg-plausible band, so these
-// blocks are buried too deep to reorganize and are safely on the active chain with no RPC
-// check. Blocks still inside the reorg band are reconciled by reconcileSoloBlocks (an
-// active-chain hash check) which confirms or orphans each, so an orphaned solo block is
-// never blindly confirmed (which would overstate earnings). Rewards are already delivered
-// on-chain by the coinbase; this is purely a status/display transition.
-func ConfirmMatureSoloBlocks(confirmHeight int64) error {
-	dbMu.RLock()
-	defer dbMu.RUnlock()
-	if db == nil {
-		return ErrDatabaseNotInitialized
-	}
-	_, err := db.Exec(`UPDATE blocks SET status = 'confirmed', confirmed_at = NOW()
-		WHERE is_solo = true AND status = 'pending' AND height <= $1`, confirmHeight)
-	return err
-}
-
 // PendingSoloHeights returns the heights of still-pending solo blocks within
 // [minHeight, matureHeight]. The stratum active-chain-checks each one before it is
 // confirmed: solo blocks skip the payout-row orphan reconciler (their coinbase-direct

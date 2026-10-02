@@ -638,21 +638,10 @@ func startPayoutProcessor() {
 		fullScan := !orphanFullScanDone
 		reconcileOrphanHeights(currentHeight, fullScan)
 		// Solo blocks are coinbase-direct: their payout row is already 'paid', so the payout-row
-		// orphan reconciler above skips them. Reconcile them on their own — within the reorg-
-		// plausible band, confirm blocks still on the active chain and orphan (void) any reorged
-		// out — BEFORE ConfirmMatureSoloBlocks confirms the deep remainder. Without this a
-		// reorged-out solo block would be blindly confirmed and overstate earnings.
-		reconcileSoloBlocks(currentHeight, fullScan)
+		// orphan reconciler above skips them. Each pending one is checked against the active chain
+		// on its own (reconcilePendingSoloBlocks).
+		reconcilePendingSoloBlocks(currentHeight)
 		orphanFullScanDone = true
-
-		// Confirm solo blocks buried BELOW the reorg-plausible band unconditionally (too deep to
-		// reorg — no active-chain check needed). In-band blocks were just confirmed or orphaned by
-		// reconcileSoloBlocks after checking blocks.hash against getblockhash(height).
-		if soloConfirmHeight := currentHeight - int64(stats.COINBASE_MATURITY) - orphanCheckBand; soloConfirmHeight >= 0 {
-			if cErr := stats.ConfirmMatureSoloBlocks(soloConfirmHeight); cErr != nil {
-				log.Printf("Confirm mature solo blocks: %v", cErr)
-			}
-		}
 
 		// Periodic cleanup of old paid payouts from memory (every cycle)
 		stats.CleanupPaidPayouts()
@@ -811,25 +800,26 @@ func reconcileOrphanHeights(currentHeight int64, full bool) {
 	}
 }
 
-// reconcileSoloBlocks reconciles still-pending solo blocks against the active chain. Solo
-// blocks are coinbase-direct (their payout row is already 'paid'), so the payout-row orphan
-// reconciler (reconcileOrphanHeights) skips them; without this a reorged-out solo block would
-// be blindly confirmed and overstate earnings. Within the reorg-plausible band it confirms
-// blocks still on the active chain and orphans (voids) those that are not. full=true scans
-// every pending solo height (a one-time startup reconciliation).
-func reconcileSoloBlocks(currentHeight int64, full bool) {
-	matureHeight := currentHeight - int64(stats.COINBASE_MATURITY)
-	if matureHeight < 0 {
+// soloJudgeDepth is how many blocks must sit on top of a height before a solo block there is
+// judged. By then a different block at that height means ours was orphaned.
+const soloJudgeDepth = 6
+
+// reconcilePendingSoloBlocks checks every pending solo block at least soloJudgeDepth deep against
+// the active chain, on every cycle. A different block at its height means it was orphaned, and it
+// is marked so at once. Our own block there confirms it once it has matured. An undecidable answer
+// (the node is down) leaves it pending for the next cycle.
+//
+// Solo blocks are few -- one per block found -- so each is checked by hash every cycle. Before, only
+// a band just past maturity was checked: an orphan stayed "Pending" and counted as paid for about
+// 16 hours, and one that fell below the band while the node was away or catching up was confirmed
+// without any check at all.
+func reconcilePendingSoloBlocks(currentHeight int64) {
+	judgeHeight := currentHeight - soloJudgeDepth
+	if judgeHeight < 0 {
 		return
 	}
-	minHeight := int64(0)
-	if !full {
-		minHeight = matureHeight - orphanCheckBand
-		if minHeight < 0 {
-			minHeight = 0
-		}
-	}
-	heights, err := stats.PendingSoloHeights(matureHeight, minHeight)
+	matureHeight := currentHeight - int64(stats.COINBASE_MATURITY)
+	heights, err := stats.PendingSoloHeights(judgeHeight, 0)
 	if err != nil {
 		log.Printf("Solo reconcile: failed to list pending solo heights: %v", err)
 		return
@@ -848,8 +838,10 @@ func reconcileSoloBlocks(currentHeight int64, full bool) {
 			if n > 0 {
 				log.Printf("ORPHAN VOID (solo): block at height %d is not on the active chain; marked orphaned (coinbase-direct — nothing was sent; excluded from confirmed earnings)", h)
 			}
-		} else if cErr := stats.ConfirmSoloBlock(h); cErr != nil {
-			log.Printf("Solo reconcile: failed to confirm height %d: %v", h, cErr)
+		} else if h <= matureHeight {
+			if cErr := stats.ConfirmSoloBlock(h); cErr != nil {
+				log.Printf("Solo reconcile: failed to confirm height %d: %v", h, cErr)
+			}
 		}
 	}
 }
@@ -1101,7 +1093,7 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 			stats.LoadAllPendingPayouts()
 			go clearStoredSoloShares()
 			// The payout processor is started from main() only when the DB was up at boot.
-			// It owns solo block reconciliation (reconcileSoloBlocks, ConfirmMatureSoloBlocks,
+			// It owns solo block reconciliation (reconcilePendingSoloBlocks,
 			// reconcileOrphanHeights), so without this a block found after a late reconnect
 			// would sit pending forever and an orphaned one would never be voided.
 			startPayoutProcessorOnce()
