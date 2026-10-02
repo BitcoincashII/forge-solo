@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -79,5 +80,27 @@ func TestSettingsPageSendsThePasswordHeader(t *testing.T) {
 		if !strings.Contains(page, want) {
 			t.Errorf("PW-PAGE-FLOW: settings.html no longer has %q", want)
 		}
+	}
+}
+
+// The password box is not one browsers fill: as a password box it was offered the browser's saved
+// passwords (the Umbrel login among them), and one was picked by mistake on a real Umbrel.
+func TestThePasswordBoxIsNotOfferedSavedPasswords(t *testing.T) {
+	b, err := os.ReadFile("../../web/dist/settings.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(b)
+	box := regexp.MustCompile(`<input[^>]*id="appPw"[^>]*>`).FindString(page)
+	if box == "" {
+		t.Fatal("PW-BOX: settings.html has no password box")
+	}
+	for _, want := range []string{`type="text"`, `autocomplete="off"`} {
+		if !strings.Contains(box, want) {
+			t.Errorf("PW-BOX-NOT-FILLED: the password box lacks %s: %s", want, box)
+		}
+	}
+	if !strings.Contains(page, "#appPw{-webkit-text-security:disc}") {
+		t.Error("PW-BOX-MASKED: the password box is no longer masked")
 	}
 }

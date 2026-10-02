@@ -15,6 +15,7 @@
  .note{color:var(--text-secondary);font-size:13px;line-height:1.6;margin-top:8px}
  label.fld{display:block;margin:14px 0 6px;font-size:13px;color:var(--text-secondary)}
  input.txt{width:100%;box-sizing:border-box;background:#000;border:1px solid var(--border);border-radius:8px;color:var(--text,#fff);padding:10px 12px;font-family:'JetBrains Mono',monospace;font-size:14px}
+ #appPw{-webkit-text-security:disc}
  .banner{background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.45);border-radius:12px;padding:14px 18px;margin-bottom:20px;color:#f59e0b;font-size:14px;font-weight:600}
  .status{margin-left:12px;font-size:13px}
  .ok{color:var(--bch-green,#0ac18e)} .err{color:#ef4444}
@@ -75,7 +76,9 @@
          reach Forge Solo directly, so a change must carry Forge Solo's own password. -->
     <div id="pwBlock" style="display:none">
       <label class="fld" for="appPw">Forge Solo password (needed to save)</label>
-      <input class="txt" id="appPw" type="password" autocomplete="current-password" spellcheck="false" autocapitalize="none" placeholder="the Default password umbrelOS shows for Forge Solo">
+      <!-- A text box, not a password box: browsers offered their saved passwords here (the Umbrel
+           login among them), and one of those was picked by mistake. It is masked all the same. -->
+      <input class="txt" id="appPw" type="text" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" spellcheck="false" autocapitalize="none" autocorrect="off" placeholder="the Default password umbrelOS shows for Forge Solo">
       <p class="note">Other apps on your Umbrel can reach Forge Solo directly, so a change here needs Forge Solo's own password. umbrelOS shows it when you open Forge Solo, and any time after: right-click the Forge Solo icon on the umbrelOS home screen, then <strong>Settings</strong> → <strong>Default credentials</strong> (on umbrelOS 1.x, <strong>Show default credentials</strong>). It is not your Umbrel login password. This browser remembers it once a save succeeds.</p>
     </div>
     <div style="margin-top:16px">
