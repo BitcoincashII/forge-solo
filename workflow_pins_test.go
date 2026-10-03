@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // The installer is compiled in a third-party image. It is pinned by digest, because a tag can be
@@ -38,6 +40,48 @@ func TestInnoSetupImageIsPinned(t *testing.T) {
 	}
 }
 
+// workflow is the part of a GitHub Actions workflow these tests read.
+type workflow struct {
+	Jobs map[string]struct {
+		If             string `yaml:"if"`
+		TimeoutMinutes int    `yaml:"timeout-minutes"`
+		Environment    string `yaml:"environment"`
+		Steps          []struct {
+			Name string         `yaml:"name"`
+			ID   string         `yaml:"id"`
+			If   string         `yaml:"if"`
+			Uses string         `yaml:"uses"`
+			Run  string         `yaml:"run"`
+			With map[string]any `yaml:"with"`
+		} `yaml:"steps"`
+	} `yaml:"jobs"`
+}
+
+func loadWorkflow(t *testing.T, path string) workflow {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var w workflow
+	if err := yaml.Unmarshal(b, &w); err != nil {
+		t.Fatalf("%s: %v", path, err)
+	}
+	return w
+}
+
+// stepRun is the script of the named step of a job, failing the test if there is none.
+func stepRun(t *testing.T, w workflow, job, step string) string {
+	t.Helper()
+	for _, s := range w.Jobs[job].Steps {
+		if s.Name == step {
+			return s.Run
+		}
+	}
+	t.Fatalf("job %s has no step %q", job, step)
+	return ""
+}
+
 // The release is signed on the runner: the certificate never goes into the third-party image, a
 // signature carries a timestamp, and an installer signed by any certificate but Forge Solo's is
 // not published.
@@ -59,6 +103,29 @@ func TestReleaseSigning(t *testing.T) {
 	if !regexp.MustCompile(`(?m)^  SIGNING_CERT_SHA256: '([0-9A-F]{2}:){31}[0-9A-F]{2}'$`).MatchString(s) ||
 		!strings.Contains(s, `if [ "$FP" != "$SIGNING_CERT_SHA256" ]; then`) {
 		t.Error("SIGN-CERT-PINNED: the signer's certificate is not checked against the pinned fingerprint")
+	}
+}
+
+// Every check in the unit job runs once Go is set up, whatever an earlier check did. On a release
+// commit TestCompose fails by design until CI has re-pinned the image digests, and that used to
+// skip every suite after it.
+func TestUnitJobRunsEveryCheck(t *testing.T) {
+	w := loadWorkflow(t, ".github/workflows/test.yml")
+	const cond = "${{ !cancelled() && steps.go.outcome == 'success' }}"
+	setUp := false
+	for _, s := range w.Jobs["unit"].Steps {
+		switch {
+		case strings.HasPrefix(s.Uses, "actions/setup-go@"):
+			setUp = true
+			if s.ID != "go" {
+				t.Errorf("UNIT-RUNS-EVERY-CHECK: the Go setup step's id is %q, not go", s.ID)
+			}
+		case setUp && s.If != cond:
+			t.Errorf("UNIT-RUNS-EVERY-CHECK: %q runs only if every check before it passed (if: %q)", s.Name, s.If)
+		}
+	}
+	if !setUp {
+		t.Error("UNIT-RUNS-EVERY-CHECK: the unit job does not set up Go")
 	}
 }
 
