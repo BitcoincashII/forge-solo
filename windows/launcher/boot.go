@@ -144,9 +144,12 @@ func startPostgres() bool {
 	}
 	log := dpath("pglog.txt")
 	rotateLog(log, 10<<20)
-	pgctl := hiddenPrio(belowNormal, "pgsql\\bin\\pg_ctl.exe", "-D", pgdata, "-l", log, "-o", "-p "+pgPort+" -h 127.0.0.1", "-w", "start")
-	_ = pgctl.Run()
-	if !waitTCP("127.0.0.1:"+pgPort, 60*time.Second) {
+	// pg_ctl -w succeeds only once the server it started is ready, which it is only after taking
+	// 127.0.0.1:pgPort itself. Something else answering on the port is not the database, and the
+	// services would hand it the database password (lib/pq sends it in the clear when asked).
+	// -t 300: a server recovering from a hard stop can take longer than the default 60 s.
+	pgctl := hiddenPrio(belowNormal, "pgsql\\bin\\pg_ctl.exe", "-D", pgdata, "-l", log, "-o", "-p "+pgPort+" -h 127.0.0.1", "-w", "-t", "300", "start")
+	if pgctl.Run() != nil {
 		return false
 	}
 	env := append(os.Environ(), "PGPASSWORD="+sec.DBPass)
@@ -207,6 +210,11 @@ func startAPI() {
 }
 
 func restartMiner() {
+	// Until boot has started the miner (or when it could not), there is none to restart, and
+	// starting one here would leave two.
+	if !started("stratum") {
+		return
+	}
 	systray.SetTooltip("Forge Solo — restarting miner…")
 	stopGracefully("stratum", stratumStopGrace)
 	time.Sleep(2 * time.Second)
@@ -262,6 +270,13 @@ func rpcStop(port, user, pass string) {
 	}
 }
 
+// started reports whether this launcher started the process under key and has not stopped it.
+func started(key string) bool {
+	mu.Lock()
+	defer mu.Unlock()
+	return procs[key] != nil
+}
+
 // waitProcExit blocks until the tracked process exits, or the timeout elapses.
 func waitProcExit(key string, timeout time.Duration) {
 	mu.Lock()
@@ -302,16 +317,26 @@ func shutdown() {
 	systray.SetTooltip("Forge Solo — shutting down cleanly…")
 	stopGracefully("stratum", stratumStopGrace) // miner + api first (they talk to the nodes)
 	stop("api")
-	// Flush + stop the nodes gracefully so the next launch RESUMES instead of resyncing.
-	rpcStop(bch2RPC, "forge", sec.BCH2Pass)
-	rpcStop(aux1175RPC, "forge1175", sec.AuxPass)
-	waitProcExit("bch2", 45*time.Second)
-	waitProcExit("aux1175", 20*time.Second)
-	stop("bch2") // force-kill only if a node ignored the grace period
-	stop("aux1175")
+	stopNodes()
 	pgctl := hidden("pgsql\\bin\\pg_ctl.exe", "-D", dpath("pgdata"), "-m", "fast", "stop")
 	_ = pgctl.Run()
 	os.Exit(0)
+}
+
+// stopNodes flushes + stops the nodes gracefully so the next launch RESUMES instead of resyncing,
+// and kills one only if it ignored its grace. Only a node this launcher started is asked: otherwise
+// the port may be another program's, and the request carries the node's password.
+func stopNodes() {
+	if started("bch2") {
+		rpcStop(bch2RPC, "forge", sec.BCH2Pass)
+	}
+	if started("aux1175") {
+		rpcStop(aux1175RPC, "forge1175", sec.AuxPass)
+	}
+	waitProcExit("bch2", 45*time.Second)
+	waitProcExit("aux1175", 20*time.Second)
+	stop("bch2")
+	stop("aux1175")
 }
 
 // small helpers to avoid extra imports

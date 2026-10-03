@@ -37,8 +37,11 @@ and 25360 yourself.
 
 Everything else (PostgreSQL, both node RPCs, ZMQ, the stratum's internal stats listener, and
 the api) binds a **dynamically chosen loopback port** (`pickPort`) so it can never collide with
-other software or land in a Windows reserved/excluded range. Those ports are picked in `main()`
-before anything binds, and every config and env var is regenerated from them on each launch.
+other software or land in a Windows reserved/excluded range. Each service picks from its own
+300 ports between 30000 and 32099. Those ports are picked in `main()` before anything binds,
+and every config and env var is regenerated from them on each launch. If a service finds none
+of its ports free, Forge Solo starts nothing and says so in the tray: the services send their
+passwords to these ports, so they never use one another program holds.
 
 ## External binaries (place in `bin/` before building the installer)
 - `bitcoincashIId.exe`: BCH2 node (Windows release)

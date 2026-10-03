@@ -20,7 +20,7 @@ import (
 // While the launcher had a repository of its own only the keys could be compared, and Windows wrote
 // "Forge Solo" as the coinbase tag while Settings showed "Forge".
 //
-// The launcher does not build for Linux, so this reads its source: configYAML's return expression,
+// The launcher is a module of its own, so this reads its source: configYAML's return expression,
 // evaluated with stand-ins for what the launcher picks at run time.
 func TestWindowsConfigMatchesShippedTemplate(t *testing.T) {
 	runtime := map[string]string{ // picked on every launch: free ports and a generated secret

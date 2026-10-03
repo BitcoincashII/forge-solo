@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	_ "embed"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -39,15 +40,26 @@ const (
 // collide with other software or Windows reserved/excluded ranges — the root cause of the
 // api-on-8080 (Apache/XAMPP) and 1175-RPC-on-25361 (WSAEACCES 10013) bind failures. Assigned
 // in main() before anything binds; every conf/env/proxy reads these vars, and writeAlways
-// regenerates the configs each launch, so a run is internally consistent.
-var (
-	pgPort     = "54329"
-	bch2RPC    = "8332"
-	bch2ZMQ    = "28332"
-	aux1175RPC = "25361"
-	stratumInt = "3337"
-	apiPort    = "8080"
-)
+// regenerates the configs each launch, so a run is internally consistent. They have no default:
+// a fixed one is a port another program may hold.
+var pgPort, bch2RPC, bch2ZMQ, aux1175RPC, stratumInt, apiPort string
+
+// A portSlot is one service's loopback port, picked from the portWindow ports from `from`.
+type portSlot struct {
+	name string
+	port *string
+	from int
+}
+
+// portPlan gives each loopback port its own window, so two services never pick the same one.
+var portPlan = []portSlot{
+	{"the database", &pgPort, 30000},
+	{"the BCH2 node", &bch2RPC, 30300},
+	{"the BCH2 node's block notices", &bch2ZMQ, 30600},
+	{"the 1175 node", &aux1175RPC, 30900},
+	{"the miner's stats", &stratumInt, 31500},
+	{"the dashboard's data", &apiPort, 31800},
+}
 
 var (
 	installDir string
@@ -143,18 +155,34 @@ func waitTCP(addr string, timeout time.Duration) bool {
 }
 func openBrowser(u string) { _ = exec.Command("rundll32", "url.dll,FileProtocolHandler", u).Start() }
 
+// portWindow is how many ports pickPort tries, from its start.
+const portWindow = 300
+
 // pickPort returns the first free loopback TCP port at/above start. Scanning a fixed low
 // range (not :0) keeps the port out of the OS ephemeral pool, so it won't be reused for an
 // outbound socket between selection and bind; a reserved or in-use port simply fails to bind
-// and we move on to the next.
-func pickPort(start int) string {
-	for p := start; p < start+300; p++ {
+// and we move on to the next. With none free it fails rather than fall back to one in use:
+// the services would send the program holding it their passwords.
+func pickPort(start int) (string, error) {
+	for p := start; p < start+portWindow; p++ {
 		if l, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(p)); err == nil {
 			_ = l.Close()
-			return strconv.Itoa(p)
+			return strconv.Itoa(p), nil
 		}
 	}
-	return strconv.Itoa(start)
+	return "", fmt.Errorf("no free local port in %d-%d", start, start+portWindow-1)
+}
+
+// assignPorts picks every loopback port. If one cannot be had, nothing may start.
+func assignPorts() error {
+	for _, p := range portPlan {
+		port, err := pickPort(p.from)
+		if err != nil {
+			return fmt.Errorf("no free local port for %s (%d-%d)", p.name, p.from, p.from+portWindow-1)
+		}
+		*p.port = port
+	}
+	return nil
 }
 
 func main() {
@@ -163,18 +191,12 @@ func main() {
 	dataDir = filepath.Join(os.Getenv("APPDATA"), "ForgeSolo")
 	md(dataDir)
 	restrictDataDir(dataDir)
-	// Assign collision-proof loopback ports before any service binds. Distinct 300-wide
-	// windows keep the services from picking the same port as each other.
-	pgPort = pickPort(30000)
-	bch2RPC = pickPort(30300)
-	bch2ZMQ = pickPort(30600)
-	aux1175RPC = pickPort(30900)
-	stratumInt = pickPort(31500)
-	apiPort = pickPort(31800)
-	systray.Run(onReady, func() { shutdown() })
+	// Assign collision-proof loopback ports before any service binds.
+	portErr := assignPorts()
+	systray.Run(func() { onReady(portErr) }, func() { shutdown() })
 }
 
-func onReady() {
+func onReady(portErr error) {
 	systray.SetIcon(trayIcon)
 	systray.SetTitle("Forge Solo")
 	systray.SetTooltip("Forge Solo — starting…")
@@ -183,7 +205,11 @@ func onReady() {
 	mData := systray.AddMenuItem("Open Data Folder", "")
 	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("Quit Forge Solo", "")
-	go boot()
+	if portErr != nil {
+		systray.SetTooltip("Forge Solo cannot start: " + portErr.Error())
+	} else {
+		go boot()
+	}
 	go func() {
 		for {
 			select {
