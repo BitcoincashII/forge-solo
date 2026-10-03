@@ -2113,7 +2113,7 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	nonce := normalizeHex(params[4], 8)
 	versionBits := ""
 	if len(params) > 5 {
-		versionBits = params[5]
+		versionBits = normalizeVersionBits(params[5])
 	}
 	// Every field has a fixed, short form. Anything else is refused before it is looked up,
 	// logged or remembered: a submit could carry tens of kilobytes in one field, and the
@@ -3262,6 +3262,19 @@ func clip(v string, n int) string {
 
 // maxWorkerNamesPerConnection is how many different worker names one connection may authorize.
 const maxWorkerNamesPerConnection = 8
+
+// normalizeVersionBits is a submit's optional version bits as RollVersion takes them: at most 8
+// hex characters, a leading 0x dropped. Anything else -- a JSON null, text, a longer field -- means
+// "no rolling", as RollVersion has always taken it, rather than a refused share: a miner that sends
+// the field without rolling versions had every share refused otherwise, its blocks included. Mapped
+// to "" here, a long field is never kept or logged either.
+func normalizeVersionBits(v string) string {
+	v = strings.TrimPrefix(strings.TrimPrefix(v, "0x"), "0X")
+	if len(v) > 8 || !isHex(v) {
+		return ""
+	}
+	return v
+}
 
 // wellFormedSubmit reports whether a submit's fields have the form a share's do: a job id this
 // server issues (hex, at most 16 characters), an extranonce2 of the client's size, ntime and nonce
