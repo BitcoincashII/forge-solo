@@ -922,9 +922,20 @@ func rpcCall(method string, params interface{}) (json.RawMessage, error) {
 	body, _ := io.ReadAll(resp.Body)
 	var rpcResp struct {
 		Result json.RawMessage `json:"result"`
-		Error  interface{}     `json:"error"`
+		Error  *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
 	}
-	json.Unmarshal(body, &rpcResp)
+	if err := json.Unmarshal(body, &rpcResp); err != nil {
+		return nil, fmt.Errorf("%s: unreadable answer from the node (HTTP %d)", method, resp.StatusCode)
+	}
+	// The node's error is an error, not an empty result. A node starting up answers every call
+	// with -28 ("Loading block index…") until it has loaded the chain; read as an empty result,
+	// that looked like a node at block 0, and the dashboard said it was syncing from 0%.
+	if rpcResp.Error != nil {
+		return nil, fmt.Errorf("%s: node error %d: %s", method, rpcResp.Error.Code, rpcResp.Error.Message)
+	}
 	return rpcResp.Result, nil
 }
 
