@@ -18,7 +18,7 @@ import (
 // of its own -- on Umbrel it sits behind Umbrel's -- and anyone who reaches it can change the
 // payout address, so a dashboard that listens beyond this machine must ask.
 func dashboardHandler(webRoot, apiAddr, password string) http.Handler {
-	proxy := httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: apiAddr})
+	proxy := apiProxy(apiAddr)
 	files := http.FileServer(http.Dir(webRoot))
 	pages := map[string]string{"/solo": "solo.html", "/settings": "settings.html", "/tides": "tides.html"}
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -61,6 +61,23 @@ func dashboardHandler(webRoot, apiAddr, password string) http.Handler {
 		}
 		h.ServeHTTP(w, r)
 	})
+}
+
+// apiProxy forwards to the API on this machine. The API answers only requests addressed to this
+// machine's own name, so each one goes out addressed to the API, whatever name the browser used
+// (with --web, the PC's name on the network, which the API refused). The API's rate limit counts
+// requests by X-Real-IP, so that is set here to the address the request came from: one the client
+// sent is never passed on, and neither is its X-Forwarded-For.
+func apiProxy(apiAddr string) *httputil.ReverseProxy {
+	target := &url.URL{Scheme: "http", Host: apiAddr}
+	return &httputil.ReverseProxy{Rewrite: func(r *httputil.ProxyRequest) {
+		r.SetURL(target)
+		r.SetXForwarded()
+		r.Out.Header.Del("X-Real-IP")
+		if ip, _, err := net.SplitHostPort(r.In.RemoteAddr); err == nil {
+			r.Out.Header.Set("X-Real-IP", ip)
+		}
+	}}
 }
 
 // onlyLocalHost answers 421 to a request whose Host is not this machine's own name.

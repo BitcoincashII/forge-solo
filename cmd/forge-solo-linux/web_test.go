@@ -2,6 +2,7 @@ package main
 
 import (
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -99,5 +100,47 @@ func TestWebNeedsPassword(t *testing.T) {
 		if got := webNeedsPassword(addr); got != want {
 			t.Errorf("%s: %v, want %v", addr, got, want)
 		}
+	}
+}
+
+// With --web the browser addresses the PC by its name on the network, and the API, which answers
+// only to this machine's own names, refused every call (421). Each call now goes out addressed to
+// the API. The client's own X-Real-IP and X-Forwarded-For, which the API's rate limit would have
+// taken as its address, are replaced by the address it really came from.
+func TestAPIProxyAddressesTheAPI(t *testing.T) {
+	root, _, _ := webFixture(t)
+	var host, realIP, xff string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, realIP, xff = r.Host, r.Header.Get("X-Real-IP"), strings.Join(r.Header.Values("X-Forwarded-For"), ",")
+		// The API's rule (cmd/api onlyLocalHost): only this machine's own names.
+		if h, _, err := net.SplitHostPort(r.Host); err != nil || !isLocalHost(h) {
+			w.WriteHeader(http.StatusMisdirectedRequest)
+			return
+		}
+		_, _ = io.WriteString(w, "api:"+r.URL.Path)
+	}))
+	defer api.Close()
+	apiAddr := strings.TrimPrefix(api.URL, "http://")
+
+	h := dashboardHandler(root, apiAddr, "s3cret")
+	r := httptest.NewRequest("GET", "/api/v1/stats", nil)
+	r.Host = "192.168.1.5:3080"
+	r.RemoteAddr = "192.168.1.20:51515"
+	r.SetBasicAuth("forge", "s3cret")
+	r.Header.Set("X-Real-IP", "10.9.9.9")
+	r.Header.Set("X-Forwarded-For", "10.8.8.8")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != 200 || w.Body.String() != "api:/api/v1/stats" {
+		t.Fatalf("WEB-API-HOST: a call through --web got %d %q, sent with Host %q", w.Code, w.Body.String(), host)
+	}
+	if host != apiAddr {
+		t.Errorf("WEB-API-HOST: the API was addressed as %q, want %q", host, apiAddr)
+	}
+	if realIP != "192.168.1.20" {
+		t.Errorf("WEB-REAL-IP: the API was told the client is %q, want 192.168.1.20 (the client sent 10.9.9.9)", realIP)
+	}
+	if xff != "192.168.1.20" {
+		t.Errorf("WEB-XFF: X-Forwarded-For %q, want 192.168.1.20 alone (the client sent 10.8.8.8)", xff)
 	}
 }

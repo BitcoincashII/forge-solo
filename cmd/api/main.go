@@ -351,23 +351,9 @@ func main() {
 		}
 	}
 	app.Use(limiter.New(limiter.Config{
-		Max:        apiRateMax,
-		Expiration: 1 * time.Minute,
-		KeyGenerator: func(c *fiber.Ctx) string {
-			// Behind the app's nginx, c.IP() is always the proxy address, so all clients
-			// would share one bucket. nginx sets X-Real-IP to the true client; prefer it
-			// (fall back to the first X-Forwarded-For hop, then the direct IP).
-			if ip := c.Get("X-Real-IP"); ip != "" {
-				return ip
-			}
-			if xff := c.Get("X-Forwarded-For"); xff != "" {
-				if i := strings.IndexByte(xff, ','); i > 0 {
-					return strings.TrimSpace(xff[:i])
-				}
-				return strings.TrimSpace(xff)
-			}
-			return c.IP()
-		},
+		Max:          apiRateMax,
+		Expiration:   1 * time.Minute,
+		KeyGenerator: rateLimitKey,
 		LimitReached: func(c *fiber.Ctx) error {
 			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
 				"error": "Rate limit exceeded. Please try again later.",
@@ -826,6 +812,21 @@ func useCORS(app *fiber.App, origins string) {
 		AllowCredentials: false,
 		MaxAge:           3600,
 	}))
+}
+
+// rateLimitKey is the client a request counts against. Behind the app's nginx, or the Windows and
+// Linux dashboards' proxies, c.IP() is always the proxy's address, so all clients would share one
+// bucket. Each of them sets X-Real-IP to the true client, so that comes first; then the last
+// X-Forwarded-For hop, the one a proxy appended (the first is whatever the client sent); then the
+// direct address.
+func rateLimitKey(c *fiber.Ctx) string {
+	if ip := c.Get("X-Real-IP"); ip != "" {
+		return ip
+	}
+	if xff := c.Get("X-Forwarded-For"); xff != "" {
+		return strings.TrimSpace(xff[strings.LastIndexByte(xff, ',')+1:])
+	}
+	return c.IP()
 }
 
 // listenHostIsLoopback reports whether API_LISTEN_HOST keeps the API on this machine.

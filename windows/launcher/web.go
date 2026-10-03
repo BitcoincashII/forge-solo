@@ -12,9 +12,15 @@ import (
 // serveDashboard hosts web/dist on 127.0.0.1:webPort and reverse-proxies /api/ to api.exe,
 // replicating the app's nginx routing so the bundled dashboard works unchanged.
 func serveDashboard() {
-	webRoot := ipath("web")
-	apiURL, _ := url.Parse("http://127.0.0.1:" + apiPort)
-	proxy := httputil.NewSingleHostReverseProxy(apiURL)
+	// The dashboard has no password, and listens on this machine only. A page on any site could
+	// rebind its own name to 127.0.0.1 and send same-origin requests here, settings included; the
+	// browser still sends that site's name as Host, so anything but this machine's own name is refused.
+	_ = http.ListenAndServe("127.0.0.1:"+webPort, onlyLocalHost(dashboardMux(ipath("web"), "127.0.0.1:"+apiPort)))
+}
+
+// dashboardMux serves the dashboard's pages from webRoot and proxies /api/ to the API at apiAddr.
+func dashboardMux(webRoot, apiAddr string) http.Handler {
+	proxy := apiProxy(apiAddr)
 	fs := http.FileServer(http.Dir(webRoot))
 
 	mux := http.NewServeMux()
@@ -37,10 +43,22 @@ func serveDashboard() {
 			fs.ServeHTTP(w, r)
 		}
 	})
-	// The dashboard has no password, and listens on this machine only. A page on any site could
-	// rebind its own name to 127.0.0.1 and send same-origin requests here, settings included; the
-	// browser still sends that site's name as Host, so anything but this machine's own name is refused.
-	_ = http.ListenAndServe("127.0.0.1:"+webPort, onlyLocalHost(mux))
+	return mux
+}
+
+// apiProxy forwards to the API on this machine, addressed to the API itself. The API's rate limit
+// counts requests by X-Real-IP, so that is set here to the address the request came from: one the
+// client sent is never passed on, and neither is its X-Forwarded-For.
+func apiProxy(apiAddr string) *httputil.ReverseProxy {
+	target := &url.URL{Scheme: "http", Host: apiAddr}
+	return &httputil.ReverseProxy{Rewrite: func(r *httputil.ProxyRequest) {
+		r.SetURL(target)
+		r.SetXForwarded()
+		r.Out.Header.Del("X-Real-IP")
+		if ip, _, err := net.SplitHostPort(r.In.RemoteAddr); err == nil {
+			r.Out.Header.Set("X-Real-IP", ip)
+		}
+	}}
 }
 
 // onlyLocalHost answers 421 to a request whose Host is not this machine's own name.
