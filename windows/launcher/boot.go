@@ -229,6 +229,7 @@ func restartMiner() {
 func boot() {
 	systray.SetTooltip("Forge Solo: preparing…")
 	setupSecrets()
+	stopLeftovers()
 	writeConfigs()
 	systray.SetTooltip("Forge Solo: starting the database…")
 	if !startPostgres() {
@@ -437,19 +438,41 @@ func stopDatabase() {
 	logf("database stopped in %v", time.Since(start).Round(time.Millisecond))
 }
 
+// Each node may take this long to stop once asked, before it is killed.
+var bch2StopGrace, auxStopGrace = 45 * time.Second, 20 * time.Second
+
+// nodeInfo is one node: its key in procs, its program, its RPC port and login, the window that
+// port is picked from, and how long it may take to stop.
+type nodeInfo struct {
+	key, exe, port, user, pass string
+	from                       int
+	grace                      time.Duration
+}
+
+func nodes() []nodeInfo {
+	return []nodeInfo{
+		{"bch2", "bitcoincashiid.exe", bch2RPC, "forge", sec.BCH2Pass, windowOf(&bch2RPC), bch2StopGrace},
+		{"aux1175", "elevenseventyfived.exe", aux1175RPC, "forge1175", sec.AuxPass, windowOf(&aux1175RPC), auxStopGrace},
+	}
+}
+
+// windowOf is the first port of the window the port is picked from.
+func windowOf(port *string) int {
+	for _, s := range portPlan {
+		if s.port == port {
+			return s.from
+		}
+	}
+	return 0
+}
+
 // stopNodes flushes + stops the nodes gracefully so the next launch RESUMES instead of resyncing,
 // and kills one only if it ignored its grace. Both at once: one waiting on the other only added to
 // the time a closing Windows session has to give. Only a node this launcher started is asked:
 // otherwise the port may be another program's, and the request carries the node's password.
 func stopNodes() {
 	var wg sync.WaitGroup
-	for _, n := range []struct {
-		key, port, user, pass string
-		grace                 time.Duration
-	}{
-		{"bch2", bch2RPC, "forge", sec.BCH2Pass, 45 * time.Second},
-		{"aux1175", aux1175RPC, "forge1175", sec.AuxPass, 20 * time.Second},
-	} {
+	for _, n := range nodes() {
 		if !started(n.key) {
 			continue
 		}
