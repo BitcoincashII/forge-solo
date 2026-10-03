@@ -204,6 +204,7 @@ func startStratum() {
 		// Windows cannot signal it, so closing its stdin is how it is asked to stop cleanly: it
 		// then disconnects its miners and sends the pool the TIDES shares it still holds.
 		"FORGE_STOP_ON_STDIN_EOF=1")
+	c.Stdout, c.Stderr = serviceLog("stratum"), serviceLog("stratum")
 	if w, err := c.StdinPipe(); err == nil {
 		mu.Lock()
 		stdins["stratum"] = w
@@ -222,6 +223,7 @@ func startAPI() {
 		// dashboard server reaches it on 127.0.0.1. Unset, it listened on every interface.
 		"API_HOST=127.0.0.1", "API_PORT="+apiPort, "API_LISTEN_HOST=127.0.0.1", "API_LISTEN_PORT="+apiPort, "HOME_APP=1", "CORS_ORIGINS=",
 		"AUX1175_URL=http://127.0.0.1:"+aux1175RPC, "AUX1175_USER=forge1175", "AUX1175_PASSWORD="+sec.AuxPass)
+	c.Stdout, c.Stderr = serviceLog("api"), serviceLog("api")
 	_ = run("api", c)
 }
 
