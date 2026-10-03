@@ -202,6 +202,15 @@ func noteShareAccepted() {
 }
 
 // noteTemplateError records a getblocktemplate failure so the dashboard can name it.
+// nodeNotReady reports whether a template error is the node getting ready -- loading its chain,
+// syncing, or not yet connected to peers -- rather than a fault. That is normal for minutes after
+// a start and for hours on a first sync, and it was logged as an error with a stack trace.
+func nodeNotReady(err error) bool {
+	m := err.Error()
+	return strings.Contains(m, "initial sync") || strings.Contains(m, "is not connected") ||
+		strings.HasSuffix(m, "…") || strings.HasSuffix(m, "...")
+}
+
 func noteTemplateError(err error) {
 	miningStatusMu.Lock()
 	if err != nil {
@@ -1665,7 +1674,11 @@ func main() {
 				noteTemplateError(err)
 				if time.Since(lastTemplateLog) >= time.Minute {
 					lastTemplateLog = time.Now()
-					logger.Error("Failed to get block template (further identical errors suppressed for 1m)", zap.Error(err))
+					if nodeNotReady(err) {
+						logger.Info("Waiting for the BCH2 node before mining (said again once a minute)", zap.String("node", err.Error()))
+					} else {
+						logger.Error("Failed to get block template (further identical errors suppressed for 1m)", zap.Error(err))
+					}
 				}
 				continue
 			}
