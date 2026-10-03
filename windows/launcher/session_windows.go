@@ -8,13 +8,15 @@ import (
 )
 
 var (
-	user32                     = windows.NewLazySystemDLL("user32.dll")
-	pRegisterClassExW          = user32.NewProc("RegisterClassExW")
-	pCreateWindowExW           = user32.NewProc("CreateWindowExW")
-	pDefWindowProcW            = user32.NewProc("DefWindowProcW")
-	pGetMessageW               = user32.NewProc("GetMessageW")
-	pDispatchMessageW          = user32.NewProc("DispatchMessageW")
-	pShutdownBlockReasonCreate = user32.NewProc("ShutdownBlockReasonCreate")
+	user32            = windows.NewLazySystemDLL("user32.dll")
+	pRegisterClassExW = user32.NewProc("RegisterClassExW")
+	pCreateWindowExW  = user32.NewProc("CreateWindowExW")
+	pDefWindowProcW   = user32.NewProc("DefWindowProcW")
+	pGetMessageW      = user32.NewProc("GetMessageW")
+	pDispatchMessageW = user32.NewProc("DispatchMessageW")
+
+	kernel32                      = windows.NewLazySystemDLL("kernel32.dll")
+	pSetProcessShutdownParameters = kernel32.NewProc("SetProcessShutdownParameters")
 )
 
 type wndClassExW struct {
@@ -40,26 +42,29 @@ type msgW struct {
 // restart) through a window of its own that is never shown. A message-only window would not be
 // told.
 //
-// Once the session ends a program has about 5 s, and the tray only stopped everything then, one
-// service after another: the nodes were killed before they had written their chainstate, and a
-// killed node has to sync again. So when Windows asks whether the session may end, the window
-// says not yet, with a reason Windows shows the user, and starts the stop. That exits Forge Solo
-// once everything has stopped, and Windows then carries on.
+// A program with no visible window may not hold the session open: Windows ends it at once if it
+// answers "not yet", and after 5 s in each of the two messages otherwise ("Shutdown Changes for
+// Windows Vista"). So Forge Solo asks to be told first, before other programs (the nodes among
+// them), answers yes at once and stops everything together while Windows waits on the second
+// message. The nodes write their chainstate in that time; killed before it, a node has to sync again.
 func watchSessionEnd() {
+	// 0x3FF: the first of the levels for applications. Everything starts at 0x280.
+	pSetProcessShutdownParameters.Call(0x3FF, 0)
 	go func() {
 		// A window belongs to the thread that made it, and only that thread reads its messages.
 		runtime.LockOSThread()
 		const wmQueryEndSession, wmEndSession = 0x0011, 0x0016
-		reason, _ := windows.UTF16PtrFromString("Closing the BCH2 node safely, so it does not have to sync again.")
 		proc := func(hwnd windows.Handle, msg uint32, wParam, lParam uintptr) uintptr {
 			switch msg {
 			case wmQueryEndSession:
-				pShutdownBlockReasonCreate.Call(uintptr(hwnd), uintptr(unsafe.Pointer(reason)))
+				logf("Windows is ending the session (flags %#x): stopping everything at once", lParam)
+				sessionEnding.Store(true)
 				go shutdown()
-				return 0 // not yet
+				return 1
 			case wmEndSession:
 				if wParam != 0 {
-					shutdown() // the session ends now, whatever is answered: carry on stopping
+					logf("Windows ends the session now")
+					shutdown() // waits for the stop already under way; it exits when done
 				}
 				return 0
 			}
@@ -75,11 +80,13 @@ func watchSessionEnd() {
 		wc := wndClassExW{WndProc: windows.NewCallback(proc), Instance: inst, ClassName: class}
 		wc.Size = uint32(unsafe.Sizeof(wc))
 		if r, _, _ := pRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc))); r == 0 {
+			logf("session watch: no window class")
 			return
 		}
 		hwnd, _, _ := pCreateWindowExW.Call(0, uintptr(unsafe.Pointer(class)), uintptr(unsafe.Pointer(title)),
 			0, 0, 0, 0, 0, 0, 0, uintptr(inst), 0)
 		if hwnd == 0 {
+			logf("session watch: no window")
 			return
 		}
 		var m msgW

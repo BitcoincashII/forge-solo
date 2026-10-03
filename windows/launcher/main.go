@@ -199,8 +199,15 @@ func main() {
 	dataDir = filepath.Join(os.Getenv("APPDATA"), "ForgeSolo")
 	md(dataDir)
 	restrictDataDir(dataDir)
+	rotateLog(dpath("launcher.log"), 1<<20)
 	// Assign collision-proof loopback ports before any service binds.
 	portErr := assignPorts()
+	if portErr != nil {
+		logf("Forge Solo cannot start: %v", portErr)
+	} else {
+		logf("Forge Solo starting: database %s, BCH2 node %s (notices %s), 1175 node %s, miner stats %s, dashboard data %s",
+			pgPort, bch2RPC, bch2ZMQ, aux1175RPC, stratumInt, apiPort)
+	}
 	systray.Run(func() { onReady(portErr) }, func() { shutdown() })
 	// Quit runs shutdown on the menu's goroutine while the tray's loop ends, and returning from
 	// main would end the process there, leaving the nodes and the database running with nothing

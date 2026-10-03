@@ -4,8 +4,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"fyne.io/systray"
@@ -216,6 +218,7 @@ func restartMiner() {
 	if !started("stratum") {
 		return
 	}
+	logf("restarting the miner")
 	systray.SetTooltip("Forge Solo: restarting the miner…")
 	stopGracefully("stratum", stratumStopGrace)
 	time.Sleep(2 * time.Second)
@@ -229,11 +232,14 @@ func boot() {
 	writeConfigs()
 	systray.SetTooltip("Forge Solo: starting the database…")
 	if !startPostgres() {
+		logf("the database did not start (see pglog.txt)")
 		systray.SetTooltip("Forge Solo: the database did not start (see pglog.txt in the data folder)")
 		return
 	}
+	logf("database started")
 	systray.SetTooltip("Forge Solo: starting the nodes (the first sync can take a while)…")
 	startNodes()
+	logf("nodes started")
 
 	// The API + dashboard don't need the node's RPC to start (handlers call it lazily and
 	// report "offline"/"syncing" on their own), so bring them up right away. The browser
@@ -251,6 +257,7 @@ func boot() {
 		waitTCP("127.0.0.1:"+bch2RPC, 600*time.Second)
 		waitTCP("127.0.0.1:"+aux1175RPC, 120*time.Second) // best-effort (merge-mining)
 		startStratum()
+		logf("miner started")
 		systray.SetTooltip("Forge Solo: running")
 	}()
 }
@@ -278,19 +285,22 @@ func started(key string) bool {
 	return procs[key] != nil
 }
 
-// waitProcExit blocks until the tracked process exits, or the timeout elapses.
-func waitProcExit(key string, timeout time.Duration) {
+// waitProcExit blocks until the tracked process exits, or the timeout elapses, and reports whether
+// it exited (true too when there is no such process).
+func waitProcExit(key string, timeout time.Duration) bool {
 	mu.Lock()
 	c := procs[key]
 	mu.Unlock()
 	if c == nil || c.Process == nil {
-		return
+		return true
 	}
 	done := make(chan struct{})
 	go func() { _, _ = c.Process.Wait(); close(done) }()
 	select {
 	case <-done:
+		return true
 	case <-time.After(timeout):
+		return false
 	}
 }
 
@@ -308,8 +318,13 @@ func stopGracefully(key string, grace time.Duration) {
 	delete(stdins, key)
 	mu.Unlock()
 	if w != nil {
+		start := time.Now()
 		_ = w.Close()
-		waitProcExit(key, grace)
+		if waitProcExit(key, grace) {
+			logf("%s stopped in %v", key, time.Since(start).Round(time.Millisecond))
+		} else {
+			logf("%s did not stop in %v: killed", key, grace)
+		}
 	}
 	stop(key)
 }
@@ -317,23 +332,95 @@ func stopGracefully(key string, grace time.Duration) {
 // stopOnce runs the stop once: Quit and Windows ending the session can both ask for it.
 var stopOnce sync.Once
 
+// sessionEnding is set when Windows is ending the session, which leaves Forge Solo about 5 s.
+var sessionEnding atomic.Bool
+
 // shutdown stops everything cleanly and exits. A second call waits for the first, which exits.
 func shutdown() {
 	stopOnce.Do(func() {
 		systray.SetTooltip("Forge Solo: shutting down cleanly…")
-		stopAll()
+		start := time.Now()
+		stopEverything()
+		logf("everything stopped in %v", time.Since(start).Round(time.Millisecond))
 		os.Exit(0)
 	})
+}
+
+// stopEverything is the stop for Quit, or, everything at once, for a closing Windows session.
+func stopEverything() {
+	if sessionEnding.Load() {
+		stopAllNow()
+	} else {
+		stopAll()
+	}
 }
 
 // stopAll stops the miner first, since a block it is still submitting needs the BCH2 node, and
 // the API with it; then both nodes at once; then the database.
 func stopAll() {
+	logf("stopping: the miner first, then the nodes, then the database")
 	stopGracefully("stratum", stratumStopGrace)
 	stop("api")
 	stopNodes()
-	pgctl := hidden("pgsql\\bin\\pg_ctl.exe", "-D", dpath("pgdata"), "-m", "fast", "stop")
-	_ = pgctl.Run()
+	stopDatabase()
+}
+
+// stopAllNow stops everything at once, for a closing Windows session: the nodes are asked to write
+// their chainstate and stop while the miner disconnects and the database closes. A block the miner
+// is still submitting may then miss the node, which matters less than a node killed mid-write.
+func stopAllNow() {
+	var wg sync.WaitGroup
+	for _, f := range []func(){stopNodes, func() { stopGracefully("stratum", stratumStopGrace) }, func() { stop("api") }, stopDatabase} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			f()
+		}()
+	}
+	wg.Wait()
+}
+
+// pgSIGINT asks PostgreSQL for a fast shutdown: open connections are ended, nothing is lost. It is
+// what pg_ctl -m fast sends; SIGINT is 2 in the Windows C runtime.
+const pgSIGINT = 2
+
+// signalPostgres sends the database server a signal (a stand-in in the tests).
+var signalPostgres = signalPostgresOS
+
+// postmasterPID is the running database server's process id, the first line of postmaster.pid, or
+// 0 when there is none.
+func postmasterPID() int {
+	b, err := os.ReadFile(dpath("pgdata", "postmaster.pid"))
+	if err != nil {
+		return 0
+	}
+	first, _ := cut(string(b), '\n')
+	pid, _ := strconv.Atoi(strings.TrimSpace(first))
+	return pid
+}
+
+// stopDatabase stops PostgreSQL the way pg_ctl -m fast does, signalling the server and waiting for
+// its postmaster.pid to go, but without starting pg_ctl: once Windows is ending the session it
+// starts no new program (they fail with 0xC0000142), and the database was then killed instead.
+func stopDatabase() {
+	pid := postmasterPID()
+	if pid == 0 {
+		logf("database: not running")
+		return
+	}
+	start := time.Now()
+	if err := signalPostgres(pid, pgSIGINT); err != nil {
+		logf("database stop: %v", err)
+		return
+	}
+	for postmasterPID() != 0 {
+		if time.Since(start) > 30*time.Second {
+			logf("database did not stop in 30 s")
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	logf("database stopped in %v", time.Since(start).Round(time.Millisecond))
 }
 
 // stopNodes flushes + stops the nodes gracefully so the next launch RESUMES instead of resyncing,
@@ -355,8 +442,13 @@ func stopNodes() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			start := time.Now()
 			rpcStop(n.port, n.user, n.pass)
-			waitProcExit(n.key, n.grace)
+			if waitProcExit(n.key, n.grace) {
+				logf("%s node stopped in %v", n.key, time.Since(start).Round(time.Millisecond))
+			} else {
+				logf("%s node did not stop in %v: killed", n.key, n.grace)
+			}
 			stop(n.key)
 		}()
 	}
