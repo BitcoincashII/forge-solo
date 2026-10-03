@@ -11,7 +11,10 @@ name: Release
 # something that does not install.
 #
 # The signing certificate is a secret of the `release` environment, which only v* tags may use, and
-# only the publish job asks for it: the build, pull requests and manual runs never see it.
+# only the publish job asks for it. That job runs only for a pushed v* tag: the build, pull requests
+# and manual runs -- even a manual run started on a tag -- never see the certificate or publish.
+# The release page is created as a draft; it is published by hand once the Umbrel store and the
+# Linux downloads have the same version (README, "Releasing").
 on:
   push:
     tags: ['v*']
@@ -48,8 +51,12 @@ jobs:
     outputs:
       version: ${{ steps.ver.outputs.version }}
     steps:
+      # The whole checkout is mounted into the third-party Inno Setup image below, so it keeps no
+      # copy of the job's GitHub token (.git/config). Nothing here needs it after the checkout.
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -136,18 +143,27 @@ jobs:
             "/DMyAppVersion=${{ steps.ver.outputs.version }}" windows/forge-solo.iss
           test -f "windows/ForgeSolo-Setup-${{ steps.ver.outputs.version }}.exe"
 
+      # Unsigned, and anyone can download a public run's artifacts, so it is kept for a day only:
+      # long enough for the publish job, or for "Re-run failed jobs" if that job fails. After that, a
+      # re-run of all jobs builds it again.
       - name: Upload the unsigned installer
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: installer
           path: windows/ForgeSolo-Setup-${{ steps.ver.outputs.version }}.exe
           if-no-files-found: error
+          retention-days: 1
 
   publish:
     name: Sign the installer and publish the release
-    if: github.ref_type == 'tag'
+    # A pushed v* tag only. A manual run started on a tag would otherwise sign and publish whatever
+    # version its input names.
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: installer
     runs-on: ubuntu-latest
+    # Signing and its checks take a few minutes. A service that never answers must fail the job
+    # well before GitHub's six-hour limit.
+    timeout-minutes: 30
     environment: release
     permissions:
       contents: write   # create the release
@@ -156,6 +172,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Take the installer from the build
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -167,7 +185,10 @@ jobs:
       # Inno Setup image's osslsigncode was also built on OpenSSL 1.1.1, which no longer gets
       # fixes). The password goes in a file, not on the command line. The RFC 3161 timestamp keeps
       # the signature valid after the certificate expires; a second service is tried if the first
-      # does not answer.
+      # fails or does not answer. osslsigncode itself never gives up on a service that accepts the
+      # connection and then says nothing, so each attempt has a time limit. An attempt that is cut
+      # off can leave a partial signed.exe, which osslsigncode will not overwrite: it is removed
+      # before every attempt.
       - name: Sign the installer
         env:
           PFX_B64: ${{ secrets.WINDOWS_SIGNING_PFX_B64 }}
@@ -183,7 +204,8 @@ jobs:
           KEY="$RUNNER_TEMP/signing.pfx" PASS="$RUNNER_TEMP/signing.pass"
           (umask 077; printf '%s' "$PFX_B64" | base64 -d > "$KEY"; printf '%s\n' "$PFX_PASS" > "$PASS")
           for tsa in http://timestamp.digicert.com http://timestamp.sectigo.com; do
-            if osslsigncode sign -pkcs12 "$KEY" -readpass "$PASS" \
+            rm -f signed.exe
+            if timeout 120 osslsigncode sign -pkcs12 "$KEY" -readpass "$PASS" \
                 -n "Forge Solo" -i "https://github.com/${GITHUB_REPOSITORY}" \
                 -h sha256 -ts "$tsa" -in "$SETUP" -out signed.exe; then
               break
@@ -197,23 +219,44 @@ jobs:
           fi
           mv signed.exe "$SETUP"
 
-      # Checks what was published, not the signer's exit code: the signature must verify against the
-      # file, with its timestamp, and be made by the Forge Solo certificate.
+      # Checks what will be published, not the signer's exit code:
+      # - the signature verifies against the file;
+      # - it was made by the Forge Solo certificate: osslsigncode compares the signer's own certificate
+      #   with the pinned fingerprint, whatever other certificates the signature carries;
+      # - its timestamp verifies. osslsigncode exits 0 when the timestamp is missing or fails to
+      #   verify, so that line of its report is required.
+      # Checking the timestamp downloads the timestamp service's CRL, so each try has a time limit and
+      # a failed try is repeated.
       - name: Verify the signature
         run: |
           SETUP="ForgeSolo-Setup-${V}.exe"
+          LEAF="sha256:$(printf '%s' "$SIGNING_CERT_SHA256" | tr -d :)"
+          OUT="$RUNNER_TEMP/verify.txt"
           osslsigncode extract-signature -in "$SETUP" -out "$RUNNER_TEMP/signature.der"
           openssl pkcs7 -inform DER -in "$RUNNER_TEMP/signature.der" -print_certs -out "$RUNNER_TEMP/signer.pem"
-          FP=$(openssl x509 -in "$RUNNER_TEMP/signer.pem" -noout -fingerprint -sha256 | cut -d= -f2)
-          if [ "$FP" != "$SIGNING_CERT_SHA256" ]; then
-            echo "::error::the installer is signed by the certificate $FP, not by Forge Solo's ($SIGNING_CERT_SHA256)"
+          ok=
+          for try in 1 2 3; do
+            if timeout 120 osslsigncode verify -in "$SETUP" -CAfile "$RUNNER_TEMP/signer.pem" \
+                -TSA-CAfile /etc/ssl/certs/ca-certificates.crt -require-leaf-hash "$LEAF" > "$OUT" 2>&1 &&
+                grep -qx 'Timestamp Server Signature verification: ok' "$OUT"; then
+              ok=1
+            fi
+            cat "$OUT"
+            if [ -n "$ok" ]; then break; fi
+            echo "::warning::try $try: the signature, its certificate or its timestamp did not verify"
+            sleep 15
+          done
+          if [ -z "$ok" ]; then
+            echo "::error::the installer is not signed by Forge Solo's certificate ($SIGNING_CERT_SHA256) with a timestamp that verifies"
             exit 1
           fi
-          osslsigncode verify -in "$SETUP" -CAfile "$RUNNER_TEMP/signer.pem" \
-            -TSA-CAfile /etc/ssl/certs/ca-certificates.crt
 
       # What changed goes first: the section of RELEASE_NOTES.md headed "## <version>". A release
       # without one stops here rather than publishing a page that says nothing.
+      #
+      # The page is a draft. Its Downloads list names the Umbrel update and the Linux files, which
+      # exist only after the store sync and the Linux upload, so it is published by hand after those
+      # (README, "Releasing").
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -241,5 +284,5 @@ jobs:
             echo
             echo "Every bundled component is fetched during the build and sha256-verified. \`SHA256SUMS-windows\` covers the installer."
           } > /tmp/notes.md
-          gh release create "${GITHUB_REF_NAME}" "$SETUP" SHA256SUMS-windows --verify-tag \
+          gh release create "${GITHUB_REF_NAME}" "$SETUP" SHA256SUMS-windows --verify-tag --draft \
             --title "Forge Solo ${V}" --notes-file /tmp/notes.md

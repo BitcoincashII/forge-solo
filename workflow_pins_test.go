@@ -1,6 +1,7 @@
 package forgesolo
 
 import (
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
@@ -83,26 +84,107 @@ func stepRun(t *testing.T, w workflow, job, step string) string {
 }
 
 // The release is signed on the runner: the certificate never goes into the third-party image, a
-// signature carries a timestamp, and an installer signed by any certificate but Forge Solo's is
-// not published.
+// signature carries a timestamp, and an installer is published only if it verifies as signed by
+// Forge Solo's certificate with a timestamp that verifies too.
 func TestReleaseSigning(t *testing.T) {
 	b, err := os.ReadFile(".github/workflows/release.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := string(b)
-	if regexp.MustCompile(`--entrypoint osslsigncode`).MatchString(s) {
+	if regexp.MustCompile(`--entrypoint osslsigncode`).Match(b) {
 		t.Error("SIGN-ON-RUNNER: the installer is signed inside a container")
 	}
-	if !regexp.MustCompile(`osslsigncode sign -pkcs12 "\$KEY" -readpass "\$PASS"`).MatchString(s) {
+	if !regexp.MustCompile(`(?m)^  SIGNING_CERT_SHA256: '([0-9A-F]{2}:){31}[0-9A-F]{2}'$`).Match(b) {
+		t.Error("SIGN-CERT-PINNED: release.yml pins no SHA-256 fingerprint for the signing certificate")
+	}
+	w := loadWorkflow(t, ".github/workflows/release.yml")
+
+	sign := stepRun(t, w, "publish", "Sign the installer")
+	if !strings.Contains(sign, `osslsigncode sign -pkcs12 "$KEY" -readpass "$PASS"`) {
 		t.Error("SIGN-ON-RUNNER: no osslsigncode sign on the runner, with the password read from a file")
 	}
-	if !regexp.MustCompile(`-h sha256 -ts "\$tsa"`).MatchString(s) {
+	if !strings.Contains(sign, `-h sha256 -ts "$tsa"`) {
 		t.Error("SIGN-TIMESTAMP: the signature is not timestamped")
 	}
-	if !regexp.MustCompile(`(?m)^  SIGNING_CERT_SHA256: '([0-9A-F]{2}:){31}[0-9A-F]{2}'$`).MatchString(s) ||
-		!strings.Contains(s, `if [ "$FP" != "$SIGNING_CERT_SHA256" ]; then`) {
+	// osslsigncode waits for ever on a timestamp service that accepts the connection and never
+	// answers, and the fallback service would never be tried.
+	if !regexp.MustCompile(`if timeout [1-9][0-9]* osslsigncode sign `).MatchString(sign) {
+		t.Error("SIGN-TIME-LIMIT: a signing attempt has no time limit")
+	}
+	// An attempt that is cut off can leave a partial signed.exe, which the next one cannot overwrite.
+	if !regexp.MustCompile(`for tsa in [^\n]*; do\n\s*rm -f signed\.exe\n\s*if timeout`).MatchString(sign) {
+		t.Error("SIGN-RETRY-CLEAN: a signing attempt does not start by removing a previous attempt's signed.exe")
+	}
+
+	verify := stepRun(t, w, "publish", "Verify the signature")
+	// osslsigncode itself compares the signer's certificate with the pin, whatever other
+	// certificates the signature carries.
+	if !strings.Contains(verify, `LEAF="sha256:$(printf '%s' "$SIGNING_CERT_SHA256" | tr -d :)"`) ||
+		!strings.Contains(verify, `-require-leaf-hash "$LEAF"`) {
 		t.Error("SIGN-CERT-PINNED: the signer's certificate is not checked against the pinned fingerprint")
+	}
+	// osslsigncode exits 0 when the timestamp is missing or does not verify.
+	if !strings.Contains(verify, `grep -qx 'Timestamp Server Signature verification: ok' "$OUT"`) {
+		t.Error("VERIFY-TIMESTAMP: an installer whose timestamp is missing or does not verify can be published")
+	}
+	// Verifying the timestamp downloads the service's CRL.
+	if !regexp.MustCompile(`if timeout [1-9][0-9]* osslsigncode verify `).MatchString(verify) {
+		t.Error("VERIFY-TIME-LIMIT: verifying the signature has no time limit")
+	}
+}
+
+// Only a pushed v* tag publishes, and what it makes is a draft: the page names the Umbrel update
+// and the Linux files, which exist only after the store sync and the Linux upload. The unsigned
+// installer a public run leaves behind does not stay downloadable.
+func TestReleasePublishing(t *testing.T) {
+	w := loadWorkflow(t, ".github/workflows/release.yml")
+	pub := w.Jobs["publish"]
+	if pub.If != "github.event_name == 'push' && github.ref_type == 'tag'" {
+		t.Errorf("PUBLISH-TAG-PUSH-ONLY: the publish job runs when %q; a manual run started on a tag would sign and publish", pub.If)
+	}
+	if pub.Environment != "release" {
+		t.Errorf("PUBLISH-ENVIRONMENT: the publish job runs in %q, not the release environment", pub.Environment)
+	}
+	if pub.TimeoutMinutes < 1 || pub.TimeoutMinutes > 60 {
+		t.Errorf("PUBLISH-TIME-LIMIT: the publish job's time limit is %d minutes; a stuck service would hold it for GitHub's six hours", pub.TimeoutMinutes)
+	}
+	if run := stepRun(t, w, "publish", "Publish the release"); !regexp.MustCompile(`gh release create [^\n]*--draft`).MatchString(run) {
+		t.Error("RELEASE-DRAFT: the release page is published at once, before the store and the Linux files have the version")
+	}
+	kept := false
+	for _, s := range w.Jobs["installer"].Steps {
+		if strings.HasPrefix(s.Uses, "actions/upload-artifact@") {
+			kept = true
+			if fmt.Sprint(s.With["retention-days"]) != "1" {
+				t.Errorf("UNSIGNED-RETENTION: the unsigned installer is kept for %v days, not 1", s.With["retention-days"])
+			}
+		}
+	}
+	if !kept {
+		t.Error("UNSIGNED-RETENTION: the installer job uploads no installer")
+	}
+}
+
+// No checkout keeps the job's GitHub token in .git/config: nothing in these workflows pushes, and
+// the release and the installer check mount the checkout into a third-party image.
+func TestCheckoutsKeepNoToken(t *testing.T) {
+	for _, f := range []string{".github/workflows/release.yml", ".github/workflows/test.yml"} {
+		w := loadWorkflow(t, f)
+		n := 0
+		for job, j := range w.Jobs {
+			for _, s := range j.Steps {
+				if !strings.HasPrefix(s.Uses, "actions/checkout@") {
+					continue
+				}
+				n++
+				if s.With["persist-credentials"] != false {
+					t.Errorf("CHECKOUT-NO-TOKEN: %s job %s keeps the GitHub token in its checkout", f, job)
+				}
+			}
+		}
+		if n == 0 {
+			t.Errorf("CHECKOUT-NO-TOKEN: %s has no checkout", f)
+		}
 	}
 }
 

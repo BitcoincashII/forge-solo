@@ -124,17 +124,21 @@ and the worker label is only a label.
 1. Write the version's section in [RELEASE_NOTES.md](RELEASE_NOTES.md), which covers every
    platform, and in `umbrel-app.yml` the `releaseNotes` (Umbrel's update screen) and `version`.
    Commit, tag `v<version>`, and push `main`, then the tag.
-2. The tag runs two workflows. `docker-build.yml` builds the five Umbrel images and commits their
+2. The tag runs two workflows. `docker-build.yml` builds the six Umbrel images and commits their
    digests to `main`; `packaging_test` fails until it has, by design. `release.yml` builds the
-   Windows installer, signs it in the `release` environment and publishes the release page.
-3. Build the Linux downloads and add them to that page:
+   Windows installer, signs it in the `release` environment and creates the release page as a
+   draft, with the installer on it. Only people with write access to the repository see a draft.
+3. Build the Linux downloads and add them to that draft:
    `scripts/linux/build-release.sh <version> && gh release upload v<version> dist/forge-solo-<version>-linux-*.tar.gz dist/SHA256SUMS-linux`
 4. Before the store sees the release, check that every image it pins pulls without a login:
    a package GHCR creates for the first time can start out private, and then every install and
    update fails. Change its visibility in the package's settings on GitHub.
-5. Copy `umbrel-app.yml`, `docker-compose.yml`, `exports.sh` and `init-db.sql` into
-   `bch2-apps-forge-solo/` of [BitcoincashII/umbrel-app-store](https://github.com/BitcoincashII/umbrel-app-store),
-   then re-run the Tests workflow on `main`: its store check passes once the store matches.
+5. Pull `main`, so you have CI's re-pinned digests, then copy `umbrel-app.yml`,
+   `docker-compose.yml`, `exports.sh` and `init-db.sql` into `bch2-apps-forge-solo/` of
+   [BitcoincashII/umbrel-app-store](https://github.com/BitcoincashII/umbrel-app-store), and re-run
+   the Tests workflow on `main`: its store check passes once the store matches.
+6. Publish the release page: `gh release edit v<version> --draft=false`. It tells Umbrel users to
+   update from the store and names the Linux files, so it goes public only once both are there.
 
 ## License and credits
 

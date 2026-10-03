@@ -80,18 +80,22 @@ Go executables compiled from this repository at the tag. So a release is reprodu
 rather than from whatever was on someone's laptop. Bumping any pinned version means bumping its
 hash in the same commit; the versions and hashes are the `env:` block at the top of the workflow.
 
-Signing uses `osslsigncode` inside the same Inno Setup container, from two secrets of the
-`release` environment, which only `v*` tags can use, so the certificate never reaches an ordinary
-test run or a pull request:
+Signing uses Ubuntu's own `osslsigncode` on the runner, never inside the Inno Setup container, so
+the certificate never goes into a third-party image. It comes from two secrets of the `release`
+environment, which only `v*` tags can use, and only a pushed tag's run asks for them, so the
+certificate never reaches an ordinary test run, a manual run or a pull request:
 
 | Secret | Contents |
 |---|---|
 | `WINDOWS_SIGNING_PFX_B64` | the PKCS#12 (`.pfx`) signing certificate, base64-encoded |
 | `WINDOWS_SIGNING_PASSWORD` | its export password |
 
-A tag build **fails** rather than publishing unsigned if the secret is missing. A manual
-`workflow_dispatch` run builds the installer unsigned and publishes nothing, so the build itself
-can be tested. To encode the certificate: `base64 -w0 signing.pfx`.
+A tag build **fails** rather than publishing unsigned if the secret is missing, and it publishes
+nothing that does not verify as signed by the Forge Solo certificate with a valid timestamp. The
+release page it makes is a draft until the owner publishes it (the root README, "Releasing"). A
+manual `workflow_dispatch` run builds the installer unsigned and publishes nothing, so the build
+itself can be tested; its installer is kept for a day. To encode the certificate:
+`base64 -w0 signing.pfx`.
 
 ## Building locally
 Only needed to test a change before tagging; releases come from CI. Requires Go and Docker
