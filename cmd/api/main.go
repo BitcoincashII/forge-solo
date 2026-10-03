@@ -333,6 +333,7 @@ func main() {
 	// one (a read racing the database's reconnect, say) took the whole dashboard down with it.
 	app.Use(fiberrecover.New())
 	app.Use(logRequests)
+	app.Use(pageSecurityHeaders)
 
 	// On this machine only (Forge Solo for Windows and Linux), answer only to this machine's own
 	// names: a web page can rebind its name to 127.0.0.1 and reach the API as same-origin, but the
@@ -812,6 +813,22 @@ func useCORS(app *fiber.App, origins string) {
 		AllowCredentials: false,
 		MaxAge:           3600,
 	}))
+}
+
+// pageSecurityHeaders sets on the dashboard's pages what its own servers send them with (Umbrel's
+// nginx, the Windows and Linux launchers): no page may frame them, no content type is guessed, no
+// referrer is sent on. The API serves the same pages on its own port, where a page that framed the
+// Settings page could have a save clicked through by someone who never sees it. Not on /api/:
+// those go out through the servers above, which set the headers themselves, and twice would be
+// one X-Frame-Options a browser may ignore.
+func pageSecurityHeaders(c *fiber.Ctx) error {
+	if !strings.HasPrefix(c.Path(), "/api/") {
+		c.Set("X-Frame-Options", "DENY")
+		c.Set("Content-Security-Policy", "frame-ancestors 'none'")
+		c.Set("X-Content-Type-Options", "nosniff")
+		c.Set("Referrer-Policy", "no-referrer")
+	}
+	return c.Next()
 }
 
 // rateLimitKey is the client a request counts against. Behind the app's nginx, or the Windows and
