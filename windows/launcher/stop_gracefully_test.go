@@ -23,6 +23,14 @@ func TestHelperProcess(t *testing.T) {
 		}
 		_ = os.WriteFile(filepath.Join(dir, "clean"), []byte("1"), 0o600)
 		os.Exit(0)
+	case "exit3":
+		os.Exit(3)
+	case "crash-once": // the first start crashes; later ones run as "stuck"
+		if _, err := os.Stat(filepath.Join(dir, "crashed")); err != nil {
+			_ = os.WriteFile(filepath.Join(dir, "crashed"), []byte("1"), 0o600)
+			os.Exit(3)
+		}
+		fallthrough
 	case "stuck":
 		for i := 0; ; i++ {
 			_ = os.WriteFile(filepath.Join(dir, "beat"), []byte(strconv.Itoa(i)), 0o600)

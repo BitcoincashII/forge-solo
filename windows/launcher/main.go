@@ -150,8 +150,12 @@ func runPiped(key string, c *exec.Cmd, stdin io.WriteCloser) error {
 		return err
 	}
 	// One wait per process, for everything that waits on it.
-	done := make(chan struct{})
-	go func() { _, _ = c.Process.Wait(); close(done) }()
+	done, since := make(chan struct{}), time.Now()
+	go func() {
+		st, _ := c.Process.Wait()
+		close(done)
+		exitedOnItsOwn(key, c, st, since)
+	}()
 	procs[key], exited[key] = c, done
 	if stdin != nil {
 		stdins[key] = stdin
@@ -194,23 +198,44 @@ func isStopping() bool {
 	return stopping
 }
 
-// stop ends the process under key at once, and waits a little for it to be gone: Windows ends a
-// process only once its pending I/O is done, and one started in its place could otherwise still
-// find its port or its data folder taken.
-func stop(key string) {
+// untrack takes the process under key out of what the launcher tracks, so that its exit counts as
+// the launcher's doing and it is not started again, and returns it with its exit channel.
+func untrack(key string) (*exec.Cmd, chan struct{}) {
 	mu.Lock()
+	defer mu.Unlock()
 	c, done := procs[key], exited[key]
+	delete(procs, key)
+	delete(exited, key)
+	return c, done
+}
+
+// stop ends the process under key at once, and waits a little for it to be gone.
+func stop(key string) {
+	c, done := untrack(key)
+	kill(c, done)
+}
+
+// kill ends c at once and waits a little for it to be gone: Windows ends a process only once its
+// pending I/O is done, and one started in its place could otherwise still find its port or its
+// data folder taken.
+func kill(c *exec.Cmd, done chan struct{}) {
 	if c != nil && c.Process != nil {
 		_ = c.Process.Kill()
 	}
-	delete(procs, key)
-	delete(exited, key)
-	mu.Unlock()
-	if done != nil {
-		select {
-		case <-done:
-		case <-time.After(10 * time.Second):
-		}
+	waitDone(done, 10*time.Second)
+}
+
+// waitDone waits up to d for the exit channel done (none: nothing to wait for), and reports whether
+// the process has exited.
+func waitDone(done chan struct{}, d time.Duration) bool {
+	if done == nil {
+		return true
+	}
+	select {
+	case <-done:
+		return true
+	case <-time.After(d):
+		return false
 	}
 }
 

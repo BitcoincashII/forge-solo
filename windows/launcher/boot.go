@@ -246,8 +246,16 @@ func dbEnv() []string {
 }
 
 func startNodes() {
-	_ = run("bch2", hiddenPrio(belowNormal, "bitcoincashIId.exe", "-datadir="+dpath("bch2"), "-conf="+dpath("bch2", "bch2.conf")))
-	_ = run("aux1175", hiddenPrio(belowNormal, "elevenseventyfived.exe", "-datadir="+dpath("elevenseventyfive"), "-conf="+dpath("elevenseventyfive", "1175.conf")))
+	_ = startBCH2()
+	_ = startAux()
+}
+
+func startBCH2() error {
+	return run("bch2", hiddenPrio(belowNormal, "bitcoincashIId.exe", "-datadir="+dpath("bch2"), "-conf="+dpath("bch2", "bch2.conf")))
+}
+
+func startAux() error {
+	return run("aux1175", hiddenPrio(belowNormal, "elevenseventyfived.exe", "-datadir="+dpath("elevenseventyfive"), "-conf="+dpath("elevenseventyfive", "1175.conf")))
 }
 
 func startStratum() error {
@@ -474,23 +482,6 @@ func started(key string) bool {
 	return procs[key] != nil
 }
 
-// waitProcExit blocks until the tracked process exits, or the timeout elapses, and reports whether
-// it exited (true too when there is no such process).
-func waitProcExit(key string, timeout time.Duration) bool {
-	mu.Lock()
-	done := exited[key]
-	mu.Unlock()
-	if done == nil {
-		return true
-	}
-	select {
-	case <-done:
-		return true
-	case <-time.After(timeout):
-		return false
-	}
-}
-
 // stratumStopGrace is how long the stratum gets to stop cleanly once asked: 2 s for connected
 // miners (both ports at once), up to 15 s for shares and a block still being processed or
 // submitted (only when there is one), then sending the pool its queued TIDES shares (5 s per
@@ -504,16 +495,17 @@ func stopGracefully(key string, grace time.Duration) {
 	w := stdins[key]
 	delete(stdins, key)
 	mu.Unlock()
+	c, done := untrack(key) // before it is asked: its exit is the launcher's doing
 	if w != nil {
 		start := time.Now()
 		_ = w.Close()
-		if waitProcExit(key, grace) {
+		if waitDone(done, grace) {
 			logf("%s stopped in %v", key, time.Since(start).Round(time.Millisecond))
 		} else {
 			logf("%s did not stop in %v: killed", key, grace)
 		}
 	}
-	stop(key)
+	kill(c, done)
 }
 
 // stopOnce runs the stop once: Quit and Windows ending the session can both ask for it.
@@ -688,19 +680,20 @@ func windowOf(port *string) int {
 func stopNodes() {
 	var wg sync.WaitGroup
 	for _, n := range nodes() {
-		if !started(n.key) {
+		c, done := untrack(n.key) // before it is asked: its exit is the launcher's doing
+		if c == nil {
 			continue
 		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			start := time.Now()
-			if askToStop(n.port, n.user, n.pass, n.grace, func(d time.Duration) bool { return waitProcExit(n.key, d) }) {
+			if askToStop(n.port, n.user, n.pass, n.grace, func(d time.Duration) bool { return waitDone(done, d) }) {
 				logf("%s node stopped in %v", n.key, time.Since(start).Round(time.Millisecond))
 			} else {
 				logf("%s node did not stop in %v: killed", n.key, n.grace)
 			}
-			stop(n.key)
+			kill(c, done)
 		}()
 	}
 	wg.Wait()

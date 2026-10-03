@@ -143,6 +143,9 @@ The installer is written to `windows/ForgeSolo-Setup-<version>.exe`. CI stamps t
   The file is rewritten in a way a power cut cannot leave half written.
 - **Dashboard port:** the dashboard is always at http://127.0.0.1:3080. If another program holds
   that port, the tray says so and the browser is not sent to that program; mining goes on.
+- **A program that stops on its own** (the miner, the API or a node crashing) is started again after
+  2 seconds; the wait doubles, up to a minute, while it keeps stopping at once. The tray and
+  `launcher.log` say so. Programs Forge Solo stops itself (Quit, Restart Mining) are left stopped.
 - **Public ports:** if another program holds 3333 (the usual port of mining software) or 8339, Forge
   Solo starts nothing and the tray names the port: the miner or the BCH2 node cannot run without it.
   One holding 3335 or 25360 leaves out rentals or merge mining, and `launcher.log` says so.
