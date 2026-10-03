@@ -315,6 +315,11 @@ func restartMiner() {
 func boot() {
 	status("Forge Solo: preparing…")
 	stopLeftovers()
+	if err := checkPublicPorts(); err != nil {
+		logf("Forge Solo cannot start: %v", err)
+		status(trimTip("Forge Solo cannot start: " + err.Error() + ". Close it, then start Forge Solo again."))
+		return
+	}
 	writeConfigs()
 	status("Forge Solo: starting the database…")
 	if !startPostgres() {
@@ -362,6 +367,33 @@ func boot() {
 			status("Forge Solo: running")
 		}
 	}()
+}
+
+// publicPorts are the fixed ports other machines reach Forge Solo on (a variable so that the tests
+// can use free ones). Another program holding a required one stops mining altogether: the miner,
+// or the BCH2 node, exits at once without it, while the tray said "running".
+var publicPorts = []struct {
+	port, what string
+	required   bool
+}{{minerPort, "the miner port", true}, {bch2P2P, "the BCH2 node's peer port", true},
+	{rentalPort, "the port for rented hashpower", false}, {aux1175P2P, "the 1175 node's peer port", false}}
+
+// checkPublicPorts fails when another program holds a required public port; one holding an optional
+// port is only logged (rentals, or merge-mining's node, are left out). Each port is tried as the
+// miner listens on it, 0.0.0.0 over TCP, which covers IPv6 too, as the node's two binds do.
+func checkPublicPorts() error {
+	for _, p := range publicPorts {
+		l, err := net.Listen("tcp", "0.0.0.0:"+p.port)
+		if err == nil {
+			_ = l.Close()
+			continue
+		}
+		if p.required {
+			return fmt.Errorf("another program uses port %s, %s", p.port, p.what)
+		}
+		logf("another program uses port %s, %s: that part is left out (%v)", p.port, p.what, err)
+	}
+	return nil
 }
 
 // dashboardOpen is set once the dashboard is served, on dashboard.

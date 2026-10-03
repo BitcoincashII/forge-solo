@@ -23,7 +23,8 @@ func bootWorld(t *testing.T, scripts map[string]string) {
 	savedInst, savedData, savedSec := installDir, dataDir, sec
 	savedPorts := []string{pgPort, bch2RPC, bch2ZMQ, aux1175RPC, stratumInt, apiPort, webPort}
 	savedGraces := []time.Duration{bch2StopGrace, auxStopGrace}
-	savedBrowser, savedProgs, savedSignal := openBrowser, installedPrograms, signalPostgres
+	savedBrowser, savedProgs, savedSignal, savedPublic := openBrowser, installedPrograms, signalPostgres, publicPorts
+	publicPorts = publicPorts[:0:0] // this machine may run Forge Solo itself, on the real ones
 	installDir, dataDir = t.TempDir(), t.TempDir()
 	sec = secrets{BCH2Pass: "b", AuxPass: "a", DBPass: "d", Token: "t", Settings: "s"}
 	webPort = freePort(t)
@@ -46,7 +47,7 @@ func bootWorld(t *testing.T, scripts map[string]string) {
 		installDir, dataDir, sec = savedInst, savedData, savedSec
 		pgPort, bch2RPC, bch2ZMQ, aux1175RPC, stratumInt, apiPort, webPort = savedPorts[0], savedPorts[1], savedPorts[2], savedPorts[3], savedPorts[4], savedPorts[5], savedPorts[6]
 		bch2StopGrace, auxStopGrace = savedGraces[0], savedGraces[1]
-		openBrowser, installedPrograms, signalPostgres = savedBrowser, savedProgs, savedSignal
+		openBrowser, installedPrograms, signalPostgres, publicPorts = savedBrowser, savedProgs, savedSignal, savedPublic
 	})
 	for name, body := range scripts {
 		// The launcher names them with Windows separators; on Linux that is one file name.
@@ -199,5 +200,63 @@ func TestStopWaitsForTheProcess(t *testing.T) {
 	stop("helper-stuck")
 	if err := syscall.Kill(pid, 0); err != syscall.ESRCH {
 		t.Fatalf("STOP-WAITS: stop returned with process %d still there (%v)", pid, err)
+	}
+}
+
+// Another program holding a public port Forge Solo cannot mine without -- 3333 is the usual port of
+// mining software -- stops the start, and the log and the tray say which port. The miner or the BCH2
+// node exited at once without it, while the tray said "running". One holding an optional port
+// (rentals, the 1175 node's peers) is only logged. A free port is let go again after the check.
+func TestATakenPublicPortStopsTheStart(t *testing.T) {
+	ran := filepath.Join(t.TempDir(), "pg_ctl-ran")
+	t.Setenv("FS_PGCTL", ran)
+	bootWorld(t, map[string]string{"pgsql\\bin\\pg_ctl.exe": `: > "$FS_PGCTL"; exit 1`})
+	port := func(hold bool) string {
+		l, err := net.Listen("tcp", "0.0.0.0:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, p, _ := net.SplitHostPort(l.Addr().String())
+		if hold {
+			t.Cleanup(func() { _ = l.Close() })
+		} else {
+			_ = l.Close()
+		}
+		return p
+	}
+	type pp = struct {
+		port, what string
+		required   bool
+	}
+
+	free := port(false)
+	publicPorts = []pp{{free, "the miner port", true}}
+	if err := checkPublicPorts(); err != nil {
+		t.Fatalf("PUBLIC-PORT-FREE: a free port was reported taken: %v", err)
+	}
+	l, err := net.Listen("tcp", "0.0.0.0:"+free)
+	if err != nil {
+		t.Fatalf("PUBLIC-PORT-RELEASED: the check kept port %s, which the miner then could not take: %v", free, err)
+	}
+	_ = l.Close()
+
+	optional := port(true)
+	publicPorts = []pp{{optional, "the port for rented hashpower", false}}
+	if err := checkPublicPorts(); err != nil {
+		t.Fatalf("PUBLIC-PORT-OPTIONAL: an optional port taken stopped the start: %v", err)
+	}
+
+	required := port(true)
+	publicPorts = []pp{{optional, "the port for rented hashpower", false}, {required, "the miner port", true}}
+	boot()
+	b, _ := os.ReadFile(dpath("launcher.log"))
+	if !strings.Contains(string(b), "Forge Solo cannot start: another program uses port "+required+", the miner port") {
+		t.Fatalf("PUBLIC-PORT-TAKEN: the log does not name the taken miner port %s:\n%s", required, b)
+	}
+	if !strings.Contains(string(b), "another program uses port "+optional+", the port for rented hashpower: that part is left out") {
+		t.Errorf("PUBLIC-PORT-OPTIONAL-LOGGED: the taken rental port %s is not logged:\n%s", optional, b)
+	}
+	if _, err := os.Stat(ran); err == nil {
+		t.Fatal("PUBLIC-PORT-STOPS-START: boot went on to start the database with the miner port taken")
 	}
 }
