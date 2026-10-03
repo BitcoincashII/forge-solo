@@ -250,12 +250,18 @@ func startNodes() {
 	_ = startAux()
 }
 
-func startBCH2() error {
-	return run("bch2", hiddenPrio(belowNormal, "bitcoincashIId.exe", "-datadir="+dpath("bch2"), "-conf="+dpath("bch2", "bch2.conf")))
-}
+func startBCH2() error { return startNode("bch2") }
+func startAux() error  { return startNode("aux1175") }
 
-func startAux() error {
-	return run("aux1175", hiddenPrio(belowNormal, "elevenseventyfived.exe", "-datadir="+dpath("elevenseventyfive"), "-conf="+dpath("elevenseventyfive", "1175.conf")))
+// startNode starts the node under key, with extra arguments (-reindex). Where its debug.log ends is
+// noted first, so that what it writes in this run can be told from the runs before.
+func startNode(key string, extra ...string) error {
+	dir, exe, conf := dpath("bch2"), "bitcoincashIId.exe", dpath("bch2", "bch2.conf")
+	if key == "aux1175" {
+		dir, exe, conf = dpath("elevenseventyfive"), "elevenseventyfived.exe", dpath("elevenseventyfive", "1175.conf")
+	}
+	noteLogEnd(key, filepath.Join(dir, "debug.log"))
+	return run(key, hiddenPrio(belowNormal, exe, append([]string{"-datadir=" + dir, "-conf=" + conf}, extra...)...))
 }
 
 func startStratum() error {

@@ -146,6 +146,9 @@ The installer is written to `windows/ForgeSolo-Setup-<version>.exe`. CI stamps t
 - **A program that stops on its own** (the miner, the API or a node crashing) is started again after
   2 seconds; the wait doubles, up to a minute, while it keeps stopping at once. The tray and
   `launcher.log` say so. Programs Forge Solo stops itself (Quit, Restart Mining) are left stopped.
+  A node that stops saying "Corrupted block database detected" (after a power cut, say) is
+  started once with `-reindex`, which rebuilds its chain state from the blocks on disk; if that
+  does not help, the tray says which folders to delete.
 - **Public ports:** if another program holds 3333 (the usual port of mining software) or 8339, Forge
   Solo starts nothing and the tray names the port: the miner or the BCH2 node cannot run without it.
   One holding 3335 or 25360 leaves out rentals or merge mining, and `launcher.log` says so.

@@ -1,8 +1,10 @@
 package main
 
 import (
+	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -97,6 +99,9 @@ func exitedOnItsOwn(key string, c *exec.Cmd, st *os.ProcessState, since time.Tim
 	}
 	logf("%s (%s) exited on its own after %v, exit code %d: starting it again in %v", what, key, ran.Round(time.Second), code, wait)
 	status("Forge Solo: " + what + " stopped on its own and is started again (see launcher.log)")
+	if damagedChain(key) {
+		start = repairOnce(key, what, start)
+	}
 	time.Sleep(wait)
 	if isStopping() {
 		return
@@ -111,4 +116,82 @@ func exitedOnItsOwn(key string, c *exec.Cmd, st *os.ProcessState, since time.Tim
 			status("Forge Solo: running")
 		}
 	})
+}
+
+// The node's own words for chain data it cannot use: after a power cut, a disk that filled up, or a
+// crash mid-write. It then stops at every start, until it is started once with -reindex.
+var damagedChainSays = []string{"Corrupted block database detected", "restart with -reindex"}
+
+var (
+	logEndMu sync.Mutex
+	logEnds  = map[string]struct {
+		path string
+		end  int64
+	}{} // where each node's debug.log ended when it was last started
+	repaired = map[string]bool{} // the nodes already started with -reindex in this run
+)
+
+// noteLogEnd notes where the debug.log of the node under key ends, before it starts.
+func noteLogEnd(key, path string) {
+	var end int64
+	if st, err := os.Stat(path); err == nil {
+		end = st.Size()
+	}
+	logEndMu.Lock()
+	logEnds[key] = struct {
+		path string
+		end  int64
+	}{path, end}
+	logEndMu.Unlock()
+}
+
+// damagedChain reports whether the node under key wrote, since its last start, that its chain data
+// is damaged.
+func damagedChain(key string) bool {
+	logEndMu.Lock()
+	l, ok := logEnds[key]
+	logEndMu.Unlock()
+	if !ok {
+		return false
+	}
+	f, err := os.Open(l.path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	if st, err := f.Stat(); err != nil || st.Size() < l.end {
+		l.end = 0 // the node trimmed its log at the start: all of it is this run's
+	}
+	b, err := io.ReadAll(io.NewSectionReader(f, l.end, 1<<20))
+	if err != nil {
+		return false
+	}
+	for _, s := range damagedChainSays {
+		if strings.Contains(string(b), s) {
+			return true
+		}
+	}
+	return false
+}
+
+// repairOnce is the start for a node whose chain data is damaged: once in a run, with -reindex,
+// which rebuilds its chain state from the blocks on disk (minutes for this chain); after that, as
+// usual, with the tray saying what is left to do.
+func repairOnce(key, what string, start func() error) func() error {
+	logEndMu.Lock()
+	again := repaired[key]
+	repaired[key] = true
+	logEndMu.Unlock()
+	folder := "bch2"
+	if key == "aux1175" {
+		folder = "elevenseventyfive"
+	}
+	if again {
+		logf("%s still finds its chain data damaged after rebuilding it: delete the blocks and chainstate folders in %s in the data folder, then start Forge Solo again", what, folder)
+		status(trimTip("Forge Solo: " + what + "'s chain data is damaged. Delete " + folder + `\blocks and ` + folder + `\chainstate in the data folder, then restart.`))
+		return start
+	}
+	logf("%s says its chain data is damaged: starting it once with -reindex, which rebuilds it from the blocks on disk (this takes a few minutes)", what)
+	status("Forge Solo: rebuilding " + what + "'s chain data (a few minutes)…")
+	return func() error { return startNode(key, "-reindex") }
 }
