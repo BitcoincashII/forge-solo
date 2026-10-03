@@ -186,6 +186,13 @@ func assignPorts() error {
 }
 
 func main() {
+	// A second launch (the sign-in start, then the shortcut) opens the dashboard of the one already
+	// running instead. Two shared one data folder, and quitting either stopped the database under
+	// the other.
+	if alreadyRunning() {
+		openBrowser("http://127.0.0.1:" + webPort)
+		return
+	}
 	exe, _ := os.Executable()
 	installDir = filepath.Dir(exe)
 	dataDir = filepath.Join(os.Getenv("APPDATA"), "ForgeSolo")

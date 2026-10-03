@@ -29,6 +29,10 @@ WizardStyle=modern
 SetupIconFile=forge-solo.ico
 UninstallDisplayIcon={app}\{#MyAppExe}
 UninstallDisplayName={#MyAppName}
+; Held by the launcher while it runs (runningMutex in launcher/instance_windows.go). Setup and the
+; uninstaller ask for Forge Solo to be closed first, so that it stops both nodes cleanly, rather
+; than have its files closed under it.
+AppMutex=ForgeSoloRunning
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

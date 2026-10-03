@@ -1,0 +1,39 @@
+package forgesolo
+
+import (
+	"os"
+	"regexp"
+	"strings"
+	"testing"
+)
+
+// The installer and the uninstaller ask for Forge Solo to be closed before touching its files
+// (AppMutex), by the name of the mutex the launcher holds while it runs. If the two names drift
+// apart, the installer no longer sees Forge Solo running, and its files are closed under it, the
+// nodes with them.
+func TestInstallerWaitsForTheRunningLauncher(t *testing.T) {
+	src, err := os.ReadFile("windows/launcher/instance_windows.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?m)^const runningMutex = "([^"]+)"`).FindSubmatch(src)
+	if m == nil {
+		t.Fatal("windows/launcher/instance_windows.go has no const runningMutex")
+	}
+	iss, err := os.ReadFile("windows/forge-solo.iss")
+	if err != nil {
+		t.Fatal(err)
+	}
+	setup := string(iss)
+	if i := strings.Index(setup, "\n[Setup]"); i >= 0 {
+		setup = setup[i+len("\n[Setup]"):]
+	} else {
+		t.Fatal("forge-solo.iss has no [Setup] section")
+	}
+	if i := strings.Index(setup, "\n["); i >= 0 {
+		setup = setup[:i]
+	}
+	if !regexp.MustCompile(`(?m)^AppMutex=` + regexp.QuoteMeta(string(m[1])) + `\r?$`).MatchString(setup) {
+		t.Fatalf("APPMUTEX: the installer's [Setup] has no AppMutex=%s, the mutex the launcher holds", m[1])
+	}
+}
