@@ -56,6 +56,11 @@ passwords to these ports, so they never use one another program holds.
   **16.15**. Only `bin/`, `lib/` and `share/` are kept (the full archive is ~2.5x larger and
   the rest is pgAdmin and headers we never invoke).
 
+  That build needs Microsoft's Visual C++ runtime, which a fresh Windows does not have, so its
+  three DLLs are put beside PostgreSQL's programs (no admin rights needed):
+  `python3 scripts/windows/vcruntime.py windows/pgsql/bin` (needs `7z` and `msiextract`). It takes
+  them from Microsoft's installer at a pinned URL and checks each one.
+
   Stay on 16.x: a PostgreSQL data directory is bound to its major version, so shipping 17.x
   would leave every existing install unable to start its database. Moving *within* 16.x is
   safe and is how this gets patched -- 16.4 shipped for a long time and was roughly two years

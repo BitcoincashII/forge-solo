@@ -113,6 +113,17 @@ jobs:
           cp -a /tmp/pg/pgsql/bin /tmp/pg/pgsql/lib /tmp/pg/pgsql/share windows/pgsql/
           test -f windows/pgsql/bin/postgres.exe
 
+      # That PostgreSQL build needs Microsoft's Visual C++ runtime, which a fresh Windows does not
+      # have: without it every PostgreSQL program fails to load and the database never starts. Its
+      # three DLLs go beside PostgreSQL's programs, taken from Microsoft's installer at a pinned URL
+      # and each checked (scripts/windows/vcruntime.py). Beside the programs, they need no admin
+      # rights, so declining the installer's one admin prompt cannot leave the database broken.
+      - name: Add the Visual C++ runtime PostgreSQL needs
+        run: |
+          command -v msiextract >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq msitools; }
+          python3 scripts/windows/vcruntime.py windows/pgsql/bin
+          test -f windows/pgsql/bin/vcruntime140.dll
+
       # The Inno Setup image runs as uid 1000 while the runner's workspace is owned by uid
       # 1001, so the container cannot write its output into windows/ and the compile dies with
       # "Access denied". Only that directory needs to be writable -- the inputs are

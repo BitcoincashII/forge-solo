@@ -177,6 +177,13 @@ jobs:
           go test -race -count=1 ./...
           GOOS=windows GOARCH=amd64 go test -c -o /tmp/launcher-test.exe .
 
+      # A release takes the Visual C++ runtime PostgreSQL needs from Microsoft's installer, at a
+      # pinned URL with pinned checksums. Check that still works before a release depends on it.
+      - name: The Visual C++ runtime for PostgreSQL extracts
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq msitools p7zip-full
+          mkdir -p /tmp/vcrt && python3 scripts/windows/vcruntime.py /tmp/vcrt
+
       # The installer script is only exercised at release time otherwise, and a syntax error or a
       # missing source path there fails the release rather than the change that caused it. The
       # executables and PostgreSQL are placeholders; the dashboard and schema are the real ones.

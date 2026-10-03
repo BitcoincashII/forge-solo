@@ -61,3 +61,31 @@ func TestReleaseSigning(t *testing.T) {
 		t.Error("SIGN-CERT-PINNED: the signer's certificate is not checked against the pinned fingerprint")
 	}
 }
+
+// PostgreSQL's programs need Microsoft's Visual C++ runtime, which a fresh Windows does not have;
+// without it the database never starts. The release puts the runtime's DLLs beside them.
+func TestReleaseBundlesTheVCRuntime(t *testing.T) {
+	b, err := os.ReadFile(".github/workflows/release.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	pg := strings.Index(s, "- name: Fetch PostgreSQL")
+	vc := strings.Index(s, "python3 scripts/windows/vcruntime.py windows/pgsql/bin")
+	build := strings.Index(s, "- name: Compile the installer")
+	if pg < 0 || vc < 0 || build < 0 || !(pg < vc && vc < build) {
+		t.Fatalf("VCRT-IN-RELEASE: the release does not add the Visual C++ runtime to windows/pgsql/bin after fetching PostgreSQL and before compiling the installer (at %d, %d, %d)", pg, vc, build)
+	}
+	script, err := os.ReadFile("scripts/windows/vcruntime.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, dll := range []string{"vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"} {
+		if !regexp.MustCompile(`"` + regexp.QuoteMeta(dll) + `": "[0-9a-f]{64}"`).Match(script) {
+			t.Errorf("VCRT-PINNED: vcruntime.py does not pin %s by SHA-256", dll)
+		}
+	}
+	if !regexp.MustCompile(`VCREDIST_SHA256 = "[0-9a-f]{64}"`).Match(script) {
+		t.Error("VCRT-PINNED: vcruntime.py does not pin Microsoft's installer by SHA-256")
+	}
+}
