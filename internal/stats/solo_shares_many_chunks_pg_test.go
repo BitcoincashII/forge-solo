@@ -14,7 +14,8 @@ import (
 // An Umbrel install that stored every solo share for weeks has one TimescaleDB chunk per hour of
 // them, and on a small board its lock table is 128 locks per transaction. Emptying the table in
 // one statement failed there with "out of shared memory", so the clear failed on every start and
-// the space was never freed. scripts/it-postgres.sh runs this against the shipped database image
+// the space was never freed. So does one statement that only asks whether the table holds any
+// share, once there are a few thousand chunks: an install that stays on 1.0.12 until December. scripts/it-postgres.sh runs this against the shipped database image
 // with that lock limit. Needs a disposable database: TIDES_PG_DB is a connection string to one.
 func TestPostgresClearsThousandsOfShareChunks(t *testing.T) {
 	connStr := os.Getenv("TIDES_PG_DB")
@@ -32,7 +33,7 @@ func TestPostgresClearsThousandsOfShareChunks(t *testing.T) {
 	if !timescale {
 		t.Skip("no TimescaleDB here: the shares table has no chunks")
 	}
-	const hours = 1500
+	const hours = 4000
 	count := func(q string) int {
 		var n int
 		if err := db.QueryRow(q).Scan(&n); err != nil {
@@ -96,6 +97,11 @@ func TestPostgresClearsThousandsOfShareChunks(t *testing.T) {
 	var pqErr *pq.Error
 	if !errors.As(err, &pqErr) || pqErr.Code != "53200" {
 		t.Fatalf("PG-CLEAR-NOT-PROVING: one TRUNCATE over %d chunks gave %v, not \"out of shared memory\": run with max_locks_per_transaction=128 (scripts/it-postgres.sh)", hours, err)
+	}
+	var some, pplns bool
+	err = db.QueryRow(`SELECT EXISTS (SELECT 1 FROM shares), EXISTS (SELECT 1 FROM shares WHERE NOT is_solo)`).Scan(&some, &pplns)
+	if !errors.As(err, &pqErr) || pqErr.Code != "53200" {
+		t.Fatalf("PG-CLEAR-NOT-PROVING-CHECK: one look over %d chunks gave %v, not \"out of shared memory\"", hours, err)
 	}
 
 	if n, err := ClearSoloShares(); err != nil || n != -1 {

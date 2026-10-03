@@ -1121,15 +1121,12 @@ func ClearSoloShares() (int64, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	var any, pplns bool
-	if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM shares), EXISTS (SELECT 1 FROM shares WHERE NOT is_solo)`).Scan(&any, &pplns); err != nil {
+	chunks, hyper, err := shareChunks(ctx)
+	if err != nil {
 		return 0, err
 	}
-	if !any {
-		return 0, nil
-	}
-	chunks, err := shareChunks(ctx)
-	if err != nil {
+	any, pplns, err := sharesHeld(ctx, chunks, hyper)
+	if err != nil || !any {
 		return 0, err
 	}
 	if !pplns {
@@ -1144,18 +1141,18 @@ func ClearSoloShares() (int64, error) {
 	}
 	var total int64
 	if len(chunks) > 0 {
-		// One chunk per statement: the time range lets TimescaleDB touch only that chunk. A chunk
-		// left empty is dropped, or every later statement over the whole table would still have
-		// to lock it.
+		// One chunk per statement, deleting from the chunk's own table: a DELETE on the hypertable
+		// locks every chunk, whatever time range it names. A chunk left empty is dropped, or every
+		// later statement over the whole table would still have to lock it.
 		for _, c := range chunks {
-			res, err := db.ExecContext(ctx, `DELETE FROM shares WHERE is_solo AND time >= $1 AND time < $2`, c.start, c.end)
+			res, err := db.ExecContext(ctx, `DELETE FROM `+c.table+` WHERE is_solo`)
 			if err != nil {
 				return total, err
 			}
 			n, _ := res.RowsAffected()
 			total += n
 			var empty bool
-			if err := db.QueryRowContext(ctx, `SELECT NOT EXISTS (SELECT 1 FROM shares WHERE time >= $1 AND time < $2)`, c.start, c.end).Scan(&empty); err != nil {
+			if err := db.QueryRowContext(ctx, `SELECT NOT EXISTS (SELECT 1 FROM `+c.table+`)`).Scan(&empty); err != nil {
 				return total, err
 			}
 			if empty {
@@ -1182,30 +1179,59 @@ func ClearSoloShares() (int64, error) {
 // smallest lock table a tuned install has (128 locks per transaction, 40 connections).
 const shareChunkBatch = 100
 
-type chunkRange struct{ start, end time.Time }
+type chunkRange struct {
+	start, end time.Time
+	table      string // the chunk's own table, quoted for SQL
+}
 
-// shareChunks returns the shares table's TimescaleDB chunks, oldest first, or none where the table
-// is a plain one (PostgreSQL without TimescaleDB, as on Windows).
-func shareChunks(ctx context.Context) ([]chunkRange, error) {
-	var hyper bool
-	if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb')`).Scan(&hyper); err != nil || !hyper {
-		return nil, err
+// shareChunks returns the shares table's TimescaleDB chunks, oldest first, and whether the table is
+// a hypertable at all: it is a plain one on PostgreSQL without TimescaleDB, as on Windows. The
+// chunks come from the catalog, which locks none of them.
+func shareChunks(ctx context.Context) (chunks []chunkRange, hyper bool, err error) {
+	var timescale bool
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb')`).Scan(&timescale); err != nil || !timescale {
+		return nil, false, err
 	}
-	rows, err := db.QueryContext(ctx, `SELECT range_start, range_end FROM timescaledb_information.chunks
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM timescaledb_information.hypertables
+		WHERE hypertable_name = 'shares')`).Scan(&hyper); err != nil || !hyper {
+		return nil, false, err
+	}
+	rows, err := db.QueryContext(ctx, `SELECT range_start, range_end, chunk_schema, chunk_name FROM timescaledb_information.chunks
 		WHERE hypertable_name = 'shares' ORDER BY range_end`)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer rows.Close()
-	var out []chunkRange
 	for rows.Next() {
 		var c chunkRange
-		if err := rows.Scan(&c.start, &c.end); err != nil {
-			return nil, err
+		var schema, name string
+		if err := rows.Scan(&c.start, &c.end, &schema, &name); err != nil {
+			return nil, false, err
 		}
-		out = append(out, c)
+		c.table = pq.QuoteIdentifier(schema) + "." + pq.QuoteIdentifier(name)
+		chunks = append(chunks, c)
 	}
-	return out, rows.Err()
+	return chunks, true, rows.Err()
+}
+
+// sharesHeld reports whether the shares table holds any row, and any PPLNS row. On a hypertable it
+// asks shareChunkBatch chunks at a time: one statement over the whole table locks every chunk,
+// about four locks each, and a few thousand chunks are more than a small board's lock table holds.
+func sharesHeld(ctx context.Context, chunks []chunkRange, hyper bool) (any, pplns bool, err error) {
+	if !hyper {
+		err = db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM shares), EXISTS (SELECT 1 FROM shares WHERE NOT is_solo)`).Scan(&any, &pplns)
+		return any, pplns, err
+	}
+	for i := 0; i < len(chunks) && !pplns; i += shareChunkBatch {
+		from, to := chunks[i].start, chunks[min(i+shareChunkBatch, len(chunks))-1].end
+		var some, p bool
+		if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM shares WHERE time >= $1 AND time < $2),
+			EXISTS (SELECT 1 FROM shares WHERE NOT is_solo AND time >= $1 AND time < $2)`, from, to).Scan(&some, &p); err != nil {
+			return false, false, err
+		}
+		any, pplns = any || some, p
+	}
+	return any, pplns, nil
 }
 
 // Compact is SQLite's way of giving back the space of rows deleted in bulk. PostgreSQL needs none:
