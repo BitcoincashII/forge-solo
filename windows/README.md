@@ -13,7 +13,8 @@ address. There is no pool wallet, no fee, and no minimum payout.
 
 ## Layout
 - `launcher/`: Go tray launcher/orchestrator (`main.go`, `boot.go`, `web.go`) + `forge-solo.ico`.
-  Its own Go module: it is Windows-only and does not build for other systems.
+  Its own Go module. It ships for Windows only; it also builds on Linux, where CI runs its tests
+  with stand-ins for the Windows parts.
 - `forge-solo.iss`: Inno Setup installer script. It takes the dashboard (`../web/dist`) and the
   initial schema (`../init-db.sql`) straight from this repository, so there is no copy to drift.
 - *(not tracked)* `bin/`: compiled exes + prebuilt node binaries; `pgsql/`: portable PostgreSQL
@@ -125,16 +126,28 @@ The installer is written to `windows/ForgeSolo-Setup-<version>.exe`. CI stamps t
 ## Design notes
 - **Graceful shutdown:** the launcher stops both nodes via RPC `stop` so they flush the
   chainstate before exit, and a restart resumes instead of resyncing. The miner stops first (a
-  block it is submitting needs the BCH2 node), then both nodes at once. When Windows shuts down,
-  restarts or signs out, the launcher asks it to wait, with a reason Windows shows, until they
-  have stopped.
+  block it is submitting needs the BCH2 node), then both nodes at once. A node still loading its
+  blocks refuses to stop until it is ready, so it is asked again every second. Quit while Forge
+  Solo is still starting stops what has started, and nothing starts after it. The tray icon stays,
+  showing the stop, until everything has stopped. When Windows shuts down, restarts or signs out,
+  the launcher hears it before other programs and stops everything at once: Windows gives a
+  program with no window only a few seconds.
 - **Settings password:** saving a change in Settings needs Forge Solo's password, as on Umbrel:
   other programs and accounts on the PC can reach the dashboard and its API on 127.0.0.1. Right-click
   the tray icon and choose **Copy Settings Password**; the browser remembers it once a save works.
   It is made at the first start (for an existing install, at the first start of 1.0.13) and kept
-  as `SETTINGS` in `secrets.env` in the data folder.
-- **One at a time:** a second launch opens the running copy's dashboard. The installer and the
-  uninstaller ask for Forge Solo to be closed before they touch its files (`AppMutex`).
+  as `SETTINGS` in `secrets.env` in the data folder. The copy is kept out of Windows' clipboard
+  history and cloud clipboard.
+- **Secrets:** Forge Solo does not start if `secrets.env` cannot be read, or lacks the database
+  password while the database exists, rather than make new passwords the database would refuse.
+  The file is rewritten in a way a power cut cannot leave half written.
+- **Dashboard port:** the dashboard is always at http://127.0.0.1:3080. If another program holds
+  that port, the tray says so and the browser is not sent to that program; mining goes on.
+- **One at a time:** a second launch opens the running copy's dashboard. Forge Solo running for
+  another Windows account counts too: it holds the same ports. The installer and the
+  uninstaller ask for Forge Solo to be closed before they touch its files (`AppMutex`). If the tray
+  icon cannot be added (Windows still setting up the taskbar at sign-in), Forge Solo starts again
+  once after 90 seconds.
 - **Signing:** CI signs the installer on the runner, with a timestamp, and publishes the
   certificate's SHA-256 fingerprint on the release page.
 - **Installer:** one elevated step (a single UAC prompt) adds the firewall rules above and
@@ -143,8 +156,9 @@ The installer is written to `windows/ForgeSolo-Setup-<version>.exe`. CI stamps t
   thrash on a laptop. The rest of `%APPDATA%\ForgeSolo` is still scanned. The file copy
   itself is a per-user install and needs no admin rights.
 - **Startup:** mining runs only while the app is open. The installer offers an opt-in
-  "Start Forge Solo when I sign in" (per-user `HKCU` entry, removed with the app); without it,
-  a reboot silently stops mining until someone launches it again.
+  "Start Forge Solo when I sign in" (per-user `HKCU` entry, removed with the app, and by an
+  update with the box unticked); without it, a reboot silently stops mining until someone
+  launches it again.
 - **Uninstall:** asks whether to delete `%APPDATA%\ForgeSolo`. Answering no keeps the chain
   data for a reinstall; answering yes also removes the file holding this install's node and
   database passwords. It is all-or-nothing on purpose: deleting only the secrets would leave a
@@ -154,8 +168,7 @@ The installer is written to `windows/ForgeSolo-Setup-<version>.exe`. CI stamps t
   without that the folder is protected only by whatever it inherits. `config.yaml` is regenerated on every
   launch (so port changes always take effect); it mirrors the app's
   `docker/stratum/config.template.yaml`, and keys the stratum does not read are ignored silently,
-  so keep the two in step: `windows_config_test.go` at the repository root fails when they differ
-  in anything but the rental port, which Windows leaves off.
+  so keep the two in step: `windows_config_test.go` at the repository root fails when they differ.
 - **Payout addresses** are stored in the database and set from the dashboard's Settings page,
   never in a config file in the repo.
 

@@ -25,7 +25,9 @@ func stopTest(t *testing.T, ending bool, delay string) (minerGoneWhenNodeAsked b
 	fakeNode(t, "bch2", &bch2RPC, func(string) {
 		_, err := os.Stat(filepath.Join(minerDir, "clean"))
 		mu2.Lock()
-		asked, minerGoneWhenNodeAsked = true, err == nil
+		if !asked { // the first request; the node is asked again until it has stopped
+			asked, minerGoneWhenNodeAsked = true, err == nil
+		}
 		mu2.Unlock()
 	})
 	startHelper(t, "stratum", "eof", minerDir, "FS_HELPER_DELAY="+delay)

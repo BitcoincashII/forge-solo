@@ -12,9 +12,10 @@ import (
 // signalPostgres that records the signal and, like the server, removes the file after `after`.
 func fakePostmaster(t *testing.T, pid int, after time.Duration, fail error) *[]byte {
 	t.Helper()
-	saved, savedSignal := dataDir, signalPostgres
+	saved, savedSignal, savedProgs := dataDir, signalPostgres, installedPrograms
 	dataDir = t.TempDir()
-	t.Cleanup(func() { dataDir, signalPostgres = saved, savedSignal })
+	t.Cleanup(func() { dataDir, signalPostgres, installedPrograms = saved, savedSignal, savedProgs })
+	installedPrograms = func() []runningProgram { return []runningProgram{{4242, "postgres.exe"}} }
 	md(dpath("pgdata"))
 	pidFile := dpath("pgdata", "postmaster.pid") // the stand-in's timer must not read dataDir after the test
 	if pid != 0 {
@@ -59,6 +60,17 @@ func TestStopDatabaseWithoutAServer(t *testing.T) {
 	stopDatabase()
 	if len(*sent) != 0 {
 		t.Fatalf("DB-STOP-NONE: signalled %v with no server running", *sent)
+	}
+}
+
+// postmaster.pid outlives a server that crashed, and its number can since have gone to another
+// program: one that is not this install's database is not signalled.
+func TestStopDatabaseLeavesAnotherProgram(t *testing.T) {
+	sent := fakePostmaster(t, 4242, 0, nil)
+	installedPrograms = func() []runningProgram { return []runningProgram{{4242, "notepad.exe"}} }
+	stopDatabase()
+	if len(*sent) != 0 {
+		t.Fatalf("DB-STOP-OURS-ONLY: signalled process 4242, which is not this install's database")
 	}
 }
 

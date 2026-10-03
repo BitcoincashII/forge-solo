@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -55,9 +56,10 @@ func TestStopNodesAsksOnlyNodesItStarted(t *testing.T) {
 	startHelper(t, "bch2", "eof", t.TempDir())
 	stopNodes()
 	mu2.Lock()
-	if len(users) != 1 || users[0] != "forge" {
-		t.Fatalf("NODE-STOP-STARTED: stop requests from %v, want one, from the BCH2 node's login", users)
+	if askedBy(users) != "forge" {
+		t.Fatalf("NODE-STOP-STARTED: stop requests from %v, want them from the BCH2 node's login only", users)
 	}
+	users = nil
 	mu2.Unlock()
 	if started("bch2") {
 		t.Error("the BCH2 node is still tracked after stopping")
@@ -68,9 +70,24 @@ func TestStopNodesAsksOnlyNodesItStarted(t *testing.T) {
 	stopNodes()
 	mu2.Lock()
 	defer mu2.Unlock()
-	if len(users) != 2 || users[1] != "forge1175" {
-		t.Fatalf("NODE-STOP-STARTED: stop requests from %v, want the 1175 node's login next", users)
+	if askedBy(users) != "forge1175" {
+		t.Fatalf("NODE-STOP-STARTED: stop requests from %v, want them from the 1175 node's login only", users)
 	}
+}
+
+// askedBy is the logins in users, each once, sorted and joined by spaces. A node is asked until it
+// has stopped, so how many requests it got depends on how fast it stops.
+func askedBy(users []string) string {
+	seen := map[string]bool{}
+	var out []string
+	for _, u := range users {
+		if !seen[u] {
+			seen[u] = true
+			out = append(out, u)
+		}
+	}
+	sort.Strings(out)
+	return strings.Join(out, " ")
 }
 
 // fakeNode answers a node's stop request on its own port: it records who asked and when, and
@@ -116,8 +133,8 @@ func TestStopNodesStopsBothAtOnce(t *testing.T) {
 	took := time.Since(start)
 	mu2.Lock()
 	defer mu2.Unlock()
-	if len(users) != 2 {
-		t.Fatalf("NODE-STOP-BOTH: stop requests from %v, want one from each node", users)
+	if askedBy(users) != "forge forge1175" {
+		t.Fatalf("NODE-STOP-BOTH: stop requests from %v, want each node asked, with its own login", users)
 	}
 	if took > 3500*time.Millisecond {
 		t.Fatalf("NODE-STOP-PARALLEL: two nodes that each take 2 s to stop took %v: one waited on the other", took)
@@ -155,5 +172,56 @@ func TestStopAllStopsTheMinerFirst(t *testing.T) {
 	defer mu2.Unlock()
 	if gone, asked := minerGone["forge"]; !asked || !gone {
 		t.Fatalf("STOP-MINER-FIRST: the BCH2 node was asked to stop (%v) while the miner was still running (stopped: %v)", asked, gone)
+	}
+}
+
+// A node still loading its blocks refuses every request, stop among them, until it is ready. It is
+// asked again until it stops, rather than once and then killed when its grace runs out.
+func TestStopNodesAsksAgainWhileTheNodeLoads(t *testing.T) {
+	savedGrace := bch2StopGrace
+	bch2StopGrace = 6 * time.Second
+	t.Cleanup(func() { bch2StopGrace = savedGrace })
+	ready := time.Now().Add(1500 * time.Millisecond)
+	var mu2 sync.Mutex
+	asks := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu2.Lock()
+		asks++
+		mu2.Unlock()
+		if time.Now().Before(ready) {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"result":null,"error":{"code":-28,"message":"Loading block index…"},"id":"quit"}`))
+			return
+		}
+		mu.Lock()
+		if in := stdins["bch2"]; in != nil {
+			_ = in.Close()
+			delete(stdins, "bch2")
+		}
+		mu.Unlock()
+		_, _ = w.Write([]byte(`{"result":"stopping"}`))
+	}))
+	defer srv.Close()
+	saved := bch2RPC
+	_, bch2RPC, _ = net.SplitHostPort(strings.TrimPrefix(srv.URL, "http://"))
+	t.Cleanup(func() {
+		bch2RPC = saved
+		mu.Lock()
+		delete(stdins, "bch2")
+		mu.Unlock()
+	})
+	dir := t.TempDir()
+	startHelper(t, "bch2", "eof", dir)
+
+	start := time.Now()
+	stopNodes()
+	took := time.Since(start)
+	if _, err := os.Stat(filepath.Join(dir, "clean")); err != nil {
+		mu2.Lock()
+		defer mu2.Unlock()
+		t.Fatalf("NODE-STOP-RETRY: asked %d times in %v, the node was killed instead of being asked again once it had loaded", asks, took)
+	}
+	if took >= bch2StopGrace {
+		t.Fatalf("NODE-STOP-RETRY: the stop took the whole grace (%v)", took)
 	}
 }

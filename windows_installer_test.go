@@ -3,6 +3,7 @@ package forgesolo
 import (
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -16,7 +17,7 @@ func TestInstallerWaitsForTheRunningLauncher(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := regexp.MustCompile(`(?m)^const runningMutex = "([^"]+)"`).FindSubmatch(src)
+	m := regexp.MustCompile("(?m)^const runningMutex = [\"`]([^\"`]+)[\"`]").FindSubmatch(src)
 	if m == nil {
 		t.Fatal("windows/launcher/instance_windows.go has no const runningMutex")
 	}
@@ -33,8 +34,21 @@ func TestInstallerWaitsForTheRunningLauncher(t *testing.T) {
 	if i := strings.Index(setup, "\n["); i >= 0 {
 		setup = setup[:i]
 	}
-	if !regexp.MustCompile(`(?m)^AppMutex=` + regexp.QuoteMeta(string(m[1])) + `\r?$`).MatchString(setup) {
-		t.Fatalf("APPMUTEX: the installer's [Setup] has no AppMutex=%s, the mutex the launcher holds", m[1])
+	names := regexp.MustCompile(`(?m)^AppMutex=(.+?)\r?$`).FindStringSubmatch(setup)
+	if names == nil || !slices.Contains(strings.Split(names[1], ","), string(m[1])) {
+		t.Fatalf("APPMUTEX: the installer's [Setup] AppMutex (%v) does not name %s, the mutex the launcher holds", names, m[1])
+	}
+}
+
+// An update with "Start Forge Solo when I sign in" unticked removes the sign-in start; the
+// installer only ever added it, so unticking it changed nothing.
+func TestInstallerStartupCanBeTurnedOff(t *testing.T) {
+	b, err := os.ReadFile("windows/forge-solo.iss")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`(?m)^Root: HKCU; Subkey: "Software\\Microsoft\\Windows\\CurrentVersion\\Run"; ValueType: none; ValueName: "ForgeSolo"; Flags: deletevalue; Tasks: not startup\r?$`).Match(b) {
+		t.Fatal("STARTUP-OFF: no [Registry] entry deletes the ForgeSolo sign-in start when the startup task is unticked")
 	}
 }
 

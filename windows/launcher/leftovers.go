@@ -46,8 +46,12 @@ func stopLeftovers() {
 			}
 		}
 		if p.exe == "stratum.exe" || p.exe == "api.exe" {
-			_ = killPID(p.pid)
-			logf("ended a leftover %s", p.exe)
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				endLeftover(p.pid)
+				logf("ended a leftover %s", p.exe)
+			}()
 		}
 	}
 	if pid := postmasterPID(); pid != 0 && runs(progs, pid, "postgres.exe") {
@@ -69,18 +73,25 @@ func stopLeftoverNode(pid int, n nodeInfo) {
 		}
 	}
 	if port == 0 {
-		_ = killPID(pid)
+		endLeftover(pid)
 		logf("a leftover %s node listens on no port in %d-%d: ended", n.key, n.from, n.from+portWindow-1)
 		return
 	}
 	start := time.Now()
-	rpcStop(strconv.Itoa(port), n.user, n.pass)
-	if waitPID(pid, n.grace) {
+	if askToStop(strconv.Itoa(port), n.user, n.pass, n.grace, func(d time.Duration) bool { return waitPID(pid, d) }) {
 		logf("a leftover %s node stopped in %v", n.key, time.Since(start).Round(time.Millisecond))
 		return
 	}
-	_ = killPID(pid)
+	endLeftover(pid)
 	logf("a leftover %s node did not stop in %v: ended", n.key, n.grace)
+}
+
+// endLeftover ends a leftover at once and waits a little for it to be gone: Windows ends a process
+// only once its pending I/O is done, and the program started in its place could otherwise still
+// find its port or its data folder taken.
+func endLeftover(pid int) {
+	_ = killPID(pid)
+	_ = waitPID(pid, 10*time.Second)
 }
 
 // runs reports whether pid is one of progs, running exe.

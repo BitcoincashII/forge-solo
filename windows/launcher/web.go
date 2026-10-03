@@ -9,10 +9,10 @@ import (
 	"strings"
 )
 
-// serveDashboard hosts web/dist on 127.0.0.1:webPort and reverse-proxies /api/ to api.exe,
+// serveDashboard hosts web/dist on l, the dashboard's port, and reverse-proxies /api/ to api.exe,
 // replicating the app's nginx routing so the bundled dashboard works unchanged.
-func serveDashboard() {
-	_ = http.ListenAndServe("127.0.0.1:"+webPort, dashboardHandler(ipath("web"), "127.0.0.1:"+apiPort))
+func serveDashboard(l net.Listener) {
+	_ = http.Serve(l, dashboardHandler(ipath("web"), "127.0.0.1:"+apiPort))
 }
 
 // dashboardHandler is everything the dashboard answers.

@@ -1,6 +1,9 @@
 package main
 
 import (
+	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,9 +18,16 @@ import (
 
 func pgbin(name string) string { return ipath("pgsql", "bin", name) }
 
-func setupSecrets() {
+// setupSecrets reads secrets.env, making what it lacks. It never replaces a file it could not read
+// (another program may hold it a moment), and never makes a new database password for a database
+// that exists: the database would then never open again.
+func setupSecrets() error {
 	f := dpath("secrets.env")
-	if b, err := os.ReadFile(f); err == nil {
+	b, err := os.ReadFile(f)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("secrets.env cannot be read (%v)", err)
+	}
+	if err == nil {
 		// crude parse KEY=VAL lines
 		for _, line := range splitLines(string(b)) {
 			k, v := cut(line, '=')
@@ -36,8 +46,11 @@ func setupSecrets() {
 		}
 	}
 	changed := false
-	if sec.BCH2Pass == "" {
-		sec = secrets{BCH2Pass: gen(), AuxPass: gen(), DBPass: gen(), Token: gen()}
+	if sec.BCH2Pass == "" || sec.AuxPass == "" || sec.DBPass == "" || sec.Token == "" {
+		if _, err := os.Stat(dpath("pgdata", "PG_VERSION")); err == nil {
+			return errors.New("secrets.env in the data folder lacks the database password")
+		}
+		sec = secrets{BCH2Pass: gen(), AuxPass: gen(), DBPass: gen(), Token: gen(), Settings: sec.Settings}
 		changed = true
 	}
 	// The Settings page's password: other programs and accounts on this PC can reach the
@@ -50,12 +63,34 @@ func setupSecrets() {
 	if changed {
 		content := "BCH2=" + sec.BCH2Pass + "\nAUX=" + sec.AuxPass + "\nDB=" + sec.DBPass + "\nTOKEN=" + sec.Token +
 			"\nSETTINGS=" + sec.Settings + "\n"
-		// Written aside and moved into place: a crash part-way must not lose the database password.
-		tmp := f + ".tmp"
-		if os.WriteFile(tmp, []byte(content), 0o600) == nil {
-			_ = os.Rename(tmp, f)
+		// Written aside, on the disk, and only then moved into place: a crash or a power cut part-way
+		// must not lose the database password.
+		if err := writeDurably(f, content); err != nil {
+			return fmt.Errorf("secrets.env cannot be written (%v)", err)
 		}
 	}
+	return nil
+}
+
+// writeDurably replaces path with content: written to path.tmp, flushed to the disk, then renamed
+// over path, so the file is the old one or the new one, never a part.
+func writeDurably(path, content string) error {
+	tmp := path + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err = f.WriteString(content); err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 func writeConfigs() {
@@ -166,6 +201,10 @@ func rotateLog(path string, limit int64) {
 	}
 }
 
+// dbStarting is set while pg_ctl starts the database. Until the server has written postmaster.pid
+// the stop cannot see it, and would leave it running.
+var dbStarting atomic.Bool
+
 func startPostgres() bool {
 	pgdata := dpath("pgdata")
 	if _, err := os.Stat(filepath.Join(pgdata, "PG_VERSION")); os.IsNotExist(err) {
@@ -174,7 +213,7 @@ func startPostgres() bool {
 		_ = os.WriteFile(pwf, []byte(sec.DBPass), 0o600)
 		init := hiddenPrio(belowNormal, "pgsql\\bin\\initdb.exe", "-D", pgdata, "-U", "forge", "-A", "scram-sha-256",
 			"--pwfile", pwf, "-E", "UTF8", "--no-locale")
-		_ = init.Run()
+		_ = runToEnd(init, nil)
 		_ = os.Remove(pwf)
 	}
 	log := dpath("pglog.txt")
@@ -184,18 +223,18 @@ func startPostgres() bool {
 	// services would hand it the database password (lib/pq sends it in the clear when asked).
 	// -t 300: a server recovering from a hard stop can take longer than the default 60 s.
 	pgctl := hiddenPrio(belowNormal, "pgsql\\bin\\pg_ctl.exe", "-D", pgdata, "-l", log, "-o", "-p "+pgPort+" -h 127.0.0.1", "-w", "-t", "300", "start")
-	if pgctl.Run() != nil {
+	if runToEnd(pgctl, &dbStarting) != nil {
 		return false
 	}
 	env := append(os.Environ(), "PGPASSWORD="+sec.DBPass)
 	// create the database (ignore "already exists")
 	cdb := hidden("pgsql\\bin\\createdb.exe", "-h", "127.0.0.1", "-p", pgPort, "-U", "forge", "forgesolo")
 	cdb.Env = env
-	_ = cdb.Run()
+	_ = runToEnd(cdb, nil)
 	// load the schema (idempotent; init-db.sql uses IF NOT EXISTS)
 	psql := hidden("pgsql\\bin\\psql.exe", "-h", "127.0.0.1", "-p", pgPort, "-U", "forge", "-d", "forgesolo", "-f", ipath("init-db.sql"))
 	psql.Env = env
-	_ = psql.Run()
+	_ = runToEnd(psql, nil)
 	return true
 }
 
@@ -211,7 +250,7 @@ func startNodes() {
 	_ = run("aux1175", hiddenPrio(belowNormal, "elevenseventyfived.exe", "-datadir="+dpath("elevenseventyfive"), "-conf="+dpath("elevenseventyfive", "1175.conf")))
 }
 
-func startStratum() {
+func startStratum() error {
 	c := hidden("stratum.exe", "-config", dpath("config.yaml"))
 	c.Env = append(append(os.Environ(), dbEnv()...),
 		// API_PORT points the stratum at api.exe for miner-settings lookups; INTERNAL_STATS_PORT
@@ -224,15 +263,14 @@ func startStratum() {
 		// then disconnects its miners and sends the pool the TIDES shares it still holds.
 		"FORGE_STOP_ON_STDIN_EOF=1")
 	c.Stdout, c.Stderr = serviceLog("stratum"), serviceLog("stratum")
-	if w, err := c.StdinPipe(); err == nil {
-		mu.Lock()
-		stdins["stratum"] = w
-		mu.Unlock()
+	w, err := c.StdinPipe()
+	if err != nil {
+		return err
 	}
-	_ = run("stratum", c)
+	return runPiped("stratum", c, w)
 }
 
-func startAPI() {
+func startAPI() error {
 	c := hidden("api.exe")
 	c.Dir = dataDir // run from the data folder, not the install folder
 	c.Env = append(append(os.Environ(), dbEnv()...),
@@ -244,72 +282,141 @@ func startAPI() {
 		"AUX1175_URL=http://127.0.0.1:"+aux1175RPC, "AUX1175_USER=forge1175", "AUX1175_PASSWORD="+sec.AuxPass,
 		"SETTINGS_PASSWORD="+sec.Settings, "FORGE_PLATFORM=windows")
 	c.Stdout, c.Stderr = serviceLog("api"), serviceLog("api")
-	_ = run("api", c)
+	return run("api", c)
 }
 
+// restarting is set while Restart Mining runs: a second click meanwhile does nothing.
+var restarting atomic.Bool
+
 func restartMiner() {
+	if !restarting.CompareAndSwap(false, true) {
+		return
+	}
+	defer restarting.Store(false)
 	// Until boot has started the miner (or when it could not), there is none to restart, and
 	// starting one here would leave two.
 	if !started("stratum") {
 		return
 	}
 	logf("restarting the miner")
-	systray.SetTooltip("Forge Solo: restarting the miner…")
+	status("Forge Solo: restarting the miner…")
 	stopGracefully("stratum", stratumStopGrace)
 	time.Sleep(2 * time.Second)
-	startStratum()
-	systray.SetTooltip("Forge Solo: running")
+	if err := startStratum(); err != nil {
+		logf("the miner did not start again: %v", err)
+		status("Forge Solo: the miner did not start again (see launcher.log)")
+		return
+	}
+	status("Forge Solo: running")
 }
 
+// boot starts everything. Quit may come at any point of it: from then on nothing more starts, and
+// boot stops where it is.
 func boot() {
-	systray.SetTooltip("Forge Solo: preparing…")
+	status("Forge Solo: preparing…")
 	stopLeftovers()
 	writeConfigs()
-	systray.SetTooltip("Forge Solo: starting the database…")
+	status("Forge Solo: starting the database…")
 	if !startPostgres() {
+		if isStopping() {
+			return
+		}
 		logf("the database did not start (see pglog.txt)")
-		systray.SetTooltip("Forge Solo: the database did not start (see pglog.txt in the data folder)")
+		status("Forge Solo: the database did not start (see pglog.txt in the data folder)")
 		return
 	}
 	logf("database started")
-	systray.SetTooltip("Forge Solo: starting the nodes (the first sync can take a while)…")
+	status("Forge Solo: starting the nodes (the first sync can take a while)…")
 	startNodes()
+	if isStopping() {
+		return
+	}
 	logf("nodes started")
 
 	// The API + dashboard don't need the node's RPC to start (handlers call it lazily and
 	// report "offline"/"syncing" on their own), so bring them up right away. The browser
 	// opens in seconds and the dashboard's status banner shows live sync progress, instead
 	// of the whole UI waiting on the nodes first.
-	startAPI()
+	if startAPI() != nil {
+		return
+	}
 	waitTCP("127.0.0.1:"+apiPort, 60*time.Second)
-	go serveDashboard()
-	waitTCP("127.0.0.1:"+webPort, 20*time.Second)
-	systray.SetTooltip("Forge Solo: set your payout address in the dashboard")
-	openBrowser("http://127.0.0.1:" + webPort)
+	if isStopping() {
+		return
+	}
+	openDashboard()
 
 	// Start the miner once the node RPC is answering (stratum needs block templates).
 	go func() {
 		waitTCP("127.0.0.1:"+bch2RPC, 600*time.Second)
 		waitTCP("127.0.0.1:"+aux1175RPC, 120*time.Second) // best-effort (merge-mining)
-		startStratum()
+		if err := startStratum(); err != nil {
+			if !isStopping() {
+				logf("the miner did not start: %v", err)
+				status("Forge Solo: the miner did not start (see launcher.log)")
+			}
+			return
+		}
 		logf("miner started")
-		systray.SetTooltip("Forge Solo: running")
+		if dashboardOpen.Load() {
+			status("Forge Solo: running")
+		}
 	}()
+}
+
+// dashboardOpen is set once the dashboard is served, on dashboard.
+var (
+	dashboardOpen atomic.Bool
+	dashboard     net.Listener
+)
+
+// openDashboard serves the dashboard and opens it in the browser. Its port is fixed, so another
+// program may hold it: the dashboard then cannot open, the browser would show that program, and
+// the tray says so instead. Mining goes on.
+func openDashboard() {
+	l, err := net.Listen("tcp", "127.0.0.1:"+webPort)
+	if err != nil {
+		logf("the dashboard cannot open: another program uses port %s (%v)", webPort, err)
+		status("Forge Solo: another program uses port " + webPort + ", so the dashboard cannot open. Close it, then restart Forge Solo.")
+		return
+	}
+	dashboard = l
+	dashboardOpen.Store(true)
+	go serveDashboard(l)
+	status("Forge Solo: set your payout address in the dashboard")
+	openBrowser("http://127.0.0.1:" + webPort)
 }
 
 // rpcStop asks a node to shut down via its RPC `stop` method so it FLUSHES the chainstate to
 // disk before exiting. A hard kill loses the in-memory (dbcache) chainstate on this small chain
 // and forces a full resync on the next launch.
-func rpcStop(port, user, pass string) {
+func rpcStop(port, user, pass string, timeout time.Duration) {
 	req, err := http.NewRequest("POST", "http://127.0.0.1:"+port+"/",
 		strings.NewReader(`{"jsonrpc":"1.0","id":"quit","method":"stop","params":[]}`))
 	if err != nil {
 		return
 	}
 	req.SetBasicAuth(user, pass)
-	c := &http.Client{Timeout: 5 * time.Second}
+	c := &http.Client{Timeout: timeout}
 	if resp, err := c.Do(req); err == nil {
 		_ = resp.Body.Close()
+	}
+}
+
+// askToStop asks a node to stop, again every second until exited reports it gone or grace runs
+// out, and reports whether it stopped. A node still loading its blocks refuses every request, stop
+// among them, until it is ready; asked once, it was killed at the end of its grace instead.
+func askToStop(port, user, pass string, grace time.Duration, exited func(time.Duration) bool) bool {
+	deadline := time.Now().Add(grace)
+	for {
+		left := time.Until(deadline)
+		if left <= 0 {
+			return exited(0)
+		}
+		rpcStop(port, user, pass, min(5*time.Second, left))
+		if exited(min(time.Second, max(time.Until(deadline), 0))) {
+			return true
+		}
 	}
 }
 
@@ -324,13 +431,11 @@ func started(key string) bool {
 // it exited (true too when there is no such process).
 func waitProcExit(key string, timeout time.Duration) bool {
 	mu.Lock()
-	c := procs[key]
+	done := exited[key]
 	mu.Unlock()
-	if c == nil || c.Process == nil {
+	if done == nil {
 		return true
 	}
-	done := make(chan struct{})
-	go func() { _, _ = c.Process.Wait(); close(done) }()
 	select {
 	case <-done:
 		return true
@@ -373,16 +478,29 @@ var sessionEnding atomic.Bool
 // stopDone is closed when everything has stopped, just before the process exits.
 var stopDone = make(chan struct{})
 
-// shutdown stops everything cleanly and exits. A second call waits for the first, which exits.
+// shutdown stops everything cleanly and exits. The tray icon stays, showing the stop, until
+// everything has stopped: gone at once, as the tray takes it on Quit, it looked as if Forge Solo
+// had exited, and a start meanwhile found it still running and only opened its dashboard. A second
+// call waits for the first, which exits.
 func shutdown() {
 	stopOnce.Do(func() {
-		systray.SetTooltip("Forge Solo: shutting down cleanly…")
-		start := time.Now()
-		stopEverything()
-		logf("everything stopped in %v", time.Since(start).Round(time.Millisecond))
+		stopForExit()
 		close(stopDone)
+		systray.Quit() // removes the icon
 		os.Exit(0)
 	})
+}
+
+// stopForExit stops everything for the exit that follows. Nothing starts once it has begun: boot
+// may still be starting things, and one started after the stop had passed it was left running.
+func stopForExit() {
+	mu.Lock()
+	stopping = true
+	mu.Unlock()
+	showStopping()
+	start := time.Now()
+	stopEverything()
+	logf("everything stopped in %v", time.Since(start).Round(time.Millisecond))
 }
 
 // waitStopped waits up to max for the stop under way to finish, and reports whether it did.
@@ -452,9 +570,19 @@ func postmasterPID() int {
 // its postmaster.pid to go, but without starting pg_ctl: once Windows is ending the session it
 // starts no new program (they fail with 0xC0000142), and the database was then killed instead.
 func stopDatabase() {
+	// A start still under way may not have written postmaster.pid yet: wait for it, or for the start
+	// to end.
 	pid := postmasterPID()
+	for wait := time.Now(); pid == 0 && dbStarting.Load() && time.Since(wait) < 10*time.Second; pid = postmasterPID() {
+		time.Sleep(50 * time.Millisecond)
+	}
 	if pid == 0 {
 		logf("database: not running")
+		return
+	}
+	// postmaster.pid outlives a server that crashed, and its number may since be another program's.
+	if !runs(installedPrograms(), pid, "postgres.exe") {
+		logf("database: postmaster.pid names process %d, which is not this install's database", pid)
 		return
 	}
 	start := time.Now()
@@ -514,8 +642,7 @@ func stopNodes() {
 		go func() {
 			defer wg.Done()
 			start := time.Now()
-			rpcStop(n.port, n.user, n.pass)
-			if waitProcExit(n.key, n.grace) {
+			if askToStop(n.port, n.user, n.pass, n.grace, func(d time.Duration) bool { return waitProcExit(n.key, d) }) {
 				logf("%s node stopped in %v", n.key, time.Since(start).Round(time.Millisecond))
 			} else {
 				logf("%s node did not stop in %v: killed", n.key, n.grace)

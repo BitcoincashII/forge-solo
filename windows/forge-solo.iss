@@ -31,8 +31,8 @@ UninstallDisplayIcon={app}\{#MyAppExe}
 UninstallDisplayName={#MyAppName}
 ; Held by the launcher while it runs (runningMutex in launcher/instance_windows.go). Setup and the
 ; uninstaller ask for Forge Solo to be closed first, so that it stops both nodes cleanly, rather
-; than have its files closed under it.
-AppMutex=ForgeSoloRunning
+; than have its files closed under it. Test builds of 1.0.13 held the unprefixed name.
+AppMutex=ForgeSoloRunning,Global\ForgeSoloRunning
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -46,6 +46,8 @@ Name: "startup"; Description: "Start Forge Solo when I sign in"; GroupDescriptio
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "ForgeSolo"; ValueData: """{app}\{#MyAppExe}"""; Flags: uninsdeletevalue; Tasks: startup
+; An update with the box unticked turns the sign-in start off; without this it stayed on.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "ForgeSolo"; Flags: deletevalue; Tasks: not startup
 
 [Files]
 Source: "bin\*"; DestDir: "{app}"; Flags: ignoreversion

@@ -25,16 +25,28 @@ type leftoverWorld struct {
 
 // nodeServer is a fake node RPC on 127.0.0.1: a stop request makes pid exit, unless it ignores it.
 func (w *leftoverWorld) nodeServer(t *testing.T, pid int, ignores bool) int {
+	return w.loadingNodeServer(t, pid, ignores, time.Time{})
+}
+
+// loadingNodeServer is nodeServer for a node that refuses every request until ready, as a node
+// still loading its blocks does.
+func (w *leftoverWorld) loadingNodeServer(t *testing.T, pid int, ignores bool, ready time.Time) int {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		user, _, _ := r.BasicAuth()
 		_, port, _ := net.SplitHostPort(r.Host)
 		w.mu.Lock()
 		w.stopsFor[port] = append(w.stopsFor[port], user)
-		if !ignores {
+		loading := time.Now().Before(ready)
+		if !ignores && !loading {
 			w.exited[pid] = true
 		}
 		w.mu.Unlock()
+		if loading {
+			rw.WriteHeader(http.StatusInternalServerError)
+			_, _ = rw.Write([]byte(`{"result":null,"error":{"code":-28,"message":"Loading block index…"},"id":"quit"}`))
+			return
+		}
 		_, _ = rw.Write([]byte(`{"result":"stopping"}`))
 	}))
 	t.Cleanup(srv.Close)
@@ -73,6 +85,7 @@ func newLeftoverWorld(t *testing.T) *leftoverWorld {
 	killPID = func(pid int) error {
 		w.mu.Lock()
 		w.killed = append(w.killed, pid)
+		w.exited[pid] = true
 		w.mu.Unlock()
 		return nil
 	}
@@ -149,6 +162,44 @@ func TestLeftoverNodesThatDoNotStop(t *testing.T) {
 	}
 	if took < 300*time.Millisecond {
 		t.Errorf("LEFTOVER-KILL-AFTER-GRACE: the node that ignored its stop was ended after %v, before its grace", took)
+	}
+}
+
+// A leftover node still loading its blocks refuses the first stop request: it is asked again until
+// it stops, not ended when its grace runs out.
+func TestLeftoverNodeAskedAgainWhileItLoads(t *testing.T) {
+	w := newLeftoverWorld(t)
+	bch2StopGrace = 5 * time.Second
+	bch2Port := w.loadingNodeServer(t, 101, false, time.Now().Add(1500*time.Millisecond))
+	portPlan = []portSlot{{"the BCH2 node", &bch2RPC, bch2Port}}
+	w.progs = []runningProgram{{101, "bitcoincashiid.exe"}}
+	w.ports[101] = []int{bch2Port}
+
+	stopLeftovers()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.killed) != 0 {
+		t.Fatalf("LEFTOVER-STOP-RETRY: ended %v after %d stop requests; the node would have stopped once it had loaded", w.killed, len(w.stopsFor[strconv.Itoa(bch2Port)]))
+	}
+}
+
+// A leftover that is ended is waited for until it is gone, before anything is started in its place.
+func TestLeftoverEndedIsWaitedFor(t *testing.T) {
+	w := newLeftoverWorld(t)
+	w.progs = []runningProgram{{104, "api.exe"}}
+	killPID = func(pid int) error {
+		time.AfterFunc(300*time.Millisecond, func() {
+			w.mu.Lock()
+			w.exited[pid] = true
+			w.mu.Unlock()
+		})
+		return nil
+	}
+	stopLeftovers()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !w.exited[104] {
+		t.Fatal("LEFTOVER-KILL-WAITS: the leftover API was ended, and its start in its place not held until it was gone")
 	}
 }
 

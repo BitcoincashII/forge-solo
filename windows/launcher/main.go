@@ -1,14 +1,15 @@
 // Forge Solo's Windows launcher: a tray app, with no console. It boots a bundled Postgres,
 // the BCH2 + 1175 nodes, and the stratum + api services, serves the dashboard on 127.0.0.1, and
-// opens the browser. All data + secrets live under %APPDATA%\ForgeSolo. Only the miner port
-// (3333) and the two nodes' P2P ports (8339, 25360) listen beyond this machine; everything else
-// is on 127.0.0.1.
+// opens the browser. All data + secrets live under %APPDATA%\ForgeSolo. Only the miner ports
+// (3333, and 3335 for rented hashpower) and the two nodes' P2P ports (8339, 25360) listen beyond
+// this machine; everything else is on 127.0.0.1.
 package main
 
 import (
 	"crypto/rand"
 	_ "embed"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -17,6 +18,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"fyne.io/systray"
@@ -33,10 +35,13 @@ var trayIcon []byte
 const (
 	minerPort  = "3333"  // documented miner endpoint, fixed so users always point miners here
 	rentalPort = "3335"  // NiceHash / MiningRigRentals: one connection per order, high difficulty floor
-	webPort    = "3080"  // dashboard URL, fixed so it stays stable across launches
 	bch2P2P    = "8339"  // BCH2 P2P (incoming peers), fixed so the installer firewall rule matches
 	aux1175P2P = "25360" // 1175 P2P (incoming peers), likewise fixed; listen=1 needs a reachable port
 )
+
+// webPort is the dashboard's port, fixed so its address stays the same across launches (a
+// variable only so the tests can use a free one).
+var webPort = "3080"
 
 // Loopback-only service ports. Chosen dynamically at startup (pickPort) so they can NEVER
 // collide with other software or Windows reserved/excluded ranges: the root cause of the
@@ -68,9 +73,15 @@ var (
 	dataDir    string
 	mu         sync.Mutex
 	procs      = map[string]*exec.Cmd{}
+	exited     = map[string]chan struct{}{}  // closed when the process under the same key has exited
 	stdins     = map[string]io.WriteCloser{} // write ends of the stdin pipes a clean stop closes
+	stopping   bool                          // set under mu when the stop begins; nothing starts after it
 	sec        secrets
 )
+
+// errStopping refuses a start once the stop has begun: a program started after the stop had passed
+// it would be left running when Forge Solo exits.
+var errStopping = errors.New("Forge Solo is stopping")
 
 type secrets struct {
 	BCH2Pass, AuxPass, DBPass, Token, Settings string
@@ -122,22 +133,108 @@ func restrictDataDir(dir string) {
 	}
 	_ = hiddenSystem("icacls", dir, "/inheritance:r", "/grant:r", user+":(OI)(CI)F").Run()
 }
-func run(key string, c *exec.Cmd) error {
+func run(key string, c *exec.Cmd) error { return runPiped(key, c, nil) }
+
+// runPiped starts c and tracks it under key, with stdin, if any, the write end of its stdin pipe,
+// which a clean stop closes. It refuses once the stop has begun. The check, the start and the
+// tracking are one step under mu, so the stop finds every program that started.
+func runPiped(key string, c *exec.Cmd, stdin io.WriteCloser) error {
+	mu.Lock()
+	defer mu.Unlock()
+	if stopping {
+		closeIfAny(stdin)
+		return errStopping
+	}
 	if err := c.Start(); err != nil {
+		closeIfAny(stdin)
 		return err
 	}
-	mu.Lock()
-	procs[key] = c
-	mu.Unlock()
+	// One wait per process, for everything that waits on it.
+	done := make(chan struct{})
+	go func() { _, _ = c.Process.Wait(); close(done) }()
+	procs[key], exited[key] = c, done
+	if stdin != nil {
+		stdins[key] = stdin
+	}
 	return nil
 }
-func stop(key string) {
+
+func closeIfAny(w io.WriteCloser) {
+	if w != nil {
+		_ = w.Close()
+	}
+}
+
+// runToEnd runs c to its end, unless the stop has begun. While it runs, *running is set, if given.
+func runToEnd(c *exec.Cmd, running *atomic.Bool) error {
 	mu.Lock()
-	if c := procs[key]; c != nil && c.Process != nil {
-		_ = c.Process.Kill()
-		delete(procs, key)
+	if stopping {
+		mu.Unlock()
+		return errStopping
+	}
+	err := c.Start()
+	if err == nil && running != nil {
+		running.Store(true)
 	}
 	mu.Unlock()
+	if err != nil {
+		return err
+	}
+	err = c.Wait()
+	if running != nil {
+		running.Store(false)
+	}
+	return err
+}
+
+// isStopping reports whether the stop has begun.
+func isStopping() bool {
+	mu.Lock()
+	defer mu.Unlock()
+	return stopping
+}
+
+// stop ends the process under key at once, and waits a little for it to be gone: Windows ends a
+// process only once its pending I/O is done, and one started in its place could otherwise still
+// find its port or its data folder taken.
+func stop(key string) {
+	mu.Lock()
+	c, done := procs[key], exited[key]
+	if c != nil && c.Process != nil {
+		_ = c.Process.Kill()
+	}
+	delete(procs, key)
+	delete(exited, key)
+	mu.Unlock()
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+		}
+	}
+}
+
+// tipMu and stopShown keep the stop's tray tooltip from being replaced by a start's.
+var (
+	tipMu     sync.Mutex
+	stopShown bool
+)
+
+// status shows s as the tray tooltip, unless the stop has begun: its own tooltip stays.
+func status(s string) {
+	tipMu.Lock()
+	defer tipMu.Unlock()
+	if !stopShown {
+		systray.SetTooltip(s)
+	}
+}
+
+// showStopping shows the stop's tooltip, which no later status replaces.
+func showStopping() {
+	tipMu.Lock()
+	defer tipMu.Unlock()
+	stopShown = true
+	systray.SetTooltip("Forge Solo: shutting down cleanly…")
 }
 func writeAbsent(path, content string) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
@@ -159,7 +256,9 @@ func waitTCP(addr string, timeout time.Duration) bool {
 	}
 	return false
 }
-func openBrowser(u string) { _ = exec.Command("rundll32", "url.dll,FileProtocolHandler", u).Start() }
+
+// openBrowser opens a page in the default browser (a stand-in in the tests).
+var openBrowser = func(u string) { _ = exec.Command("rundll32", "url.dll,FileProtocolHandler", u).Start() }
 
 // portWindow is how many ports pickPort tries, from its start.
 const portWindow = 300
@@ -205,36 +304,39 @@ func main() {
 	md(dataDir)
 	restrictDataDir(dataDir)
 	rotateLog(dpath("launcher.log"), 1<<20)
-	// Read before the tray starts, so its menu never sees them half loaded.
-	setupSecrets()
-	// Assign collision-proof loopback ports before any service binds.
-	portErr := assignPorts()
-	if portErr != nil {
-		logf("Forge Solo cannot start: %v", portErr)
+	// Read before the tray starts, so its menu never sees them half loaded. Then the loopback
+	// ports, collision-proof, before any service binds.
+	startErr := setupSecrets()
+	if startErr == nil {
+		startErr = assignPorts()
+	}
+	if startErr != nil {
+		logf("Forge Solo cannot start: %v", startErr)
 	} else {
 		logf("Forge Solo starting: database %s, BCH2 node %s (notices %s), 1175 node %s, miner stats %s, dashboard data %s",
 			pgPort, bch2RPC, bch2ZMQ, aux1175RPC, stratumInt, apiPort)
 	}
-	systray.Run(func() { onReady(portErr) }, func() { shutdown() })
-	// Quit runs shutdown on the menu's goroutine while the tray's loop ends, and returning from
-	// main would end the process there, leaving the nodes and the database running with nothing
-	// to stop them. This waits for that stop, or makes it, and exits when it is done.
+	go watchTray(exe)
+	// No exit callback: the tray calls it as it removes its icon, and the stop is shutdown's.
+	systray.Run(func() { onReady(startErr) }, nil)
+	// The tray's loop ended without Quit (Windows closed its window): stop everything and exit.
 	shutdown()
 }
 
-func onReady(portErr error) {
+func onReady(startErr error) {
+	close(trayReady)
 	systray.SetIcon(trayIcon)
 	systray.SetTitle("Forge Solo")
 	systray.SetTooltip("Forge Solo: starting…")
 	mOpen := systray.AddMenuItem("Open Dashboard", "")
 	mCopyPw := systray.AddMenuItem(copyPwTitle, "Copy the password the Settings page asks for")
-	mRestart := systray.AddMenuItem("Restart Mining", "Restart the miner after changing your payout address")
+	mRestart := systray.AddMenuItem("Restart Mining", "Restart the miner")
 	mData := systray.AddMenuItem("Open Data Folder", "")
 	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("Quit Forge Solo", "")
 	watchSessionEnd()
-	if portErr != nil {
-		systray.SetTooltip("Forge Solo cannot start: " + portErr.Error())
+	if startErr != nil {
+		systray.SetTooltip(trimTip("Forge Solo cannot start: " + startErr.Error()))
 	} else {
 		go boot()
 	}
@@ -246,14 +348,63 @@ func onReady(portErr error) {
 			case <-mCopyPw.ClickedCh:
 				copySettingsPassword(mCopyPw)
 			case <-mRestart.ClickedCh:
-				restartMiner()
+				// Not on this loop: a click while it runs (up to half a minute) would be lost, Quit's
+				// among them.
+				go restartMiner()
 			case <-mData.ClickedCh:
 				_ = exec.Command("explorer", dataDir).Start()
 			case <-mQuit.ClickedCh:
-				systray.Quit()
+				go shutdown()
 			}
 		}
 	}()
+}
+
+// trimTip shortens a tray tooltip to what Windows shows (127 characters).
+func trimTip(s string) string {
+	if r := []rune(s); len(r) > 127 {
+		return string(r[:126]) + "…"
+	}
+	return s
+}
+
+// trayReady is closed once the tray icon is up and its menu made.
+var trayReady = make(chan struct{})
+
+// trayWait is how long the tray icon may take to come up (shorter in the tests).
+var trayWait = 90 * time.Second
+
+// relaunch and exit stand in for the real ones in the tests.
+var (
+	relaunch = func(exe string) error {
+		c := exec.Command(exe)
+		c.Env = append(os.Environ(), "FORGE_SOLO_RELAUNCHED=1")
+		return c.Start()
+	}
+	exit = os.Exit
+)
+
+// watchTray starts Forge Solo again, once, if its tray icon never comes up. Windows can refuse the
+// icon while it is still setting up the taskbar at sign-in, and the tray then never calls onReady:
+// nothing starts, and this copy, holding the single-instance mutex, would turn every later launch
+// into a dashboard that does not answer.
+func watchTray(exe string) {
+	select {
+	case <-trayReady:
+		return
+	case <-time.After(trayWait):
+	}
+	if os.Getenv("FORGE_SOLO_RELAUNCHED") != "" {
+		logf("the tray icon did not come up after a restart either: exiting")
+		exit(1)
+		return
+	}
+	logf("the tray icon did not come up in %v: starting Forge Solo again", trayWait)
+	releaseRunning()
+	if err := relaunch(exe); err != nil {
+		logf("could not start Forge Solo again: %v", err)
+	}
+	exit(0)
 }
 
 const copyPwTitle = "Copy Settings Password"
