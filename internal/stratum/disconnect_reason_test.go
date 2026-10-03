@@ -139,3 +139,16 @@ func TestDisconnectReasonsFromTheStratumsSide(t *testing.T) {
 		t.Errorf("REASON-FIRST: %q", r)
 	}
 }
+
+// A miner that logs in before the first job exists -- every start, as rentals reconnect at once --
+// gets that job when it is made. That is said at info, not as a warning.
+func TestLoginBeforeTheFirstJobIsNoWarning(t *testing.T) {
+	s, logs := reasonServer(t)
+	loggedIn(t, s)
+	if logs.FilterMessageSnippet("No job yet").Len() != 1 {
+		t.Fatal("LOGIN-BEFORE-JOB-SAID: the log does not say the miner gets the first job when it is made")
+	}
+	if w := logs.FilterLevelExact(zapcore.WarnLevel).All(); len(w) != 0 {
+		t.Fatalf("LOGIN-BEFORE-JOB-NOT-WARN: logging in before the first job logged a warning: %q", w[0].Message)
+	}
+}

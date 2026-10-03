@@ -2140,8 +2140,15 @@ func (p *BlockFindingShareProcessor) submitBlock(share *stratum.Share) {
 		if err != nil {
 			reason = err.Error()
 		}
-		p.logger.Warn("submitblock was not a clean accept; reconciling against chain",
-			zap.String("reason", reason), zap.String("our_hash", ourHash), zap.Int64("height", job.Height))
+		if err == nil && result == "duplicate" {
+			// The node already has this very block. In TIDES mode that is the usual case: the pool
+			// submits the block too, and its copy often reaches the node first.
+			p.logger.Info("The node already had this block (in TIDES mode the pool submits it too, often first); checking it is on the chain",
+				zap.String("our_hash", ourHash), zap.Int64("height", job.Height))
+		} else {
+			p.logger.Warn("submitblock was not a clean accept; reconciling against chain",
+				zap.String("reason", reason), zap.String("our_hash", ourHash), zap.Int64("height", job.Height))
+		}
 		result = reconcileBlock(blockHex, ourHash, job.Height)
 		if result == "" {
 			p.logger.Info("Block confirmed on chain after reconciliation",

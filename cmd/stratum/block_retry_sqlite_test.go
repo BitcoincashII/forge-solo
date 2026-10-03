@@ -20,6 +20,8 @@ import (
 	"github.com/BitcoincashII/forge-solo/internal/stratum"
 	"github.com/BitcoincashII/forge-solo/internal/tides"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 // fakeNode answers submitblock and getblockhash the way the node does, after failing its first
@@ -30,6 +32,7 @@ type fakeNode struct {
 	warming   int    // requests still to answer -28 "Loading block index…", as a restarting node does
 	errCode   int    // an error code to answer submitblock with, instead of a verdict
 	refuse    string // a submitblock verdict to give instead of accepting
+	had       bool   // the node already has the block (the pool's copy came first): "duplicate"
 	other     string // a hash another block holds the height with
 	accepted  string // the hash of the block taken
 	requests  int
@@ -78,6 +81,10 @@ func (n *fakeNode) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h2[i], h2[j] = h2[j], h2[i]
 		}
 		n.accepted = hex.EncodeToString(h2[:])
+		if n.had {
+			json.NewEncoder(w).Encode(map[string]any{"result": "duplicate", "error": nil})
+			return
+		}
 		json.NewEncoder(w).Encode(map[string]any{"result": nil, "error": nil})
 	case "getblockhash":
 		switch {
@@ -114,6 +121,12 @@ func findBlock(t *testing.T, node *fakeNode, height int64) {
 // unsaid, when payTo is ""), found by a miner credited to blockTestPayout.
 func findBlockPaying(t *testing.T, node *fakeNode, height int64, payTo string) {
 	t.Helper()
+	findBlockLogged(t, node, height, payTo, zap.NewNop())
+}
+
+// findBlockLogged is findBlockPaying with the block finder logging to lg.
+func findBlockLogged(t *testing.T, node *fakeNode, height int64, payTo string, lg *zap.Logger) {
+	t.Helper()
 	srv := httptest.NewServer(node)
 	t.Cleanup(srv.Close)
 	savedURL, savedLogger := rpcURL, logger
@@ -137,7 +150,7 @@ func findBlockPaying(t *testing.T, node *fakeNode, height int64, payTo string) {
 	jobHistoryMu.Unlock()
 	share := &stratum.Share{JobID: id, MinerID: blockTestPayout, WorkerName: "rig1", ExtraNonce1: "00000001",
 		ExtraNonce2: "0000000000000001", NTime: "66f8a1b2", Nonce: "00000000", IsSolo: true}
-	(&BlockFindingShareProcessor{logger: zap.NewNop()}).submitBlock(share)
+	(&BlockFindingShareProcessor{logger: lg}).submitBlock(share)
 }
 
 const blockTestPayout = "bitcoincashii:qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzse6qye33q"
@@ -232,5 +245,28 @@ func TestABlockIsRecordedUnderTheAddressItPaid(t *testing.T) {
 		if b.Height == 305 && b.PayoutTxid == "" {
 			t.Fatal("PAY3-RECORD-PAYOUT: the block is under the address it paid, but its payout is under another")
 		}
+	}
+}
+
+// In TIDES mode the pool submits a block too, and its copy often reaches the node first: the node
+// then answers "duplicate". The block is on the chain and recorded, and the log says what
+// happened, not that the block was "not a clean accept" -- as it did for 6 of 8 blocks on a PC.
+func TestABlockTheNodeAlreadyHadIsNoWarning(t *testing.T) {
+	if err := stats.InitDB(filepath.Join(t.TempDir(), "b.db")); err != nil {
+		t.Fatal(err)
+	}
+	defer stats.CloseDB()
+	shortRetries(t)
+	core, logs := observer.New(zapcore.InfoLevel)
+	node := &fakeNode{had: true}
+	findBlockLogged(t, node, 311, "", zap.New(core))
+	if !recorded(311) {
+		t.Fatalf("BLOCK-HAD-RECORDED: a block the node already had was not recorded (%d requests)", node.requests)
+	}
+	if w := logs.FilterLevelExact(zapcore.WarnLevel).All(); len(w) != 0 {
+		t.Fatalf("BLOCK-HAD-NOT-WARN: a block the node already had logged a warning: %q", w[0].Message)
+	}
+	if logs.FilterMessageSnippet("already had this block").Len() != 1 {
+		t.Fatalf("BLOCK-HAD-SAID: the log does not say the node already had the block")
 	}
 }

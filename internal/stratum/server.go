@@ -1293,7 +1293,9 @@ func (s *Server) handleMessage(client *Client, data []byte) bool {
 					zap.String("miner", client.MinerID),
 					zap.String("job_id", initialJob.ID))
 			} else {
-				s.logger.Warn("No current job to send after auth",
+				// Usual for a moment after a start: miners reconnect before the first job is made, and
+				// BroadcastJob sends it to them when it is.
+				s.logger.Info("No job yet for a miner that just logged in: it gets the first one when it is made",
 					zap.String("miner", client.MinerID))
 			}
 		}
