@@ -194,6 +194,10 @@ func main() {
 	// Assign collision-proof loopback ports before any service binds.
 	portErr := assignPorts()
 	systray.Run(func() { onReady(portErr) }, func() { shutdown() })
+	// Quit runs shutdown on the menu's goroutine while the tray's loop ends, and returning from
+	// main would end the process there, leaving the nodes and the database running with nothing
+	// to stop them. This waits for that stop, or makes it, and exits when it is done.
+	shutdown()
 }
 
 func onReady(portErr error) {
@@ -205,6 +209,7 @@ func onReady(portErr error) {
 	mData := systray.AddMenuItem("Open Data Folder", "")
 	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("Quit Forge Solo", "")
+	watchSessionEnd()
 	if portErr != nil {
 		systray.SetTooltip("Forge Solo cannot start: " + portErr.Error())
 	} else {

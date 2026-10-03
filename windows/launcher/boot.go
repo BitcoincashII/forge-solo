@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"fyne.io/systray"
@@ -313,30 +314,53 @@ func stopGracefully(key string, grace time.Duration) {
 	stop(key)
 }
 
+// stopOnce runs the stop once: Quit and Windows ending the session can both ask for it.
+var stopOnce sync.Once
+
+// shutdown stops everything cleanly and exits. A second call waits for the first, which exits.
 func shutdown() {
-	systray.SetTooltip("Forge Solo — shutting down cleanly…")
-	stopGracefully("stratum", stratumStopGrace) // miner + api first (they talk to the nodes)
+	stopOnce.Do(func() {
+		systray.SetTooltip("Forge Solo — shutting down cleanly…")
+		stopAll()
+		os.Exit(0)
+	})
+}
+
+// stopAll stops the miner first, since a block it is still submitting needs the BCH2 node, and
+// the API with it; then both nodes at once; then the database.
+func stopAll() {
+	stopGracefully("stratum", stratumStopGrace)
 	stop("api")
 	stopNodes()
 	pgctl := hidden("pgsql\\bin\\pg_ctl.exe", "-D", dpath("pgdata"), "-m", "fast", "stop")
 	_ = pgctl.Run()
-	os.Exit(0)
 }
 
 // stopNodes flushes + stops the nodes gracefully so the next launch RESUMES instead of resyncing,
-// and kills one only if it ignored its grace. Only a node this launcher started is asked: otherwise
-// the port may be another program's, and the request carries the node's password.
+// and kills one only if it ignored its grace. Both at once: one waiting on the other only added to
+// the time a closing Windows session has to give. Only a node this launcher started is asked:
+// otherwise the port may be another program's, and the request carries the node's password.
 func stopNodes() {
-	if started("bch2") {
-		rpcStop(bch2RPC, "forge", sec.BCH2Pass)
+	var wg sync.WaitGroup
+	for _, n := range []struct {
+		key, port, user, pass string
+		grace                 time.Duration
+	}{
+		{"bch2", bch2RPC, "forge", sec.BCH2Pass, 45 * time.Second},
+		{"aux1175", aux1175RPC, "forge1175", sec.AuxPass, 20 * time.Second},
+	} {
+		if !started(n.key) {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rpcStop(n.port, n.user, n.pass)
+			waitProcExit(n.key, n.grace)
+			stop(n.key)
+		}()
 	}
-	if started("aux1175") {
-		rpcStop(aux1175RPC, "forge1175", sec.AuxPass)
-	}
-	waitProcExit("bch2", 45*time.Second)
-	waitProcExit("aux1175", 20*time.Second)
-	stop("bch2")
-	stop("aux1175")
+	wg.Wait()
 }
 
 // small helpers to avoid extra imports

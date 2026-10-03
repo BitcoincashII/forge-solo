@@ -11,13 +11,16 @@ import (
 )
 
 // TestHelperProcess is the child the tests below start. FS_HELPER=eof: exit 0 as soon as stdin
-// closes (as the stratum does with FORGE_STOP_ON_STDIN_EOF=1), leaving a marker that it did.
-// FS_HELPER=stuck: ignore stdin and write a heartbeat until killed.
+// closes (as the stratum does with FORGE_STOP_ON_STDIN_EOF=1), or FS_HELPER_DELAY after, leaving
+// a marker that it did. FS_HELPER=stuck: ignore stdin and write a heartbeat until killed.
 func TestHelperProcess(t *testing.T) {
 	dir := os.Getenv("FS_HELPER_DIR")
 	switch os.Getenv("FS_HELPER") {
 	case "eof":
 		_, _ = io.Copy(io.Discard, os.Stdin)
+		if d, err := time.ParseDuration(os.Getenv("FS_HELPER_DELAY")); err == nil {
+			time.Sleep(d)
+		}
 		_ = os.WriteFile(filepath.Join(dir, "clean"), []byte("1"), 0o600)
 		os.Exit(0)
 	case "stuck":
@@ -28,10 +31,10 @@ func TestHelperProcess(t *testing.T) {
 	}
 }
 
-func startHelper(t *testing.T, key, mode, dir string) {
+func startHelper(t *testing.T, key, mode, dir string, env ...string) {
 	t.Helper()
 	c := exec.Command(os.Args[0], "-test.run=TestHelperProcess")
-	c.Env = append(os.Environ(), "FS_HELPER="+mode, "FS_HELPER_DIR="+dir)
+	c.Env = append(append(os.Environ(), "FS_HELPER="+mode, "FS_HELPER_DIR="+dir), env...)
 	w, err := c.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
