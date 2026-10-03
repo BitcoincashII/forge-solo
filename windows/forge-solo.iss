@@ -138,13 +138,15 @@ begin
     DataDir := ExpandConstant('{userappdata}\ForgeSolo');
     if DirExists(DataDir) then
     begin
-      if MsgBox('Also delete Forge Solo''s data folder?' + #13#10#13#10 +
+      // No is the default: pressing Enter keeps the folder, and so does an uninstall run silently
+      // (/SUPPRESSMSGBOXES), which a plain MsgBox would have stopped on, waiting for an answer.
+      if SuppressibleMsgBox('Also delete Forge Solo''s data folder?' + #13#10#13#10 +
                 DataDir + #13#10#13#10 +
                 'It holds the downloaded BCH2 and 1175 blockchains, the database, your saved ' +
                 'payout address, and the file storing this install''s node and database ' +
                 'passwords.' + #13#10#13#10 +
                 'Choose No to keep it for a future reinstall.',
-                mbConfirmation, MB_YESNO) = IDYES then
+                mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES then
         DelTree(DataDir, True, True, True);
     end;
   end;
