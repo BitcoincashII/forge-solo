@@ -1480,11 +1480,25 @@ func getPoolConfig(c *fiber.Ctx) error {
 		"coinbase_tag":        tag,
 		"configured":          poolAddr != "",
 		"payout_mode":         mode,
-		// true: a save must carry the app's password (settingsPasswordGate).
+		// true: a save must carry the app's password (settingsPasswordGate). With it, how long
+		// that password is and where the app runs, so the page can say where to find it and spot
+		// a cut-off copy. Never the password itself.
 		"password_required": settingsPassword != "",
+		"password_length":   len(settingsPassword),
+		"platform":          platformFromEnv(),
 		// false: this app runs no 1175 node, so the dashboard hides 1175 merge-mining.
 		"merge_mining_available": mergeMiningAvailable(),
 	})
+}
+
+// platformFromEnv is where this app runs, as FORGE_PLATFORM says: "windows" or "linux", which
+// their launchers set, and otherwise "umbrel".
+func platformFromEnv() string {
+	switch p := strings.ToLower(strings.TrimSpace(os.Getenv("FORGE_PLATFORM"))); p {
+	case "windows", "linux":
+		return p
+	}
+	return "umbrel"
 }
 
 // payoutModeOrSolo is the dashboard's payout mode: solo unless TIDES was chosen.

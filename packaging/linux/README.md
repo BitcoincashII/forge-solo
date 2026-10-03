@@ -45,7 +45,9 @@ It runs in the foreground; Ctrl-C stops it (see **Stopping**). Then:
 1. Open **http://127.0.0.1:3080** in a browser on this machine (from another computer, see
    **The dashboard from another computer**).
 2. In **Settings**, enter your BCH2 payout address (`bitcoincashii:q…`), choose **Solo** or
-   **TIDES pool**, and press **Save settings**. Mining waits for a payout address.
+   **TIDES pool**, and press **Save settings**. Mining waits for a payout address. Saving asks
+   for Forge Solo's password, `DASHBOARD_PASSWORD` in `secrets.env` in the data directory: other
+   accounts on this machine can reach the dashboard too. The browser remembers it after that.
 3. Point your miners at **stratum+tcp://THIS-MACHINE:3333**. The worker name is only a label for
    the dashboard, and the password can be anything (`x`). Every block pays the payout address in
    Settings, whatever the worker name. NiceHash and MiningRigRentals, which put a whole order
@@ -144,7 +146,7 @@ In the data directory:
 | `bch2/` | the node: the chain, `bch2.conf` (written at every start), `debug.log` |
 | `forgesolo.db` | the database: your settings and your blocks |
 | `config.yaml` | the mining service's configuration (written at every start) |
-| `secrets.env` | the node's RPC password, an internal token and the dashboard password |
+| `secrets.env` | the node's RPC password, an internal token and the dashboard password (which Settings asks for) |
 | `logs/` | the mining service's and the API's logs (`stratum.log`, `api.log`) |
 
 ## If something goes wrong

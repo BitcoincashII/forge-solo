@@ -54,20 +54,31 @@ func TestSettingsNeedThePassword(t *testing.T) {
 		}
 		return a
 	}
-	readFlag := func() any {
+	readBody := func() string {
 		resp, err := app.Test(httptest.NewRequest("GET", "/api/v1/pool/config", nil))
 		if err != nil {
 			t.Fatal(err)
 		}
+		b, _ := io.ReadAll(resp.Body)
+		return string(b)
+	}
+	readField := func(k string) any {
 		var d map[string]any
-		if err := json.NewDecoder(resp.Body).Decode(&d); err != nil {
+		if err := json.Unmarshal([]byte(readBody()), &d); err != nil {
 			t.Fatal(err)
 		}
-		return d["password_required"]
+		return d[k]
 	}
+	readFlag := func() any { return readField("password_required") }
 
 	if f := readFlag(); f != true {
 		t.Fatalf("PW-E2E-FLAG: the settings read says password_required=%v, so the page would not ask for it", f)
+	}
+	if n := readField("password_length"); n != float64(len(pw)) {
+		t.Fatalf("PW-E2E-LENGTH: the settings read says password_length=%v, want %d", n, len(pw))
+	}
+	if b := readBody(); strings.Contains(b, pw) {
+		t.Fatalf("PW-E2E-NOT-SHOWN: the settings read shows the password: %s", b)
 	}
 	const mine = "bitcoincashii:qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzse6qye33q"
 	body := `{"pool_address":"` + mine + `","payout_mode":"solo"}`

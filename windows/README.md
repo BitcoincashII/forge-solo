@@ -124,6 +124,11 @@ The installer is written to `windows/ForgeSolo-Setup-<version>.exe`. CI stamps t
   block it is submitting needs the BCH2 node), then both nodes at once. When Windows shuts down,
   restarts or signs out, the launcher asks it to wait, with a reason Windows shows, until they
   have stopped.
+- **Settings password:** saving a change in Settings needs Forge Solo's password, as on Umbrel:
+  other programs and accounts on the PC can reach the dashboard and its API on 127.0.0.1. Right-click
+  the tray icon and choose **Copy Settings Password**; the browser remembers it once a save works.
+  It is made at the first start (for an existing install, at the first start of 1.0.13) and kept
+  as `SETTINGS` in `secrets.env` in the data folder.
 - **One at a time:** a second launch opens the running copy's dashboard. The installer and the
   uninstaller ask for Forge Solo to be closed before they touch its files (`AppMutex`).
 - **Signing:** CI signs the installer on the runner, with a timestamp, and publishes the

@@ -72,14 +72,16 @@
     <input class="txt mm" id="esfAddr" type="text" spellcheck="false" autocapitalize="none" placeholder="esf1…">
     <label class="fld" for="cbTag">Coinbase tag (optional, ≤24 chars)</label>
     <input class="txt" id="cbTag" type="text" maxlength="24" placeholder="//forgesolo//">
-    <!-- Shown where the API asks for the app's password (Umbrel): every app on an Umbrel can
-         reach Forge Solo directly, so a change must carry Forge Solo's own password. -->
+    <!-- Shown where the API asks for the app's password: on Umbrel every app can reach Forge
+         Solo directly, on Windows and Linux every program and account on the machine, so a
+         change must carry Forge Solo's own password. The texts below are Umbrel's; the script
+         puts Windows' or Linux's in their place (PW_TEXT). -->
     <div id="pwBlock" style="display:none">
       <label class="fld" for="appPw">Forge Solo password (needed to save)</label>
       <!-- A text box, not a password box: browsers offered their saved passwords here (the Umbrel
            login among them), and one of those was picked by mistake. It is masked all the same. -->
       <input class="txt" id="appPw" type="text" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" spellcheck="false" autocapitalize="none" autocorrect="off" placeholder="the Default password umbrelOS shows for Forge Solo">
-      <p class="note">Other apps on your Umbrel can reach Forge Solo directly, so a change here needs Forge Solo's own password. umbrelOS shows it when you open Forge Solo, and any time after: right-click the Forge Solo icon on the umbrelOS home screen, then <strong>Settings</strong> → <strong>Default credentials</strong> (on umbrelOS 1.x, <strong>Show default credentials</strong>). It is not your Umbrel login password. This browser remembers it once a save succeeds.</p>
+      <p class="note" id="pwNote">Other apps on your Umbrel can reach Forge Solo directly, so a change here needs Forge Solo's own password. umbrelOS shows it when you open Forge Solo, and any time after: right-click the Forge Solo icon on the umbrelOS home screen, then <strong>Settings</strong> → <strong>Default credentials</strong> (on umbrelOS 1.x, <strong>Show default credentials</strong>). It is not your Umbrel login password. This browser remembers it once a save succeeds.</p>
     </div>
     <div style="margin-top:16px">
       <button class="cta" id="saveBtn">Save settings</button>
@@ -143,10 +145,27 @@
        document.getElementById('poolHr').textContent='unavailable';
      });
 
-   // On Umbrel a save must carry Forge Solo's password (pool config says password_required).
-   // The page keeps it in this browser once a save with it succeeds, so it is asked for once.
+   // A save must carry Forge Solo's password (pool config says password_required). The page
+   // keeps it in this browser once a save with it succeeds, so it is asked for once.
    var PW_KEY='forgeSoloPassword', pwRequired=false;
    var PW_WHERE='Copy it again from umbrelOS: right-click the Forge Solo icon, then Settings \u2192 Default credentials.';
+   // How long the password is (pool config: password_length): 64 hex characters on Umbrel and
+   // Windows, 48 on Linux. A wrong entry of another length is most likely a cut-off copy.
+   var PW_LEN=64;
+   // Where the password is, by where Forge Solo runs (pool config: platform). Umbrel's texts are
+   // the page's own.
+   var PW_TEXT={
+     windows:{
+       placeholder:'the Settings password (tray icon \u2192 Copy Settings Password)',
+       note:'Other programs and accounts on this PC can reach Forge Solo, so a change here needs its Settings password. Right-click the Forge Solo icon in the notification area of the taskbar and choose <strong>Copy Settings Password</strong>, then paste it here. This browser remembers it once a save succeeds.',
+       where:'Copy it again: right-click the Forge Solo icon in the notification area, then Copy Settings Password.'
+     },
+     linux:{
+       placeholder:'DASHBOARD_PASSWORD from secrets.env',
+       note:'Other accounts on this machine can reach Forge Solo, so a change here needs its password: <code>DASHBOARD_PASSWORD</code> in <code>secrets.env</code> in the Forge Solo data directory. This browser remembers it once a save succeeds.',
+       where:'It is DASHBOARD_PASSWORD in secrets.env in the Forge Solo data directory.'
+     }
+   };
    function rememberedPw(){ try{ return localStorage.getItem(PW_KEY)||''; }catch(e){ return ''; } }
    function rememberPw(v){ try{ if(v){ localStorage.setItem(PW_KEY,v); } else { localStorage.removeItem(PW_KEY); } }catch(e){} }
    function askForPw(){
@@ -180,6 +199,13 @@
    function applyConfig(d){
      d=d||{};
      document.body.classList.toggle('no-mm', d.merge_mining_available === false);
+     var pt=PW_TEXT[d.platform];
+     if(pt){
+       document.getElementById('appPw').placeholder=pt.placeholder;
+       document.getElementById('pwNote').innerHTML=pt.note;
+       PW_WHERE=pt.where;
+     }
+     if(d.password_length>0) PW_LEN=d.password_length;
      if(d.password_required === true) askForPw();
      var pool=d.pool_address||'';
      var esf=d.payout_address_1175||'';
@@ -258,10 +284,10 @@
            var msg='Error: '+(d.error||'Forge Solo\'s password is needed to save.');
            if(d.password_wrong){
              rememberPw(''); document.getElementById('appPw').value='';
-             // umbrelOS makes it 64 characters of 0-9 and a-f; saying how long the entry was
-             // shows a cut-off copy or extra text without showing the entry itself.
+             // It is PW_LEN characters of 0-9 and a-f; saying how long the entry was shows a
+             // cut-off copy or extra text without showing the entry itself.
              msg='That is not Forge Solo\'s password. Nothing was saved. ';
-             if(!/^[0-9a-fA-F]{64}$/.test(pw)) msg+='It is 64 characters, only 0\u20139 and a\u2013f; what was entered was '+pw.length+' characters. ';
+             if(!new RegExp('^[0-9a-fA-F]{'+PW_LEN+'}$').test(pw)) msg+='It is '+PW_LEN+' characters, only 0\u20139 and a\u2013f; what was entered was '+pw.length+' characters. ';
              msg+=PW_WHERE;
            }
            askForPw();

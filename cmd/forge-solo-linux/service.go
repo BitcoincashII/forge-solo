@@ -136,6 +136,7 @@ Forge Solo is installed and running as the %[1]s service.
   Logs:       journalctl -u %[1]s -f   and %[5]s/logs/
   Stop/start: sudo systemctl stop %[1]s  /  sudo systemctl start %[1]s
 `, serviceName, *web, stratumPort, rentalPort, serviceData)
+	fmt.Printf("  Settings:   saving a change asks for DASHBOARD_PASSWORD in %s/secrets.env (made at first start)\n", serviceData)
 	if webNeedsPassword(*web) {
 		fmt.Printf("  Password:   user forge, DASHBOARD_PASSWORD in %s/secrets.env (made at first start)\n", serviceData)
 	} else {

@@ -73,10 +73,14 @@ var (
 )
 
 type secrets struct {
-	BCH2Pass, AuxPass, DBPass, Token string
+	BCH2Pass, AuxPass, DBPass, Token, Settings string
 }
 
-func gen() string              { b := make([]byte, 24); _, _ = rand.Read(b); return hex.EncodeToString(b) }
+func gen() string { return genHex(24) }
+
+// genHex is n random bytes, in hex.
+func genHex(n int) string { b := make([]byte, n); _, _ = rand.Read(b); return hex.EncodeToString(b) }
+
 func md(p string)              { _ = os.MkdirAll(p, 0o755) }
 func dpath(e ...string) string { return filepath.Join(append([]string{dataDir}, e...)...) }
 func ipath(e ...string) string { return filepath.Join(append([]string{installDir}, e...)...) }
@@ -201,6 +205,8 @@ func main() {
 	md(dataDir)
 	restrictDataDir(dataDir)
 	rotateLog(dpath("launcher.log"), 1<<20)
+	// Read before the tray starts, so its menu never sees them half loaded.
+	setupSecrets()
 	// Assign collision-proof loopback ports before any service binds.
 	portErr := assignPorts()
 	if portErr != nil {
@@ -221,6 +227,7 @@ func onReady(portErr error) {
 	systray.SetTitle("Forge Solo")
 	systray.SetTooltip("Forge Solo: starting…")
 	mOpen := systray.AddMenuItem("Open Dashboard", "")
+	mCopyPw := systray.AddMenuItem(copyPwTitle, "Copy the password the Settings page asks for")
 	mRestart := systray.AddMenuItem("Restart Mining", "Restart the miner after changing your payout address")
 	mData := systray.AddMenuItem("Open Data Folder", "")
 	systray.AddSeparator()
@@ -236,6 +243,8 @@ func onReady(portErr error) {
 			select {
 			case <-mOpen.ClickedCh:
 				openBrowser("http://127.0.0.1:" + webPort)
+			case <-mCopyPw.ClickedCh:
+				copySettingsPassword(mCopyPw)
 			case <-mRestart.ClickedCh:
 				restartMiner()
 			case <-mData.ClickedCh:
@@ -245,4 +254,17 @@ func onReady(portErr error) {
 			}
 		}
 	}()
+}
+
+const copyPwTitle = "Copy Settings Password"
+
+// copySettingsPassword puts the Settings page's password on the clipboard and says so on the menu
+// item for a few seconds.
+func copySettingsPassword(item *systray.MenuItem) {
+	if sec.Settings != "" && copyText(sec.Settings) == nil {
+		item.SetTitle("Settings Password Copied")
+	} else {
+		item.SetTitle("Could Not Copy the Password")
+	}
+	time.AfterFunc(4*time.Second, func() { item.SetTitle(copyPwTitle) })
 }

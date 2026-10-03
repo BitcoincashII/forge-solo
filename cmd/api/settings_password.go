@@ -15,7 +15,8 @@ import (
 const settingsPasswordHeader = "X-Forge-Password"
 
 // settingsPasswordGateFromEnv builds the gate from SETTINGS_PASSWORD and where this API listens,
-// and keeps the password in settingsPassword, which the settings read reports to the page.
+// and keeps the password in settingsPassword; the settings read tells the page whether one is set,
+// and how long it is.
 func settingsPasswordGateFromEnv() fiber.Handler {
 	settingsPassword = strings.TrimSpace(os.Getenv("SETTINGS_PASSWORD"))
 	required := settingsPasswordRequired(os.Getenv("HOME_APP"), os.Getenv("API_LISTEN_HOST"))
@@ -45,8 +46,9 @@ func settingsPasswordRequired(homeApp, listenHost string) bool {
 // owner under the app's Default credentials.
 //
 // required is for an API other machines can reach: without a password it refuses every change
-// rather than accept them unchecked. Where the API listens only on this machine (Forge Solo for
-// Windows and Linux) nothing else can reach it, and changes need no password.
+// rather than accept them unchecked. Forge Solo for Windows and Linux listens only on this
+// machine, but other programs and accounts on it can still reach it, so their launchers set a
+// password too.
 //
 // A wrong password is answered, not counted: the password is 64 hex characters, beyond guessing,
 // and a lockout would let another app keep the owner out of their own settings.

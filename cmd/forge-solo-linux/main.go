@@ -46,6 +46,7 @@ Options:
                     (default: /var/lib/forge-solo for root, else ~/.local/share/forge-solo)
   --web HOST:PORT   dashboard address (default 127.0.0.1:3080). Anything but 127.0.0.1 asks for a
                     password: user forge, DASHBOARD_PASSWORD from secrets.env in the data directory.
+                    Saving a change in Settings asks for that password wherever the dashboard listens.
 
 Miners connect to port 3333 (NiceHash and MiningRigRentals: 3335); BCH2 peers to 8339.
 `
@@ -243,11 +244,7 @@ func runCmd(args []string) error {
 		args: []string{"-datadir=" + filepath.Join(dataDir, "bch2"), "-conf=" + filepath.Join(dataDir, "bch2", "bch2.conf")},
 		env:  os.Environ(), log: newRotatingLog(filepath.Join(logDir, "node.log"), logMax)}
 	api := &child{name: "api", path: bin("api"), dir: dataDir, grace: apiGrace,
-		env: append(os.Environ(), db,
-			"RPC_URL=http://127.0.0.1:"+rpcPort, "RPC_USER=forge", "RPC_PASSWORD="+sec.RPCPassword,
-			"STRATUM_INTERNAL_URL=http://127.0.0.1:"+statsPort, "INTERNAL_API_TOKEN="+sec.Token,
-			"API_HOST=127.0.0.1", "API_PORT="+apiPort, "API_LISTEN_HOST=127.0.0.1", "API_LISTEN_PORT="+apiPort,
-			"HOME_APP=1", "CORS_ORIGINS=", "MERGE_MINING_AVAILABLE=0", "WEB_ROOT="+filepath.Join(inst, "web")),
+		env: append(os.Environ(), apiEnv(dataDir, inst, p, sec)...),
 		log: newRotatingLog(filepath.Join(logDir, "api.log"), logMax)}
 	// API_PORT points the stratum at the API for miner settings; INTERNAL_STATS_PORT is the
 	// stratum's own stats listener, which the API reads through STRATUM_INTERNAL_URL.
@@ -343,6 +340,19 @@ func runCmd(args []string) error {
 	return nil
 }
 
+// apiEnv is what the API is started with, besides this process's environment.
+func apiEnv(dataDir, inst string, p ports, sec secrets) []string {
+	rpcPort, apiPort, statsPort := strconv.Itoa(p.RPC), strconv.Itoa(p.API), strconv.Itoa(p.Stats)
+	return []string{"DB_PATH=" + filepath.Join(dataDir, "forgesolo.db"),
+		"RPC_URL=http://127.0.0.1:" + rpcPort, "RPC_USER=forge", "RPC_PASSWORD=" + sec.RPCPassword,
+		"STRATUM_INTERNAL_URL=http://127.0.0.1:" + statsPort, "INTERNAL_API_TOKEN=" + sec.Token,
+		"API_HOST=127.0.0.1", "API_PORT=" + apiPort, "API_LISTEN_HOST=127.0.0.1", "API_LISTEN_PORT=" + apiPort,
+		"HOME_APP=1", "CORS_ORIGINS=", "MERGE_MINING_AVAILABLE=0", "WEB_ROOT=" + filepath.Join(inst, "web"),
+		// Other accounts on this machine can reach the API, so a settings change needs a password:
+		// the same DASHBOARD_PASSWORD the dashboard asks for when it listens beyond this machine.
+		"SETTINGS_PASSWORD=" + sec.DashboardPassword, "FORGE_PLATFORM=linux"}
+}
+
 func banner(web, dataDir string, password bool) {
 	fmt.Printf(`
   Dashboard:  http://%s
@@ -352,6 +362,7 @@ func banner(web, dataDir string, password bool) {
 	if password {
 		fmt.Printf("  Password:   user forge, DASHBOARD_PASSWORD in %s\n", filepath.Join(dataDir, "secrets.env"))
 	}
+	fmt.Printf("  Settings:   saving a change asks for DASHBOARD_PASSWORD in %s\n", filepath.Join(dataDir, "secrets.env"))
 	fmt.Println("  Set your BCH2 payout address in the dashboard's Settings: mining waits for it.")
 	fmt.Println()
 }

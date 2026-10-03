@@ -30,12 +30,31 @@ func setupSecrets() {
 				sec.DBPass = v
 			case "TOKEN":
 				sec.Token = v
+			case "SETTINGS":
+				sec.Settings = v
 			}
 		}
 	}
+	changed := false
 	if sec.BCH2Pass == "" {
 		sec = secrets{BCH2Pass: gen(), AuxPass: gen(), DBPass: gen(), Token: gen()}
-		_ = os.WriteFile(f, []byte("BCH2="+sec.BCH2Pass+"\nAUX="+sec.AuxPass+"\nDB="+sec.DBPass+"\nTOKEN="+sec.Token+"\n"), 0o600)
+		changed = true
+	}
+	// The Settings page's password: other programs and accounts on this PC can reach the
+	// dashboard and its API, so a change needs it. Installs from 1.0.12 and before gain it here,
+	// their other secrets unchanged (the database's password must stay what the database has).
+	if sec.Settings == "" {
+		sec.Settings = genHex(32)
+		changed = true
+	}
+	if changed {
+		content := "BCH2=" + sec.BCH2Pass + "\nAUX=" + sec.AuxPass + "\nDB=" + sec.DBPass + "\nTOKEN=" + sec.Token +
+			"\nSETTINGS=" + sec.Settings + "\n"
+		// Written aside and moved into place: a crash part-way must not lose the database password.
+		tmp := f + ".tmp"
+		if os.WriteFile(tmp, []byte(content), 0o600) == nil {
+			_ = os.Rename(tmp, f)
+		}
 	}
 }
 
@@ -222,7 +241,8 @@ func startAPI() {
 		// API_LISTEN_HOST keeps the API on this PC: it has no login of its own (HOME_APP) and the
 		// dashboard server reaches it on 127.0.0.1. Unset, it listened on every interface.
 		"API_HOST=127.0.0.1", "API_PORT="+apiPort, "API_LISTEN_HOST=127.0.0.1", "API_LISTEN_PORT="+apiPort, "HOME_APP=1", "CORS_ORIGINS=",
-		"AUX1175_URL=http://127.0.0.1:"+aux1175RPC, "AUX1175_USER=forge1175", "AUX1175_PASSWORD="+sec.AuxPass)
+		"AUX1175_URL=http://127.0.0.1:"+aux1175RPC, "AUX1175_USER=forge1175", "AUX1175_PASSWORD="+sec.AuxPass,
+		"SETTINGS_PASSWORD="+sec.Settings, "FORGE_PLATFORM=windows")
 	c.Stdout, c.Stderr = serviceLog("api"), serviceLog("api")
 	_ = run("api", c)
 }
@@ -243,7 +263,6 @@ func restartMiner() {
 
 func boot() {
 	systray.SetTooltip("Forge Solo: preparing…")
-	setupSecrets()
 	stopLeftovers()
 	writeConfigs()
 	systray.SetTooltip("Forge Solo: starting the database…")
