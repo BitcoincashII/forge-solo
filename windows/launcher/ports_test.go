@@ -94,7 +94,7 @@ func TestPortPlan(t *testing.T) {
 	if len(want) != 0 || len(portPlan) != 6 {
 		t.Errorf("PORT-PLAN-COMPLETE: %d of the six loopback ports are not in the plan (%d entries)", len(want), len(portPlan))
 	}
-	fixed := []string{minerPort, webPort, bch2P2P, aux1175P2P, "8340"}
+	fixed := []string{minerPort, rentalPort, webPort, bch2P2P, aux1175P2P, "8340"}
 	for i, a := range portPlan {
 		if a.from+portWindow > 49152 {
 			t.Errorf("PORT-EPHEMERAL: %s reaches %d", a.name, a.from+portWindow-1)

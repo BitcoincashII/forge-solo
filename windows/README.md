@@ -24,6 +24,7 @@ Fixed, because the installer's firewall rules and the miner URL you type must ma
 | Port | Purpose | Firewall rule |
 |---|---|---|
 | 3333 | stratum: point your ASIC/Bitaxe here | inbound, private+domain |
+| 3335 | stratum for NiceHash / MiningRigRentals (a whole order on one connection, difficulty from 500,000), as on Umbrel and Linux | inbound, private+domain |
 | 3080 | dashboard (`http://127.0.0.1:3080`) | none (loopback only) |
 | 8339 | BCH2 P2P (incoming peers) | inbound, any profile |
 | 25360 | 1175 P2P (incoming peers) | inbound, any profile |

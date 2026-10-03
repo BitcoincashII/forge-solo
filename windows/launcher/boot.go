@@ -102,10 +102,23 @@ stratum:
     target_time: 5
     retarget_time: 10
     variance_percent: 25
-# NiceHash / MiningRigRentals put a whole order behind one connection on 3335. Off here:
-# the installer opens no rule for that port, so a home box would bind what nothing reaches.
+# NiceHash / MiningRigRentals put a whole order behind one connection: a separate port with a
+# difficulty floor that suits an aggregated order, as on Umbrel and Linux.
 stratum_rental:
-  enabled: false
+  enabled: true
+  host: "0.0.0.0"
+  port: ` + rentalPort + `
+  max_connections: 64
+  max_connections_per_ip: 32
+  max_shares_per_second: 100
+  extranonce1_size: 4
+  extranonce2_size: 8
+  vardiff:
+    enabled: true
+    min_diff: 500000
+    max_diff: 1000000000000
+    target_time: 5
+    retarget_time: 10
 node:
   host: "127.0.0.1"
   port: ` + bch2RPC + `

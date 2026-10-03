@@ -32,6 +32,7 @@ var trayIcon []byte
 // Fixed, user-facing / internet-facing ports (matched by the installer's firewall rules).
 const (
 	minerPort  = "3333"  // documented miner endpoint, fixed so users always point miners here
+	rentalPort = "3335"  // NiceHash / MiningRigRentals: one connection per order, high difficulty floor
 	webPort    = "3080"  // dashboard URL, fixed so it stays stable across launches
 	bch2P2P    = "8339"  // BCH2 P2P (incoming peers), fixed so the installer firewall rule matches
 	aux1175P2P = "25360" // 1175 P2P (incoming peers), likewise fixed; listen=1 needs a reachable port

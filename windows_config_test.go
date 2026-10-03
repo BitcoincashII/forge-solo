@@ -123,8 +123,6 @@ func TestWindowsConfigMatchesShippedTemplate(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(filled), &want); err != nil {
 		t.Fatalf("template: %v", err)
 	}
-	// The installer opens no firewall rule for 3335, so a rental port would bind what nothing reaches.
-	want["stratum_rental"] = map[string]interface{}{"enabled": false}
 	for k := range want {
 		if !reflect.DeepEqual(got[k], want[k]) {
 			t.Errorf("%s:\n got  %v\n want %v", k, got[k], want[k])
