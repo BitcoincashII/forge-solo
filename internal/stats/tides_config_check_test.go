@@ -44,6 +44,28 @@ func checkTidesConfig(t *testing.T) {
 		t.Fatalf("TIDES-CFG-VALIDATES: a refused save still changed the mode to %q", mode)
 	}
 
+	// The Settings page's save: everything in one write. With no mode it leaves the mode alone.
+	const esf = "esf1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnkz876"
+	if err := SavePoolSettings(addr, esf, "Third", ""); err != nil {
+		t.Fatalf("SavePoolSettings: %v", err)
+	}
+	if mode, _ := GetPayoutMode(); mode != PayoutModeTides {
+		t.Fatalf("TIDES-CFG-SAVE-NO-MODE: a save without a mode changed it to %q", mode)
+	}
+	if err := SavePoolSettings(addr, "", "Fourth", PayoutModeSolo); err != nil {
+		t.Fatalf("SavePoolSettings: %v", err)
+	}
+	pool, p1175, tag, err := GetPoolConfig()
+	if mode, _ := GetPayoutMode(); err != nil || pool != addr || p1175 != "" || tag != "Fourth" || mode != PayoutModeSolo {
+		t.Fatalf("TIDES-CFG-SAVE-ALL: stored %q %q %q %q, %v", pool, p1175, tag, mode, err)
+	}
+	if err := SavePoolSettings(addr, esf, "Fifth", "pplns"); err == nil {
+		t.Fatal("TIDES-CFG-SAVE-VALIDATES: an unknown payout mode was stored")
+	}
+	if _, p1175, tag, _ := GetPoolConfig(); p1175 != "" || tag != "Fourth" {
+		t.Fatalf("TIDES-CFG-SAVE-VALIDATES: a refused save still stored %q %q", p1175, tag)
+	}
+
 	// The gateway identity: made once, then the same on every later ask, whatever fresh seed
 	// the caller offers.
 	first, err := GatewaySeed("aa11")

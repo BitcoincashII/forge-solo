@@ -43,6 +43,34 @@ func GetPayoutMode() (string, error) {
 	return mode, nil
 }
 
+// SavePoolSettings stores what the Settings page saves -- the payout address, the 1175 address,
+// the coinbase tag and, unless mode is empty, the payout mode -- in one write, so a save is all
+// or nothing. Written as two, a failure between them left the addresses and tag saved while the
+// page said nothing was.
+func SavePoolSettings(poolAddr, payout1175, tag, mode string) error {
+	if mode == "" {
+		return SavePoolConfig(poolAddr, payout1175, tag)
+	}
+	if !ValidPayoutMode(mode) {
+		return errors.New("payout mode must be solo or tides")
+	}
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return ErrDatabaseNotInitialized
+	}
+	_, err := db.Exec(`
+		INSERT INTO pool_config (id, pool_address, payout_address_1175, coinbase_tag, payout_mode, updated_at)
+		VALUES (1, $1, $2, $3, $4, CURRENT_TIMESTAMP)
+		ON CONFLICT (id) DO UPDATE
+		SET pool_address = EXCLUDED.pool_address,
+		    payout_address_1175 = EXCLUDED.payout_address_1175,
+		    coinbase_tag = EXCLUDED.coinbase_tag,
+		    payout_mode = EXCLUDED.payout_mode,
+		    updated_at = CURRENT_TIMESTAMP`, poolAddr, payout1175, tag, mode)
+	return err
+}
+
 // SavePayoutMode stores the payout mode, leaving the rest of pool_config as it is.
 func SavePayoutMode(mode string) error {
 	if !ValidPayoutMode(mode) {

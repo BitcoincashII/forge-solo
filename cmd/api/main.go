@@ -1597,13 +1597,9 @@ func savePoolConfig(c *fiber.Ctx) error {
 		}
 	}
 
-	if err := stats.SavePoolConfig(poolAddr, payout1175, tag); err != nil {
-		return c.Status(500).JSON(fiber.Map{"success": false, "error": "Failed to save config: " + err.Error()})
-	}
-	if mode != "" {
-		if err := stats.SavePayoutMode(mode); err != nil {
-			return c.Status(500).JSON(fiber.Map{"success": false, "error": "Failed to save the payout mode: " + err.Error()})
-		}
+	// One write: the page says nothing was saved when this fails, and that must be so.
+	if err := stats.SavePoolSettings(poolAddr, payout1175, tag, mode); err != nil {
+		return c.Status(500).JSON(fiber.Map{"success": false, "error": "Failed to save the settings: " + err.Error()})
 	}
 	// The stratum reads settings every 8 s and uses them from its next job (at least every 15 s).
 	msg := "Settings saved. Mining uses them within half a minute (the next job) — no restart needed."
