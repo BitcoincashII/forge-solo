@@ -2420,7 +2420,15 @@ func submitBlockToNode(blockHex string) (string, error) {
 	}
 
 	if rpcResp.Error != nil {
-		return rpcResp.Error.Message, nil
+		// An error object is not the node's verdict on the block. A restarting node answers every
+		// call with -28 ("Loading block index…") until it has loaded the chain, and a busy one with
+		// other errors; both are tried again (reconcileBlock). Only a block the node cannot even
+		// read is final: -22 (decode failed, no coinbase) and -25.
+		switch rpcResp.Error.Code {
+		case -22, -25:
+			return rpcResp.Error.Message, nil
+		}
+		return "", fmt.Errorf("node error %d: %s", rpcResp.Error.Code, rpcResp.Error.Message)
 	}
 
 	if rpcResp.Result == nil {

@@ -27,6 +27,8 @@ import (
 type fakeNode struct {
 	mu        sync.Mutex
 	down      int    // requests still to fail
+	warming   int    // requests still to answer -28 "Loading block index…", as a restarting node does
+	errCode   int    // an error code to answer submitblock with, instead of a verdict
 	refuse    string // a submitblock verdict to give instead of accepting
 	other     string // a hash another block holds the height with
 	accepted  string // the hash of the block taken
@@ -44,6 +46,12 @@ func (n *fakeNode) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Work queue depth exceeded", http.StatusServiceUnavailable)
 		return
 	}
+	if n.warming > 0 {
+		n.warming--
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]any{"result": nil, "error": map[string]any{"code": -28, "message": "Loading block index…"}})
+		return
+	}
 	var req struct {
 		Method string            `json:"method"`
 		Params []json.RawMessage `json:"params"`
@@ -52,6 +60,11 @@ func (n *fakeNode) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch req.Method {
 	case "submitblock":
 		n.submitted++
+		if n.errCode != 0 {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]any{"result": nil, "error": map[string]any{"code": n.errCode, "message": "Block decode failed"}})
+			return
+		}
 		if n.refuse != "" {
 			json.NewEncoder(w).Encode(map[string]any{"result": n.refuse, "error": nil})
 			return
