@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/BitcoincashII/forge-solo/internal/mining"
+	"github.com/BitcoincashII/forge-solo/internal/netlisten"
 	"github.com/BitcoincashII/forge-solo/internal/stats"
 	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/gofiber/fiber/v2"
@@ -561,7 +562,12 @@ pool_uptime_seconds %.0f
 	go func() {
 		// API_LISTEN_HOST=127.0.0.1 keeps the API on this machine (Forge Solo for Linux, which may run
 		// on a host with a public address: the API is unauthenticated). Unset: every interface.
-		if err := app.Listen(os.Getenv("API_LISTEN_HOST") + ":" + listenPort); err != nil {
+		// tcp4: fiber's own default for app.Listen.
+		ln, err := netlisten.Listen("tcp4", os.Getenv("API_LISTEN_HOST")+":"+listenPort)
+		if err != nil {
+			zapLogger.Fatal("Server error", zap.Error(err))
+		}
+		if err := app.Listener(ln); err != nil {
 			zapLogger.Fatal("Server error", zap.Error(err))
 		}
 	}()

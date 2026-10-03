@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/BitcoincashII/forge-solo/internal/mergemining"
+	"github.com/BitcoincashII/forge-solo/internal/netlisten"
 	"go.uber.org/zap"
 )
 
@@ -884,7 +885,7 @@ func hashToDifficulty(hash []byte) float64 {
 
 func (s *Server) Start() error {
 	addr := fmt.Sprintf("%s:%d", s.config.Host, s.config.Port)
-	listener, err := net.Listen("tcp", addr)
+	listener, err := netlisten.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("failed to listen: %w", err)
 	}

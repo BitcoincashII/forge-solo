@@ -24,6 +24,7 @@ import (
 	"github.com/BitcoincashII/forge-solo/internal/blockbuild"
 	"github.com/BitcoincashII/forge-solo/internal/mergemining"
 	"github.com/BitcoincashII/forge-solo/internal/mining"
+	"github.com/BitcoincashII/forge-solo/internal/netlisten"
 	"github.com/BitcoincashII/forge-solo/internal/stats"
 	"github.com/BitcoincashII/forge-solo/internal/stratum"
 	"github.com/BitcoincashII/forge-solo/internal/tidesgw"
@@ -2679,7 +2680,12 @@ func startStatsServer() {
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
-	if err := srv.ListenAndServe(); err != nil {
+	ln, err := netlisten.Listen("tcp", statsAddr)
+	if err != nil {
+		log.Printf("ERROR: Internal stats server failed: %v", err)
+		return
+	}
+	if err := srv.Serve(ln); err != nil {
 		log.Printf("ERROR: Internal stats server failed: %v", err)
 	}
 }

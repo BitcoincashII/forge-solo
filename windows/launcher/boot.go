@@ -439,7 +439,7 @@ var (
 // program may hold it: the dashboard then cannot open, the browser would show that program, and
 // the tray says so instead. Mining goes on.
 func openDashboard() {
-	l, err := net.Listen("tcp", "127.0.0.1:"+webPort)
+	l, err := listenExclusive("tcp", "127.0.0.1:"+webPort)
 	if err != nil {
 		logf("the dashboard cannot open: another program uses port %s (%v)", webPort, err)
 		status("Forge Solo: another program uses port " + webPort + ", so the dashboard cannot open. Close it, then restart Forge Solo.")

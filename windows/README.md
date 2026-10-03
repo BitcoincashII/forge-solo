@@ -150,6 +150,9 @@ The installer is written to `windows/ForgeSolo-Setup-<version>.exe`. CI stamps t
   A node that stops saying "Corrupted block database detected" (after a power cut, say) is
   started once with `-reindex`, which rebuilds its chain state from the blocks on disk; if that
   does not help, the tray says which folders to delete.
+- **Ports kept to Forge Solo:** the miner, the API, the miner's stats and the dashboard listen with
+  Windows's exclusive address use. Without it, a program started later could bind the same port
+  over IPv4 and take every IPv4 connection: every miner, on 3333.
 - **User names in another script:** the bundled PostgreSQL reads paths in the system's code page,
   so under a user name with characters outside it (a Chinese name on an English Windows) the
   database never started. Its paths are now given in their short (8.3) form when they need it; if
