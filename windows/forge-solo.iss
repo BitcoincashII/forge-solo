@@ -72,29 +72,40 @@ Filename: "{app}\{#MyAppExe}"; Description: "Launch Forge Solo now"; Flags: nowa
 //    Defender never scans is a place any other program could hide files. An upgrade removes the
 //    whole-folder exclusion earlier versions added.
 // Mining from THIS PC (127.0.0.1:3333) needs no rule at all.
+// PSQuote quotes S for PowerShell. A single-quoted string ends at the first apostrophe unless it
+// is doubled, and a Windows user name can have one (C:\Users\O'Brien).
+function PSQuote(S: String): String;
+begin
+  StringChangeEx(S, '''', '''''', True);
+  Result := '''' + S + '''';
+end;
+
 // DefenderPaths lists, quoted for PowerShell, the data folders written constantly.
 function DefenderPaths(DataDir: String): String;
 begin
-  Result := '''' + DataDir + '\bch2\blocks'', ''' + DataDir + '\bch2\chainstate'', ''' +
-            DataDir + '\elevenseventyfive\blocks'', ''' + DataDir + '\elevenseventyfive\chainstate'', ''' +
-            DataDir + '\pgdata''';
+  Result := PSQuote(DataDir + '\bch2\blocks') + ', ' + PSQuote(DataDir + '\bch2\chainstate') + ', ' +
+            PSQuote(DataDir + '\elevenseventyfive\blocks') + ', ' +
+            PSQuote(DataDir + '\elevenseventyfive\chainstate') + ', ' + PSQuote(DataDir + '\pgdata');
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
-var ResultCode: Integer; DataDir, Cmd: String;
+var ResultCode: Integer; DataDir, AppDir, Cmd: String;
 begin
   if CurStep = ssPostInstall then
   begin
     DataDir := ExpandConstant('{userappdata}\ForgeSolo');
+    AppDir := ExpandConstant('{app}');
+    // Each rule lets in only the program that listens on its port. With the port alone, any program
+    // could take the port while Forge Solo is not running and be reached through the rule.
     Cmd := '/c ' +
       'netsh advfirewall firewall delete rule name="Forge Solo Miner (3333)" >nul 2>&1 & ' +
-      'netsh advfirewall firewall add rule name="Forge Solo Miner (3333)" dir=in action=allow protocol=TCP localport=3333 profile=private,domain & ' +
+      'netsh advfirewall firewall add rule name="Forge Solo Miner (3333)" dir=in action=allow program="' + AppDir + '\stratum.exe" protocol=TCP localport=3333 profile=private,domain & ' +
       'netsh advfirewall firewall delete rule name="Forge Solo BCH2 P2P (8333)" >nul 2>&1 & ' +
       'netsh advfirewall firewall delete rule name="Forge Solo BCH2 P2P (8339)" >nul 2>&1 & ' +
-      'netsh advfirewall firewall add rule name="Forge Solo BCH2 P2P (8339)" dir=in action=allow protocol=TCP localport=8339 profile=any & ' +
+      'netsh advfirewall firewall add rule name="Forge Solo BCH2 P2P (8339)" dir=in action=allow program="' + AppDir + '\bitcoincashIId.exe" protocol=TCP localport=8339 profile=any & ' +
       'netsh advfirewall firewall delete rule name="Forge Solo 1175 P2P (25360)" >nul 2>&1 & ' +
-      'netsh advfirewall firewall add rule name="Forge Solo 1175 P2P (25360)" dir=in action=allow protocol=TCP localport=25360 profile=any & ' +
-      'powershell -NoProfile -Command "Remove-MpPreference -ExclusionPath ''' + DataDir + ''' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionPath ' + DefenderPaths(DataDir) + ' -ErrorAction SilentlyContinue"';
+      'netsh advfirewall firewall add rule name="Forge Solo 1175 P2P (25360)" dir=in action=allow program="' + AppDir + '\elevenseventyfived.exe" protocol=TCP localport=25360 profile=any & ' +
+      'powershell -NoProfile -Command "Remove-MpPreference -ExclusionPath ' + PSQuote(DataDir) + ' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionPath ' + DefenderPaths(DataDir) + ' -ErrorAction SilentlyContinue"';
     ShellExec('runas', ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
 end;
@@ -110,7 +121,7 @@ begin
       'netsh advfirewall firewall delete rule name="Forge Solo BCH2 P2P (8339)" & ' +
       'netsh advfirewall firewall delete rule name="Forge Solo BCH2 P2P (8333)" & ' +
       'netsh advfirewall firewall delete rule name="Forge Solo 1175 P2P (25360)" & ' +
-      'powershell -NoProfile -Command "Remove-MpPreference -ExclusionPath ''' + DataDir + ''', ' + DefenderPaths(DataDir) + ' -ErrorAction SilentlyContinue"';
+      'powershell -NoProfile -Command "Remove-MpPreference -ExclusionPath ' + PSQuote(DataDir) + ', ' + DefenderPaths(DataDir) + ' -ErrorAction SilentlyContinue"';
     ShellExec('runas', ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
 
