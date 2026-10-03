@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"syscall"
@@ -30,8 +31,9 @@ var version = "dev"
 const usageText = `Forge Solo %s for Linux: BCH2 solo and TIDES mining with your own node.
 
 Usage:
-  forge-solo [run] [--data-dir DIR] [--web HOST:PORT]
-      Run in the foreground until Ctrl-C or SIGTERM (allow it 3 minutes to stop cleanly).
+  forge-solo [run] [--data-dir DIR] [--web HOST:PORT] [--reindex]
+      Run in the foreground until Ctrl-C or SIGTERM (allow it 3 minutes to stop cleanly), as an
+      ordinary user: it needs no root.
   sudo forge-solo install-service [--web HOST:PORT]
       Install this release to /opt/forge-solo as a systemd service, data in /var/lib/forge-solo.
       Run it again from a newer release to upgrade; the data is kept.
@@ -43,10 +45,13 @@ Usage:
 
 Options:
   --data-dir DIR    where the chain, database, settings and logs are kept
-                    (default: /var/lib/forge-solo for root, else ~/.local/share/forge-solo)
+                    (default: ~/.local/share/forge-solo; as root, and for the service,
+                    /var/lib/forge-solo)
   --web HOST:PORT   dashboard address (default 127.0.0.1:3080). Anything but 127.0.0.1 asks for a
                     password: user forge, DASHBOARD_PASSWORD from secrets.env in the data directory.
                     Saving a change in Settings asks for that password wherever the dashboard listens.
+  --reindex         rebuild the node's chain state from the blocks on disk, at this start only: for
+                    a node that stops with "Corrupted block database detected"
 
 Miners connect to port 3333 (NiceHash and MiningRigRentals: 3335); BCH2 peers to 8339.
 `
@@ -132,11 +137,15 @@ func lockDataDir(dir string) (*os.File, error) {
 
 // checkPublicPorts fails early, and says which, when a public port is taken: the programs would
 // otherwise start and run without it (the node, for one, keeps going without its P2P listener).
+// publicPorts are the ports Forge Solo listens on for other machines (a variable so that the tests
+// can use free ones: a machine running Forge Solo already holds these).
+var publicPorts = []struct {
+	port int
+	what string
+}{{stratumPort, "The miner port"}, {rentalPort, "The rental port"}, {p2pPort, "The BCH2 peer port"}}
+
 func checkPublicPorts() error {
-	for _, p := range []struct {
-		port int
-		what string
-	}{{stratumPort, "The miner port"}, {rentalPort, "The rental port"}, {p2pPort, "The BCH2 peer port"}} {
+	for _, p := range publicPorts {
 		l, err := net.Listen("tcp", ":"+strconv.Itoa(p.port))
 		if err != nil {
 			return fmt.Errorf("%s %d is already in use by another program (%v). Stop that program first; "+
@@ -155,22 +164,96 @@ func restrictDatabase(dataDir string) {
 	}
 }
 
-func parseRunFlags(args []string) (dataDir, web string, err error) {
+// runOptions are forge-solo run's flags.
+type runOptions struct {
+	dataDir, web string
+	reindex      bool // the node's first start rebuilds its chain state (-reindex)
+}
+
+func parseRunFlags(args []string) (runOptions, error) {
+	var o runOptions
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.Usage = func() { usage(fs.Output()) }
-	fs.StringVar(&dataDir, "data-dir", defaultDataDir(), "")
-	fs.StringVar(&web, "web", defaultWeb, "")
-	if err = fs.Parse(args); err != nil {
-		return "", "", err
+	fs.StringVar(&o.dataDir, "data-dir", defaultDataDir(), "")
+	fs.StringVar(&o.web, "web", defaultWeb, "")
+	fs.BoolVar(&o.reindex, "reindex", false, "")
+	if err := fs.Parse(args); err != nil {
+		return runOptions{}, err
 	}
 	if fs.NArg() > 0 {
-		return "", "", fmt.Errorf("unexpected argument %q (see forge-solo help)", fs.Arg(0))
+		return runOptions{}, fmt.Errorf("unexpected argument %q (see forge-solo help)", fs.Arg(0))
 	}
-	if err = checkWebAddr(web); err != nil {
-		return "", "", err
+	if err := checkWebAddr(o.web); err != nil {
+		return runOptions{}, err
 	}
-	dataDir, err = filepath.Abs(dataDir)
-	return dataDir, web, err
+	var err error
+	o.dataDir, err = filepath.Abs(o.dataDir)
+	return o, err
+}
+
+// geteuid is os.Geteuid; a test stands in root.
+var geteuid = os.Geteuid
+
+// errRootForeignDataDir: a run as root on a data directory another account owns.
+var errRootForeignDataDir = errors.New("refusing to run as root on a data directory another account owns")
+
+// checkRootDataDir refuses a run as root on a data directory that belongs to another account,
+// most often the service's /var/lib/forge-solo. Everything such a run writes there would be
+// root's -- the node's database files among them -- and that account's Forge Solo could no
+// longer open them: the service's node then stopped at every start while systemd showed it
+// running.
+func checkRootDataDir(euid int, dataDir string) error {
+	if euid != 0 {
+		return nil
+	}
+	st, err := os.Stat(dataDir)
+	if err != nil {
+		return nil // a new directory is root's own
+	}
+	sys, ok := st.Sys().(*syscall.Stat_t)
+	if !ok || sys.Uid == 0 {
+		return nil
+	}
+	owner := strconv.FormatUint(uint64(sys.Uid), 10)
+	if u, err := user.LookupId(owner); err == nil {
+		owner = u.Username
+	}
+	why := fmt.Sprintf("%s belongs to %s. Files a run as root wrote there would be root's, and Forge Solo running as %s "+
+		"could no longer open them", dataDir, owner, owner)
+	if filepath.Clean(dataDir) == serviceData {
+		installed := filepath.Join(serviceDir, "forge-solo")
+		return fmt.Errorf("%w: %s.\n"+
+			"  It is the service's: start the service instead: sudo systemctl start %s\n"+
+			"  To run it in a terminal, run it as the service's user: sudo -u %s %s run --data-dir %s\n"+
+			"  If a run as root has already left files there, sudo %s install-service gives them back to the service",
+			errRootForeignDataDir, why, serviceName, owner, installed, dataDir, installed)
+	}
+	exe := "forge-solo"
+	if inst, err := installDir(); err == nil {
+		exe = filepath.Join(inst, "forge-solo")
+	}
+	return fmt.Errorf("%w: %s.\n"+
+		"  Run it as its owner instead: sudo -u %s %s run --data-dir %s\n"+
+		"  If a run as root has already left files there: sudo chown -R %s: %s",
+		errRootForeignDataDir, why, owner, exe, dataDir, owner, dataDir)
+}
+
+// rootWarning is shown when Forge Solo is started as root.
+const rootWarning = "Warning: Forge Solo is running as root. It needs no root, and its mining service and node take " +
+	"connections from the internet: run it as an ordinary user, or install the service " +
+	"(sudo ./forge-solo install-service), which runs it as the forge-solo user."
+
+// nodeChild is the BCH2 node. With reindex its first start rebuilds the chain state from the
+// blocks on disk; a later start in the same run must not begin that again, and need not: the
+// node itself carries on with a rebuild that was cut short.
+func nodeChild(inst, dataDir, logDir string, reindex bool) *child {
+	c := &child{name: "node", path: filepath.Join(inst, "bin", "bitcoincashIId"), dir: dataDir, grace: nodeGrace,
+		args: []string{"-datadir=" + filepath.Join(dataDir, "bch2"), "-conf=" + filepath.Join(dataDir, "bch2", "bch2.conf")},
+		env:  os.Environ(), log: newRotatingLog(filepath.Join(logDir, "node.log"), logMax)}
+	if reindex {
+		c.onceArgs = []string{"-reindex"}
+	}
+	return c
 }
 
 // Stop allowances. The stratum gives its miners 2 s (both ports at once), waits for shares and a
@@ -184,12 +267,19 @@ const (
 )
 
 func runCmd(args []string) error {
-	dataDir, web, err := parseRunFlags(args)
+	opts, err := parseRunFlags(args)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
 		return err
+	}
+	dataDir, web := opts.dataDir, opts.web
+	if err := checkRootDataDir(geteuid(), dataDir); err != nil {
+		return err
+	}
+	if geteuid() == 0 {
+		fmt.Fprintln(os.Stderr, rootWarning)
 	}
 	inst, err := installDir()
 	if err != nil {
@@ -240,9 +330,7 @@ func runCmd(args []string) error {
 	bin := func(n string) string { return filepath.Join(inst, "bin", n) }
 	db := "DB_PATH=" + filepath.Join(dataDir, "forgesolo.db")
 	rpcPort, apiPort, statsPort := strconv.Itoa(p.RPC), strconv.Itoa(p.API), strconv.Itoa(p.Stats)
-	node := &child{name: "node", path: bin("bitcoincashIId"), dir: dataDir, grace: nodeGrace,
-		args: []string{"-datadir=" + filepath.Join(dataDir, "bch2"), "-conf=" + filepath.Join(dataDir, "bch2", "bch2.conf")},
-		env:  os.Environ(), log: newRotatingLog(filepath.Join(logDir, "node.log"), logMax)}
+	node := nodeChild(inst, dataDir, logDir, opts.reindex)
 	api := &child{name: "api", path: bin("api"), dir: dataDir, grace: apiGrace,
 		env: append(os.Environ(), apiEnv(dataDir, inst, p, sec)...),
 		log: newRotatingLog(filepath.Join(logDir, "api.log"), logMax)}
@@ -266,6 +354,9 @@ func runCmd(args []string) error {
 	signal.Notify(sigCh, sigs...)
 
 	logf("Forge Solo %s for Linux starting; data in %s", version, dataDir)
+	if opts.reindex {
+		logf("the node rebuilds its chain state from the blocks on disk (--reindex): this takes a while, and the dashboard shows it as syncing")
+	}
 	if err := node.Start(); err != nil {
 		webLn.Close()
 		return fmt.Errorf("the BCH2 node could not be started: %w", err)

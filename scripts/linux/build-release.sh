@@ -11,7 +11,9 @@
 #
 # Needs Go and Docker. The ARM and RISC-V node builds run under QEMU (register it once with
 # `docker run --privileged --rm tonistiigi/binfmt --install arm64,arm,riscv64`) and take hours.
-# Node builds are kept in $WORK (default .linux-build) and reused.
+# Node builds are kept in $WORK (default .linux-build) and reused. Every node binary that goes
+# into a tarball must have the SHA-256 pinned below, whether it was just built or reused: a
+# release ships exactly the node that was checked, and anything else stops the script.
 #
 # Usage: scripts/linux/build-release.sh VERSION [ARCH...]
 #   ARCH: x86_64 aarch64 armv7l armv6l i686 riscv64 (default: all), named as `uname -m` names them
@@ -22,6 +24,26 @@ ARCHES=${*:-x86_64 aarch64 armv7l armv6l i686 riscv64}
 NODE_REPO=https://github.com/BitcoincashII/bitcoincashII-core.git
 NODE_TAG=v27.0.2
 NODE_COMMIT=a1668c6ab9626156d9b4d3e38e92363f354e8e5a
+# The node binaries the releases ship: built from NODE_COMMIT by build-node.sh, and the same bytes
+# as in the published 1.0.12 downloads. A build from source gives other bytes (it is not
+# reproducible): check such a build before pinning it here.
+node_sha256() {
+  case $1 in
+    x86_64/bitcoincashIId) echo 6c9b21f0371fe2922772d842a65e416c25a1aa17908ba464b02f46d523684719 ;;
+    x86_64/bitcoincashII-cli) echo e64f9845b2417408ebdd5391a85e35252ce134f4e4069e06ed91b1fff8011966 ;;
+    aarch64/bitcoincashIId) echo 38376800aef050e79ca29472ed86ecc564b7d012d0e30dd6a547c42c27b6830c ;;
+    aarch64/bitcoincashII-cli) echo 5da2a772c55558a0eee7487516c24aee196657efb1d7a1a8f9205f6781e0b101 ;;
+    armv7l/bitcoincashIId) echo 8ec78949b29f09c44023ad0cdb20c6ae6c4e5df561cbeb5472d24072fbbcbf61 ;;
+    armv7l/bitcoincashII-cli) echo 3c98b13c777f0e7eca1f75b3a776339580760e939d11cdc4d2c9288d418823d8 ;;
+    armv6l/bitcoincashIId) echo 2ba97d121ee2808f789017d05e965380efbffba375838a9456782ce38715204f ;;
+    armv6l/bitcoincashII-cli) echo 1bcecb7421f70cb18bfc9a6b26f2885d5ecc29cd715bba173786b70f321498e2 ;;
+    i686/bitcoincashIId) echo 0925a6ba5657cb3615cb5f27543dbdbce481212f3f86dcc1023bbe8c2458cbbd ;;
+    i686/bitcoincashII-cli) echo 574a49aa12a8380c403b266f9739759c4c06e73639416dd5a676c86b704ba677 ;;
+    riscv64/bitcoincashIId) echo 0689803e17a2603969091eeabef9ad2a4972e0cdd951a8535f891520e5270113 ;;
+    riscv64/bitcoincashII-cli) echo 39906888207a44824831121f58ced1d4452454f1b128751e713355bfac7fa29b ;;
+    *) echo none ;;
+  esac
+}
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 WORK=${WORK:-$ROOT/.linux-build}
 DIST=$ROOT/dist
@@ -58,6 +80,14 @@ for arch in $ARCHES; do
     docker run --rm --platform "$plat" -e ARCH="$arch" -v "$WORK:/w" "alpine@sha256:$digest" $pre sh /w/build-node.sh \
       >"$WORK/logs/run-$arch.log" 2>&1 || { echo "node build failed for $arch: see $WORK/logs/" >&2; exit 1; }
   fi
+  for prog in bitcoincashIId bitcoincashII-cli; do
+    want=$(node_sha256 "$arch/$prog")
+    got=$(sha256sum "$WORK/out/$arch/$prog" | cut -d' ' -f1)
+    if [ "$got" != "$want" ]; then
+      echo "$WORK/out/$arch/$prog has SHA-256 $got, but the release ships $want: refusing to package it" >&2
+      exit 1
+    fi
+  done
   pkg=forge-solo-$VERSION-linux-$arch
   stage=$WORK/stage/$pkg
   rm -rf "$stage"

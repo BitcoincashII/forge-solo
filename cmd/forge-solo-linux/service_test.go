@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -236,13 +237,21 @@ func TestCheckInstallPortsNamesAForegroundCopy(t *testing.T) {
 	if !strings.Contains(err.Error(), "started yourself") || !strings.Contains(err.Error(), "not carried over") {
 		t.Errorf("INSTALL-FOREGROUND: the error does not say to stop a Forge Solo started by hand: %v", err)
 	}
-	if checkPublicPorts() == nil {
-		if !strings.Contains(err.Error(), l.Addr().String()) {
-			t.Errorf("INSTALL-PORTS: the error does not name the dashboard address: %v", err)
-		}
-		if err := checkInstallPorts("127.0.0.1:0"); err != nil {
-			t.Errorf("INSTALL-PORTS: free ports refused: %v", err)
-		}
+	saved := publicPorts
+	t.Cleanup(func() { publicPorts = saved })
+	publicPorts = publicPorts[:0:0] // the public ports free: only the dashboard address is taken
+	if err := checkInstallPorts(l.Addr().String()); err == nil || !strings.Contains(err.Error(), l.Addr().String()) {
+		t.Errorf("INSTALL-PORTS: the error does not name the dashboard address: %v", err)
+	}
+	if err := checkInstallPorts("127.0.0.1:0"); err != nil {
+		t.Errorf("INSTALL-PORTS: free ports refused: %v", err)
+	}
+
+	// A public port taken, the dashboard address free.
+	taken := usePublicPorts(t)
+	err = checkInstallPorts("127.0.0.1:0")
+	if err == nil || !strings.Contains(err.Error(), strconv.Itoa(taken)) || !strings.Contains(err.Error(), "started yourself") {
+		t.Errorf("INSTALL-PUBLIC-PORT: with port %d taken, install-service did not name it and say to stop a copy started by hand: %v", taken, err)
 	}
 }
 

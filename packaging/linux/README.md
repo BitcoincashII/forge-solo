@@ -55,7 +55,11 @@ It runs in the foreground; Ctrl-C stops it (see **Stopping**). Then:
 
 The node syncs the chain first, about a quarter of an hour on a PC and longer on a small board;
 the dashboard shows its progress, and mining starts once it is done. Everything is kept in the data directory:
-`~/.local/share/forge-solo`, or `/var/lib/forge-solo` when run as root or as the service.
+`~/.local/share/forge-solo` (the service's is `/var/lib/forge-solo`).
+
+Run it as an ordinary user: it needs no root. Run as root, it warns, and it refuses a data
+directory another account owns, such as the service's: the files it wrote there would be root's,
+and the service could no longer open them.
 
 ## Run it as a service (systemd)
 
@@ -100,6 +104,10 @@ ssh -L 3080:127.0.0.1:3080 you@this-machine
 
 then open http://127.0.0.1:3080 there. Opened this way, or on this machine, the dashboard shows
 miners this machine's own network address to connect to.
+
+A reverse proxy in front of it (for TLS, say) must pass the Host `127.0.0.1:3080` or `localhost`:
+the dashboard answers any other name with 421, so that a web page cannot reach it through a name
+of its own.
 
 To serve it to your network directly instead, give it an address:
 `./forge-solo --web 0.0.0.0:3080` (or `sudo ./forge-solo install-service --web 0.0.0.0:3080`).
@@ -165,6 +173,15 @@ In the data directory:
   usually another BCH2 node or mining pool on this machine. Stop it first.
 - **"another Forge Solo is already running with the data directory …"**: another copy is running with the
   same data, perhaps the service. Stop that one first.
+- **"Corrupted block database detected"** in the node's log, after a power cut or a full disk:
+  stop Forge Solo and start it once with `./forge-solo run --reindex`. The node rebuilds its chain
+  state from the blocks on disk; the dashboard shows it as syncing until it is done. For the
+  service: `sudo systemctl stop forge-solo`, then
+  `sudo -u forge-solo /opt/forge-solo/forge-solo run --data-dir /var/lib/forge-solo --reindex`;
+  once the dashboard shows it synced, stop it (Ctrl-C) and `sudo systemctl start forge-solo`.
+- **The service's node stops at every start with "could not be read" or "Permission denied"**:
+  an earlier Forge Solo was run as root on the service's data directory and left root's files
+  there. `sudo /opt/forge-solo/forge-solo install-service` gives them back to the service.
 - The dashboard shows why mining is paused. The logs are in `logs/` in the data directory, the
   node's in `bch2/debug.log`. When a program stops unexpectedly, Forge Solo prints its last lines
   and starts it again.

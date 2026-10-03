@@ -172,3 +172,33 @@ func TestRotatingLogRotatesAndTails(t *testing.T) {
 		t.Fatalf("tail %q", tail)
 	}
 }
+
+// First-start arguments (-reindex) go to the first start only: a restart in the same run must not
+// begin the rebuild again.
+func TestOnceArgsGoToTheFirstStartOnly(t *testing.T) {
+	captureLog(t)
+	c, dir := shChild(t, `echo "start:$*" >> starts; exit 3`, time.Second)
+	c.args = append(c.args, "sh") // $0 for sh -c; what follows is $*
+	c.onceArgs = []string{"-reindex"}
+	starts := filepath.Join(dir, "starts")
+	if err := c.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if !waitFor(t, 10*time.Second, func() bool { return countLines(t, starts) >= 3 }) {
+		t.Fatalf("not restarted: %d starts", countLines(t, starts))
+	}
+	c.Stop()
+	b, err := os.ReadFile(starts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if lines[0] != "start:-reindex" {
+		t.Errorf("REINDEX-FIRST: the first start got %q, want start:-reindex", lines[0])
+	}
+	for i, l := range lines[1:] {
+		if l != "start:" {
+			t.Errorf("REINDEX-ONCE: start %d got %q, want no first-start arguments", i+2, l)
+		}
+	}
+}

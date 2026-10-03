@@ -19,19 +19,21 @@ var errStopping = errors.New("stopping")
 // child is one supervised program. Start runs it; if it exits on its own it is started again after
 // a delay that doubles to a minute; Stop sends SIGTERM, waits up to grace, then SIGKILL.
 type child struct {
-	name  string
-	path  string
-	args  []string
-	env   []string
-	dir   string
-	grace time.Duration
-	log   *rotatingLog
+	name     string
+	path     string
+	args     []string
+	onceArgs []string // added at the first start only (forge-solo run --reindex)
+	env      []string
+	dir      string
+	grace    time.Duration
+	log      *rotatingLog
 
 	mu       sync.Mutex
 	cmd      *exec.Cmd
 	exited   chan struct{} // closed once the current process has been reaped
 	waitErr  error         // how it exited
 	started  time.Time
+	spawns   int // starts so far
 	stopping bool
 	stopCh   chan struct{} // closed by Stop: wakes a restart delay
 	done     chan struct{} // closed when supervise returns
@@ -58,18 +60,24 @@ func (c *child) spawn() error {
 	if c.stopping {
 		return errStopping
 	}
-	cmd := exec.Command(c.path, c.args...)
+	args := c.args
+	if c.spawns == 0 {
+		args = append(append([]string(nil), c.args...), c.onceArgs...)
+	}
+	cmd := exec.Command(c.path, args...)
 	cmd.Env = c.env
 	cmd.Dir = c.dir
 	cmd.Stdout = c.log
 	cmd.Stderr = c.log
 	// Its own process group, so a Ctrl-C in the terminal reaches only this launcher, which stops
 	// the programs in order. Pdeathsig: if the launcher is killed outright, each program still
-	// gets SIGTERM and shuts down cleanly instead of running on unsupervised.
+	// gets SIGTERM and shuts down cleanly instead of running on unsupervised. Not under systemd:
+	// there KillMode=mixed SIGKILLs them as soon as the launcher has exited (see unitFile).
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGTERM}
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+	c.spawns++
 	exited := make(chan struct{})
 	c.cmd, c.exited, c.started, c.waitErr = cmd, exited, time.Now(), nil
 	go func() {
