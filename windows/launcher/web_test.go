@@ -68,3 +68,24 @@ func TestDashboardSecurityHeaders(t *testing.T) {
 		}
 	}
 }
+
+// The pages are checked with the server each time they are shown: a browser keeping an old page
+// across an update kept the Settings page from before the password, where no save could succeed.
+func TestDashboardPagesAreNotCached(t *testing.T) {
+	root := t.TempDir()
+	for _, f := range []string{"solo.html", "settings.html", "tides.html", "other.html", "app.js"} {
+		if err := os.WriteFile(filepath.Join(root, f), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := dashboardHandler(root, "127.0.0.1:1")
+	for path, want := range map[string]string{"/solo": "no-cache", "/settings": "no-cache", "/tides": "no-cache", "/other.html": "no-cache", "/app.js": ""} {
+		r := httptest.NewRequest("GET", path, nil)
+		r.Host = "127.0.0.1:3080"
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if got := w.Header().Get("Cache-Control"); w.Code != 200 || got != want {
+			t.Errorf("WEB-NO-CACHE: %s: status %d, Cache-Control %q, want %q", path, w.Code, got, want)
+		}
+	}
+}

@@ -51,18 +51,30 @@ func dashboardMux(webRoot, apiAddr string) http.Handler {
 		case p == "/":
 			http.Redirect(w, r, "/solo", http.StatusFound)
 		case p == "/solo":
-			http.ServeFile(w, r, filepath.Join(webRoot, "solo.html"))
+			page(w, r, filepath.Join(webRoot, "solo.html"))
 		case p == "/settings":
-			http.ServeFile(w, r, filepath.Join(webRoot, "settings.html"))
+			page(w, r, filepath.Join(webRoot, "settings.html"))
 		case p == "/tides":
-			http.ServeFile(w, r, filepath.Join(webRoot, "tides.html"))
+			page(w, r, filepath.Join(webRoot, "tides.html"))
 		case p == "/index.html":
 			http.Redirect(w, r, "/solo", http.StatusFound)
 		default:
+			if strings.HasSuffix(p, ".html") {
+				w.Header().Set("Cache-Control", "no-cache")
+			}
 			fs.ServeHTTP(w, r)
 		}
 	})
 	return mux
+}
+
+// page serves one of the dashboard's pages, to be checked with the server each time it is shown,
+// as Linux and Umbrel's nginx do. Without that a browser kept the page from before an update for
+// hours (Inno Setup keeps the files' times), the old Settings page among them, which has no box
+// for the password the new API asks for, so no save could succeed.
+func page(w http.ResponseWriter, r *http.Request, file string) {
+	w.Header().Set("Cache-Control", "no-cache")
+	http.ServeFile(w, r, file)
 }
 
 // apiProxy forwards to the API on this machine, addressed to the API itself. The API's rate limit
