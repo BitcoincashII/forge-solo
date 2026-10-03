@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -63,5 +64,33 @@ func TestDatabaseIsUpOnlyWhenPgCtlSaysSo(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(calls); string(b) != "createdb\npsql\n" {
 		t.Fatalf("DB-PGCTL-OK: the database was not created and loaded: %q", b)
+	}
+}
+
+// A path the bundled PostgreSQL cannot take, on a drive that keeps no short names: the database
+// cannot start, and launcher.log says why, instead of only that it did not.
+func TestADatabasePathWithNoShortNameIsSaidSo(t *testing.T) {
+	calls := fakePostgres(t, 0)
+	cn := string([]rune{0x6D4B, 0x8BD5})
+	savedData := dataDir
+	dataDir = filepath.Join(t.TempDir(), "data-"+cn)
+	t.Cleanup(func() { dataDir = savedData })
+	md(dpath("pgdata"))
+	if err := os.WriteFile(dpath("pgdata", "PG_VERSION"), []byte("16\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	savedShort := shortPath
+	shortPath = func(p string) (string, error) { return p, nil } // no short names on this drive
+	t.Cleanup(func() { shortPath = savedShort })
+
+	if startPostgres() {
+		t.Fatal("PGPATH-NO-SHORT-SAID: the database counts as started from a path it cannot take")
+	}
+	b, _ := os.ReadFile(dpath("launcher.log"))
+	if !strings.Contains(string(b), "have characters the bundled PostgreSQL cannot take") {
+		t.Fatalf("PGPATH-NO-SHORT-SAID: launcher.log does not say why the database cannot start:\n%s", b)
+	}
+	if _, err := os.Stat(calls); err == nil {
+		t.Error("PGPATH-NO-SHORT-SAID: the database tools were run anyway")
 	}
 }

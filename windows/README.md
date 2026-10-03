@@ -150,6 +150,10 @@ The installer is written to `windows/ForgeSolo-Setup-<version>.exe`. CI stamps t
   A node that stops saying "Corrupted block database detected" (after a power cut, say) is
   started once with `-reindex`, which rebuilds its chain state from the blocks on disk; if that
   does not help, the tray says which folders to delete.
+- **User names in another script:** the bundled PostgreSQL reads paths in the system's code page,
+  so under a user name with characters outside it (a Chinese name on an English Windows) the
+  database never started. Its paths are now given in their short (8.3) form when they need it; if
+  the drive keeps no short names, `launcher.log` says so.
 - **Public ports:** if another program holds 3333 (the usual port of mining software) or 8339, Forge
   Solo starts nothing and the tray names the port: the miner or the BCH2 node cannot run without it.
   One holding 3335 or 25360 leaves out rentals or merge mining, and `launcher.log` says so.

@@ -211,10 +211,14 @@ func startPostgres() bool {
 		md(pgdata)
 		pwf := dpath("pgpw.txt")
 		_ = os.WriteFile(pwf, []byte(sec.DBPass), 0o600)
-		init := hiddenPrio(belowNormal, "pgsql\\bin\\initdb.exe", "-D", pgdata, "-U", "forge", "-A", "scram-sha-256",
-			"--pwfile", pwf, "-E", "UTF8", "--no-locale")
+		init := pgCmd("pgsql\\bin\\initdb.exe", "-D", pgPath(pgdata), "-U", "forge", "-A", "scram-sha-256",
+			"--pwfile", pgPath(pwf), "-E", "UTF8", "--no-locale")
 		_ = runToEnd(init, nil)
 		_ = os.Remove(pwf)
+	}
+	if !isASCII(pgPath(pgdata)) || !isASCII(pgPath(ipath("pgsql", "bin"))) {
+		logf("the database cannot start: the names of Forge Solo's folders (%s, %s) have characters the bundled PostgreSQL cannot take, and this drive keeps no short names for them", installDir, dataDir)
+		return false
 	}
 	log := dpath("pglog.txt")
 	rotateLog(log, 10<<20)
@@ -222,17 +226,17 @@ func startPostgres() bool {
 	// 127.0.0.1:pgPort itself. Something else answering on the port is not the database, and the
 	// services would hand it the database password (lib/pq sends it in the clear when asked).
 	// -t 300: a server recovering from a hard stop can take longer than the default 60 s.
-	pgctl := hiddenPrio(belowNormal, "pgsql\\bin\\pg_ctl.exe", "-D", pgdata, "-l", log, "-o", "-p "+pgPort+" -h 127.0.0.1", "-w", "-t", "300", "start")
+	pgctl := pgCmd("pgsql\\bin\\pg_ctl.exe", "-D", pgPath(pgdata), "-l", pgPath(log), "-o", "-p "+pgPort+" -h 127.0.0.1", "-w", "-t", "300", "start")
 	if runToEnd(pgctl, &dbStarting) != nil {
 		return false
 	}
 	env := append(os.Environ(), "PGPASSWORD="+sec.DBPass)
 	// create the database (ignore "already exists")
-	cdb := hidden("pgsql\\bin\\createdb.exe", "-h", "127.0.0.1", "-p", pgPort, "-U", "forge", "forgesolo")
+	cdb := pgCmd("pgsql\\bin\\createdb.exe", "-h", "127.0.0.1", "-p", pgPort, "-U", "forge", "forgesolo")
 	cdb.Env = env
 	_ = runToEnd(cdb, nil)
 	// load the schema (idempotent; init-db.sql uses IF NOT EXISTS)
-	psql := hidden("pgsql\\bin\\psql.exe", "-h", "127.0.0.1", "-p", pgPort, "-U", "forge", "-d", "forgesolo", "-f", ipath("init-db.sql"))
+	psql := pgCmd("pgsql\\bin\\psql.exe", "-h", "127.0.0.1", "-p", pgPort, "-U", "forge", "-d", "forgesolo", "-f", pgPath(ipath("init-db.sql")))
 	psql.Env = env
 	_ = runToEnd(psql, nil)
 	return true
@@ -341,7 +345,7 @@ func boot() {
 			return
 		}
 		logf("the database did not start (see pglog.txt)")
-		status("Forge Solo: the database did not start (see pglog.txt in the data folder)")
+		status("Forge Solo: the database did not start (see launcher.log and pglog.txt in the data folder)")
 		return
 	}
 	logf("database started")

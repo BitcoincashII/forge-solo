@@ -23,7 +23,7 @@ func installedProgramsOS() []runningProgram {
 		return nil
 	}
 	defer windows.CloseHandle(snap)
-	dir := strings.ToLower(filepath.Clean(installDir)) + `\`
+	dir := strings.ToLower(longPath(filepath.Clean(installDir))) + `\`
 	var out []runningProgram
 	var e windows.ProcessEntry32
 	e.Size = uint32(unsafe.Sizeof(e))
@@ -38,7 +38,9 @@ func installedProgramsOS() []runningProgram {
 		buf := make([]uint16, 4096)
 		n := uint32(len(buf))
 		if windows.QueryFullProcessImageName(h, 0, &buf[0], &n) == nil {
-			if path := strings.ToLower(windows.UTF16ToString(buf[:n])); strings.HasPrefix(path, dir) {
+			// The bundled PostgreSQL runs from its short (8.3) path when the long one has characters
+			// it cannot take (pgPath): compared in its long form, it is still this install's.
+			if path := strings.ToLower(longPath(windows.UTF16ToString(buf[:n]))); strings.HasPrefix(path, dir) {
 				out = append(out, runningProgram{int(e.ProcessID), filepath.Base(path)})
 			}
 		}
