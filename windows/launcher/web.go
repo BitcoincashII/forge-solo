@@ -12,10 +12,29 @@ import (
 // serveDashboard hosts web/dist on 127.0.0.1:webPort and reverse-proxies /api/ to api.exe,
 // replicating the app's nginx routing so the bundled dashboard works unchanged.
 func serveDashboard() {
+	_ = http.ListenAndServe("127.0.0.1:"+webPort, dashboardHandler(ipath("web"), "127.0.0.1:"+apiPort))
+}
+
+// dashboardHandler is everything the dashboard answers.
+func dashboardHandler(webRoot, apiAddr string) http.Handler {
 	// The dashboard has no password, and listens on this machine only. A page on any site could
 	// rebind its own name to 127.0.0.1 and send same-origin requests here, settings included; the
 	// browser still sends that site's name as Host, so anything but this machine's own name is refused.
-	_ = http.ListenAndServe("127.0.0.1:"+webPort, onlyLocalHost(dashboardMux(ipath("web"), "127.0.0.1:"+apiPort)))
+	return securityHeaders(onlyLocalHost(dashboardMux(webRoot, apiAddr)))
+}
+
+// securityHeaders sets on every response what the Umbrel app's nginx sends: no page may frame the
+// dashboard (a framed, see-through Settings page can be clicked through by someone who never sees
+// it), no content type is guessed, and no referrer is sent on.
+func securityHeaders(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hdr := w.Header()
+		hdr.Set("X-Frame-Options", "DENY")
+		hdr.Set("Content-Security-Policy", "frame-ancestors 'none'")
+		hdr.Set("X-Content-Type-Options", "nosniff")
+		hdr.Set("Referrer-Policy", "no-referrer")
+		h.ServeHTTP(w, r)
+	})
 }
 
 // dashboardMux serves the dashboard's pages from webRoot and proxies /api/ to the API at apiAddr.

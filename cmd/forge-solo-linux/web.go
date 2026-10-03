@@ -49,9 +49,9 @@ func dashboardHandler(webRoot, apiAddr, password string) http.Handler {
 		// Listening on this machine only, with no password: a page on any site could rebind its
 		// own name to 127.0.0.1 and send same-origin requests here, settings included. The browser
 		// still sends that site's name as Host, so anything but this machine's own name is refused.
-		return onlyLocalHost(h)
+		return securityHeaders(onlyLocalHost(h))
 	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, pw, ok := r.BasicAuth()
 		if !ok || subtle.ConstantTimeCompare([]byte(u), []byte("forge")) != 1 ||
 			subtle.ConstantTimeCompare([]byte(pw), []byte(password)) != 1 {
@@ -59,6 +59,20 @@ func dashboardHandler(webRoot, apiAddr, password string) http.Handler {
 			http.Error(w, "Sign in as forge, with DASHBOARD_PASSWORD from secrets.env in the Forge Solo data directory.", http.StatusUnauthorized)
 			return
 		}
+		h.ServeHTTP(w, r)
+	}))
+}
+
+// securityHeaders sets on every response what the Umbrel app's nginx sends: no page may frame the
+// dashboard (a framed, see-through Settings page can be clicked through by someone who never sees
+// it), no content type is guessed, and no referrer is sent on.
+func securityHeaders(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hdr := w.Header()
+		hdr.Set("X-Frame-Options", "DENY")
+		hdr.Set("Content-Security-Policy", "frame-ancestors 'none'")
+		hdr.Set("X-Content-Type-Options", "nosniff")
+		hdr.Set("Referrer-Policy", "no-referrer")
 		h.ServeHTTP(w, r)
 	})
 }

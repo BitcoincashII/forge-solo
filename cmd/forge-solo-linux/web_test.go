@@ -144,3 +144,34 @@ func TestAPIProxyAddressesTheAPI(t *testing.T) {
 		t.Errorf("WEB-XFF: X-Forwarded-For %q, want 192.168.1.20 alone (the client sent 10.8.8.8)", xff)
 	}
 }
+
+// Every answer the dashboard gives carries the headers the Umbrel app's nginx sends: pages, files,
+// API calls, redirects and refusals alike, with a password or without.
+func TestDashboardSecurityHeaders(t *testing.T) {
+	root, api, _ := webFixture(t)
+	apiAddr := strings.TrimPrefix(api.URL, "http://")
+	for _, tc := range []struct {
+		password, path, host string
+		auth                 bool
+	}{
+		{"", "/solo", "127.0.0.1:3080", false}, {"", "/", "127.0.0.1:3080", false},
+		{"", "/api/v1/stats", "localhost:3080", false}, {"", "/js/app.js", "127.0.0.1:3080", false},
+		{"", "/solo", "rebind.example:3080", false},
+		{"s3cret", "/solo", "192.168.1.5:3080", true}, {"s3cret", "/api/v1/stats", "192.168.1.5:3080", true},
+		{"s3cret", "/solo", "192.168.1.5:3080", false},
+	} {
+		r := httptest.NewRequest("GET", tc.path, nil)
+		r.Host = tc.host
+		if tc.auth {
+			r.SetBasicAuth("forge", tc.password)
+		}
+		w := httptest.NewRecorder()
+		dashboardHandler(root, apiAddr, tc.password).ServeHTTP(w, r)
+		for k, v := range map[string]string{"X-Frame-Options": "DENY", "Content-Security-Policy": "frame-ancestors 'none'",
+			"X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"} {
+			if got := w.Header().Get(k); got != v {
+				t.Errorf("HDR-LNX: %s (password %v, Host %s, status %d): %s = %q, want %q", tc.path, tc.password != "", tc.host, w.Code, k, got, v)
+			}
+		}
+	}
+}
