@@ -2,7 +2,8 @@
 # Runs the integration tests that need a real postgres, against the image docker/postgres builds
 # (the one docker-compose.yml ships since 1.0.13), and tears it down afterwards. The server runs
 # with max_locks_per_transaction=128, what TimescaleDB's tuning gives a board under 8 GB: the
-# share clear must work within that (TestPostgresClearsThousandsOfShareChunks).
+# share clear must work within that (TestPostgresClearsThousandsOfShareChunks). It first checks
+# what the image sets in every database it makes: no telemetry to Timescale and no JIT.
 #
 # These cover the 1175 merge-mining payout ledger's fund-safety invariants (confirmation
 # gate, orphan-void, no double-credit). They were gated on an environment variable whose
@@ -23,6 +24,17 @@ PORT="${PG_PORT:-15432}"
 
 cleanup() { [[ "${KEEP:-0}" == "1" ]] || docker rm -f "$NAME" >/dev/null 2>&1 || true; }
 
+# expect_sql stops the run unless the query, run in the test container, prints exactly want.
+expect_sql() { # what, query, want
+  local got
+  got=$(docker exec "$NAME" psql -U forge -d forgesolo -tAc "$2" 2>&1) || true
+  if [[ "$got" != "$3" ]]; then
+    echo "✗ $1: got '$got', want '$3'"
+    exit 1
+  fi
+  echo "✓ $1"
+}
+
 if [[ "${USE_RUNNING_PG:-0}" != "1" ]]; then
   trap cleanup EXIT
   docker rm -f "$NAME" >/dev/null 2>&1 || true
@@ -42,6 +54,18 @@ if [[ "${USE_RUNNING_PG:-0}" != "1" ]]; then
   wait_for "postgres init" 120 container_log_has "$NAME" "PostgreSQL init process complete"
   wait_for "postgres" 60 docker exec "$NAME" pg_isready -U forge -d forgesolo
   wait_for "postgres queries" 60 docker exec "$NAME" psql -U forge -d forgesolo -c "SELECT 1"
+
+  # Telemetry off from the command line covers the databases made before 1.0.13 too, whose
+  # postgresql.conf says basic. A fresh one also has it off in its postgresql.conf and its telemetry
+  # job unscheduled. JIT is off from the command line, as the old tuning set it in every database.
+  expect_sql "telemetry off, from the command line" \
+    "SELECT setting || ' (' || source || ')' FROM pg_settings WHERE name = 'timescaledb.telemetry_level'" "off (command line)"
+  expect_sql "telemetry off in a fresh database's postgresql.conf" \
+    "SELECT setting FROM pg_file_settings WHERE name = 'timescaledb.telemetry_level' ORDER BY seqno DESC LIMIT 1" "off"
+  expect_sql "telemetry job unscheduled in a fresh database" \
+    "SELECT scheduled FROM timescaledb_information.jobs WHERE job_id = 1" "f"
+  expect_sql "JIT off, from the command line" \
+    "SELECT setting || ' (' || source || ')' FROM pg_settings WHERE name = 'jit'" "off (command line)"
 fi
 
 export MMTEST_DB="postgres://forge:forgepass@127.0.0.1:${PORT}/forgesolo?sslmode=disable"

@@ -33,9 +33,15 @@ RUN case "$(uname -m)" in \
     esac > /tmp/ts.sha256 \
  && cd /usr/local/lib/postgresql && sha256sum -c /tmp/ts.sha256 && rm /tmp/ts.sha256
 COPY --from=timescale /usr/local/share/postgresql/extension/timescaledb.control /usr/local/share/postgresql/extension/timescaledb--2.17.2.sql /usr/local/share/postgresql/extension/
-# A fresh database is set up as the TimescaleDB image does it: the extension, and its tuning.
-COPY --from=timescale /usr/local/bin/timescaledb-tune /usr/local/bin/
-COPY --from=timescale /docker-entrypoint-initdb.d/ /docker-entrypoint-initdb.d/
+# A fresh database gets the extension the way the TimescaleDB image installs it, by its
+# 000_install_timescaledb.sh: in postgres, template1 and POSTGRES_DB. Not by its
+# 001_timescaledb_tune.sh, or the timescaledb-tune that script runs: they size PostgreSQL to the whole
+# machine, which the settings below replace, and nothing else here runs them.
+COPY --from=timescale /docker-entrypoint-initdb.d/000_install_timescaledb.sh /docker-entrypoint-initdb.d/
+# With this, that script writes timescaledb.telemetry_level=off into a fresh database's
+# postgresql.conf and unschedules TimescaleDB's telemetry job (job 1). Without it, it writes basic and
+# leaves the job scheduled.
+ENV TIMESCALEDB_TELEMETRY=off
 # TimescaleDB must be preloaded; a fresh database's postgresql.conf is made from this sample.
 RUN sed -r -i "s/[#]*\s*(shared_preload_libraries)\s*=\s*'(.*)'/\1 = 'timescaledb,\2'/;s/,'/'/" /usr/local/share/postgresql/postgresql.conf.sample \
  && grep -q "^shared_preload_libraries = 'timescaledb'" /usr/local/share/postgresql/postgresql.conf.sample
@@ -44,9 +50,12 @@ RUN sed -r -i "s/[#]*\s*(shared_preload_libraries)\s*=\s*'(.*)'/\1 = 'timescaled
 # not for the whole machine. These override postgresql.conf, so they also correct the installs the
 # old image's timescaledb-tune sized to all of the machine's memory and cores (15 GB of
 # shared_buffers on a 64 GB box, 1 GB on a 4 GB Raspberry Pi). max_locks_per_transaction is left as
-# each install has it: clearing an old install's stored shares locks every TimescaleDB chunk at once.
-# A fresh database is not tuned at all (NO_TS_TUNE). Telemetry to Timescale is off.
-ENV NO_TS_TUNE=1
+# each install has it: that tuning set 128 or more, room the first start's clear of an old install's
+# stored shares can use. A fresh database is not tuned at all.
+#
+# Telemetry to Timescale is off here too, for the databases made before 1.0.13: their postgresql.conf
+# says basic, and their telemetry job stays scheduled. JIT is off, as that tuning set it in every
+# database it made, so a fresh database runs as an upgraded one does.
 CMD ["postgres", \
      "-c", "shared_buffers=64MB", \
      "-c", "effective_cache_size=256MB", \
@@ -61,4 +70,5 @@ CMD ["postgres", \
      "-c", "wal_buffers=4MB", \
      "-c", "min_wal_size=80MB", \
      "-c", "max_wal_size=256MB", \
+     "-c", "jit=off", \
      "-c", "timescaledb.telemetry_level=off"]
