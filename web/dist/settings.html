@@ -175,12 +175,17 @@
      if(!el.value) el.value=rememberedPw();
    }
 
+   // Whether the stored settings have been read. Until they have, the boxes hold the page's
+   // defaults (empty, Solo), and saving them would clear the stored 1175 address and tag and
+   // switch the mode: a save waits for them.
+   var configLoaded=false;
    function loadConfig(){
      return fetch('/api/v1/pool/config')
        .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
        .then(function(d){
          document.getElementById('apiDownBanner').style.display='none';
          applyConfig(d);
+         configLoaded=true;
        })
        .catch(function(){
          // Nothing is known about the stored config, so make no claim about it: hide the
@@ -246,6 +251,15 @@
 
    document.getElementById('saveBtn').addEventListener('click', function(){
      var st=document.getElementById('saveStatus');
+     if(!configLoaded){
+       st.className='status err';
+       st.textContent='Forge Solo\'s saved settings have not loaded yet, so nothing was saved: saving now would replace them with these boxes. Loading them again\u2026';
+       loadConfig().then(function(){
+         if(configLoaded) st.textContent='Your saved settings are loaded now. Check them, then press Save again. Nothing was saved yet.';
+         else st.textContent='Forge Solo\'s saved settings still cannot be read, so nothing was saved. Try again in a minute.';
+       });
+       return;
+     }
      st.className='status'; st.textContent='Saving…';
      var picked=document.querySelector('input[name=payoutMode]:checked');
      var body={
