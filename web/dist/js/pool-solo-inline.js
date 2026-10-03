@@ -191,11 +191,15 @@
                     msg = '⏳ <b>BCH2 node syncing: ' + pct.toFixed(2) + '%</b> (block ' + (Number(s.blocks) || 0) + ' / ' + (Number(s.headers) || 0) + '). You can mine once it reaches 100%.'
                         + '<div style="margin-top:7px;height:7px;background:rgba(255,255,255,0.18);border-radius:4px;overflow:hidden">'
                         + '<div style="height:100%;width:' + pct.toFixed(1) + '%;background:#0ac18e;transition:width .6s"></div></div>';
-                    if (!minerAddress) msg += '<div style="height:8px"></div>⚙️ Meanwhile, set your <a href="/settings" style="color:inherit;font-weight:600;text-decoration:underline">payout address</a> in Settings.';
+                    if (!minerAddress && configReachable) msg += '<div style="height:8px"></div>⚙️ Meanwhile, set your <a href="/settings" style="color:inherit;font-weight:600;text-decoration:underline">payout address</a> in Settings.';
                 } else if (s.status === 'offline') {
                     msg = '⏳ <b>Starting the BCH2 node…</b> first launch can take a minute.';
                 } else if (!minerAddress) {
-                    msg = '✅ <b>Node synced.</b> Now set your <a href="/settings" style="color:inherit;font-weight:600;text-decoration:underline">payout address</a> in Settings to start mining.';
+                    // Without the stored settings there is no knowing whether an address is set:
+                    // asking for one sent users to Settings to retype what was already saved.
+                    msg = configReachable
+                        ? '✅ <b>Node synced.</b> Now set your <a href="/settings" style="color:inherit;font-weight:600;text-decoration:underline">payout address</a> in Settings to start mining.'
+                        : '⚠️ ' + noAddressNotice(false);
                 } else {
                     // Node synced and an address is set -- but neither fact proves the
                     // mining service is actually handing out work. Ask it. A miner that
