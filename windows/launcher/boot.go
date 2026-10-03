@@ -379,13 +379,19 @@ var publicPorts = []struct {
 	{rentalPort, "the port for rented hashpower", false}, {aux1175P2P, "the 1175 node's peer port", false}}
 
 // checkPublicPorts fails when another program holds a required public port; one holding an optional
-// port is only logged (rentals, or merge-mining's node, are left out). Each port is tried as the
-// miner listens on it, 0.0.0.0 over TCP, which covers IPv6 too, as the node's two binds do.
+// port is only logged (rentals, or merge-mining's node, are left out).
+//
+// Each port is tried twice. As the miner listens on it -- 0.0.0.0 over "tcp", which Go makes one
+// socket for IPv6 and IPv4 -- and on IPv4 alone. Windows lets that socket bind beside another
+// program's IPv4-only one, and then gives every IPv4 connection to the other program: Forge Solo
+// started, and the miners reached something else. The node's own two binds fail either way.
 func checkPublicPorts() error {
 	for _, p := range publicPorts {
-		l, err := net.Listen("tcp", "0.0.0.0:"+p.port)
+		err := tryListen("tcp4", p.port)
 		if err == nil {
-			_ = l.Close()
+			err = tryListen("tcp", p.port)
+		}
+		if err == nil {
 			continue
 		}
 		if p.required {
@@ -394,6 +400,15 @@ func checkPublicPorts() error {
 		logf("another program uses port %s, %s: that part is left out (%v)", p.port, p.what, err)
 	}
 	return nil
+}
+
+// tryListen reports whether 0.0.0.0:port can be listened on over network, and lets it go again.
+func tryListen(network, port string) error {
+	l, err := net.Listen(network, "0.0.0.0:"+port)
+	if err == nil {
+		_ = l.Close()
+	}
+	return err
 }
 
 // dashboardOpen is set once the dashboard is served, on dashboard.

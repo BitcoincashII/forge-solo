@@ -52,3 +52,25 @@ func TestDashboardPortTaken(t *testing.T) {
 		t.Fatalf("DASH-OPENS: / answered %d, want the redirect to /solo", resp.StatusCode)
 	}
 }
+
+// Another program listening on a public port over IPv4 alone. On Windows the miner's own listen
+// (0.0.0.0 over "tcp", one socket for IPv6 and IPv4) still succeeds beside it, and every IPv4
+// connection then goes to the other program: the check must see the port as taken.
+func TestAPublicPortHeldOverIPv4IsTaken(t *testing.T) {
+	savedData, savedPublic := dataDir, publicPorts
+	dataDir = t.TempDir()
+	t.Cleanup(func() { dataDir, publicPorts = savedData, savedPublic })
+	l, err := net.Listen("tcp4", "0.0.0.0:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	_, port, _ := net.SplitHostPort(l.Addr().String())
+	publicPorts = []struct {
+		port, what string
+		required   bool
+	}{{port, "the miner port", true}}
+	if err := checkPublicPorts(); err == nil {
+		t.Fatalf("PUBLIC-PORT-IPV4: port %s, held over IPv4 by another program, was taken as free", port)
+	}
+}
