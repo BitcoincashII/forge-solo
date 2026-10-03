@@ -16,8 +16,9 @@ func fakePostmaster(t *testing.T, pid int, after time.Duration, fail error) *[]b
 	dataDir = t.TempDir()
 	t.Cleanup(func() { dataDir, signalPostgres = saved, savedSignal })
 	md(dpath("pgdata"))
+	pidFile := dpath("pgdata", "postmaster.pid") // the stand-in's timer must not read dataDir after the test
 	if pid != 0 {
-		if err := os.WriteFile(dpath("pgdata", "postmaster.pid"), []byte("4242\nC:/x/pgdata\n1700000000\n30000\n"), 0o600); err != nil {
+		if err := os.WriteFile(pidFile, []byte("4242\nC:/x/pgdata\n1700000000\n30000\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -33,7 +34,7 @@ func fakePostmaster(t *testing.T, pid int, after time.Duration, fail error) *[]b
 		if fail != nil {
 			return fail
 		}
-		time.AfterFunc(after, func() { _ = os.Remove(dpath("pgdata", "postmaster.pid")) })
+		time.AfterFunc(after, func() { _ = os.Remove(pidFile) })
 		return nil
 	}
 	return sent

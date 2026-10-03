@@ -335,6 +335,9 @@ var stopOnce sync.Once
 // sessionEnding is set when Windows is ending the session, which leaves Forge Solo about 5 s.
 var sessionEnding atomic.Bool
 
+// stopDone is closed when everything has stopped, just before the process exits.
+var stopDone = make(chan struct{})
+
 // shutdown stops everything cleanly and exits. A second call waits for the first, which exits.
 func shutdown() {
 	stopOnce.Do(func() {
@@ -342,8 +345,19 @@ func shutdown() {
 		start := time.Now()
 		stopEverything()
 		logf("everything stopped in %v", time.Since(start).Round(time.Millisecond))
+		close(stopDone)
 		os.Exit(0)
 	})
+}
+
+// waitStopped waits up to max for the stop under way to finish, and reports whether it did.
+func waitStopped(max time.Duration) bool {
+	select {
+	case <-stopDone:
+		return true
+	case <-time.After(max):
+		return false
+	}
 }
 
 // stopEverything is the stop for Quit, or, everything at once, for a closing Windows session.

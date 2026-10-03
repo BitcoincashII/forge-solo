@@ -2,6 +2,7 @@ package main
 
 import (
 	"runtime"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -45,8 +46,8 @@ type msgW struct {
 // A program with no visible window may not hold the session open: Windows ends it at once if it
 // answers "not yet", and after 5 s in each of the two messages otherwise ("Shutdown Changes for
 // Windows Vista"). So Forge Solo asks to be told first, before other programs (the nodes among
-// them), answers yes at once and stops everything together while Windows waits on the second
-// message. The nodes write their chainstate in that time; killed before it, a node has to sync again.
+// them), stops everything together, and answers yes while Windows still waits on either of the
+// messages. The nodes write their chainstate in that time; killed before it, a node has to sync again.
 func watchSessionEnd() {
 	// 0x3FF: the first of the levels for applications. Everything starts at 0x280.
 	pSetProcessShutdownParameters.Call(0x3FF, 0)
@@ -60,6 +61,11 @@ func watchSessionEnd() {
 				logf("Windows is ending the session (flags %#x): stopping everything at once", lParam)
 				sessionEnding.Store(true)
 				go shutdown()
+				// Each of the two messages may take up to 5 s. Spending up to 4 s of this one on the
+				// stop, which ends the process when it is done, gives the nodes about 9 s instead of 5.
+				if !waitStopped(4 * time.Second) {
+					logf("still stopping after 4 s: told Windows to go on")
+				}
 				return 1
 			case wmEndSession:
 				if wParam != 0 {

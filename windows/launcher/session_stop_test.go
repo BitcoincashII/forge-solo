@@ -79,3 +79,14 @@ func TestLauncherLog(t *testing.T) {
 		t.Errorf("LOG-TIME: %q does not start with the time: %v", lines[0], err)
 	}
 }
+
+// waitStopped gives up after its time when the stop has not finished.
+func TestWaitStoppedGivesUp(t *testing.T) {
+	start := time.Now()
+	if waitStopped(200 * time.Millisecond) {
+		t.Fatal("WAIT-STOPPED: reported a stop that never ran as finished")
+	}
+	if took := time.Since(start); took < 200*time.Millisecond || took > 2*time.Second {
+		t.Fatalf("WAIT-STOPPED: gave up after %v, want about 200 ms", took)
+	}
+}
