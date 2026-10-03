@@ -92,3 +92,31 @@ func TestWaitStoppedGivesUp(t *testing.T) {
 		t.Fatalf("WAIT-STOPPED: gave up after %v, want about 200 ms", took)
 	}
 }
+
+// While Windows ends the session the stop does not wait on the tray's tooltip: the taskbar can be
+// slow to answer then, and every second goes to the nodes, which Windows ends a few seconds later.
+func TestSessionEndStopDoesNotWaitOnTheTooltip(t *testing.T) {
+	savedInst, savedData, savedTip := installDir, dataDir, setTooltip
+	installDir, dataDir = t.TempDir(), t.TempDir() // nothing running: only the tooltip can take time
+	slow := make(chan struct{})
+	setTooltip = func(string) { <-slow }
+	t.Cleanup(func() {
+		close(slow)
+		tipMu.Lock() // the stop's tooltip has been set once this is had: it read setTooltip before
+		stopShown = false
+		tipMu.Unlock()
+		installDir, dataDir, setTooltip = savedInst, savedData, savedTip
+		mu.Lock()
+		stopping = false
+		mu.Unlock()
+		sessionEnding.Store(false)
+	})
+	sessionEnding.Store(true)
+	done := make(chan struct{})
+	go func() { stopForExit(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("SESSION-TOOLTIP-NO-WAIT: the stop waited on the tray's tooltip while Windows ended the session")
+	}
+}

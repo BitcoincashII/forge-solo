@@ -220,12 +220,16 @@ var (
 	stopShown bool
 )
 
+// setTooltip sets the tray tooltip (a stand-in in the tests). It waits on the taskbar, which can be
+// slow to answer.
+var setTooltip = systray.SetTooltip
+
 // status shows s as the tray tooltip, unless the stop has begun: its own tooltip stays.
 func status(s string) {
 	tipMu.Lock()
 	defer tipMu.Unlock()
 	if !stopShown {
-		systray.SetTooltip(s)
+		setTooltip(s)
 	}
 }
 
@@ -234,7 +238,7 @@ func showStopping() {
 	tipMu.Lock()
 	defer tipMu.Unlock()
 	stopShown = true
-	systray.SetTooltip("Forge Solo: shutting down cleanly…")
+	setTooltip("Forge Solo: shutting down cleanly…")
 }
 func writeAbsent(path, content string) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {

@@ -497,7 +497,13 @@ func stopForExit() {
 	mu.Lock()
 	stopping = true
 	mu.Unlock()
-	showStopping()
+	if sessionEnding.Load() {
+		// No one sees the tooltip while Windows ends the session, and the taskbar can be slow to
+		// answer then: the nodes need those seconds more.
+		go showStopping()
+	} else {
+		showStopping()
+	}
 	start := time.Now()
 	stopEverything()
 	logf("everything stopped in %v", time.Since(start).Round(time.Millisecond))
