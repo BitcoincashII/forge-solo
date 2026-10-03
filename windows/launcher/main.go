@@ -1,7 +1,8 @@
-// Forge Solo — Windows launcher/orchestrator (tray app, no console). Boots a bundled Postgres,
+// Forge Solo's Windows launcher: a tray app, with no console. It boots a bundled Postgres,
 // the BCH2 + 1175 nodes, and the stratum + api services, serves the dashboard on 127.0.0.1, and
-// opens the browser. All data + secrets live under %APPDATA%\ForgeSolo. Only the stratum miner
-// port (3333) is bound on 0.0.0.0; everything else is 127.0.0.1 only.
+// opens the browser. All data + secrets live under %APPDATA%\ForgeSolo. Only the miner port
+// (3333) and the two nodes' P2P ports (8339, 25360) listen beyond this machine; everything else
+// is on 127.0.0.1.
 package main
 
 import (
@@ -30,14 +31,14 @@ var trayIcon []byte
 
 // Fixed, user-facing / internet-facing ports (matched by the installer's firewall rules).
 const (
-	minerPort  = "3333"  // documented miner endpoint — fixed so users always point miners here
-	webPort    = "3080"  // dashboard URL — fixed so it stays stable across launches
-	bch2P2P    = "8339"  // BCH2 P2P (incoming peers) — fixed so the installer firewall rule matches
-	aux1175P2P = "25360" // 1175 P2P (incoming peers) — likewise fixed; listen=1 needs a reachable port
+	minerPort  = "3333"  // documented miner endpoint, fixed so users always point miners here
+	webPort    = "3080"  // dashboard URL, fixed so it stays stable across launches
+	bch2P2P    = "8339"  // BCH2 P2P (incoming peers), fixed so the installer firewall rule matches
+	aux1175P2P = "25360" // 1175 P2P (incoming peers), likewise fixed; listen=1 needs a reachable port
 )
 
 // Loopback-only service ports. Chosen dynamically at startup (pickPort) so they can NEVER
-// collide with other software or Windows reserved/excluded ranges — the root cause of the
+// collide with other software or Windows reserved/excluded ranges: the root cause of the
 // api-on-8080 (Apache/XAMPP) and 1175-RPC-on-25361 (WSAEACCES 10013) bind failures. Assigned
 // in main() before anything binds; every conf/env/proxy reads these vars, and writeAlways
 // regenerates the configs each launch, so a run is internally consistent. They have no default:
@@ -210,7 +211,7 @@ func main() {
 func onReady(portErr error) {
 	systray.SetIcon(trayIcon)
 	systray.SetTitle("Forge Solo")
-	systray.SetTooltip("Forge Solo — starting…")
+	systray.SetTooltip("Forge Solo: starting…")
 	mOpen := systray.AddMenuItem("Open Dashboard", "")
 	mRestart := systray.AddMenuItem("Restart Mining", "Restart the miner after changing your payout address")
 	mData := systray.AddMenuItem("Open Data Folder", "")

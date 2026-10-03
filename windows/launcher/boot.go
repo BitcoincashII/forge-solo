@@ -199,7 +199,7 @@ func startStratum() {
 
 func startAPI() {
 	c := hidden("api.exe")
-	c.Dir = dataDir // so its relative config.yaml + the dashboard's edits share one file
+	c.Dir = dataDir // run from the data folder, not the install folder
 	c.Env = append(append(os.Environ(), dbEnv()...),
 		"RPC_URL=http://127.0.0.1:"+bch2RPC, "RPC_USER=forge", "RPC_PASSWORD="+sec.BCH2Pass,
 		"STRATUM_INTERNAL_URL=http://127.0.0.1:"+stratumInt, "INTERNAL_API_TOKEN="+sec.Token,
@@ -216,23 +216,23 @@ func restartMiner() {
 	if !started("stratum") {
 		return
 	}
-	systray.SetTooltip("Forge Solo — restarting miner…")
+	systray.SetTooltip("Forge Solo: restarting the miner…")
 	stopGracefully("stratum", stratumStopGrace)
 	time.Sleep(2 * time.Second)
 	startStratum()
-	systray.SetTooltip("Forge Solo — mining")
+	systray.SetTooltip("Forge Solo: running")
 }
 
 func boot() {
-	systray.SetTooltip("Forge Solo — preparing…")
+	systray.SetTooltip("Forge Solo: preparing…")
 	setupSecrets()
 	writeConfigs()
-	systray.SetTooltip("Forge Solo — starting database…")
+	systray.SetTooltip("Forge Solo: starting the database…")
 	if !startPostgres() {
-		systray.SetTooltip("Forge Solo — DATABASE FAILED (see Data Folder\\pglog.txt)")
+		systray.SetTooltip("Forge Solo: the database did not start (see pglog.txt in the data folder)")
 		return
 	}
-	systray.SetTooltip("Forge Solo — starting nodes (first sync can take a while)…")
+	systray.SetTooltip("Forge Solo: starting the nodes (the first sync can take a while)…")
 	startNodes()
 
 	// The API + dashboard don't need the node's RPC to start (handlers call it lazily and
@@ -243,7 +243,7 @@ func boot() {
 	waitTCP("127.0.0.1:"+apiPort, 60*time.Second)
 	go serveDashboard()
 	waitTCP("127.0.0.1:"+webPort, 20*time.Second)
-	systray.SetTooltip("Forge Solo — set your payout address in the dashboard")
+	systray.SetTooltip("Forge Solo: set your payout address in the dashboard")
 	openBrowser("http://127.0.0.1:" + webPort)
 
 	// Start the miner once the node RPC is answering (stratum needs block templates).
@@ -251,7 +251,7 @@ func boot() {
 		waitTCP("127.0.0.1:"+bch2RPC, 600*time.Second)
 		waitTCP("127.0.0.1:"+aux1175RPC, 120*time.Second) // best-effort (merge-mining)
 		startStratum()
-		systray.SetTooltip("Forge Solo — running")
+		systray.SetTooltip("Forge Solo: running")
 	}()
 }
 
@@ -320,7 +320,7 @@ var stopOnce sync.Once
 // shutdown stops everything cleanly and exits. A second call waits for the first, which exits.
 func shutdown() {
 	stopOnce.Do(func() {
-		systray.SetTooltip("Forge Solo — shutting down cleanly…")
+		systray.SetTooltip("Forge Solo: shutting down cleanly…")
 		stopAll()
 		os.Exit(0)
 	})
