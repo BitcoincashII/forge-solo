@@ -181,11 +181,13 @@ jobs:
       # missing source path there fails the release rather than the change that caused it. The
       # executables and PostgreSQL are placeholders; the dashboard and schema are the real ones.
       - name: The installer script compiles
+        env:
+          INNOSETUP_IMAGE: 'amake/innosetup:innosetup6@sha256:81713b854eb12278021045dcb57701fe35312030b2dc1d37710184f294a23f81' # as in release.yml
         run: |
           mkdir -p windows/bin windows/pgsql/bin
           : > windows/bin/placeholder.txt; : > windows/pgsql/bin/placeholder.txt
           chmod a+w windows
-          docker run --rm -v "$PWD":/work amake/innosetup /DMyAppVersion=0.0.0-check windows/forge-solo.iss | tee /tmp/iscc.log
+          docker run --rm -v "$PWD":/work "$INNOSETUP_IMAGE" /DMyAppVersion=0.0.0-check windows/forge-solo.iss | tee /tmp/iscc.log
           test -f windows/ForgeSolo-Setup-0.0.0-check.exe
           grep -q 'web\\dist\\settings.html' /tmp/iscc.log || { echo "::error::the dashboard is not in the installer"; exit 1; }
           grep -q 'init-db.sql' /tmp/iscc.log || { echo "::error::the schema is not in the installer"; exit 1; }

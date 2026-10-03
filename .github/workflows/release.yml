@@ -30,8 +30,16 @@ env:
   BCH2_SHA256: '751a854418571fc6d0e5a64f52ee4bd54dbc50a10a889ea5a35f0336bdb33519'
   ESF_VERSION: '29.1.0'
   ESF_SHA256: 'd9143e968b500ad042402d582d26255a40f52ce57f52fb46673d2b7726d55632'
-  PG_VERSION: '16.10'
-  PG_SHA256: 'ebb3b6af4fa69dea9951b66855bc4d42dc04e56ccb9aa7024ce3c58bd89d6b0c'
+  PG_VERSION: '16.15'
+  PG_SHA256: '25e6fcdfb8caec38691bf461125e7564508760666f7b8e5dc6a5f0818f58f81e'
+  # Inno Setup 6, by digest: a tag can be moved to a different image by its owner at any time. The
+  # same image compiles the check in test.yml. It only ever sees the checkout: signing is done on
+  # the runner, so the certificate never goes into it.
+  INNOSETUP_IMAGE: 'amake/innosetup:innosetup6@sha256:81713b854eb12278021045dcb57701fe35312030b2dc1d37710184f294a23f81'
+  # The Forge Solo signing certificate (CN=BCH2 Software, O=Bitcoin Cash II, C=US, valid until
+  # 2036-08-29), by SHA-256 fingerprint. An installer signed by anything else is not published,
+  # and the fingerprint is printed on every release page so a download can be checked against it.
+  SIGNING_CERT_SHA256: '2B:F8:C9:5F:67:AE:32:82:61:C2:59:1B:73:14:11:99:75:C9:E6:CC:C4:5B:4A:00:BF:F5:38:4C:27:09:0C:30'
 
 jobs:
   installer:
@@ -113,7 +121,7 @@ jobs:
       - name: Compile the installer
         run: |
           chmod a+w windows
-          docker run --rm -v "$PWD":/work amake/innosetup \
+          docker run --rm -v "$PWD":/work "$INNOSETUP_IMAGE" \
             "/DMyAppVersion=${{ steps.ver.outputs.version }}" windows/forge-solo.iss
           test -f "windows/ForgeSolo-Setup-${{ steps.ver.outputs.version }}.exe"
 
@@ -143,7 +151,12 @@ jobs:
         with:
           name: installer
 
-      # A tag build must not publish an unsigned installer.
+      # A tag build must not publish an unsigned installer. It is signed here, with Ubuntu's own
+      # osslsigncode, so the certificate and its password never go into a third-party image (the
+      # Inno Setup image's osslsigncode was also built on OpenSSL 1.1.1, which no longer gets
+      # fixes). The password goes in a file, not on the command line. The RFC 3161 timestamp keeps
+      # the signature valid after the certificate expires; a second service is tried if the first
+      # does not answer.
       - name: Sign the installer
         env:
           PFX_B64: ${{ secrets.WINDOWS_SIGNING_PFX_B64 }}
@@ -154,30 +167,39 @@ jobs:
             echo "::error::WINDOWS_SIGNING_PFX_B64 is not set in the release environment; refusing to publish an unsigned installer."
             exit 1
           fi
-          printf '%s' "$PFX_B64" | base64 -d > /tmp/signing.pfx
-          chmod a+w .
-          docker run --rm -v "$PWD":/w -v /tmp:/s -w /w --entrypoint osslsigncode amake/innosetup \
-            sign -pkcs12 /s/signing.pfx -pass "$PFX_PASS" \
-            -n "Forge Solo" -i "https://github.com/${GITHUB_REPOSITORY}" \
-            -h sha256 -in "$SETUP" -out "/w/signed.exe"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq osslsigncode
+          KEY="$RUNNER_TEMP/signing.pfx" PASS="$RUNNER_TEMP/signing.pass"
+          (umask 077; printf '%s' "$PFX_B64" | base64 -d > "$KEY"; printf '%s\n' "$PFX_PASS" > "$PASS")
+          for tsa in http://timestamp.digicert.com http://timestamp.sectigo.com; do
+            if osslsigncode sign -pkcs12 "$KEY" -readpass "$PASS" \
+                -n "Forge Solo" -i "https://github.com/${GITHUB_REPOSITORY}" \
+                -h sha256 -ts "$tsa" -in "$SETUP" -out signed.exe; then
+              break
+            fi
+            rm -f signed.exe
+          done
+          shred -u "$KEY" "$PASS" 2>/dev/null || rm -f "$KEY" "$PASS"
+          if [ ! -f signed.exe ]; then
+            echo "::error::the installer could not be signed and timestamped"
+            exit 1
+          fi
           mv signed.exe "$SETUP"
-          shred -u /tmp/signing.pfx 2>/dev/null || rm -f /tmp/signing.pfx
 
-      # Reads the PE certificate table directly rather than trusting the signer's exit code.
-      - name: Verify the signature is present
+      # Checks what was published, not the signer's exit code: the signature must verify against the
+      # file, with its timestamp, and be made by the Forge Solo certificate.
+      - name: Verify the signature
         run: |
-          python3 - "ForgeSolo-Setup-${V}.exe" <<'EOF'
-          import struct, sys
-          d = open(sys.argv[1], 'rb').read()
-          pe = struct.unpack_from('<I', d, 0x3c)[0]
-          magic = struct.unpack_from('<H', d, pe + 24)[0]
-          dd = pe + 24 + (112 if magic == 0x20b else 96)
-          _, size = struct.unpack_from('<II', d, dd + 4 * 8)   # index 4 = certificate table
-          print(f"certificate table: {size} bytes")
-          if size == 0:
-              print("::error::the installer is not signed")
-              sys.exit(1)
-          EOF
+          SETUP="ForgeSolo-Setup-${V}.exe"
+          osslsigncode extract-signature -in "$SETUP" -out "$RUNNER_TEMP/signature.der"
+          openssl pkcs7 -inform DER -in "$RUNNER_TEMP/signature.der" -print_certs -out "$RUNNER_TEMP/signer.pem"
+          FP=$(openssl x509 -in "$RUNNER_TEMP/signer.pem" -noout -fingerprint -sha256 | cut -d= -f2)
+          if [ "$FP" != "$SIGNING_CERT_SHA256" ]; then
+            echo "::error::the installer is signed by the certificate $FP, not by Forge Solo's ($SIGNING_CERT_SHA256)"
+            exit 1
+          fi
+          osslsigncode verify -in "$SETUP" -CAfile "$RUNNER_TEMP/signer.pem" \
+            -TSA-CAfile /etc/ssl/certs/ca-certificates.crt
 
       # What changed goes first: the section of RELEASE_NOTES.md headed "## <version>". A release
       # without one stops here rather than publishing a page that says nothing.
@@ -196,7 +218,7 @@ jobs:
             cat /tmp/changes.md
             printf '\n---\n\n## Downloads\n\n'
             echo "- **Umbrel:** update Forge Solo from the App Store on your Umbrel."
-            echo "- **Windows:** \`${SETUP}\`, signed."
+            echo "- **Windows:** \`${SETUP}\`, signed by the certificate with SHA-256 fingerprint \`${SIGNING_CERT_SHA256}\`."
             echo "- **Linux:** \`forge-solo-${V}-linux-<arch>.tar.gz\`, where \`<arch>\` is what \`uname -m\` prints; checksums in \`SHA256SUMS-linux\`."
             printf '\nThe Windows installer was built and signed by CI from a clean runner:\n\n'
             echo "| | |"

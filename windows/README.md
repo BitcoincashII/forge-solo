@@ -53,7 +53,7 @@ passwords to these ports, so they never use one another program holds.
 
   Get the "Windows x86-64" binaries zip from
   <https://www.enterprisedb.com/download-postgresql-binaries>. The currently bundled build is
-  **16.10**. Only `bin/`, `lib/` and `share/` are kept (the full archive is ~2.5x larger and
+  **16.15**. Only `bin/`, `lib/` and `share/` are kept (the full archive is ~2.5x larger and
   the rest is pgAdmin and headers we never invoke).
 
   Stay on 16.x: a PostgreSQL data directory is bound to its major version, so shipping 17.x
@@ -104,8 +104,9 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags '-s -w' -o windows/bin
 (cd windows/launcher && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui -s -w" -o ../bin/forge-solo.exe .)
 
 # 4) installer: Inno Setup in a container, so this works on a Linux build host. Mount the
-#    repository root: the script reads ../web/dist and ../init-db.sql.
-docker run --rm -v "$PWD":/work amake/innosetup windows/forge-solo.iss
+#    repository root: the script reads ../web/dist and ../init-db.sql. The image is pinned by
+#    digest, the one CI uses (INNOSETUP_IMAGE in .github/workflows/release.yml).
+docker run --rm -v "$PWD":/work amake/innosetup:innosetup6@sha256:81713b854eb12278021045dcb57701fe35312030b2dc1d37710184f294a23f81 windows/forge-solo.iss
 ```
 
 The installer is written to `windows/ForgeSolo-Setup-<version>.exe`. CI stamps the tag's version;
@@ -113,7 +114,14 @@ The installer is written to `windows/ForgeSolo-Setup-<version>.exe`. CI stamps t
 
 ## Design notes
 - **Graceful shutdown:** the launcher stops both nodes via RPC `stop` so they flush the
-  chainstate before exit, and a restart resumes instead of resyncing.
+  chainstate before exit, and a restart resumes instead of resyncing. The miner stops first (a
+  block it is submitting needs the BCH2 node), then both nodes at once. When Windows shuts down,
+  restarts or signs out, the launcher asks it to wait, with a reason Windows shows, until they
+  have stopped.
+- **One at a time:** a second launch opens the running copy's dashboard. The installer and the
+  uninstaller ask for Forge Solo to be closed before they touch its files (`AppMutex`).
+- **Signing:** CI signs the installer on the runner, with a timestamp, and publishes the
+  certificate's SHA-256 fingerprint on the release page.
 - **Installer:** one elevated step (a single UAC prompt) adds the firewall rules above and
   Defender exclusions for the folders written constantly (both nodes' blocks and chainstate,
   and the database), which Defender otherwise rescans on every write, the main cause of disk
