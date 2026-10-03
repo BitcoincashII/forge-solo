@@ -24,14 +24,6 @@ import (
 // is already known here, so the api fetches both and keeps them for a few seconds. Nothing is
 // fetched unless the dashboard asks, and only in TIDES mode (tidesModeOff).
 
-// tidesPoolURL is Forge Pool's base URL: DATUM_POOL_URL, else the public pool.
-func tidesPoolURL() string {
-	if u := strings.TrimSpace(os.Getenv("DATUM_POOL_URL")); u != "" {
-		return strings.TrimRight(u, "/")
-	}
-	return "https://pool.bch2.org"
-}
-
 const (
 	tidesCacheFor = 10 * time.Second
 	tidesMaxBody  = 2 << 20
@@ -60,7 +52,7 @@ func fetchTides(path string) ([]byte, error) {
 	}
 	tidesCacheMu.Unlock()
 
-	base := tidesPoolURL()
+	base := tidesgw.PoolURL()
 	if err := tidesgw.CheckPoolURL(base); err != nil {
 		return nil, err
 	}

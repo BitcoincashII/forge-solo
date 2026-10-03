@@ -1160,7 +1160,7 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 		// Payout mode: solo or TIDES. Leaving merge-mining to the 1175 branch below on the way
 		// back to solo: clearing last1175 makes it switch 1175 on again if an address is set.
 		if mode, mErr := stats.GetPayoutMode(); mErr == nil && mode != lastMode {
-			lastMode = applyTidesMode(mode, cfg, jm)
+			lastMode = applyTidesMode(mode, jm)
 			if lastMode == stats.PayoutModeTides {
 				last1175 = ""
 			}
@@ -1585,7 +1585,7 @@ func main() {
 	if jobManager.IsConfigured() {
 		applySoloPayoutAddress(effectivePoolAddr)
 	}
-	applyTidesMode(startMode, config, jobManager)
+	applyTidesMode(startMode, jobManager)
 
 	go watchPoolConfig(jobManager, config)
 

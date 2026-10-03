@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
-	"os"
 	"sync/atomic"
 	"time"
 
@@ -14,7 +13,6 @@ import (
 	"github.com/BitcoincashII/forge-solo/internal/stats"
 	"github.com/BitcoincashII/forge-solo/internal/stratum"
 	"github.com/BitcoincashII/forge-solo/internal/tidesgw"
-	"github.com/spf13/viper"
 	"go.uber.org/zap"
 )
 
@@ -36,25 +34,14 @@ func currentPayoutMode() string {
 	return stats.PayoutModeSolo
 }
 
-// tidesPoolURL is Forge Pool's base URL: DATUM_POOL_URL, then datum.pool_url, then the default.
-func tidesPoolURL(cfg *viper.Viper) string {
-	if u := os.Getenv("DATUM_POOL_URL"); u != "" {
-		return u
-	}
-	if u := cfg.GetString("datum.pool_url"); u != "" {
-		return u
-	}
-	return tidesgw.DefaultPoolURL
-}
-
 // ensureTidesGateway starts the gateway on first need. Its key lives in the database beside the
 // dashboard settings, so an install keeps one identity at the pool across restarts and updates,
 // and the stratum needs no writable volume of its own.
-func ensureTidesGateway(cfg *viper.Viper) error {
+func ensureTidesGateway() error {
 	if tidesGateway() != nil {
 		return nil
 	}
-	if err := tidesgw.CheckPoolURL(tidesPoolURL(cfg)); err != nil {
+	if err := tidesgw.CheckPoolURL(tidesgw.PoolURL()); err != nil {
 		return err
 	}
 	fresh := make([]byte, ed25519.SeedSize)
@@ -69,13 +56,13 @@ func ensureTidesGateway(cfg *viper.Viper) error {
 	if err != nil {
 		return err
 	}
-	g := tidesgw.New(tidesgw.Config{PoolURL: tidesPoolURL(cfg), Key: key, Logger: logger, CreditTo: tidesPayoutAddress,
+	g := tidesgw.New(tidesgw.Config{PoolURL: tidesgw.PoolURL(), Key: key, Logger: logger, CreditTo: tidesPayoutAddress,
 		MaxDifficulty: tidesMaxDifficulty})
 	if !tidesGWPtr.CompareAndSwap(nil, g) {
 		return nil
 	}
 	go g.Run(shutdownCh)
-	logger.Info("🌊 TIDES gateway ready", zap.String("pool", tidesPoolURL(cfg)), zap.String("gateway", g.ID()))
+	logger.Info("🌊 TIDES gateway ready", zap.String("pool", tidesgw.PoolURL()), zap.String("gateway", g.ID()))
 	return nil
 }
 
@@ -162,7 +149,7 @@ func tidesTakeShare(share *stratum.Share, isBlock bool) {
 // off (TIDES is BCH2 only); solo leaves merge-mining to the watcher, which turns it back on when
 // a 1175 address is set. It returns the mode now in effect, which is
 // solo if TIDES could not start.
-func applyTidesMode(mode string, cfg *viper.Viper, jm *mining.JobManager) string {
+func applyTidesMode(mode string, jm *mining.JobManager) string {
 	if mode != stats.PayoutModeTides {
 		if currentPayoutMode() == stats.PayoutModeTides {
 			logger.Info("⛏️  payout mode: SOLO — blocks pay your own address in full")
@@ -170,7 +157,7 @@ func applyTidesMode(mode string, cfg *viper.Viper, jm *mining.JobManager) string
 		payoutModeVal.Store(stats.PayoutModeSolo)
 		return stats.PayoutModeSolo
 	}
-	if err := ensureTidesGateway(cfg); err != nil {
+	if err := ensureTidesGateway(); err != nil {
 		logger.Error("TIDES was chosen but cannot start — mining SOLO", zap.Error(err))
 		payoutModeVal.Store(stats.PayoutModeSolo)
 		return stats.PayoutModeSolo
