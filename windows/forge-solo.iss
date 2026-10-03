@@ -84,6 +84,34 @@ begin
   Result := '''' + S + '''';
 end;
 
+// RuleName is the name of one of this install's firewall rules: the base name, for this Windows
+// account. Two accounts on one PC can each install Forge Solo, and each install's rules let in its
+// own programs; with one name for all, installing for one account replaced the other's rules, and
+// its miners could no longer connect. Earlier releases used the base name alone (with no program
+// before 1.0.13): rules of that name are removed.
+function RuleName(Base: String): String;
+begin
+  Result := Base + ' for ' + ExpandConstant('{username}');
+end;
+
+// FirewallRule is the commands that put this install's rule in place, after removing the old one.
+function FirewallRule(Base, Exe, Port, Profile: String): String;
+begin
+  Result :=
+    'netsh advfirewall firewall delete rule name="' + Base + '" >nul 2>&1 & ' +
+    'netsh advfirewall firewall delete rule name="' + RuleName(Base) + '" >nul 2>&1 & ' +
+    'netsh advfirewall firewall add rule name="' + RuleName(Base) + '" dir=in action=allow program="' +
+      ExpandConstant('{app}') + '\' + Exe + '" protocol=TCP localport=' + Port + ' profile=' + Profile + ' & ';
+end;
+
+// FirewallRemove is the commands that remove this install's rule, and an old one of the base name.
+function FirewallRemove(Base: String): String;
+begin
+  Result :=
+    'netsh advfirewall firewall delete rule name="' + Base + '" & ' +
+    'netsh advfirewall firewall delete rule name="' + RuleName(Base) + '" & ';
+end;
+
 // DefenderPaths lists, quoted for PowerShell, the data folders written constantly.
 function DefenderPaths(DataDir: String): String;
 begin
@@ -93,24 +121,19 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
-var ResultCode: Integer; DataDir, AppDir, Cmd: String;
+var ResultCode: Integer; DataDir, Cmd: String;
 begin
   if CurStep = ssPostInstall then
   begin
     DataDir := ExpandConstant('{userappdata}\ForgeSolo');
-    AppDir := ExpandConstant('{app}');
     // Each rule lets in only the program that listens on its port. With the port alone, any program
     // could take the port while Forge Solo is not running and be reached through the rule.
     Cmd := '/c ' +
-      'netsh advfirewall firewall delete rule name="Forge Solo Miner (3333)" >nul 2>&1 & ' +
-      'netsh advfirewall firewall add rule name="Forge Solo Miner (3333)" dir=in action=allow program="' + AppDir + '\stratum.exe" protocol=TCP localport=3333 profile=private,domain & ' +
-      'netsh advfirewall firewall delete rule name="Forge Solo Rentals (3335)" >nul 2>&1 & ' +
-      'netsh advfirewall firewall add rule name="Forge Solo Rentals (3335)" dir=in action=allow program="' + AppDir + '\stratum.exe" protocol=TCP localport=3335 profile=private,domain & ' +
+      FirewallRule('Forge Solo Miner (3333)', 'stratum.exe', '3333', 'private,domain') +
+      FirewallRule('Forge Solo Rentals (3335)', 'stratum.exe', '3335', 'private,domain') +
       'netsh advfirewall firewall delete rule name="Forge Solo BCH2 P2P (8333)" >nul 2>&1 & ' +
-      'netsh advfirewall firewall delete rule name="Forge Solo BCH2 P2P (8339)" >nul 2>&1 & ' +
-      'netsh advfirewall firewall add rule name="Forge Solo BCH2 P2P (8339)" dir=in action=allow program="' + AppDir + '\bitcoincashIId.exe" protocol=TCP localport=8339 profile=any & ' +
-      'netsh advfirewall firewall delete rule name="Forge Solo 1175 P2P (25360)" >nul 2>&1 & ' +
-      'netsh advfirewall firewall add rule name="Forge Solo 1175 P2P (25360)" dir=in action=allow program="' + AppDir + '\elevenseventyfived.exe" protocol=TCP localport=25360 profile=any & ' +
+      FirewallRule('Forge Solo BCH2 P2P (8339)', 'bitcoincashIId.exe', '8339', 'any') +
+      FirewallRule('Forge Solo 1175 P2P (25360)', 'elevenseventyfived.exe', '25360', 'any') +
       'powershell -NoProfile -Command "Remove-MpPreference -ExclusionPath ' + PSQuote(DataDir) + ' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionPath ' + DefenderPaths(DataDir) + ' -ErrorAction SilentlyContinue"';
     ShellExec('runas', ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
@@ -123,11 +146,11 @@ begin
   begin
     DataDir := ExpandConstant('{userappdata}\ForgeSolo');
     Cmd := '/c ' +
-      'netsh advfirewall firewall delete rule name="Forge Solo Miner (3333)" & ' +
-      'netsh advfirewall firewall delete rule name="Forge Solo Rentals (3335)" & ' +
-      'netsh advfirewall firewall delete rule name="Forge Solo BCH2 P2P (8339)" & ' +
+      FirewallRemove('Forge Solo Miner (3333)') +
+      FirewallRemove('Forge Solo Rentals (3335)') +
+      FirewallRemove('Forge Solo BCH2 P2P (8339)') +
       'netsh advfirewall firewall delete rule name="Forge Solo BCH2 P2P (8333)" & ' +
-      'netsh advfirewall firewall delete rule name="Forge Solo 1175 P2P (25360)" & ' +
+      FirewallRemove('Forge Solo 1175 P2P (25360)') +
       'powershell -NoProfile -Command "Remove-MpPreference -ExclusionPath ' + PSQuote(DataDir) + ', ' + DefenderPaths(DataDir) + ' -ErrorAction SilentlyContinue"';
     ShellExec('runas', ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;

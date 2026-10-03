@@ -54,20 +54,21 @@ func TestInstallerStartupCanBeTurnedOff(t *testing.T) {
 
 // Each port reachable from other machines has its firewall rule, letting in only the program that
 // listens there, and the uninstaller removes every rule the installer adds. The rental port is
-// there as on Umbrel and Linux.
+// there as on Umbrel and Linux. The rules are this Windows account's: another account's install of
+// Forge Solo keeps its own, and the names earlier releases used are removed.
 func TestInstallerFirewallRules(t *testing.T) {
 	b, err := os.ReadFile("windows/forge-solo.iss")
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(b)
-	adds := regexp.MustCompile(`add rule name="([^"]+)" dir=in action=allow program="' \+ AppDir \+ '\\([^"]+)" protocol=TCP localport=(\d+)`).FindAllStringSubmatch(s, -1)
+	install := s[strings.Index(s, "procedure CurStepChanged"):strings.Index(s, "procedure CurUninstallStepChanged")]
+	uninstall := s[strings.Index(s, "procedure CurUninstallStepChanged"):]
 	got := map[string]string{}
-	for _, a := range adds {
-		got[a[3]] = a[2]
-		uninstall := s[strings.Index(s, "procedure CurUninstallStepChanged"):]
-		if !strings.Contains(uninstall, `delete rule name="`+a[1]+`"`) {
-			t.Errorf("FIREWALL-UNINSTALL: the uninstaller leaves the rule %q", a[1])
+	for _, r := range regexp.MustCompile(`FirewallRule\('([^']+)', '([^']+)', '(\d+)', '([^']+)'\)`).FindAllStringSubmatch(install, -1) {
+		got[r[3]] = r[2]
+		if !strings.Contains(uninstall, "FirewallRemove('"+r[1]+"')") {
+			t.Errorf("FIREWALL-UNINSTALL: the uninstaller leaves the rule %q", r[1])
 		}
 	}
 	want := map[string]string{"3333": "stratum.exe", "3335": "stratum.exe", "8339": "bitcoincashIId.exe", "25360": "elevenseventyfived.exe"}
@@ -77,6 +78,30 @@ func TestInstallerFirewallRules(t *testing.T) {
 	for port, exe := range want {
 		if got[port] != exe {
 			t.Errorf("FIREWALL-RULES: port %s lets in %q, want %q", port, got[port], exe)
+		}
+	}
+	body := func(name string) string {
+		i := strings.Index(s, name)
+		if i < 0 {
+			t.Fatalf("forge-solo.iss has no %s", name)
+		}
+		return s[i : i+strings.Index(s[i:], "\nend;")]
+	}
+	if !strings.Contains(body("function RuleName"), "Base + ' for ' + ExpandConstant('{username}')") {
+		t.Error("FIREWALL-PER-ACCOUNT: a rule's name is not this Windows account's")
+	}
+	for _, must := range []string{
+		`'netsh advfirewall firewall delete rule name="' + Base + '" >nul 2>&1 & '`,
+		`'netsh advfirewall firewall delete rule name="' + RuleName(Base) + '" >nul 2>&1 & '`,
+		`'netsh advfirewall firewall add rule name="' + RuleName(Base) + '" dir=in action=allow program="' +`,
+	} {
+		if !strings.Contains(body("function FirewallRule"), must) {
+			t.Errorf("FIREWALL-RULE-PUT: FirewallRule lacks %s", must)
+		}
+	}
+	for _, must := range []string{`delete rule name="' + Base + '" & '`, `delete rule name="' + RuleName(Base) + '" & '`} {
+		if !strings.Contains(body("function FirewallRemove"), must) {
+			t.Errorf("FIREWALL-RULE-REMOVE: FirewallRemove lacks %s", must)
 		}
 	}
 }

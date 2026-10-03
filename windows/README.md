@@ -150,6 +150,9 @@ The installer is written to `windows/ForgeSolo-Setup-<version>.exe`. CI stamps t
   A node that stops saying "Corrupted block database detected" (after a power cut, say) is
   started once with `-reindex`, which rebuilds its chain state from the blocks on disk; if that
   does not help, the tray says which folders to delete.
+- **Firewall rules per Windows account:** the rules are named for the account that installed them
+  ("Forge Solo Miner (3333) for <account>"), so two accounts on one PC each keep their own; the
+  unsuffixed rules of earlier releases are removed.
 - **Ports kept to Forge Solo:** the miner, the API, the miner's stats and the dashboard listen with
   Windows's exclusive address use. Without it, a program started later could bind the same port
   over IPv4 and take every IPv4 connection: every miner, on 3333.
