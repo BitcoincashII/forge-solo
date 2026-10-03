@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
-	"syscall"
 	"time"
 
 	"fyne.io/systray"
@@ -76,7 +75,7 @@ const belowNormal = 0x00004000
 func hiddenPrio(extraFlags uint32, name string, args ...string) *exec.Cmd {
 	c := exec.Command(ipath(name), args...)
 	c.Dir = installDir
-	c.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000 | extraFlags} // CREATE_NO_WINDOW
+	c.SysProcAttr = noWindow(extraFlags)
 	return c
 }
 func hidden(name string, args ...string) *exec.Cmd { return hiddenPrio(0, name, args...) }
@@ -84,7 +83,7 @@ func hidden(name string, args ...string) *exec.Cmd { return hiddenPrio(0, name, 
 // hiddenSystem runs a command from PATH rather than from the install directory.
 func hiddenSystem(name string, args ...string) *exec.Cmd {
 	c := exec.Command(name, args...)
-	c.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	c.SysProcAttr = noWindow(0)
 	return c
 }
 

@@ -168,6 +168,15 @@ jobs:
           GOOS=windows GOARCH=amd64 go vet ./...
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui -s -w" -o /tmp/forge-solo.exe .
 
+      # Its logic (ports, stopping, the dashboard proxy) does not depend on Windows: only starting a
+      # child without a console window does (proc_windows.go), so its tests run here. They are also
+      # compiled for Windows, to be run on a Windows machine.
+      - name: Test the launcher
+        working-directory: windows/launcher
+        run: |
+          go test -race -count=1 ./...
+          GOOS=windows GOARCH=amd64 go test -c -o /tmp/launcher-test.exe .
+
       # The installer script is only exercised at release time otherwise, and a syntax error or a
       # missing source path there fails the release rather than the change that caused it. The
       # executables and PostgreSQL are placeholders; the dashboard and schema are the real ones.
