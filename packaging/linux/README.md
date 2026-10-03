@@ -59,12 +59,21 @@ the dashboard shows its progress, and mining starts once it is done. Everything 
 
 ## Run it as a service (systemd)
 
+First stop a Forge Solo you started yourself (Ctrl-C): it holds the ports the service needs, and
+install-service will not install beside it. Then:
+
 ```sh
 sudo ./forge-solo install-service
 ```
 
 This copies the program to `/opt/forge-solo`, creates a `forge-solo` system user, keeps the data
-in `/var/lib/forge-solo`, and starts the `forge-solo` service now and at every boot.
+in `/var/lib/forge-solo`, and starts the `forge-solo` service now and at every boot. It finishes
+once the service is serving its dashboard; if the service cannot start, it shows the service's
+last log lines and exits with an error.
+
+The service has its own data directory: the payout address and settings you saved in a copy you
+started yourself (kept in `~/.local/share/forge-solo`) are not carried over. Save them again on
+the service's dashboard, with the password from `sudo cat /var/lib/forge-solo/secrets.env`.
 
 - Logs: `journalctl -u forge-solo -f`, and `/var/lib/forge-solo/logs/`
 - Stop and start: `sudo systemctl stop forge-solo`, `sudo systemctl start forge-solo`
@@ -112,7 +121,8 @@ to let other BCH2 nodes connect to yours, forward 8339. The node's RPC and block
 the dashboard's API and the mining service's internal port listen on 127.0.0.1 only, on free
 ports chosen at each start.
 
-If a host firewall blocks incoming connections, open the ports your miners and peers use:
+If a host firewall blocks incoming connections, open the ports your miners and peers use (and
+the dashboard's, 3080, if you serve it to your network with `--web`; install-service names them):
 
 ```sh
 sudo firewall-cmd --permanent --add-port=3333/tcp --add-port=3335/tcp --add-port=8339/tcp && sudo firewall-cmd --reload   # firewalld

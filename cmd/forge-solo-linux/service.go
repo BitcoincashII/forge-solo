@@ -5,11 +5,14 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -20,11 +23,23 @@ const (
 	unitPath    = "/etc/systemd/system/forge-solo.service"
 )
 
+// serviceStartWait is how long install-service gives the restarted service to serve its
+// dashboard: the launcher only starts the node and the API before it does, so this is plenty
+// on the smallest board.
+const serviceStartWait = 30 * time.Second
+
 // unitFile is the systemd unit install-service writes.
 //
+// Type=exec: systemctl start and restart return once the launcher has really been executed, so a
+// launcher systemd cannot execute (in a directory the service user cannot enter, say) fails the
+// install instead of looking started.
+//
 // KillMode=mixed: a stop sends SIGTERM to the launcher alone, which stops the stratum, the API
-// and the node in that order (the node flushes its chain state), and only processes still running
-// when TimeoutStopSec runs out are killed. With the default, systemd would signal them all at once.
+// and the node in that order (the node flushes its chain state). systemd sends SIGKILL to
+// whatever is still running when TimeoutStopSec runs out, and also as soon as the launcher has
+// exited: so if the launcher itself dies (killed outright, or a crash), the node is killed at
+// once, in the middle of its own shutdown, and replays its last blocks at its next start. With
+// the default, systemd would signal them all at once and the order would be lost.
 func unitFile(web string) string {
 	return fmt.Sprintf(`[Unit]
 Description=Forge Solo: BCH2 solo mining (node, stratum and dashboard)
@@ -33,7 +48,7 @@ Wants=network-online.target
 After=network-online.target
 
 [Service]
-Type=simple
+Type=exec
 User=%[1]s
 ExecStart=%[2]s/forge-solo run --data-dir %[3]s --web %[4]s
 KillMode=mixed
@@ -71,7 +86,8 @@ func runLoud(name string, args ...string) error {
 
 // installService copies this release to /opt/forge-solo, creates the forge-solo system user and
 // /var/lib/forge-solo, and installs, enables and (re)starts the systemd service. Run again from
-// a newer release, it upgrades in place and keeps the data.
+// a newer release, it upgrades in place and keeps the data. It succeeds only once the service is
+// serving its dashboard.
 func installService(args []string) error {
 	fs := flag.NewFlagSet("install-service", flag.ContinueOnError)
 	web := fs.String("web", defaultWeb, "dashboard address, host:port; anything but 127.0.0.1 asks for a password")
@@ -100,12 +116,20 @@ func installService(args []string) error {
 		return err
 	}
 
-	// Stop a running copy first: its files are about to be replaced.
-	if exec.Command("systemctl", "is-active", "--quiet", serviceName).Run() == nil {
-		fmt.Println("Stopping the running Forge Solo service…")
+	// Stop the service first: its files are about to be replaced, and it holds the ports. Also
+	// when it is not running: one waiting to be started again would start in the middle of this.
+	if _, err := os.Stat(unitPath); err == nil {
+		if exec.Command("systemctl", "is-active", "--quiet", serviceName).Run() == nil {
+			fmt.Println("Stopping the running Forge Solo service…")
+		}
 		if err := runLoud("systemctl", "stop", serviceName); err != nil {
 			return err
 		}
+	}
+	// Whatever holds Forge Solo's ports now is not the service, and the service would fail to
+	// start beside it. Most often it is a Forge Solo started by hand.
+	if err := checkInstallPorts(*web); err != nil {
+		return err
 	}
 	if filepath.Clean(src) != serviceDir {
 		fmt.Printf("Installing %s to %s…\n", src, serviceDir)
@@ -122,10 +146,18 @@ func installService(args []string) error {
 	if err := writeFileAtomic(unitPath, []byte(unitFile(*web)), 0o644); err != nil {
 		return err
 	}
-	for _, a := range [][]string{{"daemon-reload"}, {"enable", serviceName}, {"restart", serviceName}} {
+	for _, a := range [][]string{{"daemon-reload"}, {"enable", serviceName}} {
 		if err := runLoud("systemctl", a...); err != nil {
 			return err
 		}
+	}
+	if err := runLoud("systemctl", "restart", serviceName); err != nil {
+		journalTail()
+		return fmt.Errorf("the %s service could not be started (%v). Its last log lines are above: fix what they say, then run install-service again", serviceName, err)
+	}
+	if err := waitServiceServing(*web, serviceState, serviceStartWait); err != nil {
+		journalTail()
+		return fmt.Errorf("%v. Its last log lines are above: fix what they say, then run install-service again", err)
 	}
 	fmt.Printf(`
 Forge Solo is installed and running as the %[1]s service.
@@ -136,14 +168,182 @@ Forge Solo is installed and running as the %[1]s service.
   Logs:       journalctl -u %[1]s -f   and %[5]s/logs/
   Stop/start: sudo systemctl stop %[1]s  /  sudo systemctl start %[1]s
 `, serviceName, *web, stratumPort, rentalPort, serviceData)
-	fmt.Printf("  Settings:   saving a change asks for DASHBOARD_PASSWORD in %s/secrets.env (made at first start)\n", serviceData)
+	fmt.Printf("  Settings:   saving a change asks for DASHBOARD_PASSWORD in %s/secrets.env\n", serviceData)
 	if webNeedsPassword(*web) {
-		fmt.Printf("  Password:   user forge, DASHBOARD_PASSWORD in %s/secrets.env (made at first start)\n", serviceData)
+		fmt.Printf("  Password:   user forge, DASHBOARD_PASSWORD in %s/secrets.env\n", serviceData)
 	} else {
 		fmt.Printf("  From another computer: ssh -L 3080:%s user@this-machine, then open http://127.0.0.1:3080\n", *web)
 	}
-	firewallHint()
+	firewallHint(*web)
 	return nil
+}
+
+// foregroundHint follows a port that is taken when the service is about to be installed.
+const foregroundHint = "If that is a Forge Solo you started yourself (./forge-solo in a terminal), stop it first (Ctrl-C), " +
+	"then run install-service again. The service keeps its own data in " + serviceData + ": the payout address and " +
+	"settings you saved in that copy are not carried over, so save them again on the service's dashboard."
+
+// checkInstallPorts fails, naming the port, when another program holds one of the ports the
+// service is about to listen on: the service would start and fail at once.
+func checkInstallPorts(web string) error {
+	if err := checkPublicPorts(); err != nil {
+		return fmt.Errorf("%w\n%s", err, foregroundHint)
+	}
+	l, err := net.Listen("tcp", web)
+	if err != nil {
+		return fmt.Errorf("the dashboard address %s is already in use by another program (%v).\n%s", web, err, foregroundHint)
+	}
+	_ = l.Close()
+	return nil
+}
+
+// errServiceNotServing: after a (re)start, the service itself is not serving its dashboard.
+var errServiceNotServing = errors.New("the forge-solo service is not serving its dashboard")
+
+// serviceStatus is the service as systemd sees it: its main process, the launcher (0: none),
+// and whether it has stopped (failed, or waiting to be started again after failing).
+type serviceStatus struct {
+	pid     int
+	stopped bool
+}
+
+// waitServiceServing waits until the service's own launcher holds the dashboard's listening
+// socket and the dashboard answers there. A dashboard answering at the address proves nothing by
+// itself: a Forge Solo started by hand may be the one answering while the service fails. The
+// launcher serves only once it has started the node and the API.
+func waitServiceServing(web string, status func() (serviceStatus, error), timeout time.Duration) error {
+	_, portStr, err := net.SplitHostPort(web)
+	if err != nil {
+		return err
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return err
+	}
+	url := "http://" + net.JoinHostPort(probeHost(web), portStr) + "/"
+	client := &http.Client{Timeout: 2 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	deadline := time.Now().Add(timeout)
+	for {
+		var why string
+		st, err := status()
+		switch {
+		case err != nil:
+			why = err.Error()
+		case st.stopped:
+			return fmt.Errorf("%w at %s: it stopped", errServiceNotServing, web)
+		case st.pid <= 0:
+			why = "it is not running"
+		case !pidHoldsListener(st.pid, port):
+			why = fmt.Sprintf("its launcher (process %d) is not listening on port %d", st.pid, port)
+		default:
+			err := probeDashboard(client, url)
+			if err == nil {
+				return nil
+			}
+			why = "the dashboard does not answer: " + err.Error()
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("%w at %s after %s: %s", errServiceNotServing, web, timeout, why)
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
+// probeDashboard asks the dashboard for its first page. Any answer will do (a redirect, or a
+// request for the password): it shows the launcher is serving.
+func probeDashboard(client *http.Client, url string) error {
+	resp, err := client.Get(url)
+	if err != nil {
+		return err
+	}
+	return resp.Body.Close()
+}
+
+// probeHost is where this machine reaches a dashboard listening on web.
+func probeHost(web string) string {
+	host, _, _ := net.SplitHostPort(web)
+	if host == "" || strings.EqualFold(host, "localhost") {
+		return "127.0.0.1"
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsUnspecified() {
+		return "127.0.0.1" // Go listens dual-stack on [::] too
+	}
+	return host
+}
+
+// pidHoldsListener reports whether process pid has open a TCP socket listening on port.
+func pidHoldsListener(pid, port int) bool {
+	inodes := listenerInodes(port)
+	if len(inodes) == 0 {
+		return false
+	}
+	dir := "/proc/" + strconv.Itoa(pid) + "/fd"
+	fds, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, fd := range fds {
+		l, err := os.Readlink(dir + "/" + fd.Name())
+		if err == nil && strings.HasPrefix(l, "socket:[") && inodes[strings.TrimSuffix(strings.TrimPrefix(l, "socket:["), "]")] {
+			return true
+		}
+	}
+	return false
+}
+
+// listenerInodes are the inodes of the TCP sockets listening on port, IPv4 and IPv6.
+func listenerInodes(port int) map[string]bool {
+	inodes := map[string]bool{}
+	for _, f := range []string{"/proc/net/tcp", "/proc/net/tcp6"} {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(b), "\n") {
+			// sl local_address rem_address st tx_queue:rx_queue tr:tm->when retrnsmt uid timeout inode
+			fields := strings.Fields(line)
+			if len(fields) < 10 || fields[3] != "0A" { // 0A: listening
+				continue
+			}
+			i := strings.LastIndexByte(fields[1], ':')
+			if i < 0 {
+				continue
+			}
+			if p, err := strconv.ParseUint(fields[1][i+1:], 16, 16); err == nil && int(p) == port {
+				inodes[fields[9]] = true
+			}
+		}
+	}
+	return inodes
+}
+
+// serviceState asks systemd how the service is.
+func serviceState() (serviceStatus, error) {
+	out, err := exec.Command("systemctl", "show", "-p", "MainPID", "-p", "ActiveState", "-p", "SubState", serviceName).Output()
+	if err != nil {
+		return serviceStatus{}, fmt.Errorf("systemctl show %s: %v", serviceName, err)
+	}
+	var st serviceStatus
+	for _, line := range strings.Split(string(out), "\n") {
+		k, v, _ := strings.Cut(strings.TrimSpace(line), "=")
+		switch {
+		case k == "MainPID":
+			st.pid, _ = strconv.Atoi(v)
+		case k == "ActiveState" && (v == "failed" || v == "inactive"), k == "SubState" && v == "auto-restart":
+			st.stopped = true
+		}
+	}
+	return st, nil
+}
+
+// journalTail prints the service's last log lines, which say why it is not running.
+func journalTail() {
+	fmt.Fprintf(os.Stderr, "\nThe last log lines of the %s service (journalctl -u %s):\n", serviceName, serviceName)
+	cmd := exec.Command("journalctl", "-u", serviceName, "-n", "30", "--no-pager")
+	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
+	_ = cmd.Run()
+	fmt.Fprintln(os.Stderr)
 }
 
 // uninstallService stops and removes the service. The program and the data stay; it says where.
@@ -179,6 +379,9 @@ Remove them with: sudo rm -r %[1]s %[2]s   and the user with: sudo userdel %[3]s
 
 // replaceDir copies src to dst through dst.new, so a failed copy leaves the old install whole.
 func replaceDir(src, dst string) error {
+	if err := mkdirParents(filepath.Dir(dst)); err != nil {
+		return err
+	}
 	tmp, old := dst+".new", dst+".old"
 	_ = os.RemoveAll(tmp)
 	if err := copyTree(src, tmp); err != nil {
@@ -198,6 +401,37 @@ func replaceDir(src, dst string) error {
 	return os.RemoveAll(old)
 }
 
+// mkdirParents creates dir and any missing parent 0755 (a missing /opt, say). A directory that
+// is already there keeps its mode: it is the administrator's.
+func mkdirParents(dir string) error {
+	var missing []string
+	for d := filepath.Clean(dir); ; d = filepath.Dir(d) {
+		if _, err := os.Stat(d); err == nil {
+			break
+		}
+		missing = append(missing, d)
+		if filepath.Dir(d) == d {
+			break
+		}
+	}
+	for i := len(missing) - 1; i >= 0; i-- {
+		if err := mkdir0755(missing[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// mkdir0755 creates dir 0755 whatever the umask. The service user must be able to enter every
+// directory of the install: under sudo with a umask of 077 or 027 they came out 0700 or 0750,
+// and systemd could not start the service (203/EXEC) while the install said it was running.
+func mkdir0755(dir string) error {
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		return err
+	}
+	return os.Chmod(dir, 0o755)
+}
+
 // copyTree copies the release: regular files and directories, root-owned, not writable by others.
 func copyTree(src, dst string) error {
 	return filepath.Walk(src, func(p string, info os.FileInfo, err error) error {
@@ -211,7 +445,7 @@ func copyTree(src, dst string) error {
 		t := filepath.Join(dst, rel)
 		switch {
 		case info.IsDir():
-			return os.MkdirAll(t, 0o755)
+			return mkdir0755(t)
 		case info.Mode().IsRegular():
 			mode := os.FileMode(0o644)
 			if info.Mode()&0o111 != 0 {
@@ -288,7 +522,8 @@ func ensureDataDir(dir, user string) error {
 	if err != nil {
 		return err
 	}
-	// Everything under it: a data directory first used by `sudo forge-solo run` is root's.
+	// Everything under it: a data directory first used by `sudo forge-solo run` is root's, and a
+	// run as root may have left root's files in it. This gives them all back to the service.
 	if err := filepath.Walk(dir, func(p string, _ os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -300,17 +535,41 @@ func ensureDataDir(dir, user string) error {
 	return os.Chmod(dir, 0o700)
 }
 
+// firewallPorts are the TCP ports a host firewall must let in: the miners', the rentals', the
+// BCH2 peers', and the dashboard's when --web listens beyond this machine.
+func firewallPorts(web string) []int {
+	ports := []int{stratumPort, rentalPort, p2pPort}
+	if webNeedsPassword(web) {
+		if _, p, err := net.SplitHostPort(web); err == nil {
+			if n, err := strconv.Atoi(p); err == nil && n > 0 {
+				ports = append(ports, n)
+			}
+		}
+	}
+	return ports
+}
+
 // firewallHint names the ports to open when a host firewall that blocks them by default is on.
-func firewallHint() {
-	ports := fmt.Sprintf("%d, %d and %d", stratumPort, rentalPort, p2pPort)
+func firewallHint(web string) {
+	ports := firewallPorts(web)
+	names := make([]string, len(ports))
+	add, allow := make([]string, len(ports)), make([]string, len(ports))
+	for i, p := range ports {
+		names[i] = strconv.Itoa(p)
+		add[i] = fmt.Sprintf("--add-port=%d/tcp", p)
+		allow[i] = fmt.Sprintf("sudo ufw allow %d/tcp", p)
+	}
+	list := strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+	what := "for miners and peers"
+	if len(ports) > 3 {
+		what = "for miners, peers and the dashboard"
+	}
 	if exec.Command("firewall-cmd", "--state").Run() == nil {
-		fmt.Printf("\nfirewalld is on and blocks incoming connections: open TCP %s for miners and peers:\n"+
-			"  sudo firewall-cmd --permanent --add-port=%d/tcp --add-port=%d/tcp --add-port=%d/tcp && sudo firewall-cmd --reload\n",
-			ports, stratumPort, rentalPort, p2pPort)
+		fmt.Printf("\nfirewalld is on and blocks incoming connections: open TCP %s %s:\n"+
+			"  sudo firewall-cmd --permanent %s && sudo firewall-cmd --reload\n", list, what, strings.Join(add, " "))
 		return
 	}
 	if out, err := exec.Command("ufw", "status").Output(); err == nil && strings.Contains(string(out), "Status: active") {
-		fmt.Printf("\nufw is on: open TCP %s for miners and peers:\n  sudo ufw allow %d/tcp && sudo ufw allow %d/tcp && sudo ufw allow %d/tcp\n",
-			ports, stratumPort, rentalPort, p2pPort)
+		fmt.Printf("\nufw is on: open TCP %s %s:\n  %s\n", list, what, strings.Join(allow, " && "))
 	}
 }
