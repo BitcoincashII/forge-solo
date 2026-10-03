@@ -405,9 +405,9 @@ var trayWait = 90 * time.Second
 
 // relaunch and exit stand in for the real ones in the tests.
 var (
-	relaunch = func(exe string) error {
+	relaunch = func(exe string, env ...string) error {
 		c := exec.Command(exe)
-		c.Env = append(os.Environ(), "FORGE_SOLO_RELAUNCHED=1")
+		c.Env = append(os.Environ(), env...)
 		return c.Start()
 	}
 	exit = os.Exit
@@ -430,7 +430,7 @@ func watchTray(exe string) {
 	}
 	logf("the tray icon did not come up in %v: starting Forge Solo again", trayWait)
 	releaseRunning()
-	if err := relaunch(exe); err != nil {
+	if err := relaunch(exe, "FORGE_SOLO_RELAUNCHED=1"); err != nil {
 		logf("could not start Forge Solo again: %v", err)
 	}
 	exit(0)

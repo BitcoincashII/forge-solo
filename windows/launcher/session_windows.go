@@ -62,15 +62,20 @@ func watchSessionEnd() {
 				sessionEnding.Store(true)
 				go shutdown()
 				// Each of the two messages may take up to 5 s. Spending up to 4 s of this one on the
-				// stop, which ends the process when it is done, gives the nodes about 9 s instead of 5.
+				// stop gives the nodes about 9 s instead of 5.
 				if !waitStopped(4 * time.Second) {
 					logf("still stopping after 4 s: told Windows to go on")
 				}
 				return 1
 			case wmEndSession:
+				// Windows's answer: the session ends (TRUE), or it does not, because someone
+				// cancelled the shutdown that another program held up. Forge Solo then starts again.
+				noteSessionOutcome(wParam != 0)
 				if wParam != 0 {
 					logf("Windows ends the session now")
-					shutdown() // waits for the stop already under way; it exits when done
+					waitStopped(4500 * time.Millisecond) // the stop still under way gets what is left
+				} else {
+					logf("Windows does not end the session after all")
 				}
 				return 0
 			}

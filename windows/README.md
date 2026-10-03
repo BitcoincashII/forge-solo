@@ -131,7 +131,8 @@ The installer is written to `windows/ForgeSolo-Setup-<version>.exe`. CI stamps t
   Solo is still starting stops what has started, and nothing starts after it. The tray icon stays,
   showing the stop, until everything has stopped. When Windows shuts down, restarts or signs out,
   the launcher hears it before other programs and stops everything at once: Windows gives a
-  program with no window only a few seconds.
+  program with no window only a few seconds. If the shutdown is then cancelled (another program
+  held it up, and someone chose Cancel), Forge Solo starts again.
 - **Settings password:** saving a change in Settings needs Forge Solo's password, as on Umbrel:
   other programs and accounts on the PC can reach the dashboard and its API on 127.0.0.1. Right-click
   the tray icon and choose **Copy Settings Password**; the browser remembers it once a save works.

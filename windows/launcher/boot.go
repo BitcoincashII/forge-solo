@@ -531,9 +531,54 @@ func shutdown() {
 	stopOnce.Do(func() {
 		stopForExit()
 		close(stopDone)
+		if relaunchAfterSessionStop() {
+			// Windows asked to end the session, and then did not: someone cancelled the shutdown or
+			// the restart that another program held up. Left stopped, the PC would not mine again
+			// until someone started Forge Solo.
+			logf("Windows did not end the session after all: starting Forge Solo again")
+			releaseRunning()
+			exe, _ := os.Executable()
+			if err := relaunch(exe); err != nil {
+				logf("could not start Forge Solo again: %v", err)
+			}
+		}
 		systray.Quit() // removes the icon
 		os.Exit(0)
 	})
+}
+
+// sessionOutcome carries Windows's answer, after it asked to end the session: whether it ends.
+var sessionOutcome = make(chan bool, 1)
+
+// sessionOutcomeWait is how long the answer may take: Windows waits on the person at the screen
+// when another program holds up the shutdown (shorter in the tests).
+var sessionOutcomeWait = 15 * time.Minute
+
+// noteSessionOutcome passes on Windows's answer, if Windows asked first: an answer to a question
+// Forge Solo was never asked (another program refused it before) must not be kept for a later one.
+func noteSessionOutcome(ends bool) {
+	if !sessionEnding.Load() {
+		return
+	}
+	select {
+	case sessionOutcome <- ends:
+	default:
+	}
+}
+
+// relaunchAfterSessionStop reports, after the stop Windows asked for, whether Forge Solo must start
+// again: when Windows then did not end the session, or never said.
+func relaunchAfterSessionStop() bool {
+	if !sessionEnding.Load() {
+		return false
+	}
+	select {
+	case ends := <-sessionOutcome:
+		return !ends
+	case <-time.After(sessionOutcomeWait):
+		logf("Windows did not say in %v whether the session ends", sessionOutcomeWait)
+		return true
+	}
 }
 
 // stopForExit stops everything for the exit that follows. Nothing starts once it has begun: boot

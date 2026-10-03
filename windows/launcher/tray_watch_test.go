@@ -19,7 +19,7 @@ func watchWorld(t *testing.T, ready bool, relaunched string) (relaunches []strin
 	if ready {
 		close(trayReady)
 	}
-	relaunch = func(exe string) error { relaunches = append(relaunches, exe); return nil }
+	relaunch = func(exe string, env ...string) error { relaunches = append(relaunches, exe); return nil }
 	exit = func(code int) { exits = append(exits, code) }
 	watchTray(`C:\fs\forge-solo.exe`)
 	return relaunches, exits
