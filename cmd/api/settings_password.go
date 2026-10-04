@@ -68,8 +68,11 @@ func settingsPasswordGate(password string, required bool) fiber.Handler {
 		}
 		got := strings.TrimSpace(c.Get(settingsPasswordHeader))
 		if got == "" {
+			// The current Settings page never posts without the password. A page from before the
+			// password, still open or cached across an update, has no box for it and shows this
+			// text as it is: it has to say what to do there.
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"success": false, "password_required": true,
-				"error": "Enter Forge Solo's password to save. Nothing was saved."})
+				"error": "Enter Forge Solo's password to save. Nothing was saved. If there is no password box above the Save button, this page is from before an update: reload the page (F5) and save again."})
 		}
 		// Compared as hashes, so the time taken says nothing about the password's length.
 		h := sha256.Sum256([]byte(got))

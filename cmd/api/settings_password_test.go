@@ -94,6 +94,36 @@ func TestSettingsPasswordGate(t *testing.T) {
 	})
 }
 
+// A Settings page from before the password (1.0.12, still open or cached by the browser) has no
+// password box and shows the API's error as it is, so that error must say what to do there.
+func TestMissingPasswordAnswerTellsAnOldPageToReload(t *testing.T) {
+	app := fiber.New()
+	app.Use(settingsPasswordGate(strings.Repeat("ab", 32), true))
+	app.Post("/api/v1/pool/config", func(c *fiber.Ctx) error { return c.SendString("ok") })
+	answer := func(password string) string {
+		req := httptest.NewRequest("POST", "/api/v1/pool/config", strings.NewReader(`{}`))
+		req.Header.Set("Content-Type", "application/json")
+		if password != "" {
+			req.Header.Set(settingsPasswordHeader, password)
+		}
+		resp, err := app.Test(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		return string(b)
+	}
+	none := answer("")
+	for _, want := range []string{"Nothing was saved.", "no password box", "reload"} {
+		if !strings.Contains(none, want) {
+			t.Errorf("PW-OLD-PAGE: the answer to a save without the password lacks %q: %s", want, none)
+		}
+	}
+	if wrong := answer(strings.Repeat("0", 64)); strings.Contains(wrong, "reload") {
+		t.Errorf("PW-OLD-PAGE-WRONG: a wrong password came from a page with the box; it is not told to reload: %s", wrong)
+	}
+}
+
 // What main() installs, from the environment each platform gives the API.
 func TestSettingsPasswordGateFromEnv(t *testing.T) {
 	const pw = "c3b2a1908f7e6d5c4b3a29180f7e6d5c4b3a29180f7e6d5c4b3a29180f7e6d5c"
