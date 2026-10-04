@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -312,6 +313,15 @@ func waitTCP(addr string, timeout time.Duration) bool {
 // openBrowser opens a page in the default browser (a stand-in in the tests).
 var openBrowser = func(u string) { _ = exec.Command("rundll32", "url.dll,FileProtocolHandler", u).Start() }
 
+// dashboardURL is the dashboard as Forge Solo opens it: with this build's version in the query, an
+// address the browser has kept nothing for. 1.0.12's dashboard server sent its pages with no
+// Cache-Control, and after an update a browser showed its copy of /solo for hours, without the
+// notice of a move that failed. The dashboard server answers this address by having the browser
+// drop what it kept of the dashboard (page, web.go), so the pages its links lead to come fresh too.
+func dashboardURL() string {
+	return "http://127.0.0.1:" + webPort + "/solo?v=" + url.QueryEscape(version)
+}
+
 // portWindow is how many ports pickPort tries, from its start.
 const portWindow = 300
 
@@ -347,7 +357,7 @@ func main() {
 	// running instead. Two shared one data folder, and quitting either stopped the database under
 	// the other.
 	if alreadyRunning() {
-		openBrowser("http://127.0.0.1:" + webPort)
+		openBrowser(dashboardURL())
 		return
 	}
 	exe, _ := os.Executable()
@@ -419,7 +429,7 @@ func onReady() {
 			case <-mRetry.ClickedCh:
 				tryAgain()
 			case <-mOpen.ClickedCh:
-				openBrowser("http://127.0.0.1:" + webPort)
+				openBrowser(dashboardURL())
 			case <-mCopyPw.ClickedCh:
 				copySettingsPassword(mCopyPw)
 			case <-mRestart.ClickedCh:

@@ -162,6 +162,9 @@ func TestTryAgainOpensTheDashboard(t *testing.T) {
 	if !dashboardOpen.Load() || len(opened) != 1 {
 		t.Fatalf("TRY-AGAIN-DASHBOARD: Try Again did not open the dashboard (%v)", opened)
 	}
+	if want := "http://127.0.0.1:" + webPort + "/solo?v=" + version; opened[0] != want {
+		t.Fatalf("TRY-AGAIN-DASHBOARD-VERSION: Try Again opened %q, not %q", opened[0], want)
+	}
 	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	resp, err := noRedirect.Get("http://127.0.0.1:" + webPort + "/")
 	if err != nil {

@@ -397,7 +397,7 @@ func openDashboard() {
 		status(tipSetAddress)
 		showRunning() // opened by Try Again, with everything else running already
 	}
-	openBrowser("http://127.0.0.1:" + webPort)
+	openBrowser(dashboardURL())
 }
 
 // rpcStop asks a node to shut down via its RPC `stop` method so it FLUSHES the chainstate to

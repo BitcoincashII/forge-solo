@@ -40,8 +40,13 @@ func TestDashboardPortTaken(t *testing.T) {
 
 	_ = other.Close()
 	openDashboard()
-	if len(opened) != 1 || opened[0] != "http://127.0.0.1:"+webPort || !dashboardOpen.Load() {
+	if len(opened) != 1 || !dashboardOpen.Load() {
 		t.Fatalf("DASH-OPENS: with the port free the dashboard did not open in the browser (%v)", opened)
+	}
+	// At an address the browser kept nothing for in 1.0.12, which the dashboard answers by having
+	// the browser drop what it kept.
+	if want := "http://127.0.0.1:" + webPort + "/solo?v=" + version; opened[0] != want {
+		t.Fatalf("DASH-OPENS-VERSION: the dashboard was opened at %q, not %q", opened[0], want)
 	}
 	resp, err := (&http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Get("http://127.0.0.1:" + webPort + "/")
 	if err != nil {

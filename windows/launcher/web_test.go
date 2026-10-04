@@ -1,9 +1,11 @@
 package main
 
 import (
+	"go/ast"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -101,6 +103,88 @@ func TestDashboardRoutesLikeLinux(t *testing.T) {
 	}
 	if w := get("/js/app.js"); w.Code != 200 || w.Body.String() != "js" {
 		t.Errorf("WEB-FILES: /js/app.js: status %d", w.Code)
+	}
+}
+
+// Forge Solo opens the dashboard at /solo?v=<version>, an address 1.0.12, which sent its pages with
+// no Cache-Control, never served: a browser showed 1.0.12's /solo for hours after the update, with
+// no notice of a move that failed. The / redirect keeps the query. That page tells the browser to
+// drop what it kept of the dashboard, so the pages its links lead to, and the scripts, come fresh
+// too; a page asked for any other way does not.
+func TestTheDashboardAsForgeSoloOpensIt(t *testing.T) {
+	saved := version
+	version = "1.0.13"
+	t.Cleanup(func() { version = saved })
+	root := t.TempDir()
+	for _, f := range []string{"solo.html", "settings.html", "tides.html"} {
+		if err := os.WriteFile(filepath.Join(root, f), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := dashboardHandler(root, "127.0.0.1:1")
+	get := func(path string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", path, nil)
+		r.Host = "127.0.0.1:3080"
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	u, err := url.Parse(dashboardURL())
+	if err != nil || u.Host != "127.0.0.1:"+webPort || u.Path != "/solo" || u.Query().Get("v") != "1.0.13" {
+		t.Fatalf("DASH-URL-VERSION: Forge Solo opens the dashboard at %q (%v)", dashboardURL(), err)
+	}
+	for path, want := range map[string]string{"/?v=1.0.13": "/solo?v=1.0.13", "/index.html?v=1.0.13": "/solo?v=1.0.13", "/": "/solo"} {
+		if w := get(path); w.Code != http.StatusFound || w.Header().Get("Location") != want {
+			t.Errorf("WEB-REDIRECT-KEEPS-VERSION: %s goes to %q (status %d), want %q", path, w.Header().Get("Location"), w.Code, want)
+		}
+	}
+	for _, path := range []string{u.RequestURI(), "/settings?v=1.0.13", "/tides?v=1.0.13"} {
+		w := get(path)
+		if w.Code != 200 || w.Header().Get("Clear-Site-Data") != `"cache"` || w.Header().Get("Cache-Control") != "no-cache" {
+			t.Errorf("WEB-OPENED-FRESH: %s: status %d, Clear-Site-Data %q, Cache-Control %q; want the browser to drop what it kept",
+				path, w.Code, w.Header().Get("Clear-Site-Data"), w.Header().Get("Cache-Control"))
+		}
+	}
+	for _, path := range []string{"/solo", "/solo?v=1.0.12", "/solo?v=", "/settings", "/solo/bitcoincashii:qtestaddr"} {
+		if w := get(path); w.Header().Get("Clear-Site-Data") != "" {
+			t.Errorf("WEB-CLEARS-ONLY-OPENED: %s has the browser drop what it kept", path)
+		}
+	}
+	version = "" // a build without its version
+	if w := get("/solo"); w.Header().Get("Clear-Site-Data") != "" {
+		t.Error("WEB-CLEARS-NO-VERSION: with no version, every page has the browser drop what it kept")
+	}
+}
+
+// Every place Forge Solo opens the dashboard (a second start, the tray's Open Dashboard, the open
+// after the start and Try Again's) opens it at dashboardURL.
+func TestEveryOpenIsByVersion(t *testing.T) {
+	fset, files := launcherCode(t)
+	sites := 0
+	for _, f := range files {
+		ast.Inspect(f, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			if id, ok := call.Fun.(*ast.Ident); !ok || id.Name != "openBrowser" {
+				return true
+			}
+			sites++
+			byVersion := false
+			if arg, isCall := call.Args[0].(*ast.CallExpr); isCall {
+				id, isID := arg.Fun.(*ast.Ident)
+				byVersion = isID && id.Name == "dashboardURL" && len(arg.Args) == 0
+			}
+			if !byVersion {
+				at := fset.Position(call.Pos())
+				t.Errorf("DASH-OPEN-SITE: %s:%d opens the browser at another address than dashboardURL()", at.Filename, at.Line)
+			}
+			return true
+		})
+	}
+	if sites < 3 {
+		t.Fatalf("setup: only %d places open the browser", sites)
 	}
 }
 

@@ -50,16 +50,19 @@ func dashboardMux(webRoot, apiAddr string) http.Handler {
 		switch {
 		case strings.HasPrefix(p, "/api/"):
 			proxy.ServeHTTP(w, r)
-		case p == "/":
-			http.Redirect(w, r, "/solo", http.StatusFound)
+		case p == "/" || p == "/index.html":
+			// With its query: the version Forge Solo opens the dashboard with (dashboardURL).
+			to := "/solo"
+			if r.URL.RawQuery != "" {
+				to += "?" + r.URL.RawQuery
+			}
+			http.Redirect(w, r, to, http.StatusFound)
 		case p == "/solo" || strings.HasPrefix(p, "/solo/"):
 			page(w, r, filepath.Join(webRoot, "solo.html"))
 		case p == "/settings":
 			page(w, r, filepath.Join(webRoot, "settings.html"))
 		case p == "/tides":
 			page(w, r, filepath.Join(webRoot, "tides.html"))
-		case p == "/index.html":
-			http.Redirect(w, r, "/solo", http.StatusFound)
 		case strings.HasSuffix(p, "/"):
 			http.NotFound(w, r)
 		default:
@@ -76,8 +79,16 @@ func dashboardMux(webRoot, apiAddr string) http.Handler {
 // as Linux and Umbrel's nginx do. Without that a browser kept the page from before an update for
 // hours (Inno Setup keeps the files' times), the old Settings page among them, which has no box
 // for the password the new API asks for, so no save could succeed.
+//
+// 1.0.12 sent its pages with nothing of the kind, and a browser does not ask again about the copy
+// it kept: it showed 1.0.12's dashboard for hours after the update, without the notice of a move
+// that failed. Opened as Forge Solo opens it (dashboardURL), a page tells the browser to drop what
+// it kept of the dashboard, so that the pages, scripts and styles it shows next are this version's.
 func page(w http.ResponseWriter, r *http.Request, file string) {
 	w.Header().Set("Cache-Control", "no-cache")
+	if v := r.URL.Query().Get("v"); v != "" && v == version {
+		w.Header().Set("Clear-Site-Data", `"cache"`)
+	}
 	http.ServeFile(w, r, file)
 }
 
