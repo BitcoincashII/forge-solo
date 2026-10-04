@@ -25,23 +25,29 @@ func TestImagesPublicCheck(t *testing.T) {
 		}
 	}
 	digest := func(c string) string { return "sha256:" + strings.Repeat(c, 64) }
+	// A real digest can start with zeros.
+	leadingZeros := "sha256:" + strings.Repeat("0", 12) + strings.Repeat("b", 52)
+
 	public := map[string]string{ // repository -> the digest it has
 		"acme/one": digest("a"),
-		"acme/two": digest("b"),
+		"acme/two": leadingZeros,
 	}
 	open := map[string]string{"library/open": digest("c")} // served with no token at all
+	refused := "acme/refused"                              // gets a token, and then no manifest
 
-	// The real compose's six images, as if each were public.
+	// The real compose's six images, as if each were public. Until CI re-pins it, a release commit
+	// pins zeros for an image new in that release; here that image has a digest of its own.
 	real, err := os.ReadFile("docker-compose.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	pinned := composeImageRe.FindAllSubmatch(real, -1)
+	realCompose := strings.ReplaceAll(string(real), "@"+digest("0"), "@"+digest("f"))
+	pinned := composeImageRe.FindAllStringSubmatch(realCompose, -1)
 	if len(pinned) != 6 {
 		t.Fatalf("IMAGES-PUBLIC-HARNESS: %d pinned images in docker-compose.yml, want 6", len(pinned))
 	}
 	for _, m := range pinned {
-		public["bitcoincashii/"+string(m[1])] = "sha256:" + string(m[3])
+		public["bitcoincashii/"+m[1]] = "sha256:" + m[3]
 	}
 
 	manifest := regexp.MustCompile(`^/v2/(.+)/manifests/(sha256:[0-9a-f]{64})$`)
@@ -50,7 +56,7 @@ func TestImagesPublicCheck(t *testing.T) {
 		if r.URL.Path == "/token" {
 			q := r.URL.Query()
 			repo := strings.TrimSuffix(strings.TrimPrefix(q.Get("scope"), "repository:"), ":pull")
-			if _, ok := public[repo]; ok && q.Get("service") == "fake" && r.Header.Get("Authorization") == "" {
+			if _, ok := public[repo]; (ok || repo == refused) && q.Get("service") == "fake" && r.Header.Get("Authorization") == "" {
 				fmt.Fprintf(w, `{"token":"anon-%s"}`, repo)
 				return
 			}
@@ -74,6 +80,10 @@ func TestImagesPublicCheck(t *testing.T) {
 		if r.Header.Get("Authorization") != "Bearer anon-"+repo {
 			w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer realm="%s/token",service="fake",scope="repository:%s:pull"`, srv.URL, repo))
 			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if repo == refused {
+			w.WriteHeader(http.StatusForbidden)
 			return
 		}
 		if public[repo] != d {
@@ -104,17 +114,20 @@ func TestImagesPublicCheck(t *testing.T) {
 		return b.String()
 	}
 	one := host + "/acme/one:1.0.13@" + digest("a")
-	two := host + "/acme/two:1.0.13@" + digest("b")
+	two := host + "/acme/two:1.0.13@" + leadingZeros
 
 	if out, ok := check(composeOf(one, two, host+"/library/open@"+digest("c"))); !ok || strings.Count(out, "ok   ") != 3 {
 		t.Fatalf("IMAGES-PUBLIC-OK: three images anyone can pull did not all pass:\n%s", out)
 	}
-	if out, ok := check(strings.ReplaceAll(string(real), "ghcr.io/", host+"/")); !ok || strings.Count(out, "ok   ") != 6 {
+	if out, ok := check(strings.ReplaceAll(realCompose, "ghcr.io/", host+"/")); !ok || strings.Count(out, "ok   ") != 6 {
 		t.Fatalf("IMAGES-PUBLIC-REAL-COMPOSE: the six images of docker-compose.yml, all public, did not all pass:\n%s", out)
 	}
 	for _, tc := range []struct{ code, image, want string }{
 		{"IMAGES-PUBLIC-PRIVATE", host + "/acme/private:1.0.13@" + digest("d"), "needs a login"},
 		{"IMAGES-PUBLIC-MISSING", host + "/acme/one:1.0.13@" + digest("e"), "has no such digest"},
+		{"IMAGES-PUBLIC-TOKEN-REFUSED", host + "/" + refused + ":1.0.13@" + digest("a"), "answers 403"},
+		// The release commit, before CI's re-pin: even with the package public, zeros never pull.
+		{"IMAGES-PUBLIC-PLACEHOLDER", host + "/acme/one:1.0.13@" + digest("0"), "zeros, not a digest CI published: pull main once CI's re-pin commit is on it"},
 		{"IMAGES-PUBLIC-UNPINNED", host + "/acme/two:1.0.13", "not a registry/name[:tag]@sha256:digest"},
 		{"IMAGES-PUBLIC-UNREACHABLE", "127.0.0.1:1/acme/one:1.0.13@" + digest("a"), "cannot be reached"},
 		{"IMAGES-PUBLIC-NO-HOST", "timescale/timescaledb:2.17.2-pg16@" + digest("a"), "names no registry host"},

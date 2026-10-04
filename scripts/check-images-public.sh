@@ -3,8 +3,10 @@
 #
 # GitHub makes a package private when it is first published, even in a public repository, and an
 # Umbrel cannot log in to pull: every install of the release would fail, and every update would stop
-# the app and then fail to pull, leaving it stopped. Run this after the tag's images are pushed and
-# before the store is synced (README, "Releasing"); the Tests run the re-pin starts runs it too.
+# the app and then fail to pull, leaving it stopped. Run this on main once CI's re-pin commit is on
+# it, before the store is synced (README, "Releasing"); the Tests run the re-pin starts runs it too.
+# Until that commit the compose pins the previous release's images, and zeros for an image new in
+# this release, which fail here.
 #
 #   scripts/check-images-public.sh [COMPOSE_FILE]
 #
@@ -35,6 +37,11 @@ for ref in $images; do
     continue
   fi
   host=${BASH_REMATCH[1]} repo=${BASH_REMATCH[2]} digest=${BASH_REMATCH[3]}
+  if [[ $digest =~ ^sha256:0+$ ]]; then
+    echo "FAIL $ref: zeros, not a digest CI published: pull main once CI's re-pin commit is on it, then run this again" >&2
+    failed=1
+    continue
+  fi
   if [[ $host != *.* && $host != *:* && $host != localhost ]]; then
     echo "FAIL $ref: names no registry host, and this check reads only images that do" >&2
     failed=1
