@@ -19,6 +19,14 @@
                 : 'Set your payout address in Settings to mine.';
         }
 
+        // Where to look when the node stays down, by where Forge Solo runs.
+        function nodeDownAdvice() {
+            if (platform === 'windows') return 'If it stays this way, the Forge Solo icon in the notification area says what is wrong; launcher.log has the details.';
+            if (platform === 'linux') return 'If it stays this way, the node\'s log says why: bch2/debug.log in the Forge Solo data directory. After a power cut or a full disk it may need one start with --reindex.';
+            if (platform === 'umbrel') return 'If it stays this way, restart Forge Solo from the umbrelOS home screen.';
+            return 'If it stays this way, restart Forge Solo.';
+        }
+
         let minerAddress = new URLSearchParams(window.location.search).get('address') || decodeURIComponent(window.location.pathname.split('/solo/')[1] || '');
         // True when the address came from the URL rather than from this install's own
         // configuration. The stratum's authorized count is process-wide, so it only
@@ -36,6 +44,8 @@
         let hashrateHistory = [];
         let networkDiff = 0;   // 0 until a real value arrives; last-good is then held across polls
         let nodeSynced = false;   // set by updateStatusBanner; gates network stats during IBD
+        let nodeState = '';       // node-status: synced, syncing, starting or offline; '' until known
+        let platform = '';        // pool config: windows, linux or umbrel; '' until known
         let minerHashing = false; // set by fetchMinerData; true once a worker is actually hashing
         // Last /api/v1/mining-status payload and when it landed. The Workers tile needs the
         // stratum's LIVE connection count: "online" in the miner payload means "submitted a
@@ -175,6 +185,7 @@
                 try {
                     const cfg = await apiFetch('/api/v1/pool/config');
                     configReachable = true;
+                    if (cfg && cfg.platform) platform = cfg.platform;
                     if (cfg && cfg.pool_address && cfg.pool_address !== minerAddress) {
                         minerAddress = cfg.pool_address;
                         var a = document.getElementById('minerAddress');
@@ -186,14 +197,20 @@
             try {
                 const s = await apiFetch('/api/v1/node-status');
                 nodeSynced = (s.status === 'synced');
+                nodeState = String(s.status || '');
                 if (s.status === 'syncing') {
                     const pct = (s.progress != null ? (s.progress * 100) : 0);
                     msg = '⏳ <b>BCH2 node syncing: ' + pct.toFixed(2) + '%</b> (block ' + (Number(s.blocks) || 0) + ' / ' + (Number(s.headers) || 0) + '). You can mine once it reaches 100%.'
                         + '<div style="margin-top:7px;height:7px;background:rgba(255,255,255,0.18);border-radius:4px;overflow:hidden">'
                         + '<div style="height:100%;width:' + pct.toFixed(1) + '%;background:#0ac18e;transition:width .6s"></div></div>';
                     if (!minerAddress && configReachable) msg += '<div style="height:8px"></div>⚙️ Meanwhile, set your <a href="/settings" style="color:inherit;font-weight:600;text-decoration:underline">payout address</a> in Settings.';
-                } else if (s.status === 'offline') {
-                    msg = '⏳ <b>Starting the BCH2 node…</b> first launch can take a minute.';
+                } else if (s.status === 'starting') {
+                    // s.message is the node's own word for the step it is on ("Loading block index…").
+                    msg = '⏳ <b>Starting the BCH2 node:</b> ' + escapeHtml(s.message || 'loading its chain') + ' This can take a few minutes; mining starts once it is ready.';
+                } else if (s.status !== 'synced') {
+                    // Not answering at all: stopped, crashed, or being started again. Not "starting":
+                    // that read the same for hours as a node half a minute into its start.
+                    msg = '⚠️ <b>The BCH2 node is not answering,</b> so nothing is being mined. If Forge Solo has just started or updated, give it a minute. ' + nodeDownAdvice();
                 } else if (!minerAddress) {
                     // Without the stored settings there is no knowing whether an address is set:
                     // asking for one sent users to Settings to retype what was already saved.
@@ -430,8 +447,10 @@
                     if (networkDiff > 0) document.getElementById('networkDiff').textContent = formatDiff(networkDiff);
                     if (data.networkHashrate > 0) document.getElementById('networkHashrate').textContent = formatHashrate(data.networkHashrate);
                 } else {
-                    document.getElementById('networkDiff').textContent = 'syncing…';
-                    document.getElementById('networkHashrate').textContent = 'syncing…';
+                    // A node that is starting or not answering is not syncing: its figures are unknown.
+                    const t = nodeState === 'syncing' ? 'syncing…' : '--';
+                    document.getElementById('networkDiff').textContent = t;
+                    document.getElementById('networkHashrate').textContent = t;
                 }
             } catch(e) {
                 console.error('Failed to fetch stats', e);
@@ -905,6 +924,7 @@
                 try {
                     const cfg = await apiFetch('/api/v1/pool/config');
                     configReachable = true;
+                    if (cfg && cfg.platform) platform = cfg.platform;
                     if (cfg && cfg.pool_address) minerAddress = cfg.pool_address;
                 } catch (e) {}
                 var _el = document.getElementById('minerAddress');

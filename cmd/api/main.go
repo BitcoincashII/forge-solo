@@ -916,6 +916,21 @@ func mergeMiningAvailable() bool {
 	return os.Getenv("MERGE_MINING_AVAILABLE") != "0"
 }
 
+// rpcError is an error the node itself answered a call with.
+type rpcError struct {
+	method  string
+	code    int
+	message string
+}
+
+func (e *rpcError) Error() string {
+	return fmt.Sprintf("%s: node error %d: %s", e.method, e.code, e.message)
+}
+
+// rpcInWarmup is the node's answer to every call while it starts (loading its block index,
+// verifying its latest blocks); its message says which step it is on.
+const rpcInWarmup = -28
+
 func rpcCall(method string, params interface{}) (json.RawMessage, error) {
 	if rpcUser == "" || rpcPass == "" {
 		return nil, fmt.Errorf("RPC credentials not configured - set RPC_USER and RPC_PASSWORD environment variables")
@@ -957,7 +972,7 @@ func rpcCall(method string, params interface{}) (json.RawMessage, error) {
 	// with -28 ("Loading block index…") until it has loaded the chain; read as an empty result,
 	// that looked like a node at block 0, and the dashboard said it was syncing from 0%.
 	if rpcResp.Error != nil {
-		return nil, fmt.Errorf("%s: node error %d: %s", method, rpcResp.Error.Code, rpcResp.Error.Message)
+		return nil, &rpcError{method: method, code: rpcResp.Error.Code, message: rpcResp.Error.Message}
 	}
 	return rpcResp.Result, nil
 }
@@ -2249,12 +2264,19 @@ func getMiningStatus(c *fiber.Ctx) error {
 const syncedHeaderSlack = 1
 
 func getNodeStatus(c *fiber.Ctx) error {
-	// Try to get blockchain info
 	result, err := rpcCall("getblockchaininfo", []interface{}{})
 	if err != nil {
+		// A node that is starting answers with -28 and says what it is doing. Anything else (no
+		// connection, an answer that is not the node's, a refused password) is a node that is not
+		// answering: stopped, crashed, or being started again. Shown as "starting", that read the
+		// same for hours as a node half a minute into its start.
+		var re *rpcError
+		if errors.As(err, &re) && re.code == rpcInWarmup {
+			return c.JSON(fiber.Map{"status": "starting", "message": re.message})
+		}
 		return c.JSON(fiber.Map{
 			"status":  "offline",
-			"message": "Cannot connect to BCH2 node",
+			"message": "The BCH2 node is not answering",
 		})
 	}
 
@@ -2267,7 +2289,7 @@ func getNodeStatus(c *fiber.Ctx) error {
 	if err := json.Unmarshal(result, &info); err != nil {
 		return c.JSON(fiber.Map{
 			"status":  "offline",
-			"message": "Invalid response from node",
+			"message": "The BCH2 node's answer could not be read",
 		})
 	}
 

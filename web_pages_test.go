@@ -133,6 +133,53 @@ func TestOfflineBannerComesIntoView(t *testing.T) {
 	}
 }
 
+// branchAfter is the body of the if/else-if branch that head opens, up to the next "} else".
+func branchAfter(src, head string) string {
+	i := strings.Index(src, head)
+	if i < 0 {
+		return ""
+	}
+	rest := src[i+len(head):]
+	if j := strings.Index(rest, "} else"); j >= 0 {
+		return rest[:j]
+	}
+	return rest
+}
+
+// The API tells a node that is starting (-28, with the step it is on) from one that is not
+// answering. The dashboard read both as "Starting the BCH2 node… first launch can take a minute",
+// for hours on a crashed node while nothing was mined, and showed "syncing…" in its tiles.
+func TestDashboardTellsAStartingNodeFromOneNotAnswering(t *testing.T) {
+	js := readWebFile(t, "js/pool-solo-inline.js")
+	const startHead, downHead = "} else if (s.status === 'starting') {", "} else if (s.status !== 'synced') {"
+	start, down := branchAfter(js, startHead), branchAfter(js, downHead)
+	if !strings.Contains(start, "Starting the BCH2 node") || !strings.Contains(start, "escapeHtml(s.message") {
+		t.Errorf("NODE-JS-STARTING: no branch for a starting node that says what it is doing: %q", start)
+	}
+	if !strings.Contains(down, "not answering") || !strings.Contains(down, "nodeDownAdvice()") || strings.Contains(down, "Starting") {
+		t.Errorf("NODE-JS-DOWN: a node that is not answering is not said to be: %q", down)
+	}
+	// Any status other than synced is handled before the branches that assume a synced node.
+	if i, j, k := strings.Index(js, startHead), strings.Index(js, downHead), strings.Index(js, "} else if (!minerAddress) {"); i < 0 || j < i || k < j {
+		t.Errorf("NODE-JS-ORDER: the starting (%d) and not-answering (%d) branches must come before the synced ones (%d)", i, j, k)
+	}
+	advice := ""
+	if i := strings.Index(js, "function nodeDownAdvice() {"); i >= 0 {
+		advice = js[i:]
+		if j := strings.Index(advice, "\n        }\n"); j >= 0 {
+			advice = advice[:j]
+		}
+	}
+	for _, p := range []string{"'windows'", "'linux'", "'umbrel'", "launcher.log", "--reindex"} {
+		if !strings.Contains(advice, p) {
+			t.Errorf("NODE-JS-ADVICE: nodeDownAdvice() has nothing for %s", p)
+		}
+	}
+	if !strings.Contains(js, "const t = nodeState === 'syncing' ? 'syncing…' : '--';") {
+		t.Errorf("NODE-JS-TILES: the network tiles say syncing for a node that is not syncing")
+	}
+}
+
 // Scripts and style sheets go out with no Cache-Control (only the pages are no-cache), so a
 // browser keeps its copy for hours after an update unless the reference changes. Every page
 // names each of them with the same ?v=, so a bump on one page is not missed on another.
