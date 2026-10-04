@@ -203,10 +203,13 @@ jobs:
       # The launcher is Windows-only code and its own module, so the unit job's ./... skips it.
       # Vetting and building it for any other GOOS proves nothing about what ships. Its config
       # is checked against the stratum's template by windows_config_test.go in the unit job.
-      - name: Vet and build the launcher for Windows
+      # staticcheck is the unit job's, at the same version, for the same reason: code nothing reaches.
+      - name: Vet, staticcheck and build the launcher for Windows
         working-directory: windows/launcher
         run: |
           GOOS=windows GOARCH=amd64 go vet ./...
+          go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
+          GOOS=windows GOARCH=amd64 "$(go env GOPATH)/bin/staticcheck" ./...
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui -s -w" -o /tmp/forge-solo.exe .
 
       # Its logic (ports, stopping, the dashboard proxy) does not depend on Windows: only starting a
