@@ -17,6 +17,7 @@
 #
 # Usage: scripts/linux/build-release.sh VERSION [ARCH...]
 #   ARCH: x86_64 aarch64 armv7l armv6l i686 riscv64 (default: all), named as `uname -m` names them
+# Run it on a clean checkout of the tag vVERSION; it refuses anything else.
 set -eu
 VERSION=${1:?usage: scripts/linux/build-release.sh VERSION [ARCH...]}
 shift
@@ -45,6 +46,28 @@ node_sha256() {
   esac
 }
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+
+# A release is built from its tag and nothing else: no uncommitted change, no other commit, and the
+# version umbrel-app.yml gives. The Go programs and the dashboard come from the working tree.
+manifest=$(sed -n 's/^version: *"\{0,1\}\([^"]*\)"\{0,1\}.*/\1/p' "$ROOT/umbrel-app.yml" | head -1)
+if [ "$manifest" != "$VERSION" ]; then
+  echo "umbrel-app.yml says version $manifest, not $VERSION: refusing to build" >&2
+  exit 1
+fi
+if ! tag=$(git -C "$ROOT" rev-parse -q --verify "refs/tags/v$VERSION^{commit}"); then
+  echo "there is no tag v$VERSION: tag the release, then build it from the tag" >&2
+  exit 1
+fi
+if [ "$(git -C "$ROOT" rev-parse HEAD)" != "$tag" ]; then
+  echo "the checkout is not v$VERSION: run git checkout v$VERSION, then build" >&2
+  exit 1
+fi
+if [ -n "$(git -C "$ROOT" status --porcelain)" ]; then
+  echo "the working tree has changes v$VERSION does not: commit or stash them, then build" >&2
+  git -C "$ROOT" status --short >&2
+  exit 1
+fi
+
 WORK=${WORK:-$ROOT/.linux-build}
 DIST=$ROOT/dist
 
@@ -66,7 +89,7 @@ for arch in $ARCHES; do
   # Alpine 3.20, pinned per platform: the build runs in the image of the target platform, whose
   # compiler sets the baseline (armhf: ARMv6 with VFP, so armv6l also runs on every 32-bit ARM Pi).
   # linux32 makes a 32-bit x86 container report i686, as the node's build system reads it.
-  pre= goarm=
+  pre='' goarm=''
   case $arch in
     x86_64) plat=linux/amd64 goarch=amd64 digest=c64c687cbea9300178b30c95835354e34c4e4febc4badfe27102879de0483b5e ;;
     aarch64) plat=linux/arm64 goarch=arm64 digest=45e09956dc667c5eff3583c9d94830261fb1ca0be10a0a7db36266edf5de9e1d ;;
