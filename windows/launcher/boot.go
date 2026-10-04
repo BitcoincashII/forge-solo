@@ -100,12 +100,15 @@ func writeConfigs() {
 	// Bitcoin Core ships both off. Outbound peering is unaffected; inbound needs a forward.
 	// dbcache/maxmempool/maxsigcachesize/par/maxconnections keep it light on a laptop. writeAlways so upgrades apply.
 	//
-	// The BCH2 node is not pruned. Pruning saved nothing -- the whole chain is about 90 MB --
+	// Neither node is pruned, as on Umbrel. Pruning saved nothing (each chain is under 100 MB),
 	// but it made the node announce NODE_NETWORK_LIMITED instead of NODE_NETWORK, and the DNS
 	// seeders list only NODE_NETWORK nodes, so it waited on chance for inbound peers however
-	// the router was forwarded. Earlier releases wrote prune=2000, but Core prunes nothing
-	// below height 200,000, so no datadir was ever actually pruned and each one starts
-	// unpruned as it is.
+	// the router was forwarded. Earlier releases wrote prune=2000, but a node prunes nothing
+	// below its prune height (BCH2 200,000, 1175 100,000) or under the 2000 MB it was given, so
+	// no datadir was ever actually pruned and each one starts unpruned as it is.
+	//
+	// No wallet, as on Umbrel: nothing here uses one, and anything holding the RPC password
+	// could make and use it.
 	//
 	// The binds are explicit because the node's mainnet Tor onion target port is 8339 too (its
 	// chainparamsbase; upstream uses the P2P port + 1): with no bind= it takes 127.0.0.1:8339 for
@@ -116,11 +119,12 @@ func writeConfigs() {
 			"\nrpcuser=forge\nrpcpassword="+sec.BCH2Pass+"\nport="+bch2P2P+"\n"+
 			"bind=0.0.0.0:"+bch2P2P+"\nbind=[::]:"+bch2P2P+"\nbind=127.0.0.1:8340=onion\n"+
 			"upnp=0\nnatpmp=0\ndiscover=1\ndbcache=100\nmaxmempool=50\nmaxsigcachesize=4\npar=1\nmaxconnections=40\n"+
-			"zmqpubhashblock=tcp://127.0.0.1:"+bch2ZMQ+"\ndnsseed=1\n")
+			"disablewallet=1\nzmqpubhashblock=tcp://127.0.0.1:"+bch2ZMQ+"\ndnsseed=1\n")
 	writeAlways(dpath("elevenseventyfive", "1175.conf"),
 		"server=1\nlisten=1\nrpcbind=127.0.0.1\nrpcallowip=127.0.0.1\nrpcport="+aux1175RPC+
-			"\nrpcuser=forge1175\nrpcpassword="+sec.AuxPass+"\nport="+aux1175P2P+"\nprune=2000\n"+
-			"upnp=0\nnatpmp=0\ndiscover=1\ndbcache=100\nmaxmempool=50\nmaxsigcachesize=4\npar=1\nmaxconnections=40\ndnsseed=1\n"+
+			"\nrpcuser=forge1175\nrpcpassword="+sec.AuxPass+"\nport="+aux1175P2P+"\n"+
+			"upnp=0\nnatpmp=0\ndiscover=1\ndbcache=100\nmaxmempool=50\nmaxsigcachesize=4\npar=1\nmaxconnections=40\n"+
+			"disablewallet=1\ndnsseed=1\n"+
 			"addnode=213.181.112.83\naddnode=46.7.7.113\naddnode=93.127.117.218\n")
 	// writeAlways so a port change (e.g. moving the 1175 RPC off a Windows-blocked port)
 	// propagates to the stratum's merge-mining config on upgrade. Fully generated file.

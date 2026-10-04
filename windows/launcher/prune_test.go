@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// The BCH2 node runs unpruned (see writeConfigs); the 1175 node is left as it was.
-func TestGeneratedBCH2ConfIsUnpruned(t *testing.T) {
+// Neither node runs pruned (see writeConfigs), as on Umbrel.
+func TestGeneratedConfsAreUnpruned(t *testing.T) {
 	saved := dataDir
 	dataDir = t.TempDir()
 	t.Cleanup(func() { dataDir = saved })
@@ -33,7 +33,30 @@ func TestGeneratedBCH2ConfIsUnpruned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(aux), "\nprune=2000\n") {
-		t.Fatalf("1175.conf changed; this change is scoped to the BCH2 node:\n%s", aux)
+	// A pruned node announces NODE_NETWORK_LIMITED, which the DNS seeders skip: few inbound peers
+	// however the router is forwarded. Umbrel's 1175 node is not pruned.
+	if strings.Contains(string(aux), "prune") {
+		t.Fatalf("PRUNE-1175: 1175.conf still prunes the 1175 node:\n%s", aux)
+	}
+	if !strings.Contains(string(aux), "\nlisten=1\n") || !strings.Contains(string(aux), "\nport="+aux1175P2P+"\n") {
+		t.Fatalf("1175.conf lost its listen/port lines:\n%s", aux)
+	}
+}
+
+// Neither node has a wallet, as on Umbrel (-disablewallet) and Linux (built without one): nothing
+// uses it, and anything holding the RPC password could make and use one.
+func TestNodesRunWithoutAWallet(t *testing.T) {
+	saved := dataDir
+	dataDir = t.TempDir()
+	t.Cleanup(func() { dataDir = saved })
+	writeConfigs()
+	for _, conf := range []string{dpath("bch2", "bch2.conf"), dpath("elevenseventyfive", "1175.conf")} {
+		b, err := os.ReadFile(conf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(b), "\ndisablewallet=1\n") {
+			t.Errorf("WIN-NO-WALLET: %s does not disable the node's wallet:\n%s", conf, b)
+		}
 	}
 }
