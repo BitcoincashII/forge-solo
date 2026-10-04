@@ -41,6 +41,7 @@ func TestServiceLogIsShared(t *testing.T) {
 	saved := dataDir
 	dataDir = t.TempDir()
 	t.Cleanup(func() { dataDir = saved })
+	//lint:ignore SA4000 the same name asked twice must give the one cached log
 	if serviceLog("stratum") != serviceLog("stratum") || serviceLog("stratum") == serviceLog("api") {
 		t.Fatal("LOG-PER-SERVICE: serviceLog does not keep one log per service")
 	}

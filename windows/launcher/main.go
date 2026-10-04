@@ -81,6 +81,8 @@ var (
 
 // errStopping refuses a start once the stop has begun: a program started after the stop had passed
 // it would be left running when Forge Solo exits.
+//
+//lint:ignore ST1005 it starts with the product's name
 var errStopping = errors.New("Forge Solo is stopping")
 
 type secrets struct {
@@ -264,11 +266,6 @@ func showStopping() {
 	defer tipMu.Unlock()
 	stopShown = true
 	setTooltip("Forge Solo: shutting down cleanly…")
-}
-func writeAbsent(path, content string) {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		_ = os.WriteFile(path, []byte(content), 0o600)
-	}
 }
 
 // writeAlways rewrites generated config every boot so upgrades pick up new settings.

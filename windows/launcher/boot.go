@@ -16,8 +16,6 @@ import (
 	"fyne.io/systray"
 )
 
-func pgbin(name string) string { return ipath("pgsql", "bin", name) }
-
 // setupSecrets reads secrets.env, making what it lacks. It never replaces a file it could not read
 // (another program may hold it a moment), and never makes a new database password for a database
 // that exists: the database would then never open again.
