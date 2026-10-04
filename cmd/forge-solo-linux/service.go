@@ -386,14 +386,15 @@ Remove them with: sudo rm -r %[1]s %[2]s   and the user with: sudo userdel %[3]s
 	return nil
 }
 
-// replaceDir copies src to dst through dst.new, so a failed copy leaves the old install whole.
+// replaceDir copies the release in src to dst through dst.new, so a failed copy leaves the old
+// install whole.
 func replaceDir(src, dst string) error {
 	if err := mkdirParents(filepath.Dir(dst)); err != nil {
 		return err
 	}
 	tmp, old := dst+".new", dst+".old"
 	_ = os.RemoveAll(tmp)
-	if err := copyTree(src, tmp); err != nil {
+	if err := copyRelease(src, tmp); err != nil {
 		_ = os.RemoveAll(tmp)
 		return err
 	}
@@ -441,7 +442,45 @@ func mkdir0755(dir string) error {
 	return os.Chmod(dir, 0o755)
 }
 
-// copyTree copies the release: regular files and directories, root-owned, not writable by others.
+// releaseFiles are the release's own files, as scripts/linux/build-release.sh stages them, besides
+// bin/COPYING-* and web/. A release directory can hold more: the data directory of a Forge Solo run
+// from it, with secrets.env and the database, which a copy in /opt would make readable by every
+// account on the machine.
+var releaseFiles = []string{"forge-solo", "LICENSE", "README.md",
+	"bin/bitcoincashIId", "bin/bitcoincashII-cli", "bin/stratum", "bin/api"}
+
+// copyRelease copies the release's own files from src to dst, and nothing else there.
+func copyRelease(src, dst string) error {
+	files := append([]string(nil), releaseFiles...)
+	licenses, err := filepath.Glob(filepath.Join(src, "bin", "COPYING-*"))
+	if err != nil {
+		return err
+	}
+	for _, l := range licenses {
+		files = append(files, filepath.Join("bin", filepath.Base(l)))
+	}
+	for _, d := range []string{dst, filepath.Join(dst, "bin")} {
+		if err := mkdir0755(d); err != nil {
+			return err
+		}
+	}
+	for _, f := range files {
+		info, err := os.Lstat(filepath.Join(src, f))
+		if errors.Is(err, os.ErrNotExist) {
+			continue // checkRelease has made sure of the ones it cannot run without
+		}
+		if err != nil {
+			return err
+		}
+		if err := copyEntry(filepath.Join(src, f), filepath.Join(dst, f), info); err != nil {
+			return err
+		}
+	}
+	return copyTree(filepath.Join(src, "web"), filepath.Join(dst, "web"))
+}
+
+// copyTree copies a directory of the release: regular files and directories, root-owned, not
+// writable by others.
 func copyTree(src, dst string) error {
 	return filepath.Walk(src, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -451,20 +490,25 @@ func copyTree(src, dst string) error {
 		if err != nil {
 			return err
 		}
-		t := filepath.Join(dst, rel)
-		switch {
-		case info.IsDir():
-			return mkdir0755(t)
-		case info.Mode().IsRegular():
-			mode := os.FileMode(0o644)
-			if info.Mode()&0o111 != 0 {
-				mode = 0o755
-			}
-			return copyFile(p, t, mode)
-		default:
-			return nil // no links or devices in a release
-		}
+		return copyEntry(p, filepath.Join(dst, rel), info)
 	})
+}
+
+// copyEntry copies a directory (empty) or a regular file of the release: 0755, or 0644 for a file
+// that is not executable.
+func copyEntry(src, dst string, info os.FileInfo) error {
+	switch {
+	case info.IsDir():
+		return mkdir0755(dst)
+	case info.Mode().IsRegular():
+		mode := os.FileMode(0o644)
+		if info.Mode()&0o111 != 0 {
+			mode = 0o755
+		}
+		return copyFile(src, dst, mode)
+	default:
+		return nil // no links or devices in a release
+	}
 }
 
 func copyFile(src, dst string, mode os.FileMode) error {

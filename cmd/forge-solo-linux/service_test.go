@@ -90,6 +90,40 @@ func TestReplaceDirInstallsAndUpgrades(t *testing.T) {
 	}
 }
 
+// install-service copies the release's own files and nothing else. A Forge Solo run from the
+// release directory may keep its data there: secrets.env, the database and the chain, which the
+// copy in /opt made readable by every account on the machine.
+func TestReplaceDirCopiesOnlyTheRelease(t *testing.T) {
+	base := t.TempDir()
+	src, dst := filepath.Join(base, "rel"), filepath.Join(base, "opt", "forge-solo")
+	own := []string{"forge-solo", "LICENSE", "README.md", "bin/bitcoincashIId", "bin/bitcoincashII-cli", "bin/stratum",
+		"bin/api", "bin/COPYING-bitcoincashII-core", "web/solo.html", "web/js/app.js"}
+	other := []string{"data/secrets.env", "data/forgesolo.db", "data/bch2/bch2.conf", "data/forge-solo.lock", "run.log",
+		"bin/notes.txt", "secrets.env"}
+	for _, f := range append(append([]string{}, own...), other...) {
+		p := filepath.Join(src, f)
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(f), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := replaceDir(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range own {
+		if b, err := os.ReadFile(filepath.Join(dst, f)); err != nil || string(b) != f {
+			t.Errorf("COPY-RELEASE-FILES: %s was not installed: %q %v", f, b, err)
+		}
+	}
+	for _, f := range append(other, "data") {
+		if _, err := os.Lstat(filepath.Join(dst, f)); err == nil {
+			t.Errorf("COPY-ONLY-RELEASE: %s, which is not the release's, was installed", f)
+		}
+	}
+}
+
 // Under sudo with a umask of 077 (or 027) every directory of the install came out 0700, so the
 // service user could not reach the program and systemd failed it with 203/EXEC. The directories
 // are 0755 whatever the umask, a missing parent (/opt) is made 0755 too, and an existing parent
