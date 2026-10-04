@@ -306,10 +306,130 @@ const Modal = {
     }
 };
 
+// Forge Solo 1.0.13 keeps its data in a new database, and moves an earlier version's data into it
+// once. The API's health answer says what came of that. Status 'maintenance': the move was needed
+// and failed, so Forge Solo does not mine and the API answers nothing else; every page shows one
+// notice in its place, with what to do. migration.state: the API runs as usual, and a banner says
+// why the old data is not in the new database, or not yet.
+const OldData = {
+    banner: {
+        deferred: 'The data of your earlier Forge Solo is not in the new database yet: the database was in use when the move ran. The move finishes at the next restart of Forge Solo.',
+        degraded: 'The database folder from before 1.0.13 is damaged or partly deleted and is ignored. What was moved from it at the update is in the new database.',
+        skipped: 'Forge Solo started without the data of its earlier version, as chosen. That data is kept as it was: Settings can bring it in.',
+        failed: 'Moving the data of the earlier version into the new database failed. Restart Forge Solo to try again.'
+    },
+    // Where the Settings password is, as Settings says it.
+    pwWhere: {
+        umbrel: 'It is the Default password umbrelOS shows for Forge Solo: right-click the Forge Solo icon on the umbrelOS home screen, then Settings → Default credentials. It is not your Umbrel login password.',
+        windows: 'Right-click the Forge Solo icon in the notification area of the taskbar and choose Copy Settings Password, then paste it here.',
+        linux: 'It is DASHBOARD_PASSWORD in secrets.env.'
+    },
+    PW_KEY: 'forgeSoloPassword',
+
+    init() {
+        this.read().then(h => {
+            if (!h) return;
+            if (h.status === 'maintenance') {
+                this.showNotice(h);
+            } else if (h.migration && this.banner[h.migration.state]) {
+                this.showBanner(h.migration);
+            }
+        });
+    },
+
+    // The API's health answer, or null when there is none.
+    read() {
+        return fetch('/api/v1/health', { cache: 'no-store' })
+            .then(r => r.json().catch(() => null))
+            .then(d => (d && typeof d === 'object') ? d : null)
+            .catch(() => null);
+    },
+
+    showBanner(m) {
+        const el = document.createElement('div');
+        el.className = 'migration-banner';
+        el.id = 'migrationBanner';
+        el.setAttribute('role', 'status');
+        el.textContent = this.banner[m.state];
+        // At the top of the page's content, as wide as its cards.
+        (document.querySelector('main .container') || document.querySelector('main') || document.body).prepend(el);
+    },
+
+    // The notice over the whole page while the move has failed. The figures behind it cannot be
+    // read, and Forge Solo is not mining.
+    showNotice(h) {
+        this.where = this.pwWhere[h.platform] || this.pwWhere.umbrel;
+        const code = h.code ? ' (code ' + sanitizeHTML(h.code) + ')' : '';
+        const el = document.createElement('div');
+        el.className = 'maintenance-notice';
+        el.id = 'maintenanceNotice';
+        el.setAttribute('role', 'alert');
+        el.innerHTML = `<div class="maintenance-card">
+            <h1>Forge Solo could not move its data</h1>
+            <p>Forge Solo now keeps its data in a new database. Moving the data of the earlier version into it failed: <strong>${sanitizeHTML(h.reason || 'see the log')}</strong>${code}.</p>
+            <p><strong>Nothing was lost.</strong> The old data is as it was, and nothing was replaced. Forge Solo does not mine until this is settled; the nodes keep running.</p>
+            <p><strong>Restart Forge Solo to try again.</strong></p>
+            <div class="maintenance-skip">
+                <p>If the move fails again, Forge Solo can start without the old data, with a new, empty database. The old data stays where it is, and Settings can bring it in later. Your payout address is part of it: set it again in Settings after the restart.</p>
+                <label for="maintenancePw">Forge Solo password</label>
+                <input id="maintenancePw" type="text" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" spellcheck="false" autocapitalize="none" autocorrect="off">
+                <p class="maintenance-note">${sanitizeHTML(this.where)}</p>
+                <button type="button" id="maintenanceSkipBtn"></button>
+                <p class="maintenance-status" id="maintenanceStatus" role="status"></p>
+            </div>
+        </div>`;
+        document.body.appendChild(el);
+        document.body.classList.add('in-maintenance');
+        try { document.getElementById('maintenancePw').value = localStorage.getItem(this.PW_KEY) || ''; } catch (e) { /* no storage */ }
+        this.setChosen(h.skip_file === true, '');
+        document.getElementById('maintenanceSkipBtn').addEventListener('click', () => this.choose(!this.chosen));
+        // Once Forge Solo has been restarted and runs again, the page is shown as usual.
+        setInterval(() => this.read().then(d => { if (d && d.status !== 'maintenance') location.reload(); }), 10000);
+    },
+
+    // chosen: SKIP-POSTGRES-MIGRATION is there, so the next start goes without the old data.
+    setChosen(chosen, message) {
+        this.chosen = chosen;
+        document.getElementById('maintenanceSkipBtn').textContent = chosen ? 'Try the move again instead' : 'Start without the old data';
+        document.getElementById('maintenanceStatus').textContent = message ||
+            (chosen ? 'You chose to start without the old data. Restart Forge Solo: it then starts with a new, empty database.' : '');
+    },
+
+    // Records the choice with Forge Solo, behind its Settings password as every change.
+    choose(skip) {
+        const st = document.getElementById('maintenanceStatus');
+        const box = document.getElementById('maintenancePw');
+        const pw = box.value.trim();
+        const headers = { 'Content-Type': 'application/json' };
+        if (pw) headers['X-Forge-Password'] = pw;
+        st.textContent = 'Saving…';
+        fetch('/api/v1/old-data', { method: 'POST', headers: headers, body: JSON.stringify({ skip: skip }) })
+            .then(r => r.json().catch(() => null), () => null)
+            .then(d => {
+                if (d && d.success) {
+                    try { if (pw) localStorage.setItem(this.PW_KEY, pw); } catch (e) { /* no storage */ }
+                    this.setChosen(skip, d.message);
+                } else if (d && d.password_required) {
+                    if (d.password_wrong) {
+                        try { localStorage.removeItem(this.PW_KEY); } catch (e) { /* no storage */ }
+                        box.value = '';
+                    }
+                    st.textContent = (d.password_wrong ? 'That is not Forge Solo\'s password.' : 'Enter Forge Solo\'s password first.') + ' Nothing was changed. ' + this.where;
+                    box.focus();
+                } else if (d && d.error) {
+                    st.textContent = d.error;
+                } else {
+                    st.textContent = 'Forge Solo is not answering right now, so nothing was changed. Try again in a minute.';
+                }
+            });
+    }
+};
+
 // Initialize common functionality when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     ConnectionStatus.init();
     Modal.init();
+    OldData.init();
 });
 
 // Export for module usage (if needed)
@@ -332,6 +452,7 @@ if (typeof module !== 'undefined' && module.exports) {
         apiFetch,
         debounce,
         Storage,
-        Modal
+        Modal,
+        OldData
     };
 }

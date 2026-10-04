@@ -2,7 +2,7 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Settings - Forge Solo</title>
-<link rel="stylesheet" href="/css/common.css?v=20261003b">
+<link rel="stylesheet" href="/css/common.css?v=20261004a">
 <style>
  .wrap{max-width:760px;margin:0 auto;padding:32px 20px}
  .card{background:var(--bg-card);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:20px}
@@ -114,8 +114,20 @@
     <p class="note mm">BCH2 mining is never affected by 1175: if the 1175 node is unreachable or still syncing, this app keeps mining BCH2 normally and simply stops adding the 1175 commitment until it recovers.</p>
     <p class="note mm">1175 (ESF) is merge-mined at no extra hashrate cost. Its reward is paid on-chain directly to the ESF address above. Set that address in <strong>Payout &amp; mining setup</strong> to turn merge-mining on.</p>
   </div>
+
+  <!-- Shown when Forge Solo started without the data of its earlier version, as chosen after the
+       move into the new database failed (health: migration). The button brings that data in at
+       the next restart, and takes that back before then. -->
+  <div class="card" id="oldDataCard" style="display:none">
+    <h2>Data from before 1.0.13</h2>
+    <p class="note" id="oldDataText"></p>
+    <div style="margin-top:12px">
+      <button class="cta" id="oldDataBtn" type="button" data-skip="false">Bring the old data in</button>
+      <span class="status" id="oldDataStatus"></span>
+    </div>
+  </div>
 </main>
-<script src="/js/common.js?v=20261003b"></script>
+<script src="/js/common.js?v=20261004a"></script>
 <script>
  (function(){
    // Miners on this network dial the page's own hostname -- except where the page is opened on
@@ -375,6 +387,61 @@
    }
    document.getElementById('appPw').addEventListener('keydown', function(e){
      if(e.key==='Enter') document.getElementById('saveBtn').click();
+   });
+
+   // Data from before 1.0.13 (health: migration). Forge Solo started without it, as chosen after
+   // the move into the new database failed. Bringing it in takes effect at the next restart.
+   var OLD_DATA_TEXT={
+     out:'Forge Solo started without the data of its earlier version: the blocks, payouts and settings recorded before 1.0.13. That data is kept as it was. Bring it in, and at its next restart Forge Solo moves it into the new database, keeping what was recorded since.',
+     back:'Forge Solo brings the data of its earlier version in at its next restart: restart Forge Solo.'
+   };
+   function showOldData(m){
+     var card=document.getElementById('oldDataCard');
+     if(!m || m.state!=='skipped'){ card.style.display='none'; return; }
+     var bringIn=m.skip_file===true;
+     document.getElementById('oldDataText').textContent=bringIn ? OLD_DATA_TEXT.out : OLD_DATA_TEXT.back;
+     var b=document.getElementById('oldDataBtn');
+     b.textContent=bringIn ? 'Bring the old data in' : 'Keep starting without it';
+     b.setAttribute('data-skip', bringIn ? 'false' : 'true');
+     card.style.display='block';
+   }
+   readJSON('/api/v1/health').then(function(h){ showOldData(h.migration); }).catch(function(){});
+   document.getElementById('oldDataBtn').addEventListener('click', function(){
+     var st=document.getElementById('oldDataStatus'), skip=this.getAttribute('data-skip')==='true';
+     var headers={'Content-Type':'application/json'}, pw='';
+     if(pwRequired){
+       pw=document.getElementById('appPw').value.trim();
+       if(!pw){
+         st.className='status err'; st.textContent='Enter Forge Solo\'s password in the box above the Save button first. Nothing was changed.';
+         document.getElementById('appPw').focus();
+         return;
+       }
+       headers['X-Forge-Password']=pw;
+     }
+     st.className='status'; st.textContent='Saving…';
+     fetch('/api/v1/old-data',{method:'POST',headers:headers,body:JSON.stringify({skip:skip})})
+       .then(function(r){ return jsonOrNull(r).then(function(d){ return {status:r.status, d:d}; }); },
+             function(){ return {status:0, d:null}; })
+       .then(function(a){
+         var d=a.d;
+         if(!d || typeof d!=='object'){
+           st.className='status err'; st.textContent='Forge Solo is not answering right now, so nothing was changed. Try again in a minute.';
+           return;
+         }
+         if(d.success){
+           if(pw) rememberPw(pw);
+           showOldData({state:'skipped', skip_file:skip});
+           st.className='status ok'; st.textContent=d.message||'Done.';
+         } else if(d.password_required){
+           if(d.password_wrong){ rememberPw(''); document.getElementById('appPw').value=''; }
+           askForPw();
+           st.className='status err';
+           st.textContent=(d.password_wrong ? 'That is not Forge Solo\'s password.' : 'Enter Forge Solo\'s password above the Save button first.')+' Nothing was changed. '+PW_WHERE;
+           document.getElementById('appPw').focus();
+         } else {
+           st.className='status err'; st.textContent='Error: '+String(d.error||'failed');
+         }
+       });
    });
  })();
 </script>
