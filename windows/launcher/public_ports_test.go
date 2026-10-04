@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -99,6 +100,34 @@ func TestAReservedPortIsSaidSo(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), accessDenied.Error()) || !strings.Contains(err.Error(), "excludedportrange") {
 		t.Errorf("PUBLIC-PORT-RESERVED-CAUSE: the log line lacks the system's error or where to look: %v", err)
+	}
+}
+
+// A port Windows keeps for IPv6 alone stops the start too: the miner and the nodes listen on IPv6
+// as well, and would fail on it. The check listened on both families before it read the tables. A
+// PC with IPv6 turned off has its ports all the same.
+func TestAPortReservedForIPv6IsSaidSo(t *testing.T) {
+	port := freeTCPPort(t)
+	portsWorld(t, nil, port)
+	refuse6 := func(err error) func(string, string) (net.Listener, error) {
+		return func(network, addr string) (net.Listener, error) {
+			if network == "tcp6" {
+				return nil, &net.OpError{Op: "listen", Net: network, Err: os.NewSyscallError("bind", err)}
+			}
+			return net.Listen(network, addr)
+		}
+	}
+	listenProbe = refuse6(accessDenied)
+	err := checkPublicPorts()
+	if err == nil || !err.reserved || err.why() != "Windows keeps port "+port+", the miner port, for itself" {
+		t.Fatalf("PUBLIC-PORT-RESERVED-V6: a port the system refuses over IPv6 gave %v", err)
+	}
+	if !strings.Contains(err.Error(), "netsh int ipv6 show excludedportrange") {
+		t.Errorf("PUBLIC-PORT-RESERVED-V6-CAUSE: the log line does not say where to look: %v", err)
+	}
+	listenProbe = refuse6(syscall.EADDRNOTAVAIL)
+	if err := checkPublicPorts(); err != nil {
+		t.Errorf("PUBLIC-PORT-NO-IPV6: with IPv6 off, a free port was reported taken: %v", err)
 	}
 }
 

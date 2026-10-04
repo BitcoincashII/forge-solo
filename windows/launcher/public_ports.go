@@ -86,7 +86,7 @@ func portTaken(port, what string) *portError {
 		}
 	}
 	// A port Windows keeps for itself has no listener, and no program may take it. Tried on this
-	// machine's own address, which the firewall does not ask about.
+	// machine's own addresses, which the firewall does not ask about.
 	pl, err := listenProbe("tcp4", "127.0.0.1:"+port)
 	if err != nil {
 		if errors.Is(err, accessDenied) {
@@ -94,6 +94,17 @@ func portTaken(port, what string) *portError {
 			return &portError{port, what, err, true}
 		}
 		return &portError{port, what, err, false}
+	}
+	_ = pl.Close()
+	// Windows can keep a port for IPv6 alone, and the miner and the nodes listen on IPv6 too. Only
+	// that refusal counts here: IPv6 may be turned off on this PC.
+	pl, err = listenProbe("tcp6", "[::1]:"+port)
+	if err != nil {
+		if errors.Is(err, accessDenied) {
+			err = fmt.Errorf("%w; Windows may reserve it: netsh int ipv6 show excludedportrange protocol=tcp", err)
+			return &portError{port, what, err, true}
+		}
+		return nil
 	}
 	_ = pl.Close()
 	return nil
