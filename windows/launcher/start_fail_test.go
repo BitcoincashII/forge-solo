@@ -20,15 +20,7 @@ import (
 // cannot start. Everything started is stopped after the test, retries first.
 func startFailWorld(t *testing.T, scripts map[string]string) *tips {
 	t.Helper()
-	all := map[string]string{
-		"pgsql\\bin\\pg_ctl.exe":   "exit 0",
-		"pgsql\\bin\\createdb.exe": "exit 0",
-		"pgsql\\bin\\psql.exe":     "exit 0",
-	}
-	for k, v := range scripts {
-		all[k] = v
-	}
-	bootWorld(t, all)
+	bootWorld(t, scripts)
 	startSupervising(t)
 	restartMu.Lock()
 	a, b, q := restartFirstWait, restartMaxWait, restartQuick
@@ -37,7 +29,7 @@ func startFailWorld(t *testing.T, scripts map[string]string) *tips {
 	answer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"result":"stopping"}`))
 	}))
-	pgPort, bch2RPC, bch2ZMQ, aux1175RPC, stratumInt, apiPort = freePort(t), portOf(answer.URL), freePort(t), portOf(answer.URL), freePort(t), portOf(answer.URL)
+	bch2RPC, bch2ZMQ, aux1175RPC, stratumInt, apiPort = portOf(answer.URL), freePort(t), portOf(answer.URL), freePort(t), portOf(answer.URL)
 	bch2StopGrace, auxStopGrace = 300*time.Millisecond, 300*time.Millisecond
 	tp := &tips{}
 	savedTip := setTooltip
@@ -48,7 +40,7 @@ func startFailWorld(t *testing.T, scripts map[string]string) *tips {
 		mu.Unlock()
 		minerStart.Wait() // the RPC stand-in answers: boot's start of the miner ends at once
 		restartsUnderWay.Wait()
-		for _, k := range []string{"stratum", "api", "bch2", "aux1175"} {
+		for _, k := range []string{"stratum", "api", "bch2", "aux1175", "migrate"} {
 			stop(k)
 		}
 		answer.Close()
@@ -68,7 +60,6 @@ func startFailWorld(t *testing.T, scripts map[string]string) *tips {
 // about programs that could not start.
 func resetStartState() {
 	minerDue.Store(false)
-	dbWatched.Store(false)
 	troubleMu.Lock()
 	clear(trouble)
 	clear(retrying)
@@ -221,11 +212,11 @@ func TestRunningOnlyWithEverythingRunning(t *testing.T) {
 	if tp.last() != "Forge Solo: running" {
 		t.Fatalf("WIN-RUNNING-ALL: with everything running the tray says %q", tp.last())
 	}
-	setTrouble("database", "Forge Solo: the database stopped on its own and is started again (see launcher.log)")
+	setTrouble("database", moveFailedTip)
 	tp.add("something else")
 	showRunning()
-	if tp.last() != "Forge Solo: the database stopped on its own and is started again (see launcher.log)" {
-		t.Fatalf("WIN-RUNNING-DB: with the database being started again the tray says %q", tp.last())
+	if tp.last() != moveFailedTip {
+		t.Fatalf("WIN-RUNNING-DB: with the move of the old data failed, the miner idle, the tray says %q", tp.last())
 	}
 	clearTrouble("database")
 	stop("bch2")

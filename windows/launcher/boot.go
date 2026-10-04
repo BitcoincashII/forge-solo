@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -17,8 +18,13 @@ import (
 )
 
 // setupSecrets reads secrets.env, making what it lacks. It never replaces a file it could not read
-// (another program may hold it a moment), and never makes a new database password for a database
-// that exists: the database would then never open again.
+// (another program may hold it a moment).
+//
+// DB= is the password of the PostgreSQL database 1.0.12 and before kept their data in. Only moving
+// that data needs it, and going back to 1.0.12 needs it as it was: it is never replaced, and a
+// missing one stops only a move that is needed (moveData), never a start. One is made only where
+// there is no such database: 1.0.12, installed again, then keeps the other secrets and makes its
+// database with it.
 func setupSecrets() error {
 	f := dpath("secrets.env")
 	b, err := os.ReadFile(f)
@@ -44,25 +50,33 @@ func setupSecrets() error {
 		}
 	}
 	changed := false
-	if sec.BCH2Pass == "" || sec.AuxPass == "" || sec.DBPass == "" || sec.Token == "" {
-		if _, err := os.Stat(dpath("pgdata", "PG_VERSION")); err == nil {
-			return errors.New("secrets.env in the data folder lacks the database password")
+	for _, s := range []*string{&sec.BCH2Pass, &sec.AuxPass, &sec.Token} {
+		if *s == "" {
+			*s = gen()
+			changed = true
 		}
-		sec = secrets{BCH2Pass: gen(), AuxPass: gen(), DBPass: gen(), Token: gen(), Settings: sec.Settings}
-		changed = true
+	}
+	if sec.DBPass == "" {
+		if _, err := os.Stat(dpath("pgdata", "PG_VERSION")); errors.Is(err, fs.ErrNotExist) {
+			sec.DBPass = gen()
+			changed = true
+		}
 	}
 	// The Settings page's password: other programs and accounts on this PC can reach the
 	// dashboard and its API, so a change needs it. Installs from 1.0.12 and before gain it here,
-	// their other secrets unchanged (the database's password must stay what the database has).
+	// their other secrets unchanged.
 	if sec.Settings == "" {
 		sec.Settings = genHex(32)
 		changed = true
 	}
 	if changed {
-		content := "BCH2=" + sec.BCH2Pass + "\nAUX=" + sec.AuxPass + "\nDB=" + sec.DBPass + "\nTOKEN=" + sec.Token +
-			"\nSETTINGS=" + sec.Settings + "\n"
+		content := "BCH2=" + sec.BCH2Pass + "\nAUX=" + sec.AuxPass + "\n"
+		if sec.DBPass != "" {
+			content += "DB=" + sec.DBPass + "\n"
+		}
+		content += "TOKEN=" + sec.Token + "\nSETTINGS=" + sec.Settings + "\n"
 		// Written aside, on the disk, and only then moved into place: a crash or a power cut part-way
-		// must not lose the database password.
+		// must not lose the old database's password.
 		if err := writeDurably(f, content); err != nil {
 			return fmt.Errorf("secrets.env cannot be written (%v)", err)
 		}
@@ -199,7 +213,7 @@ logging:
 }
 
 // rotateLog moves a log past limit bytes to <name>.1, replacing the one before. pg_ctl -l appends to
-// its log for as long as the install lives, and nothing else trims it.
+// its log, and nothing else trims it.
 func rotateLog(path string, limit int64) {
 	if st, err := os.Stat(path); err == nil && st.Size() > limit {
 		_ = os.Remove(path + ".1")
@@ -207,58 +221,13 @@ func rotateLog(path string, limit int64) {
 	}
 }
 
-// dbStarting is set while pg_ctl starts the database. Until the server has written postmaster.pid
-// the stop cannot see it, and would leave it running.
+// dbStarting is set while pg_ctl starts the old database for a move. Until the server has written
+// postmaster.pid the stop cannot see it, and would leave it running.
 var dbStarting atomic.Bool
 
-func startPostgres() bool {
-	pgdata := dpath("pgdata")
-	md(pgdata)
-	for _, p := range []string{pgdata, ipath("pgsql", "bin")} {
-		if _, bad := pgForm(p); bad != "" {
-			logf("the database cannot start: the bundled PostgreSQL cannot take the folder name %q in %s. It has characters outside this PC's language for non-Unicode programs, and the drive keeps no short (8.3) name for it", bad, p)
-			return false
-		}
-	}
-	if _, err := os.Stat(filepath.Join(pgdata, "PG_VERSION")); os.IsNotExist(err) {
-		pwf := dpath("pgpw.txt")
-		_ = os.WriteFile(pwf, []byte(sec.DBPass), 0o600)
-		init := pgCmd("pgsql\\bin\\initdb.exe", "-D", pgPath(pgdata), "-U", "forge", "-A", "scram-sha-256",
-			"--pwfile", pgPath(pwf), "-E", "UTF8", "--no-locale")
-		_ = runToEnd(init, nil)
-		_ = os.Remove(pwf)
-	}
-	log := dpath("pglog.txt")
-	rotateLog(log, 10<<20)
-	// pg_ctl -w succeeds only once the server it started is ready, which it is only after taking
-	// 127.0.0.1:pgPort itself. Something else answering on the port is not the database, and the
-	// services would hand it the database password (lib/pq sends it in the clear when asked).
-	// -t 300: a server recovering from a hard stop can take longer than the default 60 s.
-	pgctl := pgCmd("pgsql\\bin\\pg_ctl.exe", "-D", pgPath(pgdata), "-l", pgPath(log), "-o", "-p "+pgPort+" -h 127.0.0.1", "-w", "-t", "300", "start")
-	if runToEnd(pgctl, &dbStarting) != nil {
-		return false
-	}
-	env := append(os.Environ(), "PGPASSWORD="+sec.DBPass)
-	// create the database (ignore "already exists")
-	cdb := pgCmd("pgsql\\bin\\createdb.exe", "-h", "127.0.0.1", "-p", pgPort, "-U", "forge", "forgesolo")
-	cdb.Env = env
-	_ = runToEnd(cdb, nil)
-	// load the schema (idempotent; init-db.sql uses IF NOT EXISTS)
-	psql := pgCmd("pgsql\\bin\\psql.exe", "-h", "127.0.0.1", "-p", pgPort, "-U", "forge", "-d", "forgesolo", "-f", pgPath(ipath("init-db.sql")))
-	psql.Env = env
-	_ = runToEnd(psql, nil)
-	return true
-}
-
-// dbEnv is how the API and the miner reach the database. Each keeps at most 10 connections, as on
-// Umbrel; uncapped, each could open 100, all the server allows.
-func dbEnv() []string {
-	return []string{
-		"DB_HOST=127.0.0.1", "DB_PORT=" + pgPort, "DB_USER=forge",
-		"DB_PASSWORD=" + sec.DBPass, "DB_NAME=forgesolo", "DB_SSLMODE=disable",
-		"DB_MAX_OPEN_CONNS=10", "DB_MAX_IDLE_CONNS=2",
-	}
-}
+// dbEnv is where the API and the miner keep their data: forgesolo.db in the data folder, one SQLite
+// file both open, as on Umbrel and Linux.
+func dbEnv() []string { return []string{"DB_PATH=" + dbPath()} }
 
 // startNodes starts both nodes. One that cannot start is tried again in the background, and boot
 // goes on: the miner waits for the BCH2 node.
@@ -364,17 +333,10 @@ func boot() {
 		return
 	}
 	writeConfigs()
-	status("Forge Solo: starting the database…")
-	if !startPostgres() {
-		if isStopping() {
-			return
-		}
-		logf("the database did not start (see pglog.txt)")
-		startFailed(failTip("the database did not start (see launcher.log and pglog.txt)", tryAgainTip))
+	prepareDatabase()
+	if isStopping() {
 		return
 	}
-	logf("database started")
-	watchDatabase()
 	status("Forge Solo: starting the nodes (the first sync can take a while)…")
 	startNodes()
 	if isStopping() {
@@ -609,21 +571,28 @@ func stopEverything() {
 }
 
 // stopAll stops the miner first, since a block it is still submitting needs the BCH2 node, and
-// the API with it; then both nodes at once; then the database.
+// the API with it; then both nodes at once. A move under way is ended, and the old database it
+// started is stopped: nothing is put in place, and the next start moves the data.
 func stopAll() {
-	logf("stopping: the miner first, then the nodes, then the database")
+	logf("stopping: the miner first, then the nodes")
 	stopGracefully("stratum", stratumStopGrace)
 	stop("api")
 	stopNodes()
+	stopMove()
+}
+
+// stopMove ends the migrator, then the old database a move started, if either runs.
+func stopMove() {
+	stop("migrate")
 	stopDatabase()
 }
 
 // stopAllNow stops everything at once, for a closing Windows session: the nodes are asked to write
-// their chainstate and stop while the miner disconnects and the database closes. A block the miner
-// is still submitting may then miss the node, which matters less than a node killed mid-write.
+// their chainstate and stop while the miner disconnects and a move under way is ended. A block the
+// miner is still submitting may then miss the node, which matters less than a node killed mid-write.
 func stopAllNow() {
 	var wg sync.WaitGroup
-	for _, f := range []func(){stopNodes, func() { stopGracefully("stratum", stratumStopGrace) }, func() { stop("api") }, stopDatabase} {
+	for _, f := range []func(){stopNodes, func() { stopGracefully("stratum", stratumStopGrace) }, func() { stop("api") }, stopMove} {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -652,10 +621,11 @@ func postmasterPID() int {
 	return pid
 }
 
-// stopDatabase stops PostgreSQL the way pg_ctl -m fast does, signalling the server and waiting for
-// its postmaster.pid to go, but without starting pg_ctl: once Windows is ending the session it
-// starts no new program (they fail with 0xC0000142), and the database was then killed instead.
-func stopDatabase() {
+// stopDatabase stops the old database a move started the way pg_ctl -m fast does, signalling the
+// server and waiting for its postmaster.pid to go, but without starting pg_ctl: once Windows is
+// ending the session it starts no new program (they fail with 0xC0000142), and the database was
+// then killed instead. It reports whether no server is left on the old data: postmaster.pid gone.
+func stopDatabase() bool {
 	// A start still under way may not have written postmaster.pid yet, or the file may still name
 	// the server before it, which crashed: wait for the new server, or for the start to end.
 	pid := postmasterPID()
@@ -666,27 +636,27 @@ func stopDatabase() {
 		time.Sleep(50 * time.Millisecond)
 	}
 	if pid == 0 {
-		logf("database: not running")
-		return
+		return true
 	}
 	// postmaster.pid outlives a server that crashed, and its number may since be another program's.
 	if !runs(installedPrograms(), pid, "postgres.exe") {
-		logf("database: postmaster.pid names process %d, which is not this install's database", pid)
-		return
+		logf("old database: postmaster.pid names process %d, which is not this install's database", pid)
+		return false
 	}
 	start := time.Now()
 	if err := signalPostgres(pid, pgSIGINT); err != nil {
-		logf("database stop: %v", err)
-		return
+		logf("old database stop: %v", err)
+		return false
 	}
 	for postmasterPID() != 0 {
 		if time.Since(start) > 30*time.Second {
-			logf("database did not stop in 30 s")
-			return
+			logf("old database did not stop in 30 s")
+			return false
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	logf("database stopped in %v", time.Since(start).Round(time.Millisecond))
+	logf("old database stopped in %v", time.Since(start).Round(time.Millisecond))
+	return true
 }
 
 // Each node may take this long to stop once asked, before it is killed.

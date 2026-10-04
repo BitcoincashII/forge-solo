@@ -134,6 +134,32 @@ func TestLeftoversAreStopped(t *testing.T) {
 	}
 }
 
+// A launcher ended during a move left the migrator and the old database running. The migrator is
+// ended first, and gone, before the old database is signalled: nothing it did is put in place.
+func TestLeftoverMigratorIsEndedFirst(t *testing.T) {
+	w := newLeftoverWorld(t)
+	w.progs = []runningProgram{{103, "postgres.exe"}, {106, migrateExe}}
+	if err := os.WriteFile(dpath("pgdata", "postmaster.pid"), []byte("103\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var migratorGone []bool
+	signalPostgres = func(pid int, sig byte) error {
+		w.mu.Lock()
+		migratorGone = append(migratorGone, w.exited[106])
+		w.mu.Unlock()
+		return os.Remove(dpath("pgdata", "postmaster.pid"))
+	}
+	stopLeftovers()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.killed) != 1 || w.killed[0] != 106 {
+		t.Errorf("LEFTOVER-MIGRATOR-ENDED: ended %v, want the migrator (106)", w.killed)
+	}
+	if len(migratorGone) != 1 || !migratorGone[0] {
+		t.Errorf("LEFTOVER-MIGRATOR-FIRST: the old database was signalled %d times, with the migrator gone: %v", len(migratorGone), migratorGone)
+	}
+}
+
 // A node that does not stop when asked is ended after its grace; one that listens on no port in
 // its window is ended without its password going anywhere.
 func TestLeftoverNodesThatDoNotStop(t *testing.T) {

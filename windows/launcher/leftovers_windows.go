@@ -16,7 +16,8 @@ var (
 	pGetExtendedTcpTable = iphlpapi.NewProc("GetExtendedTcpTable")
 )
 
-// installedProgramsOS lists the processes, other than this one, whose program is in installDir.
+// installedProgramsOS lists the processes, other than this one, whose program is in installDir. A
+// program started through a junction to it (pgReachable) is named by the path the junction leads to.
 func installedProgramsOS() []runningProgram {
 	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
@@ -39,7 +40,7 @@ func installedProgramsOS() []runningProgram {
 		n := uint32(len(buf))
 		if windows.QueryFullProcessImageName(h, 0, &buf[0], &n) == nil {
 			// The bundled PostgreSQL runs from its short (8.3) path when the long one has characters
-			// it cannot take (pgPath): compared in its long form, it is still this install's.
+			// it cannot take (pgReachable): compared in its long form, it is still this install's.
 			if path := strings.ToLower(longPath(windows.UTF16ToString(buf[:n]))); strings.HasPrefix(path, dir) {
 				out = append(out, runningProgram{int(e.ProcessID), filepath.Base(path)})
 			}
@@ -68,23 +69,6 @@ func waitPIDOS(pid int, d time.Duration) bool {
 	defer windows.CloseHandle(h)
 	ev, _ := windows.WaitForSingleObject(h, uint32(d.Milliseconds()))
 	return ev == windows.WAIT_OBJECT_0
-}
-
-// processExitOS is closed once process pid has exited, or at once when it cannot be opened. The
-// handle held meanwhile keeps the process's number from going to another program.
-func processExitOS(pid int) <-chan struct{} {
-	done := make(chan struct{})
-	h, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
-	if err != nil {
-		close(done)
-		return done
-	}
-	go func() {
-		defer windows.CloseHandle(h)
-		_, _ = windows.WaitForSingleObject(h, windows.INFINITE)
-		close(done)
-	}()
-	return done
 }
 
 func killPIDOS(pid int) error {

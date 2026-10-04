@@ -45,32 +45,31 @@ func fakePostmaster(t *testing.T, pid int, after time.Duration, fail error) *[]b
 // the server named in postmaster.pid, then a wait until the server has removed that file.
 func TestStopDatabaseSignalsAndWaits(t *testing.T) {
 	sent := fakePostmaster(t, 4242, 300*time.Millisecond, nil)
-	stopDatabase()
+	stopped := stopDatabase()
 	if len(*sent) != 1 || (*sent)[0] != 2 {
 		t.Fatalf("DB-STOP-SIGNAL: sent %v, want one SIGINT (2), a fast shutdown", *sent)
 	}
-	if postmasterPID() != 0 {
-		t.Fatal("DB-STOP-WAITS: stopDatabase returned while the server was still running")
+	if postmasterPID() != 0 || !stopped {
+		t.Fatalf("DB-STOP-WAITS: stopDatabase returned (%v) while the server was still running", stopped)
 	}
 }
 
 // With no postmaster.pid there is no server to stop, and nothing is signalled.
 func TestStopDatabaseWithoutAServer(t *testing.T) {
 	sent := fakePostmaster(t, 0, 0, nil)
-	stopDatabase()
-	if len(*sent) != 0 {
+	if !stopDatabase() || len(*sent) != 0 {
 		t.Fatalf("DB-STOP-NONE: signalled %v with no server running", *sent)
 	}
 }
 
 // postmaster.pid outlives a server that crashed, and its number can since have gone to another
-// program: one that is not this install's database is not signalled.
+// program: one that is not this install's database is not signalled, and the old data is not
+// taken for stopped (a move commits nothing then).
 func TestStopDatabaseLeavesAnotherProgram(t *testing.T) {
 	sent := fakePostmaster(t, 4242, 0, nil)
 	installedPrograms = func() []runningProgram { return []runningProgram{{4242, "notepad.exe"}} }
-	stopDatabase()
-	if len(*sent) != 0 {
-		t.Fatalf("DB-STOP-OURS-ONLY: signalled process 4242, which is not this install's database")
+	if stopDatabase() || len(*sent) != 0 {
+		t.Fatalf("DB-STOP-OURS-ONLY: signalled process 4242, which is not this install's database, or took the data for stopped")
 	}
 }
 
@@ -78,8 +77,8 @@ func TestStopDatabaseLeavesAnotherProgram(t *testing.T) {
 func TestStopDatabaseSignalFails(t *testing.T) {
 	fakePostmaster(t, 4242, 0, errors.New("no pipe"))
 	start := time.Now()
-	stopDatabase()
-	if took := time.Since(start); took > 2*time.Second {
-		t.Fatalf("DB-STOP-FAILED: waited %v for a server that was never signalled", took)
+	stopped := stopDatabase()
+	if took := time.Since(start); took > 2*time.Second || stopped {
+		t.Fatalf("DB-STOP-FAILED: waited %v for a server that was never signalled (stopped: %v)", took, stopped)
 	}
 }

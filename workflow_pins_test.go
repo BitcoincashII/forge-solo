@@ -216,10 +216,10 @@ func TestUnitJobRunsEveryCheck(t *testing.T) {
 
 // The Windows services keep their data in forgesolo.db, as on Umbrel and Linux, and
 // forge-solo-migrate.exe moves an earlier version's database into it: the release builds all three
-// with -tags sqlite into windows/bin, which the installer takes whole, and stamps the migrator with
-// the version, which it writes in the status file. The Windows job vets and builds them the same
-// way, and compiles the tests of the packages whose locking, renaming and paths differ on Windows.
-// PostgreSQL, which reads that database, stays pinned by version and hash.
+// with -tags sqlite into windows/bin, which the installer takes whole, and stamps the migrator and
+// the launcher with the version, which they write in the status file. The Windows job vets and
+// builds them the same way, and compiles the tests of the packages whose locking, renaming and
+// paths differ on Windows. PostgreSQL, which reads that database, stays pinned by version and hash.
 func TestWindowsBuildRunsOnSQLite(t *testing.T) {
 	rel := loadWorkflow(t, ".github/workflows/release.yml")
 	build := stepRun(t, rel, "installer", "Build the Go executables")
@@ -231,6 +231,7 @@ func TestWindowsBuildRunsOnSQLite(t *testing.T) {
 	}
 	for _, want := range []string{
 		`-ldflags "-s -w -X main.version=$V" -o windows/bin/forge-solo-migrate.exe`,
+		`-ldflags "-H=windowsgui -s -w -X main.version=$V" -o ../bin/forge-solo.exe`,
 	} {
 		if !strings.Contains(build, want) {
 			t.Errorf("WIN-BUILD-VERSION: the release build lacks %s", want)

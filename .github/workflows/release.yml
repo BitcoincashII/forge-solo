@@ -89,7 +89,7 @@ jobs:
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags sqlite -ldflags "-s -w -X main.version=$V" -o windows/bin/forge-solo-migrate.exe ./cmd/forge-solo-migrate
           go install github.com/akavel/rsrc@v0.10.2
           (cd windows/launcher && "$(go env GOPATH)/bin/rsrc" -ico forge-solo.ico -arch amd64 -o rsrc.syso)
-          (cd windows/launcher && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui -s -w" -o ../bin/forge-solo.exe .)
+          (cd windows/launcher && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui -s -w -X main.version=$V" -o ../bin/forge-solo.exe .)
 
       # Present on GitHub's Ubuntu images, but the whole build depends on it, so do not
       # assume the image never changes.

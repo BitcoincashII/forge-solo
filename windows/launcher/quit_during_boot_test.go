@@ -10,14 +10,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
 )
 
 // bootWorld puts stand-ins for every program boot starts where the launcher runs them from, and
-// points the ports at stand-ins or free ports. It restores everything, the stop included, after
-// the test.
+// points the ports at stand-ins or free ports. It is a fresh install: no earlier version's data. It
+// restores everything, the stop included, after the test.
 func bootWorld(t *testing.T, scripts map[string]string) {
 	t.Helper()
 	savedInst, savedData, savedSec := installDir, dataDir, sec
@@ -30,9 +31,10 @@ func bootWorld(t *testing.T, scripts map[string]string) {
 	webPort = freePort(t)
 	openBrowser = func(string) {}
 	t.Cleanup(func() {
-		for _, k := range []string{"stratum", "api", "bch2", "aux1175"} {
+		for _, k := range []string{"stratum", "api", "bch2", "aux1175", "migrate"} {
 			stop(k)
 		}
+		setRunningNote("")
 		mu.Lock()
 		stopping = false
 		mu.Unlock()
@@ -51,14 +53,9 @@ func bootWorld(t *testing.T, scripts map[string]string) {
 		openBrowser, installedPrograms, signalPostgres, publicPorts = savedBrowser, savedProgs, savedSignal, savedPublic
 	})
 	for name, body := range scripts {
-		// The launcher names them with Windows separators; on Linux that is one file name.
 		if err := os.WriteFile(ipath(name), []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-	}
-	md(dpath("pgdata"))
-	if err := os.WriteFile(dpath("pgdata", "PG_VERSION"), []byte("16\n"), 0o600); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -81,13 +78,10 @@ func TestQuitDuringBootLeavesNothingRunning(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "stratum-started")
 	t.Setenv("FS_MARKER", marker)
 	bootWorld(t, map[string]string{
-		"pgsql\\bin\\pg_ctl.exe":   "exit 0",
-		"pgsql\\bin\\createdb.exe": "exit 0",
-		"pgsql\\bin\\psql.exe":     "exit 0",
-		"bitcoincashIId.exe":       "exec sleep 4",
-		"elevenseventyfived.exe":   "exec sleep 30",
-		"api.exe":                  "exec sleep 60",
-		"stratum.exe":              `date > "$FS_MARKER"; exec sleep 60`,
+		"bitcoincashIId.exe":     "exec sleep 4",
+		"elevenseventyfived.exe": "exec sleep 30",
+		"api.exe":                "exec sleep 60",
+		"stratum.exe":            `date > "$FS_MARKER"; exec sleep 60`,
 	})
 	bch2StopGrace, auxStopGrace = 6*time.Second, 3*time.Second
 	bch2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -138,75 +132,31 @@ func TestQuitDuringBootLeavesNothingRunning(t *testing.T) {
 	}
 }
 
-// Quit while pg_ctl is still starting the database, before the server has written postmaster.pid:
-// the stop waits for the server to appear and stops it, instead of finding none and leaving it
-// running after the exit.
-func TestQuitWhileTheDatabaseStarts(t *testing.T) {
-	bootWorld(t, map[string]string{
-		// pg_ctl -w: the server writes postmaster.pid a moment after it starts, and pg_ctl returns
-		// once the server is ready.
-		"pgsql\\bin\\pg_ctl.exe":   `: > "$FS_PGCTL"; sleep 1; printf '4242\n' > "$FS_PIDFILE"; sleep 1; exit 0`,
-		"pgsql\\bin\\createdb.exe": "exit 0",
-		"pgsql\\bin\\psql.exe":     "exit 0",
-	})
-	t.Setenv("FS_PIDFILE", dpath("pgdata", "postmaster.pid"))
-	pgctlRan := filepath.Join(t.TempDir(), "pg_ctl-ran")
-	t.Setenv("FS_PGCTL", pgctlRan)
-	installedPrograms = func() []runningProgram { return []runningProgram{{4242, "postgres.exe"}} }
-	signalled := make(chan struct{}, 1)
-	signalPostgres = func(pid int, sig byte) error {
-		signalled <- struct{}{}
-		return os.Remove(dpath("pgdata", "postmaster.pid"))
-	}
-	pgPort = freePort(t)
+// slowPgCtl is a pg_ctl that notes in $FS_PGCTL that it runs, and whose server writes
+// postmaster.pid a second later; pg_ctl -w returns a second after that, once the server is ready.
+const slowPgCtl = `: > "$FS_PGCTL"; sleep 1; printf '4242\n' > "$FS_PIDFILE"; sleep 1; exit 0`
 
-	booted := make(chan struct{})
-	go func() { boot(); close(booted) }()
-	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
-		if _, err := os.Stat(pgctlRan); err == nil {
-			break
-		}
-	}
-	if _, err := os.Stat(pgctlRan); err != nil {
-		t.Fatal("setup: pg_ctl never started")
-	}
-	stopForExit()
-	select {
-	case <-signalled:
-	default:
-		t.Errorf("QUIT-DURING-DB-START: the stop found no database and did not stop the one starting")
-	}
-	<-booted
-	if postmasterPID() != 0 {
-		t.Errorf("QUIT-DURING-DB-START: postmaster.pid is still there: the database was left running")
-	}
-	if started("bch2") || started("api") {
-		t.Errorf("QUIT-DURING-DB-START: boot went on to start the nodes or the API after the stop")
-	}
-}
-
-// Quit while pg_ctl starts the database again after its server crashed: postmaster.pid still names
-// the crashed server until the new one writes its own. The stop took the old number for another
-// program's, said "not this install's database", and left the new server running after the exit.
-func TestQuitWhileTheDatabaseStartsAfterACrash(t *testing.T) {
-	bootWorld(t, map[string]string{
-		"pgsql\\bin\\pg_ctl.exe":   `: > "$FS_PGCTL"; sleep 1; printf '4242\n' > "$FS_PIDFILE"; sleep 1; exit 0`,
-		"pgsql\\bin\\createdb.exe": "exit 0",
-		"pgsql\\bin\\psql.exe":     "exit 0",
-	})
+// quitWhileTheOldDatabaseStarts boots an install that ran an earlier version, and stops as Quit
+// does while pg_ctl starts the old database for the move. It returns the processes signalled.
+func quitWhileTheOldDatabaseStarts(t *testing.T, stale bool) []int {
+	t.Helper()
+	calls, _ := moveWorld(t, "move")
+	writeFile(t, ipath("pgsql", "bin", "pg_ctl.exe"), "#!/bin/sh\n"+slowPgCtl+"\n", 0o755)
 	t.Setenv("FS_PIDFILE", dpath("pgdata", "postmaster.pid"))
-	if err := os.WriteFile(dpath("pgdata", "postmaster.pid"), []byte("999\n"), 0o600); err != nil {
-		t.Fatal(err)
+	if stale { // the server before, which crashed, named in postmaster.pid
+		writeFile(t, dpath("pgdata", "postmaster.pid"), "999\n", 0o600)
 	}
 	pgctlRan := filepath.Join(t.TempDir(), "pg_ctl-ran")
 	t.Setenv("FS_PGCTL", pgctlRan)
 	installedPrograms = func() []runningProgram { return []runningProgram{{4242, "postgres.exe"}} }
-	signalled := make(chan int, 1)
+	var signalled []int
+	var smu sync.Mutex
 	signalPostgres = func(pid int, sig byte) error {
-		signalled <- pid
+		smu.Lock()
+		signalled = append(signalled, pid)
+		smu.Unlock()
 		return os.Remove(dpath("pgdata", "postmaster.pid"))
 	}
-	pgPort = freePort(t)
 
 	booted := make(chan struct{})
 	go func() { boot(); close(booted) }()
@@ -215,13 +165,38 @@ func TestQuitWhileTheDatabaseStartsAfterACrash(t *testing.T) {
 	}
 	stopForExit()
 	<-booted
-	select {
-	case pid := <-signalled:
+	if postmasterPID() != 0 {
+		t.Errorf("QUIT-DURING-DB-START: postmaster.pid is still there: the old database was left running")
+	}
+	if started("bch2") || started("api") || count(callsIn(calls), "migrate prepare") != 0 {
+		t.Errorf("QUIT-DURING-DB-START: boot went on after the stop: %v", callsIn(calls))
+	}
+	smu.Lock()
+	defer smu.Unlock()
+	return signalled
+}
+
+// Quit while pg_ctl is still starting the old database for a move, before the server has written
+// postmaster.pid: the stop waits for the server to appear and stops it, instead of finding none and
+// leaving it running after the exit.
+func TestQuitWhileTheOldDatabaseStarts(t *testing.T) {
+	if s := quitWhileTheOldDatabaseStarts(t, false); len(s) == 0 {
+		t.Errorf("QUIT-DURING-DB-START: the stop found no database and did not stop the one starting; log:\n%s", launcherLog())
+	}
+}
+
+// The same with postmaster.pid still naming the server before, which crashed, until the new one
+// writes its own: the stop took the old number for another program's, said "not this install's
+// database", and left the new server running after the exit.
+func TestQuitWhileTheOldDatabaseStartsAfterACrash(t *testing.T) {
+	s := quitWhileTheOldDatabaseStarts(t, true)
+	if len(s) == 0 {
+		t.Errorf("QUIT-DURING-DB-RESTART: the stop did not stop the server being started; log:\n%s", launcherLog())
+	}
+	for _, pid := range s {
 		if pid != 4242 {
 			t.Errorf("QUIT-DURING-DB-RESTART: the stop signalled process %d, not the new server", pid)
 		}
-	default:
-		t.Errorf("QUIT-DURING-DB-RESTART: the stop did not stop the server being started; log:\n%s", launcherLog())
 	}
 }
 
@@ -249,9 +224,9 @@ func TestStopWaitsForTheProcess(t *testing.T) {
 // node exited at once without it, while the tray said "running". One holding an optional port
 // (rentals, the 1175 node's peers) is only logged. A free port is let go again after the check.
 func TestATakenPublicPortStopsTheStart(t *testing.T) {
-	ran := filepath.Join(t.TempDir(), "pg_ctl-ran")
-	t.Setenv("FS_PGCTL", ran)
-	bootWorld(t, map[string]string{"pgsql\\bin\\pg_ctl.exe": `: > "$FS_PGCTL"; exit 1`})
+	ran := filepath.Join(t.TempDir(), "node-ran")
+	t.Setenv("FS_RAN", ran)
+	bootWorld(t, map[string]string{"bitcoincashIId.exe": `: > "$FS_RAN"; exit 1`})
 	port := func(hold bool) string {
 		l, err := net.Listen("tcp", "0.0.0.0:0")
 		if err != nil {
@@ -298,6 +273,6 @@ func TestATakenPublicPortStopsTheStart(t *testing.T) {
 		t.Errorf("PUBLIC-PORT-OPTIONAL-LOGGED: the taken rental port %s is not logged:\n%s", optional, b)
 	}
 	if _, err := os.Stat(ran); err == nil {
-		t.Fatal("PUBLIC-PORT-STOPS-START: boot went on to start the database with the miner port taken")
+		t.Fatal("PUBLIC-PORT-STOPS-START: boot went on to start the nodes with the miner port taken")
 	}
 }

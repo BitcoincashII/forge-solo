@@ -12,4 +12,3 @@ func installedProgramsOS() []runningProgram { return nil }
 func loopbackPortsOS(int) []int             { return nil }
 func waitPIDOS(int, time.Duration) bool     { return true }
 func killPIDOS(int) error                   { return errors.New("only on Windows") }
-func processExitOS(int) <-chan struct{}     { return nil }

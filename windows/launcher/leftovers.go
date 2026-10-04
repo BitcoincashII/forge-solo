@@ -23,17 +23,23 @@ var (
 
 // stopLeftovers stops what a launcher that did not stop (ended from Task Manager, or crashed) left
 // running from this install. Windows does not end a program's children with it, and the leftovers
-// hold the database's data folder and the nodes' data folders, so nothing could start again until
-// the PC was restarted. Each node is asked to stop through its RPC, on the port it is seen
-// listening on in its window (its password goes to no other port), and ended only if it does not
-// stop in time; the database is signalled as on Quit; the miner and the API are ended, as nothing
-// of theirs is lost.
+// hold forgesolo.db and the nodes' data folders, so nothing could start again until the PC was
+// restarted. A migrator cut short is ended first, as nothing it did is put in place; then each node
+// is asked to stop through its RPC, on the port it is seen listening on in its window (its password
+// goes to no other port), and ended only if it does not stop in time; the old database a move
+// started is signalled as on Quit; the miner and the API are ended, as nothing of theirs is lost.
 func stopLeftovers() {
 	progs := installedPrograms()
 	if len(progs) == 0 {
 		return
 	}
 	logf("a previous run left %d programs running: stopping them", len(progs))
+	for _, p := range progs {
+		if p.exe == migrateExe {
+			endLeftover(p.pid)
+			logf("ended a leftover %s", p.exe)
+		}
+	}
 	var wg sync.WaitGroup
 	for _, p := range progs {
 		for _, n := range nodes() {

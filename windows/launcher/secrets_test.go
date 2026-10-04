@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -82,29 +83,72 @@ func TestSecretsUnreadableAreKept(t *testing.T) {
 	}
 }
 
-// A secrets.env without the database password, beside a database that exists, is not refilled with
-// new secrets: a new password could never open that database. Without a database, nothing is lost
-// by making them again.
+// DB= is the password of the PostgreSQL database 1.0.12 and before kept their data in, which only
+// moving that data needs. A secrets.env without it, beside that database, no longer stops Forge
+// Solo: it starts, and is not given a new one, which could never open the old database (going back
+// to 1.0.12 needs the one it has). Only a move that is needed fails without it (MOVE-FAIL-NO-PASSWORD).
+// A secret that is missing is made again alone, the others kept as they are; with no old database,
+// DB= is made too, for 1.0.12 if it is installed again.
 func TestSecretsWithoutTheDatabasePassword(t *testing.T) {
 	withSecretsDir(t)
-	damaged := "BCH2=b1\nAUX=a1\nTOKEN=t1\n"
-	if err := os.WriteFile(dpath("secrets.env"), []byte(damaged), 0o600); err != nil {
+	if err := os.WriteFile(dpath("secrets.env"), []byte("BCH2=b1\nAUX=a1\nTOKEN=t1\nSETTINGS=s1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	md(dpath("pgdata"))
 	if err := os.WriteFile(dpath("pgdata", "PG_VERSION"), []byte("16\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := setupSecrets(); err == nil {
-		t.Fatalf("SECRETS-NO-DB-PASSWORD: started with a new database password for an existing database: %+v", sec)
+	if err := setupSecrets(); err != nil {
+		t.Fatalf("SECRETS-NO-DB-STARTS: a secrets.env without DB= beside the old database stops the start: %v", err)
 	}
-	if b, _ := os.ReadFile(dpath("secrets.env")); string(b) != damaged {
-		t.Fatalf("SECRETS-NO-DB-PASSWORD: the file was replaced:\n%s", b)
+	if sec.DBPass != "" || sec.BCH2Pass != "b1" || sec.AuxPass != "a1" || sec.Token != "t1" || sec.Settings != "s1" {
+		t.Fatalf("SECRETS-NO-DB-KEPT: %+v", sec)
+	}
+	if b, _ := os.ReadFile(dpath("secrets.env")); strings.Contains(string(b), "DB=") {
+		t.Fatalf("SECRETS-NO-DB-NOT-MADE: a new old-database password was written:\n%s", b)
+	}
+
+	// Another secret missing: made again alone; DB= stays what it is.
+	if err := os.WriteFile(dpath("secrets.env"), []byte("BCH2=b1\nDB=d1\nTOKEN=t1\nSETTINGS=s1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sec = secrets{}
+	if err := setupSecrets(); err != nil || sec.AuxPass == "" || sec.BCH2Pass != "b1" || sec.DBPass != "d1" || sec.Token != "t1" {
+		t.Fatalf("SECRETS-ONLY-MISSING: %v %+v", err, sec)
+	}
+	if b, _ := os.ReadFile(dpath("secrets.env")); !strings.Contains(string(b), "\nDB=d1\n") || !strings.Contains(string(b), "AUX="+sec.AuxPass+"\n") {
+		t.Fatalf("SECRETS-DB-KEPT: DB= was rewritten:\n%s", b)
 	}
 
 	_ = os.RemoveAll(dpath("pgdata"))
+	if err := os.WriteFile(dpath("secrets.env"), []byte("BCH2=b1\nAUX=a1\nTOKEN=t1\nSETTINGS=s1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	sec = secrets{}
-	if err := setupSecrets(); err != nil || sec.DBPass == "" || sec.BCH2Pass == "" || sec.AuxPass == "" || sec.Token == "" {
-		t.Fatalf("SECRETS-NO-DB-FRESH: with no database the secrets were not made again: %v %+v", err, sec)
+	if err := setupSecrets(); err != nil || sec.DBPass == "" || sec.BCH2Pass != "b1" {
+		t.Fatalf("SECRETS-NO-DB-FRESH: with no old database DB= was not made, or the others changed: %v %+v", err, sec)
+	}
+}
+
+// The old database's password missing, after a move whose old data is unchanged since: Forge Solo
+// starts as usual. It is needed only for a move.
+func TestAMovedInstallStartsWithoutTheOldPassword(t *testing.T) {
+	withSecretsDir(t)
+	if err := os.WriteFile(dpath("secrets.env"), []byte("BCH2=b1\nAUX=a1\nTOKEN=t1\nSETTINGS=s1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	md(dpath("pgdata", "global"))
+	for name, spec := range map[string]string{"pgdata/PG_VERSION": "16\n", "pgdata/global/pg_control": "@pg_control-shutdown",
+		"forgesolo.db": "", markerName: "@marker:@pg_control-shutdown"} {
+		if err := os.WriteFile(dpath(filepath.FromSlash(name)), caseContent(t, spec), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := setupSecrets(); err != nil {
+		t.Fatalf("SECRETS-MOVED-STARTS: %v", err)
+	}
+	prepareDatabase()
+	if b, _ := os.ReadFile(dpath("launcher.log")); !strings.Contains(string(b), "old data: none") || strings.Contains(string(b), "status failed") {
+		t.Fatalf("SECRETS-MOVED-NONE: without DB=, a moved install does not start as usual:\n%s", b)
 	}
 }

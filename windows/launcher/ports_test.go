@@ -83,23 +83,24 @@ func TestAssignPortsNeedsEveryPort(t *testing.T) {
 	}
 }
 
-// Every loopback port is picked, each from its own window. No two windows overlap, none holds a
-// fixed port, and all stay below 49152, where the ports Windows hands out for outbound
-// connections start.
+// Every loopback port is picked, each from its own window; the old database's, for a move, from a
+// window of its own too. No two windows overlap, none holds a fixed port, and all stay below
+// 49152, where the ports Windows hands out for outbound connections start.
 func TestPortPlan(t *testing.T) {
-	want := map[*string]bool{&pgPort: true, &bch2RPC: true, &bch2ZMQ: true, &aux1175RPC: true, &stratumInt: true, &apiPort: true}
+	want := map[*string]bool{&bch2RPC: true, &bch2ZMQ: true, &aux1175RPC: true, &stratumInt: true, &apiPort: true}
 	for _, s := range portPlan {
 		delete(want, s.port)
 	}
-	if len(want) != 0 || len(portPlan) != 6 {
-		t.Errorf("PORT-PLAN-COMPLETE: %d of the six loopback ports are not in the plan (%d entries)", len(want), len(portPlan))
+	if len(want) != 0 || len(portPlan) != 5 {
+		t.Errorf("PORT-PLAN-COMPLETE: %d of the five loopback ports are not in the plan (%d entries)", len(want), len(portPlan))
 	}
 	fixed := []string{minerPort, rentalPort, webPort, bch2P2P, aux1175P2P, "8340"}
-	for i, a := range portPlan {
+	plan := append([]portSlot{{"the old database, for a move", &pgPort, pgPortFrom}}, portPlan...)
+	for i, a := range plan {
 		if a.from+portWindow > 49152 {
 			t.Errorf("PORT-EPHEMERAL: %s reaches %d", a.name, a.from+portWindow-1)
 		}
-		for _, b := range portPlan[i+1:] {
+		for _, b := range plan[i+1:] {
 			if a.from < b.from+portWindow && b.from < a.from+portWindow {
 				t.Errorf("PORT-WINDOWS-OVERLAP: %s (%d) and %s (%d)", a.name, a.from, b.name, b.from)
 			}
@@ -109,5 +110,23 @@ func TestPortPlan(t *testing.T) {
 				t.Errorf("PORT-FIXED: %s's window holds the fixed port %s", a.name, f)
 			}
 		}
+	}
+}
+
+// Every port of the old database's window taken (another program, a range Windows reserves): a
+// start that needs no move does not need one of them, and goes on.
+func TestABusyOldDatabaseWindowDoesNotBlockAStart(t *testing.T) {
+	for p := pgPortFrom; p < pgPortFrom+portWindow; p++ {
+		l, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(p))
+		if err != nil {
+			t.Fatalf("setup: port %d of the old database's window is not free here: %v", p, err)
+		}
+		t.Cleanup(func() { _ = l.Close() })
+	}
+	savedData, savedSec := dataDir, sec
+	dataDir, sec = t.TempDir(), secrets{}
+	t.Cleanup(func() { dataDir, sec = savedData, savedSec })
+	if err := prepare(); err != nil {
+		t.Fatalf("PORT-NO-DB-WINDOW: with the old database's window taken, a start that needs no move fails: %v", err)
 	}
 }

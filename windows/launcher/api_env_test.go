@@ -32,9 +32,10 @@ func TestAPIGetsTheSettingsPassword(t *testing.T) {
 	}
 }
 
-// The API and the miner each keep at most 10 database connections, 2 of them idle, as on Umbrel.
-// Uncapped, each could open 100 against a server that allows 100 in all.
-func TestServicesCapTheirDatabasePools(t *testing.T) {
+// The API and the miner keep their data in one SQLite file, forgesolo.db in the data folder, as on
+// Umbrel and Linux: both are given the same DB_PATH, and nothing about a PostgreSQL server, which
+// no longer runs.
+func TestServicesShareOneSQLiteFile(t *testing.T) {
 	savedInst, savedData := installDir, dataDir
 	installDir, dataDir = t.TempDir(), t.TempDir()
 	t.Cleanup(func() { installDir, dataDir = savedInst, savedData; stop("api"); stop("stratum") })
@@ -54,9 +55,12 @@ func TestServicesCapTheirDatabasePools(t *testing.T) {
 		for end := time.Now().Add(5 * time.Second); time.Now().Before(end) && len(env) == 0; time.Sleep(50 * time.Millisecond) {
 			env, _ = os.ReadFile(dpath(exe + ".env"))
 		}
-		for _, want := range []string{"DB_MAX_OPEN_CONNS=10", "DB_MAX_IDLE_CONNS=2"} {
-			if !strings.Contains("\n"+string(env), "\n"+want+"\n") {
-				t.Errorf("DB-POOL-CAP: %s was not started with %s", exe, want)
+		if want := "DB_PATH=" + dpath("forgesolo.db"); !strings.Contains("\n"+string(env), "\n"+want+"\n") {
+			t.Errorf("DB-SQLITE-PATH: %s was not started with %s", exe, want)
+		}
+		for _, l := range strings.Split(string(env), "\n") {
+			if strings.HasPrefix(l, "DB_") && !strings.HasPrefix(l, "DB_PATH=") {
+				t.Errorf("DB-NO-POSTGRES: %s was started with %s", exe, l)
 			}
 		}
 	}

@@ -129,8 +129,18 @@ var (
 )
 
 // runningKeys are the programs that run once Forge Solo has started, in the order the tray names
-// one in trouble; the database comes first.
+// one in trouble; a move of the old data that failed ("database") comes first.
 var runningKeys = []string{"bch2", "aux1175", "api", "stratum"}
+
+// runningNote is said after "running" in the tray: what the dashboard also says, about an earlier
+// version's data, while Forge Solo runs as it should.
+var runningNote string
+
+func setRunningNote(s string) {
+	troubleMu.Lock()
+	runningNote = s
+	troubleMu.Unlock()
+}
 
 // showTrouble shows the first trouble in the tray, if there is one, and reports whether there was.
 func showTrouble() bool {
@@ -160,7 +170,10 @@ func showRunning() {
 			return
 		}
 	}
-	status("Forge Solo: running")
+	troubleMu.Lock()
+	note := runningNote
+	troubleMu.Unlock()
+	status(trimTip("Forge Solo: running" + note))
 }
 
 // startOrKeepTrying starts the program under key and reports whether it runs. One that cannot start

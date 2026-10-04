@@ -1,10 +1,23 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
+
+// accountKey is 8 hex digits of the SHA-256 of this Windows account's SID: the name of its folder
+// for a move's junctions, the same for the account however it is renamed, and naming no one.
+var accountKey = func() (string, error) {
+	u, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256([]byte(u.User.Sid.String()))
+	return hex.EncodeToString(sum[:4]), nil
+}
 
 // shortName is the short (8.3) name the drive keeps for the existing file or folder at path, as
 // FindFirstFile reads it; "" when it keeps none (8.3 names off, or a name that is one already).

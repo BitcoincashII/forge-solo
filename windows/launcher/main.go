@@ -1,8 +1,9 @@
-// Forge Solo's Windows launcher: a tray app, with no console. It boots a bundled Postgres,
-// the BCH2 + 1175 nodes, and the stratum + api services, serves the dashboard on 127.0.0.1, and
-// opens the browser. All data + secrets live under %APPDATA%\ForgeSolo. Only the miner ports
-// (3333, and 3335 for rented hashpower) and the two nodes' P2P ports (8339, 25360) listen beyond
-// this machine; everything else is on 127.0.0.1.
+// Forge Solo's Windows launcher: a tray app, with no console. It starts the BCH2 + 1175 nodes and
+// the stratum + api services, which keep their data in forgesolo.db (moving an earlier version's
+// PostgreSQL data into it once, migrate.go), serves the dashboard on 127.0.0.1, and opens the
+// browser. All data + secrets live under %APPDATA%\ForgeSolo. Only the miner ports (3333, and 3335
+// for rented hashpower) and the two nodes' P2P ports (8339, 25360) listen beyond this machine;
+// everything else is on 127.0.0.1.
 package main
 
 import (
@@ -46,12 +47,16 @@ var aux1175P2P = "25360"
 // variable only so the tests can use a free one).
 var webPort = "3080"
 
+// version is set at build time: -ldflags "-X main.version=1.0.13". The status file records it.
+var version = "dev"
+
 // Loopback-only service ports. Chosen dynamically at startup (pickPort) so they can NEVER
 // collide with other software or Windows reserved/excluded ranges: the root cause of the
 // api-on-8080 (Apache/XAMPP) and 1175-RPC-on-25361 (WSAEACCES 10013) bind failures. Assigned
 // in main() before anything binds; every conf/env/proxy reads these vars, and writeAlways
 // regenerates the configs each launch, so a run is internally consistent. They have no default:
-// a fixed one is a port another program may hold.
+// a fixed one is a port another program may hold. pgPort, the old database's, is picked only for
+// a move (from pgPortFrom), so a start that needs none never waits on its window.
 var pgPort, bch2RPC, bch2ZMQ, aux1175RPC, stratumInt, apiPort string
 
 // A portSlot is one service's loopback port, picked from the portWindow ports from `from`.
@@ -61,9 +66,9 @@ type portSlot struct {
 	from int
 }
 
-// portPlan gives each loopback port its own window, so two services never pick the same one.
+// portPlan gives each loopback port its own window, so two services never pick the same one. The
+// old database's window, for a move, is 30000-30299 (pgPortFrom).
 var portPlan = []portSlot{
-	{"the database", &pgPort, 30000},
 	{"the BCH2 node", &bch2RPC, 30300},
 	{"the BCH2 node's block notices", &bch2ZMQ, 30600},
 	{"the 1175 node", &aux1175RPC, 30900},
@@ -148,25 +153,33 @@ func run(key string, c *exec.Cmd) error { return runPiped(key, c, nil) }
 // which a clean stop closes. It refuses once the stop has begun, or while key runs. The check, the
 // start and the tracking are one step under mu, so the stop finds every program that started.
 func runPiped(key string, c *exec.Cmd, stdin io.WriteCloser) error {
+	_, err := startTracked(key, c, stdin)
+	return err
+}
+
+// startTracked is runPiped, returning the channel closed once c has exited; c.ProcessState is then
+// set.
+func startTracked(key string, c *exec.Cmd, stdin io.WriteCloser) (chan struct{}, error) {
 	mu.Lock()
 	defer mu.Unlock()
 	if stopping {
 		closeIfAny(stdin)
-		return errStopping
+		return nil, errStopping
 	}
 	if procs[key] != nil {
 		closeIfAny(stdin)
-		return errStarted
+		return nil, errStarted
 	}
 	if err := c.Start(); err != nil {
 		closeIfAny(stdin)
-		return err
+		return nil, err
 	}
 	clearTrouble(key) // it runs: what the tray said about its start no longer holds
 	// One wait per process, for everything that waits on it.
 	done, since := make(chan struct{}), time.Now()
 	go func() {
 		st, _ := c.Process.Wait()
+		c.ProcessState = st
 		close(done)
 		exitedOnItsOwn(key, c, st, since)
 	}()
@@ -174,7 +187,7 @@ func runPiped(key string, c *exec.Cmd, stdin io.WriteCloser) error {
 	if stdin != nil {
 		stdins[key] = stdin
 	}
-	return nil
+	return done, nil
 }
 
 func closeIfAny(w io.WriteCloser) {
@@ -367,8 +380,8 @@ func prepare() error {
 	if err := assignPorts(); err != nil {
 		return err
 	}
-	logf("Forge Solo starting: database %s, BCH2 node %s (notices %s), 1175 node %s, miner stats %s, dashboard data %s",
-		pgPort, bch2RPC, bch2ZMQ, aux1175RPC, stratumInt, apiPort)
+	logf("Forge Solo %s starting: BCH2 node %s (notices %s), 1175 node %s, miner stats %s, dashboard data %s",
+		version, bch2RPC, bch2ZMQ, aux1175RPC, stratumInt, apiPort)
 	return nil
 }
 

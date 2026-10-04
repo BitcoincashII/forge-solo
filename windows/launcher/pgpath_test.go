@@ -34,6 +34,12 @@ var (
 	jose  = "Jos\u00e9"                    // an e acute, which a Western code page holds
 )
 
+// pgPath is pgForm's form alone.
+func pgPath(path string) string {
+	form, _ := pgForm(path)
+	return form
+}
+
 // A path in plain ASCII is given as it is: nothing changes for the users this was never a problem
 // for.
 func TestPgPathASCII(t *testing.T) {
@@ -93,13 +99,17 @@ func TestPgPathNamesThePartItCannotGive(t *testing.T) {
 // The programs themselves start from, and in, paths they can take: they find their own folder in
 // the code page too ("program postgres is needed by initdb but was not found").
 func TestPostgresProgramsStartFromShortPaths(t *testing.T) {
-	saved := installDir
-	installDir = filepath.FromSlash("/Users/" + cn + "/Programs/ForgeSolo")
-	t.Cleanup(func() { installDir = saved })
+	saved, savedData := installDir, dataDir
+	installDir, dataDir = filepath.FromSlash("/Users/"+cn+"/Programs/ForgeSolo"), t.TempDir()
+	t.Cleanup(func() { installDir, dataDir = saved, savedData })
 	codePage(t, map[string]string{filepath.FromSlash("/Users/" + cn): "5B3D~1"})
-	c := pgCmd("pgsql\\bin\\pg_ctl.exe", "start")
+	r, err := reachPostgres()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := pgCmd(r, "pg_ctl.exe", "start")
 	dir := filepath.FromSlash("/Users/5B3D~1/Programs/ForgeSolo")
-	if c.Path != filepath.Join(dir, "pgsql\\bin\\pg_ctl.exe") || c.Args[0] != c.Path || c.Dir != dir {
+	if c.Path != filepath.Join(dir, "pgsql", "bin", "pg_ctl.exe") || c.Args[0] != c.Path || c.Dir != dir {
 		t.Fatalf("PGPATH-CMD: pg_ctl runs as %q (args[0] %q) in %q", c.Path, c.Args[0], c.Dir)
 	}
 }
