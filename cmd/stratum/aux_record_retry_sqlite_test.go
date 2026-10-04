@@ -3,11 +3,15 @@
 package main
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -188,4 +192,99 @@ func TestA1175SiblingRetriedAfterTheDatabaseIsBackKeepsTheBlockOnTheChain(t *tes
 	if got, _ := stats.Get1175BlockHashAtHeight(901); got != onChain {
 		t.Fatalf("DATA2-1175-SIBLING: after the database came back the ledger holds %.8s…, not the block on the chain", got)
 	}
+}
+
+// Another program (the api, a VACUUM) holds the SQLite write lock for longer than two writes wait
+// for it. SQLite answers "database is locked" (SQLITE_BUSY) to the 1175 block's record and to the
+// retry's first try. The record is tried again until the lock is free, as for any other error,
+// and the block is then in the ledger and credited.
+func TestAuxRecordSurvivesHeldLock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "aux.db")
+	if err := stats.InitDB(path); err != nil {
+		t.Fatal(err)
+	}
+	defer stats.CloseDB()
+	shortRetries(t)
+	blockRecordRetryFor = time.Minute // shortRetries puts it back
+	busy := sqliteBusyWait(t)
+	_, logs := useAuxConfNode(t)
+	const finder = "bitcoincashii:qheldfinder0000"
+	hash := strings.Repeat("e", 64)
+
+	ctx := context.Background()
+	other, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	holder, err := other.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Close()
+	if _, err := holder.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		t.Fatal(err)
+	}
+	held := time.Now()
+	if _, err := holder.ExecContext(ctx, `INSERT INTO shares (miner_address, difficulty) VALUES ('api', 1)`); err != nil {
+		t.Fatal(err)
+	}
+
+	go aux1175BlockHandler(902, hash, 25_0000_0000, finder, true) // as the submit goroutine does
+	failed := waitForLogWithin(t, logs, busy+5*time.Second, "AUX-HELD-SETUP", "Failed to record a 1175 block")
+	if e, _ := failed.ContextMap()["error"].(string); !strings.Contains(e, "SQLITE_BUSY") {
+		t.Fatalf("AUX-HELD-SETUP: the first record failed with %q, not SQLITE_BUSY", e)
+	}
+	// Held through two busy waits: the handler's record and the retry's first try both fail, so the
+	// block reaches the ledger only through a retry that tries a busy database again.
+	time.Sleep(time.Until(held.Add(2*busy + 5*time.Second)))
+	if _, err := holder.ExecContext(ctx, `COMMIT`); err != nil {
+		t.Fatal(err)
+	}
+
+	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if got, _ := stats.Get1175BlockHashAtHeight(902); got == hash {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("AUX-HELD-RECORD: the 1175 block was never recorded once the other program let the lock go")
+		}
+	}
+	waitForLogWithin(t, logs, 15*time.Second, "AUX-HELD-DONE", "1175 block distributed") // the retry's last word
+	run1175PayoutCycle()
+	if left, err := stats.UndistributedBlocks1175(); err != nil || len(left) != 0 {
+		t.Fatalf("AUX-HELD-CREDIT: still undistributed after the sweep: %v (%v)", left, err)
+	}
+	if n, paid, err := stats.Miner1175Totals(finder, true); err != nil || n != 1 || paid != 25 {
+		t.Fatalf("AUX-HELD-CREDIT: the finder's 1175 totals are %d blocks, %v paid (%v), want 1 paying 25", n, paid, err)
+	}
+}
+
+// waitForLogWithin waits up to d for a log message containing snippet, and returns it.
+func waitForLogWithin(t *testing.T, logs *observer.ObservedLogs, d time.Duration, code, snippet string) observer.LoggedEntry {
+	t.Helper()
+	for deadline := time.Now().Add(d); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if got := logs.FilterMessageSnippet(snippet).All(); len(got) > 0 {
+			return got[0]
+		}
+	}
+	t.Fatalf("%s: %q was not logged within %v", code, snippet, d)
+	return observer.LoggedEntry{}
+}
+
+// sqliteBusyWait is how long a write waits for another program's write lock before SQLite answers
+// SQLITE_BUSY: the busy_timeout in stats.SQLiteDSN.
+func sqliteBusyWait(t *testing.T) time.Duration {
+	t.Helper()
+	dsn := stats.SQLiteDSN("forgesolo.db")
+	_, query, _ := strings.Cut(dsn, "?")
+	q, err := url.ParseQuery(query)
+	if err != nil {
+		t.Fatalf("AUX-HELD-SETUP: %q: %v", dsn, err)
+	}
+	ms, err := strconv.Atoi(q.Get("_busy_timeout"))
+	if err != nil || ms <= 0 {
+		t.Fatalf("AUX-HELD-SETUP: no busy_timeout in %q", dsn)
+	}
+	return time.Duration(ms) * time.Millisecond
 }

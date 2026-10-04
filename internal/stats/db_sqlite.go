@@ -922,7 +922,11 @@ func Compact() error {
 func GetPPLNSShares(windowSize int) (map[string]float64, float64, error) {
 	dbMu.RLock()
 	defer dbMu.RUnlock()
+	return getPPLNSSharesLocked(windowSize)
+}
 
+// getPPLNSSharesLocked is GetPPLNSShares for a caller that already holds dbMu's read lock.
+func getPPLNSSharesLocked(windowSize int) (map[string]float64, float64, error) {
 	if db == nil {
 		return nil, 0, ErrDatabaseNotInitialized
 	}
