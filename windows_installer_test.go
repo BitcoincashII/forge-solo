@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf16"
 )
 
 // installerScript is windows/forge-solo.iss.
@@ -227,6 +228,144 @@ func TestInstallerSaysWhichAccountWhenElevated(t *testing.T) {
 	}
 }
 
+// The firewall rules carry the account's name. The uninstaller named them from the account's name
+// at uninstall, so after the account was renamed it removed nothing and left the rules behind. The
+// installer now keeps the name its rules carry, once they are in place; the uninstaller removes the
+// rules of that name, and an update after a rename removes the rules of the old name.
+func TestInstallerRemovesTheRulesItAdded(t *testing.T) {
+	install := installerFunc(t, "procedure CurStepChanged(CurStep: TSetupStep);")
+	read := strings.Index(install, "\n    PreviousRulesAccount := KeptRulesAccount;\n")
+	if read < 0 || read > strings.Index(install, "Cmd := ") {
+		t.Error("RULES-PREVIOUS-READ: the install does not read the name an earlier install kept before it builds its commands")
+	}
+	if !strings.Contains(installerFunc(t, "function FirewallRule(Base, Exe, Port, Profile: String): String;"),
+		"\n  if (PreviousRulesAccount <> '') and (PreviousRulesAccount <> RulesAccount) then\n    Result := Result + 'netsh advfirewall firewall delete rule name=\"' + RuleName(Base, PreviousRulesAccount) + '\" >nul 2>&1 & ';\n") {
+		t.Error("RULES-PREVIOUS-DELETE: an update after a rename leaves the rules of the old name")
+	}
+	if !strings.Contains(install, "\n    if InPlace = RuleCount then\n      RegWriteStringValue(HKCU, RulesKey, RulesValue, RulesAccount);\n") {
+		t.Error("RULES-KEEP: the install does not keep the name its rules carry, once they are in place")
+	}
+	if n := len(regexp.MustCompile(`RuleInPlace\(RuleName\('[^']+', RulesAccount\)\)`).FindAllString(installerFunc(t, "function RulesInPlace: Integer;"), -1)); n != 4 {
+		t.Errorf("RULES-CHECKED-NAME: %d of the 4 rules are checked under the name they carry", n)
+	}
+	uninstall := installerFunc(t, "procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);")
+	kept := strings.Index(uninstall, "\n    RulesAccount := KeptRulesAccount;\n    if RulesAccount = '' then\n      RulesAccount := ExpandConstant('{username}');\n")
+	if kept < 0 || kept > strings.Index(uninstall, "Cmd := ") {
+		t.Error("RULES-UNINSTALL-KEPT: the uninstaller does not remove the rules of the name the install kept")
+	}
+	if !strings.Contains(uninstall, "'rules named \"Forge Solo ... for ' + RulesAccount + '\".';") {
+		t.Error("RULES-SAID: the uninstaller's message does not name the rules it left by the name they carry")
+	}
+	if !strings.Contains(uninstall, "\n    RegDeleteValue(HKCU, RulesKey, RulesValue);\n    RegDeleteKeyIfEmpty(HKCU, RulesKey);\n") {
+		t.Error("RULES-FORGET: the uninstaller leaves the kept name behind")
+	}
+}
+
+// The account name kept for the firewall rules goes into the commands of the elevated step, and any
+// program running as the user can change it. Read back as it was, a name with a double quote ended
+// the rule's name in those commands, and what followed ran as administrator at the next update or
+// uninstall the user said Yes to. A kept name is now used only if it cannot change the commands,
+// and nothing else reads it; without one, the uninstaller uses the account's own name.
+func TestInstallerUsesAKeptAccountNameOnlyIfSafe(t *testing.T) {
+	usable := accountNameCheck(installerFunc(t, "function UsableAccountName(Name: String): Boolean;"))
+	if usable == nil {
+		t.Error("RULES-KEPT-SHAPE: the installer has no UsableAccountName in the form this test reads; taken as one that lets every name through")
+		usable = func(string) bool { return true }
+	}
+	for _, c := range []struct {
+		code  string
+		names []string
+	}{
+		{"RULES-KEPT-QUOTE", []string{`x" & echo INJECTED>> C:\fwstub\pwned.txt & echo "`}},
+		{"RULES-KEPT-PERCENT", []string{"x%COMSPEC%y"}},
+		{"RULES-KEPT-CONTROL", []string{"x\x00y", "x\ty", "x\ny", "x\ry", "x\x1fy"}},
+		{"RULES-KEPT-LENGTH", []string{strings.Repeat("a", 257)}},
+	} {
+		for _, name := range c.names {
+			if usable(name) {
+				t.Errorf("%s: the kept name %.60q (%d characters) goes into the elevated step's commands", c.code, name, len(name))
+			}
+		}
+	}
+	for _, name := range []string{"xclient", "O'Brien", "O\u2019Brien", "Zoë", "张伟", "Ann (Home)", "A&B", "x^y!z", strings.Repeat("a", 256)} {
+		if !usable(name) {
+			t.Errorf("RULES-KEPT-NAMES: the account name %.60q (%d characters) is not used", name, len(name))
+		}
+	}
+
+	kept := installerFunc(t, "function KeptRulesAccount: String;")
+	if !strings.Contains(kept, "\n  Result := '';\n  if RegQueryStringValue(HKCU, RulesKey, RulesValue, Name) then\n  begin\n    if UsableAccountName(Name) then\n      Result := Name\n    else\n      Log(") ||
+		pascalAssignments(kept, "Result") != 2 {
+		t.Errorf("RULES-KEPT-CHECKED: KeptRulesAccount does not return the kept name only when UsableAccountName lets it through:\n%s", kept)
+	}
+	code := pascalCode(installerSection(t, "Code"))
+	read := regexp.MustCompile(`RegQueryStringValue\(`)
+	if n, in := len(read.FindAllString(code, -1)), len(read.FindAllString(kept, -1)); n != 1 || in != 1 {
+		t.Errorf("RULES-KEPT-ONLY: the installer reads the registry %d times, %d of them in KeptRulesAccount; a kept name read elsewhere goes unchecked", n, in)
+	}
+	install := installerFunc(t, "procedure CurStepChanged(CurStep: TSetupStep);")
+	uninstall := installerFunc(t, "procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);")
+	for _, c := range []struct {
+		code, name, in string
+		n              int
+	}{
+		{"RULES-ONCE-PREVIOUS", "PreviousRulesAccount", code, 1},
+		{"RULES-ONCE-ACCOUNT", "RulesAccount", code, 3},
+		{"RULES-ONCE-ACCOUNT-INSTALL", "RulesAccount", install, 1},
+		{"RULES-ONCE-ACCOUNT-UNINSTALL", "RulesAccount", uninstall, 2},
+	} {
+		if n := pascalAssignments(c.in, c.name); n != c.n {
+			t.Errorf("%s: %s is set %d times, want %d", c.code, c.name, n, c.n)
+		}
+	}
+}
+
+// accountNameCheck is the installer's UsableAccountName (its code as installerFunc gives it) as a Go
+// function, or nil if it is not in the one form this reads: a length limit, then a loop that sets
+// Result to False for any character that one of the conditions (Ord(Name[I]) < n) or
+// (Name[I] = c) matches. As in Pascal Script, it counts and compares UTF-16 code units.
+func accountNameCheck(body string) func(string) bool {
+	m := regexp.MustCompile(`^function UsableAccountName\(Name: String\): Boolean;\nvar I: Integer;\nbegin\n  Result := Length\(Name\) <= (\d+);\n  for I := 1 to Length\(Name\) do\n    if (.+) then\n      Result := False;\nend;$`).FindStringSubmatch(body)
+	if m == nil {
+		return nil
+	}
+	limit, _ := strconv.Atoi(m[1])
+	var below []int
+	var equal []uint16
+	for _, c := range strings.Split(m[2], " or ") {
+		if r := regexp.MustCompile(`^\(Ord\(Name\[I\]\) < (\d+)\)$`).FindStringSubmatch(c); r != nil {
+			n, _ := strconv.Atoi(r[1])
+			below = append(below, n)
+			continue
+		}
+		r := regexp.MustCompile(`^\(Name\[I\] = (.+)\)$`).FindStringSubmatch(c)
+		if r == nil {
+			return nil
+		}
+		s, err := pascalString(r[1])
+		u := utf16.Encode([]rune(s))
+		if err != nil || len(u) != 1 {
+			return nil
+		}
+		equal = append(equal, u[0])
+	}
+	return func(name string) bool {
+		u := utf16.Encode([]rune(name))
+		ok := len(u) <= limit
+		for _, ch := range u {
+			for _, n := range below {
+				if int(ch) < n {
+					ok = false
+				}
+			}
+			if slices.Contains(equal, ch) {
+				ok = false
+			}
+		}
+		return ok
+	}
+}
+
 // The installer's one elevated step shows Windows' prompt, which names Windows Command Processor,
 // not Forge Solo, and nothing said what it was for. Refused or failed, the step left no firewall
 // rules, and Setup finished without a word: miners on the network could not connect and nothing
@@ -433,19 +572,20 @@ func TestInstallerFirewallRules(t *testing.T) {
 		}
 		return s[i : i+strings.Index(s[i:], "\nend;")]
 	}
-	if !strings.Contains(body("function RuleName"), "Base + ' for ' + ExpandConstant('{username}')") {
+	if !strings.Contains(body("function RuleName"), "Result := Base + ' for ' + Account;") ||
+		!strings.Contains(install, "\n    RulesAccount := ExpandConstant('{username}');\n") {
 		t.Error("FIREWALL-PER-ACCOUNT: a rule's name is not this Windows account's")
 	}
 	for _, must := range []string{
 		`'netsh advfirewall firewall delete rule name="' + Base + '" >nul 2>&1 & '`,
-		`'netsh advfirewall firewall delete rule name="' + RuleName(Base) + '" >nul 2>&1 & '`,
-		`'netsh advfirewall firewall add rule name="' + RuleName(Base) + '" dir=in action=allow program="' +`,
+		`'netsh advfirewall firewall delete rule name="' + RuleName(Base, RulesAccount) + '" >nul 2>&1 & '`,
+		`'netsh advfirewall firewall add rule name="' + RuleName(Base, RulesAccount) + '" dir=in action=allow program="' +`,
 	} {
 		if !strings.Contains(body("function FirewallRule"), must) {
 			t.Errorf("FIREWALL-RULE-PUT: FirewallRule lacks %s", must)
 		}
 	}
-	for _, must := range []string{`delete rule name="' + Base + '" & '`, `delete rule name="' + RuleName(Base) + '" & '`} {
+	for _, must := range []string{`delete rule name="' + Base + '" & '`, `delete rule name="' + RuleName(Base, RulesAccount) + '" & '`} {
 		if !strings.Contains(body("function FirewallRemove"), must) {
 			t.Errorf("FIREWALL-RULE-REMOVE: FirewallRemove lacks %s", must)
 		}

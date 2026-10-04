@@ -108,23 +108,67 @@ begin
   Result := '''' + S + '''';
 end;
 
-// RuleName is the name of one of this install's firewall rules: the base name, for this Windows
-// account. Two accounts on one PC can each install Forge Solo, and each install's rules let in its
-// own programs; with one name for all, installing for one account replaced the other's rules, and
-// its miners could no longer connect. Earlier releases used the base name alone (with no program
-// before 1.0.13): rules of that name are removed.
-function RuleName(Base: String): String;
+// RuleName is the name of one of the firewall rules of the install for the Windows account called
+// Account: the base name, for that account. Two accounts on one PC can each install Forge Solo, and
+// each install's rules let in its own programs; with one name for all, installing for one account
+// replaced the other's rules, and its miners could no longer connect. Earlier releases used the
+// base name alone (with no program before 1.0.13): rules of that name are removed.
+function RuleName(Base, Account: String): String;
 begin
-  Result := Base + ' for ' + ExpandConstant('{username}');
+  Result := Base + ' for ' + Account;
 end;
 
-// FirewallRule is the commands that put this install's rule in place, after removing the old one.
+const
+  // Where the account name the rules carry is kept, so that the uninstaller removes those rules,
+  // also after the account has been renamed.
+  RulesKey = 'Software\ForgeSolo';
+  RulesValue = 'FirewallRulesAccount';
+
+var
+  // The account name this install's rules carry, and at install the one an earlier install kept.
+  RulesAccount, PreviousRulesAccount: String;
+
+// UsableAccountName is whether Name, the account name an earlier install kept for its rules, can go
+// into the commands of the elevated step. Any program running as this account can change the kept
+// name, and those commands run as administrator: a double quote would end the rule's name and run
+// what follows as a command, cmd replaces %name% with an environment variable, and a control
+// character can cut the commands short. No account name is longer than 256 characters.
+function UsableAccountName(Name: String): Boolean;
+var I: Integer;
+begin
+  Result := Length(Name) <= 256;
+  for I := 1 to Length(Name) do
+    if (Ord(Name[I]) < 32) or (Name[I] = '"') or (Name[I] = '%') then
+      Result := False;
+end;
+
+// KeptRulesAccount is the account name an earlier install kept for its rules, or '' if none is
+// kept or it cannot go into the elevated step's commands.
+function KeptRulesAccount: String;
+var Name: String;
+begin
+  Result := '';
+  if RegQueryStringValue(HKCU, RulesKey, RulesValue, Name) then
+  begin
+    if UsableAccountName(Name) then
+      Result := Name
+    else
+      Log('The account name kept for the firewall rules is not used: it is too long, or has a ' +
+        'character that would change the elevated step''s commands');
+  end;
+end;
+
+// FirewallRule is the commands that put this install's rule in place, named for RulesAccount, after
+// removing the old ones: of the base name, and of the name an earlier install kept, if the account
+// has been renamed since.
 function FirewallRule(Base, Exe, Port, Profile: String): String;
 begin
-  Result :=
-    'netsh advfirewall firewall delete rule name="' + Base + '" >nul 2>&1 & ' +
-    'netsh advfirewall firewall delete rule name="' + RuleName(Base) + '" >nul 2>&1 & ' +
-    'netsh advfirewall firewall add rule name="' + RuleName(Base) + '" dir=in action=allow program="' +
+  Result := 'netsh advfirewall firewall delete rule name="' + Base + '" >nul 2>&1 & ';
+  if (PreviousRulesAccount <> '') and (PreviousRulesAccount <> RulesAccount) then
+    Result := Result + 'netsh advfirewall firewall delete rule name="' + RuleName(Base, PreviousRulesAccount) + '" >nul 2>&1 & ';
+  Result := Result +
+    'netsh advfirewall firewall delete rule name="' + RuleName(Base, RulesAccount) + '" >nul 2>&1 & ' +
+    'netsh advfirewall firewall add rule name="' + RuleName(Base, RulesAccount) + '" dir=in action=allow program="' +
       ExpandConstant('{app}') + '\' + Exe + '" protocol=TCP localport=' + Port + ' profile=' + Profile + ' & ';
 end;
 
@@ -133,7 +177,7 @@ function FirewallRemove(Base: String): String;
 begin
   Result :=
     'netsh advfirewall firewall delete rule name="' + Base + '" & ' +
-    'netsh advfirewall firewall delete rule name="' + RuleName(Base) + '" & ';
+    'netsh advfirewall firewall delete rule name="' + RuleName(Base, RulesAccount) + '" & ';
 end;
 
 // RuleInPlace is whether Windows Firewall has a rule of this name. Reading the rules needs no
@@ -153,10 +197,10 @@ const
 function RulesInPlace: Integer;
 begin
   Result := 0;
-  if RuleInPlace(RuleName('Forge Solo Miner (3333)')) then Result := Result + 1;
-  if RuleInPlace(RuleName('Forge Solo Rentals (3335)')) then Result := Result + 1;
-  if RuleInPlace(RuleName('Forge Solo BCH2 P2P (8339)')) then Result := Result + 1;
-  if RuleInPlace(RuleName('Forge Solo 1175 P2P (25360)')) then Result := Result + 1;
+  if RuleInPlace(RuleName('Forge Solo Miner (3333)', RulesAccount)) then Result := Result + 1;
+  if RuleInPlace(RuleName('Forge Solo Rentals (3335)', RulesAccount)) then Result := Result + 1;
+  if RuleInPlace(RuleName('Forge Solo BCH2 P2P (8339)', RulesAccount)) then Result := Result + 1;
+  if RuleInPlace(RuleName('Forge Solo 1175 P2P (25360)', RulesAccount)) then Result := Result + 1;
 end;
 
 // Elevated runs Cmd, the commands of the one elevated step, and logs whether it ran. It is False
@@ -230,6 +274,8 @@ begin
   if CurStep = ssPostInstall then
   begin
     DataDir := ExpandConstant('{userappdata}\ForgeSolo');
+    RulesAccount := ExpandConstant('{username}');
+    PreviousRulesAccount := KeptRulesAccount;
     // Each rule lets in only the program that listens on its port. With the port alone, any program
     // could take the port while Forge Solo is not running and be reached through the rule.
     Cmd := '/c ' +
@@ -243,7 +289,10 @@ begin
     // The rules themselves say whether the step worked: cmd's exit code is only that of its last
     // command, and with UAC off a standard account's netsh fails without a prompt.
     InPlace := RulesInPlace;
-    Log('Firewall rules in place for ' + ExpandConstant('{username}') + ': ' + IntToStr(InPlace) + ' of ' + IntToStr(RuleCount));
+    Log('Firewall rules in place for ' + RulesAccount + ': ' + IntToStr(InPlace) + ' of ' + IntToStr(RuleCount));
+    // Kept only when the rules are in place: the uninstaller removes the rules of this name.
+    if InPlace = RuleCount then
+      RegWriteStringValue(HKCU, RulesKey, RulesValue, RulesAccount);
     if InPlace < RuleCount then
     begin
       if Ran then
@@ -271,6 +320,10 @@ begin
   if CurUninstallStep = usUninstall then
   begin
     DataDir := ExpandConstant('{userappdata}\ForgeSolo');
+    // The rules carry the account's name as it was when they were put in place.
+    RulesAccount := KeptRulesAccount;
+    if RulesAccount = '' then
+      RulesAccount := ExpandConstant('{username}');
     Cmd := '/c ' +
       FirewallRemove('Forge Solo Miner (3333)') +
       FirewallRemove('Forge Solo Rentals (3335)') +
@@ -280,7 +333,7 @@ begin
       'powershell -NoProfile -Command "Remove-MpPreference -ExclusionPath ' + PSQuote(DataDir) + ', ' + DefenderPaths(DataDir) + ' -ErrorAction SilentlyContinue"';
     Ran := Elevated(Cmd);
     InPlace := RulesInPlace;
-    Log('Firewall rules left for ' + ExpandConstant('{username}') + ': ' + IntToStr(InPlace) + ' of ' + IntToStr(RuleCount));
+    Log('Firewall rules left for ' + RulesAccount + ': ' + IntToStr(InPlace) + ' of ' + IntToStr(RuleCount));
     if not Ran or (InPlace > 0) then
     begin
       if Ran then
@@ -291,7 +344,7 @@ begin
           'firewall rules and Defender exclusions.';
       LeftBehind := LeftBehind + #13#10#13#10 + 'To remove them yourself, open Windows Security:' + #13#10 +
         '- Firewall & network protection > Advanced settings > Inbound Rules: delete the ' +
-        'rules named "Forge Solo ... for ' + ExpandConstant('{username}') + '".';
+        'rules named "Forge Solo ... for ' + RulesAccount + '".';
       if not Ran then
         LeftBehind := LeftBehind + #13#10 + '- Virus & threat protection > Manage settings > Add ' +
           'or remove exclusions: remove the folders in ' + DataDir + '.';
@@ -311,6 +364,8 @@ begin
     // One button, so that an uninstall run with /SUPPRESSMSGBOXES goes on.
     if LeftBehind <> '' then
       SuppressibleMsgBox(LeftBehind, mbError, MB_OK, IDOK);
+    RegDeleteValue(HKCU, RulesKey, RulesValue);
+    RegDeleteKeyIfEmpty(HKCU, RulesKey);
     DataDir := ExpandConstant('{userappdata}\ForgeSolo');
     if DirExists(DataDir) then
     begin
