@@ -381,7 +381,17 @@ func TestSQLiteSwitchIsGuardedInCI(t *testing.T) {
 		"CI-WIN-MOVE":         `go test -count=1 -v -run '^TestMoveThroughAJunctionOnWindows$' .`,
 		"CI-WIN-MOVE-PASSED":  `grep -q -- '--- PASS: TestMoveThroughAJunctionOnWindows'`,
 		"CI-WIN-SAME-ROWS":    `IT_WANT=../../testdata/migrate/seed-1012.db.json`,
-		"CI-WIN-SNAPSHOT-PS1": `scripts\windows\dashboard-snapshot.ps1 -From testdata\migrate\dashboard`,
+		"CI-WIN-SNAPSHOT-PS1": `& $ps -NoProfile -ExecutionPolicy Bypass -File $snap -From "$m\$($c[0])" -Out $got`,
+		// PowerShell 7 reads times as dates in the PC's zone, 5.1 as text: both, in UTC and out of it.
+		"CI-WIN-SNAPSHOT-PS7":     `foreach ($ps in 'powershell', 'pwsh') {`,
+		"CI-WIN-SNAPSHOT-ZONES":   "foreach ($zone in 'UTC', 'Central Standard Time', 'Chatham Islands Standard Time') {\nSet-TimeZone -Id $zone",
+		"CI-WIN-SNAPSHOT-OFFSETS": `@('dashboard-zones', 'dashboard-snapshot.json')`,
+		"CI-WIN-SNAPSHOT-1012":    `@('dashboard-1012', 'dashboard-1012-snapshot.json')`,
+		"CI-WIN-SNAPSHOT-TIMES":   `@('dashboard-times', 'dashboard-times-snapshot.json')`,
+		"CI-WIN-SNAPSHOT-COMPARE": `-File $snap -Before "$m\dashboard-1012-snapshot.json" -After "$m\dashboard-snapshot.json"`,
+		"CI-WIN-SNAPSHOT-LATER":   `-File $snap -Before "$m\dashboard-1012-snapshot.json" -After "$env:RUNNER_TEMP\later.json"`,
+		"CI-WIN-SNAPSHOT-MISSES":  `-File $snap -Before "$m\dashboard-snapshot.json" -After "$env:RUNNER_TEMP\payouts.json"`,
+		"CI-WIN-SNAPSHOT-FAILS":   "Set-TimeZone -Id UTC\nif ($failed) { exit 1 }\nexit 0",
 	} {
 		if !strings.Contains(job, want) {
 			t.Errorf("%s: the windows-native job lacks:\n%s", code, want)

@@ -337,15 +337,50 @@ jobs:
             go test -count=1 -v -tags 'sqlite it' -run '^TestITSnapshot$' ./internal/pgmigrate | tee "$RUNNER_TEMP/snapshot.log"
           grep -q -- '--- PASS: TestITSnapshot' "$RUNNER_TEMP/snapshot.log"
 
-      # The Linux run checks that dashboard-snapshot.sh reads the same answers as the same file.
-      - name: The dashboard snapshot reads the same on Windows as on Linux
+      # The Linux run checks that dashboard-snapshot.sh reads the same kept answers as the same files.
+      # Here dashboard-snapshot.ps1 reads them under Windows PowerShell 5.1 and PowerShell 7, with the
+      # runner in UTC and in two other zones: PowerShell 7 reads times as dates in the PC's own zone.
+      - name: The dashboard snapshot reads the same on Windows as on Linux, in any time zone
         shell: powershell
         run: |
-          scripts\windows\dashboard-snapshot.ps1 -From testdata\migrate\dashboard -Out "$env:RUNNER_TEMP\dashboard.json"
-          $want = [IO.File]::ReadAllBytes("$PWD\testdata\migrate\dashboard-snapshot.json")
-          $got = [IO.File]::ReadAllBytes("$env:RUNNER_TEMP\dashboard.json")
-          if ([Convert]::ToBase64String($want) -ne [Convert]::ToBase64String($got)) {
-            Write-Output "::error::dashboard-snapshot.ps1 does not write what dashboard-snapshot.sh writes"
-            fc.exe /n "$PWD\testdata\migrate\dashboard-snapshot.json" "$env:RUNNER_TEMP\dashboard.json"
-            exit 1
+          $ErrorActionPreference = 'Continue'
+          $m = "$PWD\testdata\migrate"
+          $snap = "$PWD\scripts\windows\dashboard-snapshot.ps1"
+          $got = "$env:RUNNER_TEMP\dashboard.json"
+          $failed = $false
+          # A payout time a second later, and a miner's payouts shown differently between two 1.0.13
+          # snapshots, must be found.
+          $t = [IO.File]::ReadAllText("$m\dashboard-snapshot.json")
+          $later = $t -creplace '("A-solo-payouts\.payouts\.1\.paidAt": "[^"]*)00Z"', '${1}01Z"'
+          $payouts = $t -creplace '("A-payouts\.total": )2', '${1}3'
+          if ($later -ceq $t -or $payouts -ceq $t) { Write-Output "::error::the changed snapshots are not changed"; exit 1 }
+          [IO.File]::WriteAllText("$env:RUNNER_TEMP\later.json", $later, [Text.Encoding]::ASCII)
+          [IO.File]::WriteAllText("$env:RUNNER_TEMP\payouts.json", $payouts, [Text.Encoding]::ASCII)
+          foreach ($zone in 'UTC', 'Central Standard Time', 'Chatham Islands Standard Time') {
+            Set-TimeZone -Id $zone
+            foreach ($ps in 'powershell', 'pwsh') {
+              foreach ($c in @('dashboard', 'dashboard-snapshot.json'), @('dashboard-zones', 'dashboard-snapshot.json'),
+                  @('dashboard-1012', 'dashboard-1012-snapshot.json'), @('dashboard-times', 'dashboard-times-snapshot.json')) {
+                Remove-Item -Force -ErrorAction SilentlyContinue $got
+                & $ps -NoProfile -ExecutionPolicy Bypass -File $snap -From "$m\$($c[0])" -Out $got
+                $same = $LASTEXITCODE -eq 0 -and (Test-Path $got) -and
+                  [Convert]::ToBase64String([IO.File]::ReadAllBytes("$m\$($c[1])")) -ceq [Convert]::ToBase64String([IO.File]::ReadAllBytes($got))
+                if (-not $same) {
+                  Write-Output "::error::$ps in $zone does not read $($c[0]) as dashboard-snapshot.sh does ($($c[1]))"
+                  if (Test-Path $got) { fc.exe /n "$m\$($c[1])" $got }
+                  $failed = $true
+                }
+              }
+              & $ps -NoProfile -ExecutionPolicy Bypass -File $snap -Before "$m\dashboard-1012-snapshot.json" -After "$m\dashboard-snapshot.json"
+              if ($LASTEXITCODE -ne 0) { Write-Output "::error::$ps in $zone finds the kept 1.0.12 and 1.0.13 snapshots differ"; $failed = $true }
+              & $ps -NoProfile -ExecutionPolicy Bypass -File $snap -Before "$m\dashboard-1012-snapshot.json" -After "$env:RUNNER_TEMP\later.json"
+              if ($LASTEXITCODE -ne 1) { Write-Output "::error::$ps in $zone misses a payout time a second later"; $failed = $true }
+              & $ps -NoProfile -ExecutionPolicy Bypass -File $snap -Before "$m\dashboard-snapshot.json" -After "$env:RUNNER_TEMP\payouts.json"
+              if ($LASTEXITCODE -ne 1) { Write-Output "::error::$ps in $zone misses a change between two 1.0.13 snapshots"; $failed = $true }
+            }
           }
+          Set-TimeZone -Id UTC
+          if ($failed) { exit 1 }
+          # The runner ends the step with the last program's exit code: a compare above that found a
+          # difference, as it had to.
+          exit 0
