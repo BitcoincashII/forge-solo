@@ -165,15 +165,17 @@ func TestReleasePublishing(t *testing.T) {
 	}
 }
 
-// No checkout keeps the job's GitHub token in .git/config: nothing in these workflows pushes, and
-// the release and the installer check mount the checkout into a third-party image.
+// No checkout keeps the job's GitHub token in .git/config: the release and the installer check
+// mount the checkout into a third-party image, and the image build runs third-party actions and a
+// privileged emulator image. The one exception is the re-pin, which pushes its commit to main.
 func TestCheckoutsKeepNoToken(t *testing.T) {
-	for _, f := range []string{".github/workflows/release.yml", ".github/workflows/test.yml"} {
+	pushes := map[string]bool{".github/workflows/docker-build.yml repin": true}
+	for _, f := range []string{".github/workflows/release.yml", ".github/workflows/test.yml", ".github/workflows/docker-build.yml"} {
 		w := loadWorkflow(t, f)
 		n := 0
 		for job, j := range w.Jobs {
 			for _, s := range j.Steps {
-				if !strings.HasPrefix(s.Uses, "actions/checkout@") {
+				if !strings.HasPrefix(s.Uses, "actions/checkout@") || pushes[f+" "+job] {
 					continue
 				}
 				n++

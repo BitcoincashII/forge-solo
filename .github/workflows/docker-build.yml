@@ -10,12 +10,10 @@ on:
         description: 'Version tag (e.g., 1.0.0)'
         required: true
 
-# Least privilege: the job-scoped GITHUB_TOKEN (auto-provisioned, expires with the run) has
-# just enough to push to this repo's GHCR packages. No long-lived PAT.
+# Least privilege: each job's GITHUB_TOKEN (auto-provisioned, expires with the run) can do what that
+# job does and no more. No long-lived PAT.
 permissions:
-  contents: write   # the re-pin commit is pushed back to main
-  packages: write
-  actions: write   # the repin job dispatches Tests against the re-pinned main
+  contents: read
 
 env:
   REGISTRY: ghcr.io
@@ -32,6 +30,11 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # This job runs third-party actions and a privileged emulator image, so its token can push the
+    # images and nothing else, and its checkout keeps no copy of it.
+    permissions:
+      contents: read
+      packages: write
     outputs:
       node: ${{ steps.node.outputs.digest }}
       node1175: ${{ steps.node1175.outputs.digest }}
@@ -43,6 +46,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Set version (injection-safe via env)
         id: version
@@ -183,6 +188,9 @@ jobs:
     name: Re-pin digests on main
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # the re-pin commit is pushed back to main
+      actions: write    # Tests is run against the re-pinned main
     steps:
       - name: Checkout main
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
