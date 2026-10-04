@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/BitcoincashII/forge-solo/internal/dblock"
 	"modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
 )
@@ -117,11 +118,41 @@ func ping(d *sql.DB) error {
 	}
 }
 
+// inUse holds the in-use locks this program took on the databases it opened; CloseDB releases
+// them. Guarded by dbMu.
+var inUse []*dblock.Lock
+
+// While the database is being moved, InitDB waits up to inUseWait, saying so every inUseLogEvery.
+const (
+	inUseWait     = 15 * time.Minute
+	inUseLogEvery = 30 * time.Second
+)
+
+// holdInUse takes the shared in-use lock beside the database at dbPath (see internal/dblock),
+// which the program then holds until CloseDB or its end. forge-solo-migrate holds the lock
+// exclusively while it replaces the database file, and replaces it only while nobody else holds
+// the lock, so a program never writes to a file that is being swapped out; one that starts
+// meanwhile waits here and then opens the new file.
+func holdInUse(dbPath string) (*dblock.Lock, error) {
+	path := dblock.Path(dbPath)
+	lock, err := dblock.Shared(path, 0)
+	deadline := time.Now().Add(inUseWait)
+	for errors.Is(err, dblock.ErrBusy) {
+		left := time.Until(deadline)
+		if left <= 0 {
+			return nil, fmt.Errorf("the database %s is still being moved after %v", dbPath, inUseWait)
+		}
+		log.Printf("waiting: Forge Solo is moving its database")
+		lock, err = dblock.Shared(path, min(inUseLogEvery, left))
+	}
+	if err != nil {
+		return nil, fmt.Errorf("the database's in-use lock: %w", err)
+	}
+	return lock, nil
+}
+
 // InitDB initializes SQLite database
 func InitDB(connStr string) error {
-	dbMu.Lock()
-	defer dbMu.Unlock()
-
 	dbPath := connStr
 	if dbPath == "" {
 		dbPath = GetDBPath()
@@ -133,9 +164,19 @@ func InitDB(connStr string) error {
 		return fmt.Errorf("failed to create data directory: %w", err)
 	}
 
-	var err error
+	// Before the database is opened. A wait for a move holds up nothing else: the rest of the
+	// program finds no database meanwhile, as it does while a start is retried.
+	lock, err := holdInUse(dbPath)
+	if err != nil {
+		return err
+	}
+
+	dbMu.Lock()
+	defer dbMu.Unlock()
+
 	db, err = sql.Open("sqlite", SQLiteDSN(dbPath))
 	if err != nil {
+		lock.Release()
 		return err
 	}
 
@@ -147,6 +188,7 @@ func InitDB(connStr string) error {
 	if err = ping(db); err != nil {
 		db.Close()
 		db = nil
+		lock.Release()
 		return err
 	}
 
@@ -154,8 +196,10 @@ func InitDB(connStr string) error {
 	if err = createTables(); err != nil {
 		db.Close()
 		db = nil
+		lock.Release()
 		return fmt.Errorf("failed to create tables: %w", err)
 	}
+	inUse = append(inUse, lock)
 
 	// 1175 merge-mining ledger tables. Mirrors the postgres backend; without it a found
 	// aux block cannot be recorded (see Init1175Schema in dialect_sqlite.go).
@@ -279,6 +323,7 @@ func createTables() error {
 	return nil
 }
 
+// CloseDB closes the database, and then lets its in-use lock go.
 func CloseDB() {
 	dbMu.Lock()
 	defer dbMu.Unlock()
@@ -288,6 +333,12 @@ func CloseDB() {
 		}
 		db = nil
 	}
+	for _, l := range inUse {
+		if err := l.Release(); err != nil {
+			log.Printf("Warning: releasing the database's in-use lock: %v", err)
+		}
+	}
+	inUse = nil
 }
 
 // IsDBInitialized reports whether a database handle was ever successfully created.
