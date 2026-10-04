@@ -112,4 +112,10 @@ func TestALateDatabaseStartsThe1175Processor(t *testing.T) {
 	if !strings.Contains(src[i:i+j], "start1175Ledger(cfg)") {
 		t.Fatal("DATA3-LATE-DB: a database that comes up after boot does not start the 1175 processor")
 	}
+	// main sets the 1175 node before the watcher, which reads it, is started.
+	m := strings.Index(src, "func main()")
+	set, watch := strings.Index(src[m:], "start1175Ledger(config)"), strings.Index(src[m:], "go watchPoolConfig(")
+	if set < 0 || watch < 0 || set > watch {
+		t.Fatal("DATA3-NODE-BEFORE-WATCHER: main starts the settings watcher before it sets the 1175 node the watcher reads")
+	}
 }

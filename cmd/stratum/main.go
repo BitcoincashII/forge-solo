@@ -1716,10 +1716,11 @@ func main() {
 	}
 	applyTidesMode(startMode, jobManager)
 
-	go watchPoolConfig(jobManager, config)
-
-	// 1175 payout processor: confirms, orphans and settles the 1175 blocks recorded.
+	// 1175 payout processor: confirms, orphans and settles the 1175 blocks recorded. Before the
+	// watcher starts, which reads the 1175 node this sets.
 	start1175Ledger(config)
+
+	go watchPoolConfig(jobManager, config)
 
 	logger.Info("✅ Stratum server running", zap.Int("port", serverConfig.Port))
 
