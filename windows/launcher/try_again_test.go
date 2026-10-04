@@ -168,6 +168,36 @@ func TestTryAgainOpensTheDashboard(t *testing.T) {
 	_ = resp.Body.Close()
 }
 
+// Another program held the dashboard's port at start, and everything else started: once Try Again
+// opens the dashboard, the tray says "running". It stayed on "set your payout address in the
+// dashboard" until something else changed the tray.
+func TestTryAgainOpensTheDashboardAndSaysRunning(t *testing.T) {
+	tp := startFailWorld(t, map[string]string{"bitcoincashIId.exe": sleeper, "elevenseventyfived.exe": sleeper, "api.exe": sleeper, "stratum.exe": sleeper})
+	savedShow := showTryAgain
+	showTryAgain = func(bool) {}
+	t.Cleanup(func() { showTryAgain = savedShow; retryOffered.Store(noRetry) })
+	other, err := net.Listen("tcp", "127.0.0.1:"+webPort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	boot()
+	if !waitFor(5*time.Second, func() bool { return started("stratum") }) {
+		t.Fatalf("setup: the miner did not start; log:\n%s", launcherLog())
+	}
+	minerStart.Wait()
+	if tp.has("Forge Solo: running") || retryOffered.Load() != retryDashboard {
+		t.Fatalf("setup: with the dashboard's port taken the tray said running, or Try Again was not offered: %q", tp.all())
+	}
+	_ = other.Close()
+	tryAgain()
+	if !dashboardOpen.Load() {
+		t.Fatalf("setup: Try Again did not open the dashboard; log:\n%s", launcherLog())
+	}
+	if tp.last() != "Forge Solo: running" {
+		t.Fatalf("TRY-AGAIN-DASHBOARD-RUNNING: the dashboard is open and everything runs, yet the tray says %q", tp.last())
+	}
+}
+
 // Every advice after a failed start fits the 127 characters Windows shows, however long the
 // reason: the reason is cut, not the advice.
 func TestFailTipsFit(t *testing.T) {

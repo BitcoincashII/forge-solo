@@ -433,6 +433,7 @@ func openDashboard() {
 	go serveDashboard(l)
 	if !showTrouble() {
 		status("Forge Solo: set your payout address in the dashboard")
+		showRunning() // opened by Try Again, with everything else running already
 	}
 	openBrowser("http://127.0.0.1:" + webPort)
 }
