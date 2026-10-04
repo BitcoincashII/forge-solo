@@ -118,39 +118,86 @@ func TestNodeChildReindex(t *testing.T) {
 	}
 }
 
-// A public port another program holds is named before anything starts.
+// A required public port another program holds is named before anything starts.
 func TestCheckPublicPortsNamesTheTakenPort(t *testing.T) {
-	taken := usePublicPorts(t)
-	err := checkPublicPorts()
-	if err == nil || !strings.Contains(err.Error(), "The BCH2 peer port "+strconv.Itoa(taken)+" is already in use") {
-		t.Fatalf("PUBLIC-PORT-NAMED: with the peer port %d taken: %v", taken, err)
+	for _, held := range []int{heldMiner, heldPeer} {
+		taken := usePublicPorts(t, held)
+		_, err := checkPublicPorts()
+		if err == nil || !strings.Contains(err.Error(), publicPorts[held].what+" "+strconv.Itoa(taken)+" is already in use") {
+			t.Errorf("PUBLIC-PORT-NAMED: with %s %d taken: %v", publicPorts[held].what, taken, err)
+		}
 	}
 }
 
-// usePublicPorts points the public ports at free ones, the last of them held by another listener
-// for the test's duration, and returns that one. A machine running Forge Solo holds the real ones.
-func usePublicPorts(t *testing.T) (taken int) {
+// Another program on the rental port leaves rentals out, as on Windows: Forge Solo still mines on
+// the miners' port. It used to start nothing.
+func TestRentalPortTakenLeavesRentalsOut(t *testing.T) {
+	if realPublicPorts[heldMiner].port != stratumPort || realPublicPorts[heldRental].port != rentalPort || realPublicPorts[heldPeer].port != p2pPort {
+		t.Fatalf("PUBLIC-PORTS-ORDER: the public ports are %v", realPublicPorts)
+	}
+	taken := usePublicPorts(t, heldRental)
+	left, err := checkPublicPorts()
+	if err != nil {
+		t.Fatalf("RENTAL-OPTIONAL: with the rental port %d taken, Forge Solo refused to start: %v", taken, err)
+	}
+	if !reflect.DeepEqual(left, []int{taken}) {
+		t.Errorf("RENTAL-LEFT-OUT: with the rental port %d taken, the ports left out are %v", taken, left)
+	}
+	if note := leftOutNote(taken); !strings.Contains(note, strconv.Itoa(taken)) || !strings.Contains(note, "without it") {
+		t.Errorf("RENTAL-NOTE: the note does not name the port and say Forge Solo runs without it: %q", note)
+	}
+	usePublicPorts(t, -1)
+	if left, err := checkPublicPorts(); err != nil || len(left) != 0 {
+		t.Errorf("PUBLIC-PORTS-FREE: all free gave %v %v", left, err)
+	}
+}
+
+// The run banner says when rentals are left out.
+func TestBannerRentals(t *testing.T) {
+	var b strings.Builder
+	banner(&b, "127.0.0.1:3080", "/d", false, true)
+	if !strings.Contains(b.String(), "MiningRigRentals: "+strconv.Itoa(rentalPort)) {
+		t.Errorf("BANNER-RENTAL-ON: the banner does not give the rental port:\n%s", b.String())
+	}
+	b.Reset()
+	banner(&b, "127.0.0.1:3080", "/d", false, false)
+	if s := b.String(); !strings.Contains(s, "no rentals") || strings.Contains(s, "MiningRigRentals: "+strconv.Itoa(rentalPort)) {
+		t.Errorf("BANNER-RENTAL-OFF: with the rental port taken the banner still offers it:\n%s", s)
+	}
+}
+
+// Which of usePublicPorts' ports another listener holds.
+const (
+	heldMiner = iota
+	heldRental
+	heldPeer
+)
+
+// realPublicPorts is publicPorts as the program has it, before any test changes it.
+var realPublicPorts = append(publicPorts[:0:0], publicPorts...)
+
+// usePublicPorts points the public ports at free ones, the one at index held (heldMiner,
+// heldRental, heldPeer; -1 for none) held by another listener for the test's duration, and
+// returns that one. A machine running Forge Solo holds the real ones.
+func usePublicPorts(t *testing.T, held int) (taken int) {
 	t.Helper()
 	saved := publicPorts
 	t.Cleanup(func() { publicPorts = saved })
-	publicPorts = nil
-	for i, what := range []string{"The miner port", "The rental port", "The BCH2 peer port"} {
+	ports := append(realPublicPorts[:0:0], realPublicPorts...)
+	for i := range ports {
 		l, err := net.Listen("tcp", ":0")
 		if err != nil {
 			t.Fatal(err)
 		}
-		port := l.Addr().(*net.TCPAddr).Port
-		if i < 2 {
-			_ = l.Close()
-		} else {
+		ports[i].port = l.Addr().(*net.TCPAddr).Port
+		if i == held {
 			t.Cleanup(func() { _ = l.Close() })
-			taken = port
+			taken = ports[i].port
+		} else {
+			_ = l.Close()
 		}
-		publicPorts = append(publicPorts, struct {
-			port int
-			what string
-		}{port, what})
 	}
+	publicPorts = ports
 	return taken
 }
 

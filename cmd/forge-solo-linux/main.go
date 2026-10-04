@@ -135,25 +135,38 @@ func lockDataDir(dir string) (*os.File, error) {
 	return f, nil
 }
 
-// checkPublicPorts fails early, and says which, when a public port is taken: the programs would
-// otherwise start and run without it (the node, for one, keeps going without its P2P listener).
 // publicPorts are the ports Forge Solo listens on for other machines (a variable so that the tests
-// can use free ones: a machine running Forge Solo already holds these).
+// can use free ones: a machine running Forge Solo already holds these). Forge Solo cannot mine
+// without a required one. Without the rental port it runs without rentals, as on Windows.
 var publicPorts = []struct {
-	port int
-	what string
-}{{stratumPort, "The miner port"}, {rentalPort, "The rental port"}, {p2pPort, "The BCH2 peer port"}}
+	port     int
+	what     string
+	required bool
+}{{stratumPort, "The miner port", true}, {rentalPort, "The rental port", false}, {p2pPort, "The BCH2 peer port", true}}
 
-func checkPublicPorts() error {
+// checkPublicPorts fails early, and says which, when a required public port is taken: the
+// programs would otherwise start and run without it (the node, for one, keeps going without its
+// P2P listener). It returns the optional ports another program holds: Forge Solo runs without them.
+func checkPublicPorts() (left []int, err error) {
 	for _, p := range publicPorts {
 		l, err := net.Listen("tcp", ":"+strconv.Itoa(p.port))
-		if err != nil {
-			return fmt.Errorf("%s %d is already in use by another program (%v). Stop that program first; "+
+		if err == nil {
+			_ = l.Close()
+			continue
+		}
+		if p.required {
+			return nil, fmt.Errorf("%s %d is already in use by another program (%v). Stop that program first; "+
 				"another BCH2 node or pool on this machine is the usual cause", p.what, p.port, err)
 		}
-		_ = l.Close()
+		left = append(left, p.port)
 	}
-	return nil
+	return left, nil
+}
+
+// leftOutNote says what it means that another program holds the optional public port port.
+func leftOutNote(port int) string {
+	return fmt.Sprintf("another program uses port %d, the rental port: Forge Solo runs without it, so NiceHash and "+
+		"MiningRigRentals cannot connect. Stop that program, then restart Forge Solo", port)
 }
 
 // restrictDatabase makes a database an earlier run created readable by this user only (SQLite
@@ -299,9 +312,14 @@ func runCmd(args []string) error {
 		return err
 	}
 	defer lock.Close()
-	if err := checkPublicPorts(); err != nil {
+	left, err := checkPublicPorts()
+	if err != nil {
 		return err
 	}
+	for _, port := range left {
+		logf("%s", leftOutNote(port))
+	}
+	rentals := len(left) == 0
 	p, err := pickPorts()
 	if err != nil {
 		return err
@@ -373,7 +391,7 @@ func runCmd(args []string) error {
 			logf("the dashboard stopped serving: %v", err)
 		}
 	}()
-	banner(web, dataDir, password != "")
+	banner(os.Stdout, web, dataDir, password != "", rentals)
 
 	// The stratum needs block templates: start it once the node's RPC answers. Until then the
 	// dashboard shows the node's sync progress.
@@ -395,8 +413,10 @@ func runCmd(args []string) error {
 	case <-nodeUp:
 		if err := stratum.Start(); err != nil {
 			logf("the stratum could not be started: %v", err)
-		} else {
+		} else if rentals {
 			logf("mining service started: miners can connect to port %d (rentals %d)", stratumPort, rentalPort)
+		} else {
+			logf("mining service started: miners can connect to port %d (no rentals: another program has port %d)", stratumPort, rentalPort)
 		}
 		sig = <-sigCh
 	case sig = <-sigCh:
@@ -444,18 +464,24 @@ func apiEnv(dataDir, inst string, p ports, sec secrets) []string {
 		"SETTINGS_PASSWORD=" + sec.DashboardPassword, "FORGE_PLATFORM=linux"}
 }
 
-func banner(web, dataDir string, password bool) {
-	fmt.Printf(`
-  Dashboard:  http://%s
-  Miners:     stratum+tcp://<this machine's address>:%d   (NiceHash / MiningRigRentals: %d)
-  Data:       %s   (logs in logs/, the node's in bch2/debug.log)
-`, web, stratumPort, rentalPort, dataDir)
-	if password {
-		fmt.Printf("  Password:   user forge, DASHBOARD_PASSWORD in %s\n", filepath.Join(dataDir, "secrets.env"))
+// banner is what forge-solo run prints once the dashboard serves. rentals is false when another
+// program holds the rental port.
+func banner(w io.Writer, web, dataDir string, password, rentals bool) {
+	rent := fmt.Sprintf("(NiceHash / MiningRigRentals: %d)", rentalPort)
+	if !rentals {
+		rent = fmt.Sprintf("(no rentals: another program has port %d)", rentalPort)
 	}
-	fmt.Printf("  Settings:   saving a change asks for DASHBOARD_PASSWORD in %s\n", filepath.Join(dataDir, "secrets.env"))
-	fmt.Println("  Set your BCH2 payout address in the dashboard's Settings: mining waits for it.")
-	fmt.Println()
+	fmt.Fprintf(w, `
+  Dashboard:  http://%s
+  Miners:     stratum+tcp://<this machine's address>:%d   %s
+  Data:       %s   (logs in logs/, the node's in bch2/debug.log)
+`, web, stratumPort, rent, dataDir)
+	if password {
+		fmt.Fprintf(w, "  Password:   user forge, DASHBOARD_PASSWORD in %s\n", filepath.Join(dataDir, "secrets.env"))
+	}
+	fmt.Fprintf(w, "  Settings:   saving a change asks for DASHBOARD_PASSWORD in %s\n", filepath.Join(dataDir, "secrets.env"))
+	fmt.Fprintln(w, "  Set your BCH2 payout address in the dashboard's Settings: mining waits for it.")
+	fmt.Fprintln(w)
 }
 
 // cliCmd runs bitcoincashII-cli against this install's node, with its config and credentials.

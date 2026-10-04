@@ -230,7 +230,7 @@ func TestCheckInstallPortsNamesAForegroundCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer l.Close()
-	err = checkInstallPorts(l.Addr().String())
+	_, err = checkInstallPorts(l.Addr().String())
 	if err == nil {
 		t.Fatal("INSTALL-PORTS: no error with the dashboard address taken")
 	}
@@ -240,18 +240,24 @@ func TestCheckInstallPortsNamesAForegroundCopy(t *testing.T) {
 	saved := publicPorts
 	t.Cleanup(func() { publicPorts = saved })
 	publicPorts = publicPorts[:0:0] // the public ports free: only the dashboard address is taken
-	if err := checkInstallPorts(l.Addr().String()); err == nil || !strings.Contains(err.Error(), l.Addr().String()) {
+	if _, err := checkInstallPorts(l.Addr().String()); err == nil || !strings.Contains(err.Error(), l.Addr().String()) {
 		t.Errorf("INSTALL-PORTS: the error does not name the dashboard address: %v", err)
 	}
-	if err := checkInstallPorts("127.0.0.1:0"); err != nil {
+	if _, err := checkInstallPorts("127.0.0.1:0"); err != nil {
 		t.Errorf("INSTALL-PORTS: free ports refused: %v", err)
 	}
 
 	// A public port taken, the dashboard address free.
-	taken := usePublicPorts(t)
-	err = checkInstallPorts("127.0.0.1:0")
+	taken := usePublicPorts(t, heldPeer)
+	_, err = checkInstallPorts("127.0.0.1:0")
 	if err == nil || !strings.Contains(err.Error(), strconv.Itoa(taken)) || !strings.Contains(err.Error(), "started yourself") {
 		t.Errorf("INSTALL-PUBLIC-PORT: with port %d taken, install-service did not name it and say to stop a copy started by hand: %v", taken, err)
+	}
+
+	// The rental port taken: the service is installed and runs without it.
+	taken = usePublicPorts(t, heldRental)
+	if left, err := checkInstallPorts("127.0.0.1:0"); err != nil || !reflect.DeepEqual(left, []int{taken}) {
+		t.Errorf("INSTALL-RENTAL-OPTIONAL: with the rental port %d taken: left out %v, error %v", taken, left, err)
 	}
 }
 

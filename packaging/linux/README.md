@@ -169,8 +169,10 @@ In the data directory:
 
 ## If something goes wrong
 
-- **"… is already in use by another program"**: another program has port 3333, 3335 or 8339,
-  usually another BCH2 node or mining pool on this machine. Stop it first.
+- **"… is already in use by another program"**: another program has port 3333 or 8339, usually
+  another BCH2 node or mining pool on this machine. Stop it first. If another program has 3335,
+  Forge Solo starts without the rental port and says so: NiceHash and MiningRigRentals cannot
+  connect until you stop that program and restart Forge Solo.
 - **"another Forge Solo is already running with the data directory …"**: another copy is running with the
   same data, perhaps the service. Stop that one first.
 - **"Corrupted block database detected"** in the node's log, after a power cut or a full disk:

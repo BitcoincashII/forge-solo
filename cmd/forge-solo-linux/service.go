@@ -128,8 +128,12 @@ func installService(args []string) error {
 	}
 	// Whatever holds Forge Solo's ports now is not the service, and the service would fail to
 	// start beside it. Most often it is a Forge Solo started by hand.
-	if err := checkInstallPorts(*web); err != nil {
+	left, err := checkInstallPorts(*web)
+	if err != nil {
 		return err
+	}
+	for _, port := range left {
+		fmt.Printf("Note: %s.\n", leftOutNote(port))
 	}
 	if filepath.Clean(src) != serviceDir {
 		fmt.Printf("Installing %s to %s…\n", src, serviceDir)
@@ -184,17 +188,19 @@ const foregroundHint = "If that is a Forge Solo you started yourself (./forge-so
 	"settings you saved in that copy are not carried over, so save them again on the service's dashboard."
 
 // checkInstallPorts fails, naming the port, when another program holds one of the ports the
-// service is about to listen on: the service would start and fail at once.
-func checkInstallPorts(web string) error {
-	if err := checkPublicPorts(); err != nil {
-		return fmt.Errorf("%w\n%s", err, foregroundHint)
+// service cannot run without: it would start and fail at once. It returns the optional ports
+// another program holds, which the service runs without.
+func checkInstallPorts(web string) (left []int, err error) {
+	left, err = checkPublicPorts()
+	if err != nil {
+		return nil, fmt.Errorf("%w\n%s", err, foregroundHint)
 	}
 	l, err := net.Listen("tcp", web)
 	if err != nil {
-		return fmt.Errorf("the dashboard address %s is already in use by another program (%v).\n%s", web, err, foregroundHint)
+		return nil, fmt.Errorf("the dashboard address %s is already in use by another program (%v).\n%s", web, err, foregroundHint)
 	}
 	_ = l.Close()
-	return nil
+	return left, nil
 }
 
 // errServiceNotServing: after a (re)start, the service itself is not serving its dashboard.
