@@ -259,6 +259,23 @@ func TestDatabaseOutageIsShownAsSuch(t *testing.T) {
 	}
 }
 
+// The hashrate chart plots TH/s, with its legend hidden and no unit on its axis: a 500 MH/s miner
+// read 0.0005 beside a tile saying 500.00 MH/s. Settings printed the network difficulty in full
+// (2,345,678,901.234) where the dashboard says 2.35G.
+func TestFiguresUseTheDashboardsUnits(t *testing.T) {
+	chart := textBetween(readWebFile(t, "js/pool-solo-inline.js"), "hashrateChart = new Chart(ctx, {", "\n                });")
+	if !strings.Contains(chart, "callback: v => formatHashrate(v * 1e12)") {
+		t.Error("CHART-Y-UNITS: the chart's axis is not in the tiles' units")
+	}
+	if !strings.Contains(chart, "label: ctx => formatHashrate(ctx.parsed.y * 1e12)") {
+		t.Error("CHART-TOOLTIP-UNITS: the chart's tooltip is not in the tiles' units")
+	}
+	s := readWebFile(t, "settings.html")
+	if !strings.Contains(s, "getElementById('netDiff').textContent=formatDiff(") {
+		t.Error("SETTINGS-NETDIFF: Settings does not show the network difficulty in the dashboard's short form")
+	}
+}
+
 // Scripts and style sheets go out with no Cache-Control (only the pages are no-cache), so a
 // browser keeps its copy for hours after an update unless the reference changes. Every page
 // names each of them with the same ?v=, so a bump on one page is not missed on another.

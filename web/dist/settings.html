@@ -150,7 +150,8 @@
 
    readJSON('/api/v1/stats')
      .then(function(d){
-       if(d.networkDifficulty!=null) document.getElementById('netDiff').textContent=Number(d.networkDifficulty).toLocaleString();
+       // In the dashboard tile's short form (2.35G).
+       if(d.networkDifficulty!=null) document.getElementById('netDiff').textContent=formatDiff(Number(d.networkDifficulty));
        if(d.hashrate!=null) document.getElementById('poolHr').textContent=d.hashrate;
      }).catch(function(){
        document.getElementById('netDiff').textContent='unavailable';

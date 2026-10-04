@@ -922,13 +922,18 @@
                             pointRadius: 0
                         }]
                     },
+                    // The history is in TH/s; the axis and the tooltip say it in the tiles' units
+                    // (500.00 MH/s, not 0.0005).
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
-                        plugins: { legend: { display: false } },
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: { callbacks: { label: ctx => formatHashrate(ctx.parsed.y * 1e12) } }
+                        },
                         scales: {
                             x: { display: true, ticks: { color: '#888', maxTicksLimit: 6 }, grid: { color: '#222' } },
-                            y: { beginAtZero: true, ticks: { color: '#888' }, grid: { color: '#222' } }
+                            y: { beginAtZero: true, ticks: { color: '#888', callback: v => formatHashrate(v * 1e12) }, grid: { color: '#222' } }
                         }
                     }
                 });
