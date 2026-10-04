@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -237,7 +238,7 @@ type miningStatusSnapshot struct {
 	TemplateError string `json:"template_error"`      // last getblocktemplate failure, if any
 	Reason        string `json:"reason"`              // machine-readable pause cause, "" when mining
 	Message       string `json:"message"`             // one line a home user can act on
-	RentalPort    int    `json:"rental_port"`         // 3335 when the rental listener is up, 0 when it is not
+	RentalPort    int    `json:"rental_port"`         // the rental listener's port (3335) while it is up, 0 when it is not
 
 	PayoutMode string          `json:"payout_mode"`     // solo | tides (the mode in effect)
 	Tides      *tidesgw.Status `json:"tides,omitempty"` // the TIDES gateway, when one has started
@@ -281,12 +282,10 @@ func buildMiningStatus() miningStatusSnapshot {
 	}
 
 	st := miningStatusFrom(configured, stats.IsDBConnected(), connections, authorized, jobHeight, jobAt, shareAt, tmplErr, time.Now())
-	// The dashboard advertises a rental endpoint only when one is really listening. The
-	// Windows build ships with stratum_rental disabled, and telling someone to point a paid
-	// order at a closed port is worse than saying nothing.
-	if stratumRentalServer != nil {
-		st.RentalPort = 3335
-	}
+	// The dashboard advertises a rental endpoint only when one is really listening: telling
+	// someone to point a paid order at a port another program holds is worse than saying
+	// nothing. Forge Solo for Windows starts without the rental port when it is taken.
+	st.RentalPort = listeningPort(stratumRentalServer)
 	st.MergeMining, st.AuxError, st.AuxLastOKAge = auxStatusFrom(aux, time.Now())
 	st.PayoutMode = currentPayoutMode()
 	if g := tidesGateway(); g != nil {
@@ -294,6 +293,20 @@ func buildMiningStatus() miningStatusSnapshot {
 		st.Tides = &ts
 	}
 	return st
+}
+
+// listeningPort is the port srv listens on, 0 when there is no srv or it is not listening (its
+// port was taken).
+func listeningPort(srv *stratum.Server) int {
+	if srv == nil {
+		return 0
+	}
+	_, port, err := net.SplitHostPort(srv.ListenAddr())
+	if err != nil {
+		return 0
+	}
+	p, _ := strconv.Atoi(port)
+	return p
 }
 
 // auxStaleAfter is how long without a successful getauxblock before merge mining counts as
