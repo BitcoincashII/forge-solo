@@ -296,8 +296,11 @@ func TestRentalPortTakenLeavesRentalsOut(t *testing.T) {
 	if !reflect.DeepEqual(left, []int{taken}) {
 		t.Errorf("RENTAL-LEFT-OUT: with the rental port %d taken, the ports left out are %v", taken, left)
 	}
-	if note := leftOutNote(taken); !strings.Contains(note, strconv.Itoa(taken)) || !strings.Contains(note, "without it") {
-		t.Errorf("RENTAL-NOTE: the note does not name the port and say Forge Solo runs without it: %q", note)
+	// What is wrong, and what to do, as the Windows launcher and the dashboard say it. NiceHash and
+	// MiningRigRentals are not sent to the miners' port instead.
+	want := "another program uses port " + strconv.Itoa(taken) + ", the rental port: rentals have no port of their own until you stop it and restart Forge Solo"
+	if note := leftOutNote(taken); note != want {
+		t.Errorf("RENTAL-NOTE: the note is %q, not %q", note, want)
 	}
 	usePublicPorts(t, -1)
 	if left, err := checkPublicPorts(); err != nil || len(left) != 0 {
@@ -314,8 +317,8 @@ func TestBannerRentals(t *testing.T) {
 	}
 	b.Reset()
 	banner(&b, "127.0.0.1:3080", "/d", false, false)
-	if s := b.String(); !strings.Contains(s, "no rentals") || strings.Contains(s, "MiningRigRentals: "+strconv.Itoa(rentalPort)) {
-		t.Errorf("BANNER-RENTAL-OFF: with the rental port taken the banner still offers it:\n%s", s)
+	if s := b.String(); !strings.Contains(s, "(no rentals: another program uses port 3335)") || strings.Contains(s, "MiningRigRentals: "+strconv.Itoa(rentalPort)) {
+		t.Errorf("BANNER-RENTAL-OFF: with the rental port taken the banner still offers it, or does not say why:\n%s", s)
 	}
 }
 

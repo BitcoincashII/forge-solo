@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -56,6 +57,8 @@ var (
 	pplnsWindow         int             = 100000 // PPLNS window size (shares)
 	stratumServer       *stratum.Server          // Global reference for API handlers
 	stratumRentalServer *stratum.Server          // Second stratum for PROXIED rental hashpower (NiceHash/MiningRigRentals)
+	rentalPortTaken     int                      // the rental port another program held when the rental stratum started, else 0
+	rentalPortReserved  int                      // the rental port Windows kept for itself when the rental stratum started, else 0
 
 	// miningStatus records WHY the job loop is (or is not) producing work, so the
 	// dashboard can say something truer than "ready to mine" when a miner is connected
@@ -240,6 +243,11 @@ type miningStatusSnapshot struct {
 	Reason        string `json:"reason"`              // machine-readable pause cause, "" when mining
 	Message       string `json:"message"`             // one line a home user can act on
 	RentalPort    int    `json:"rental_port"`         // the rental listener's port (3335) while it is up, 0 when it is not
+	RentalTaken   int    `json:"rental_port_taken"`   // the rental port, when another program held it and the listener could not start; else 0
+
+	// RentalReserved is the rental port when Windows keeps it for itself (a range reserved for
+	// Hyper-V, WSL or Docker) and the listener could not start; else 0.
+	RentalReserved int `json:"rental_port_reserved"`
 
 	PayoutMode string          `json:"payout_mode"`     // solo | tides (the mode in effect)
 	Tides      *tidesgw.Status `json:"tides,omitempty"` // the TIDES gateway, when one has started
@@ -286,8 +294,11 @@ func buildMiningStatus() miningStatusSnapshot {
 	// The dashboard advertises a rental endpoint only when one is really listening: telling
 	// someone to point a paid order at a port another program holds is worse than saying
 	// nothing. On Windows and Linux, Forge Solo starts without the rental port when another
-	// program holds it.
+	// program holds it, or Windows keeps it for itself, and the dashboard says which, and what to do.
 	st.RentalPort = listeningPort(stratumRentalServer)
+	if st.RentalPort == 0 {
+		st.RentalTaken, st.RentalReserved = rentalPortTaken, rentalPortReserved
+	}
 	st.MergeMining, st.AuxError, st.AuxLastOKAge = auxStatusFrom(aux, time.Now())
 	st.PayoutMode = currentPayoutMode()
 	if g := tidesGateway(); g != nil {
@@ -295,6 +306,53 @@ func buildMiningStatus() miningStatusSnapshot {
 		st.Tides = &ts
 	}
 	return st
+}
+
+// startRentalStratum starts the rental listener. Without it Forge Solo runs all the same.
+func startRentalStratum(srv *stratum.Server, cfg *stratum.ServerConfig) {
+	if err := srv.Start(); err != nil {
+		rentalStratumFailed(cfg.Port, err)
+		return
+	}
+	logger.Info("✅ Rental stratum running (NiceHash/MiningRigRentals)",
+		zap.Int("port", cfg.Port),
+		zap.Int("extranonce2_size", cfg.ExtraNonce2Size))
+}
+
+// rentalStratumFailed logs why the rental listener on port could not start. When another program
+// holds the port, or Windows keeps it for itself, the dashboard is told which, so that it can say
+// what to do in the launcher's words.
+func rentalStratumFailed(port int, err error) {
+	switch {
+	case portInUse(err):
+		rentalPortTaken = port
+		logger.Error(fmt.Sprintf("another program uses port %d, the rental port: rentals have no port of their own "+
+			"until you stop it and restart Forge Solo", port), zap.Error(err))
+	case portReserved(err):
+		rentalPortReserved = port
+		logger.Error(fmt.Sprintf("Windows keeps port %d, the rental port, for itself: rentals have no port of their own "+
+			"until Windows lets it go and you restart Forge Solo", port), zap.Error(err))
+	default:
+		logger.Error("Failed to start the rental stratum", zap.Error(err))
+	}
+}
+
+// Windows' WSAEADDRINUSE and WSAEACCES, which Go does not map to syscall.EADDRINUSE and EACCES.
+const (
+	wsaeaddrinuse = syscall.Errno(10048)
+	wsaeacces     = syscall.Errno(10013)
+)
+
+// portInUse reports whether a listen failed because another program holds the port.
+func portInUse(err error) bool {
+	return errors.Is(err, syscall.EADDRINUSE) || errors.Is(err, wsaeaddrinuse)
+}
+
+// portReserved reports whether a listen failed because Windows keeps the port for itself: a port in
+// a range reserved for Hyper-V, WSL or Docker gives WSAEACCES. The stratum listens with exclusive
+// address use, and a port another program holds gives it WSAEADDRINUSE instead.
+func portReserved(err error) bool {
+	return errors.Is(err, wsaeacces)
 }
 
 // listeningPort is the port srv listens on, 0 when there is no srv or it is not listening (its
@@ -1686,13 +1744,7 @@ func main() {
 			stratumRentalServer.EnableMergeMining(auxClient)
 			stratumRentalServer.SetAuxBlockHandler(aux1175BlockHandler)
 		}
-		if err := stratumRentalServer.Start(); err != nil {
-			logger.Error("Failed to start the rental stratum", zap.Error(err))
-		} else {
-			logger.Info("✅ Rental stratum running (NiceHash/MiningRigRentals)",
-				zap.Int("port", rentalConfig.Port),
-				zap.Int("extranonce2_size", rentalConfig.ExtraNonce2Size))
-		}
+		startRentalStratum(stratumRentalServer, rentalConfig)
 	}
 
 	// Stratum V2 is not implemented in this build. The previous implementation was removed

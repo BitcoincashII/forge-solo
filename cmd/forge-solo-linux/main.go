@@ -201,10 +201,16 @@ func checkPublicPorts() (left []int, err error) {
 	return left, nil
 }
 
-// leftOutNote says what it means that another program holds the optional public port port.
+// leftOutNote says what it means that another program holds the optional public port port, and
+// what to do, as the Windows launcher and the dashboard say it.
 func leftOutNote(port int) string {
-	return fmt.Sprintf("another program uses port %d, the rental port: Forge Solo runs without it, so NiceHash and "+
-		"MiningRigRentals cannot connect. Stop that program, then restart Forge Solo", port)
+	return fmt.Sprintf("another program uses port %d, the rental port: rentals have no port of their own until you "+
+		"stop it and restart Forge Solo", port)
+}
+
+// noRentals is what the banner and the log put beside the miners' port while rentals have none.
+func noRentals(port int) string {
+	return fmt.Sprintf("(no rentals: another program uses port %d)", port)
 }
 
 // restrictDatabase makes a database an earlier run created readable by this user only (SQLite
@@ -532,7 +538,7 @@ func runCmd(args []string) error {
 		} else if rentals {
 			logf("mining service started: miners can connect to port %d (rentals %d)", stratumPort, rentalPort)
 		} else {
-			logf("mining service started: miners can connect to port %d (no rentals: another program has port %d)", stratumPort, rentalPort)
+			logf("mining service started: miners can connect to port %d %s", stratumPort, noRentals(rentalPort))
 		}
 		sig = <-sigCh
 	case sig = <-sigCh:
@@ -585,7 +591,7 @@ func apiEnv(dataDir, inst string, p ports, sec secrets) []string {
 func banner(w io.Writer, web, dataDir string, password, rentals bool) {
 	rent := fmt.Sprintf("(NiceHash / MiningRigRentals: %d)", rentalPort)
 	if !rentals {
-		rent = fmt.Sprintf("(no rentals: another program has port %d)", rentalPort)
+		rent = noRentals(rentalPort)
 	}
 	fmt.Fprintf(w, `
   Dashboard:  %s

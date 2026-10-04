@@ -23,9 +23,13 @@ const (
 	tipRunning         = "Forge Solo: running"
 )
 
-// What the tray says after "running" (setRunningNote), while Forge Solo runs as it should.
+// What the tray says after "running" (setRunningNote), while Forge Solo runs as it should. With
+// the rental port taken it says what to do as well: nothing tries the port again until Forge Solo
+// restarts.
 const (
-	noteDegraded = ". The old database is damaged: see dashboard"
+	noteDegraded        = ". The old database is damaged: see dashboard"
+	noteNoRentals       = ". No rentals: stop what uses " + rentalPort + ", restart"
+	noteRentalsReserved = ". No rentals: Windows keeps port " + rentalPort
 )
 
 // tipRunningWith is "running" with note after it.

@@ -103,6 +103,31 @@ func TestAReservedPortIsSaidSo(t *testing.T) {
 	}
 }
 
+// The rental port, which Forge Solo runs without, kept by Windows rather than by another program:
+// the tray and launcher.log say so, and what it takes, rather than blame another program.
+func TestARentalPortWindowsKeepsIsSaidSo(t *testing.T) {
+	port := freeTCPPort(t)
+	portsWorld(t, nil)
+	publicPorts = append(publicPorts, struct {
+		port, what string
+		required   bool
+	}{port, rentalWhat, false})
+	listenProbe = func(network, addr string) (net.Listener, error) {
+		return nil, &net.OpError{Op: "listen", Net: network, Err: os.NewSyscallError("bind", accessDenied)}
+	}
+	t.Cleanup(func() { setRunningNote("rentals", "") })
+	if err := checkPublicPorts(); err != nil {
+		t.Fatalf("setup: the rental port stopped the start: %v", err)
+	}
+	if got := runningNote(); got != noteRentalsReserved {
+		t.Errorf("PUBLIC-PORT-RENTAL-RESERVED-TRAY: the tray says running%q, not running%q", got, noteRentalsReserved)
+	}
+	b, _ := os.ReadFile(dpath("launcher.log"))
+	if !strings.Contains(string(b), "Windows keeps port "+port+", the rental port, for itself: rentals have no port of their own until Windows lets it go and you restart Forge Solo (") {
+		t.Errorf("PUBLIC-PORT-RENTAL-RESERVED-LOGGED: launcher.log does not say Windows keeps the rental port, and what it takes:\n%s", b)
+	}
+}
+
 // A port Windows keeps for IPv6 alone stops the start too: the miner and the nodes listen on IPv6
 // as well, and would fail on it. The check listened on both families before it read the tables. A
 // PC with IPv6 turned off has its ports all the same.

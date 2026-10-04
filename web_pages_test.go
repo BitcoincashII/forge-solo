@@ -318,6 +318,103 @@ func TestLinuxSettingsNamesTheSecretsFile(t *testing.T) {
 	}
 }
 
+// When another program holds 3335 (Forge Solo for Windows and Linux start without it), or Windows
+// keeps it for itself, the connect card and Settings say so, and what to do, in the words the
+// launchers use, from the mining status. Neither offers 3333 to NiceHash or MiningRigRentals
+// instead: both did ("Rented hashpower uses port 3333 too"), while the launchers and the README said
+// such orders cannot connect, and an order sent to 3333 starts at its floor of 1,024. The pages'
+// logic is pinned whole: a test of fragments let a turned condition through.
+func TestNoRentalPortSaysWhatToDo(t *testing.T) {
+	const words = `function noRentalPort(ms) {
+    if (!ms || ms.rental_port !== 0) return '';
+    const taken = Number(ms.rental_port_taken) || 0;
+    if (taken > 0) {
+        return 'Another program uses port ' + taken + ', the rental port: rentals have no port of their own until you stop it and restart Forge Solo.';
+    }
+    const reserved = Number(ms.rental_port_reserved) || 0;
+    if (reserved > 0) {
+        return 'Windows keeps port ' + reserved + ', the rental port, for itself: rentals have no port of their own until Windows lets it go and you restart Forge Solo.';
+    }
+    return 'The rental port did not open: rentals have no port of their own. The mining service\'s log says why.';`
+	if fn := textBetween(readWebFile(t, "js/common.js"), "function noRentalPort(ms) {", "\n}"); fn != words {
+		t.Errorf("RENTAL-WORDS: noRentalPort() is not as it should be:\n%s\nwant:\n%s", fn, words)
+	}
+	card := textBetween(readWebFile(t, "js/pool-solo-inline.js"), "async function fetchConnectivity() {", "function renderRentalNote(")
+	// Before the node has synced and an address is set, the status banner has not read the mining
+	// status: the card reads it itself.
+	if !strings.Contains(card, `            let ms = lastMiningStatus;
+            if (!ms) {
+                try {
+                    ms = await apiFetch('/api/v1/mining-status');
+                } catch (e) {
+                    ms = null;
+                }
+            }
+`) {
+		t.Error("RENTAL-CARD-STATUS: the connect card does not read the mining status itself when the status banner has not")
+	}
+	if !strings.Contains(card, `            const rentalPort = (ms && Number(ms.rental_port)) || Number(c.rentalPort) || 3335;
+            lastConn = c; lastRentalPort = rentalPort; lastNoRental = noRentalPort(ms);
+            if (group) {
+                group.hidden = false;
+                const value = document.getElementById('connRental');
+                if (lastNoRental) {
+                    value.textContent = 'No port for rentals';
+                    document.getElementById('connRentalNote').textContent = lastNoRental;
+                } else if (c.publicIp) {
+`) {
+		t.Error("RENTAL-CARD: the connect card does not say why rentals have no port, and what to do, when they have none")
+	}
+	if strings.Contains(card, "Number(c.stratumPort)") {
+		t.Error("RENTAL-CARD-NOT-3333: the connect card offers the miners' port to rentals")
+	}
+	s := readWebFile(t, "settings.html")
+	if !strings.Contains(s, `   readJSON('/api/v1/mining-status').then(function(m){
+     noRental=noRentalPort(m);
+     if(noRental){ document.getElementById('noRentalNote').textContent=noRental; document.body.classList.add('no-rental'); showStratumUrls(); }
+   }).catch(function(){});
+`) {
+		t.Error("RENTAL-SETTINGS-STATUS: Settings does not show why rentals have no port, and what to do, when they have none")
+	}
+	for _, want := range []string{`<p class="note rental-none" id="noRentalNote"></p>`,
+		"document.getElementById('stratumUrlRental').textContent=noRental ? 'none (see below)' : 'stratum+tcp://'+host+':3335';",
+		" .rental-none{display:none}\n .no-rental .rental{display:none}\n .no-rental .rental-none{display:block}\n"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("RENTAL-SETTINGS: Settings lacks %q", want)
+		}
+	}
+	for _, l := range strings.Split(s, "\n") {
+		if strings.Contains(l, "getElementById('stratumUrlRental')") && strings.Contains(l, "3333") {
+			t.Errorf("RENTAL-SETTINGS-NOT-3333: Settings offers 3333 to rentals: %s", strings.TrimSpace(l))
+		}
+	}
+	if regexp.MustCompile(`rentalPort\s*=\s*3333`).MatchString(s) || strings.Contains(s, "<strong>3333</strong> too") {
+		t.Error("RENTAL-SETTINGS-NOT-3333: Settings offers 3333 to rentals")
+	}
+
+	// The mining service's log and the launchers' say what to do in the dashboard's words. A Go
+	// string split over lines is read as one.
+	joined := regexp.MustCompile(`"\s*\+\s*\n\s*"`)
+	taken := "rentals have no port of their own until you stop it and restart Forge Solo"
+	kept := "rentals have no port of their own until Windows lets it go and you restart Forge Solo"
+	for f, want := range map[string][]string{
+		"cmd/stratum/main.go":              {taken, kept},
+		"windows/launcher/public_ports.go": {taken, kept},
+		"cmd/forge-solo-linux/main.go":     {taken},
+	} {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		src := joined.ReplaceAllString(string(b), "")
+		for _, w := range want {
+			if !strings.Contains(src, w) {
+				t.Errorf("RENTAL-SAME-WORDS: %s does not say %q", f, w)
+			}
+		}
+	}
+}
+
 // Scripts and style sheets go out with no Cache-Control (only the pages are no-cache), so a
 // browser keeps its copy for hours after an update unless the reference changes. Every page
 // names each of them with the same ?v=, so a bump on one page is not missed on another.

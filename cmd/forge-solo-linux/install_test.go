@@ -126,7 +126,7 @@ func TestInstallWithoutTheRentalPort(t *testing.T) {
 	if err := install(&fakeHost{left: []int{rentalPort}}, &out, defaultWeb, false); err != nil {
 		t.Fatal(err)
 	}
-	if s := out.String(); !strings.Contains(s, "Note: "+leftOutNote(rentalPort)) || !strings.Contains(s, "(no rentals: another program has port 3335)") {
+	if s := out.String(); !strings.Contains(s, "Note: "+leftOutNote(rentalPort)) || !strings.Contains(s, "(no rentals: another program uses port 3335)") {
 		t.Errorf("INSTALL-NO-RENTALS: the output does not say the rental port is left out:\n%s", s)
 	}
 }

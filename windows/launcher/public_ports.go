@@ -15,7 +15,10 @@ var publicPorts = []struct {
 	port, what string
 	required   bool
 }{{minerPort, "the miner port", true}, {bch2P2P, "the BCH2 node's peer port", true},
-	{rentalPort, "the port for rented hashpower", false}, {aux1175P2P, "the 1175 node's peer port", false}}
+	{rentalPort, rentalWhat, false}, {aux1175P2P, "the 1175 node's peer port", false}}
+
+// rentalWhat is what the rental port is called, as Linux and the dashboard call it.
+const rentalWhat = "the rental port"
 
 // auxNoPeers is set when another program holds the 1175 node's peer port: the node then runs
 // without taking incoming peers (listen=0). It still syncs over the peers it reaches, and merge
@@ -23,8 +26,9 @@ var publicPorts = []struct {
 // and beside another 1175 node or wallet, which does, the two share the incoming peers.
 var auxNoPeers bool
 
-// checkPublicPorts fails when a required public port cannot be had; an optional one is only logged
-// (rentals are left out, and the 1175 node takes no incoming peers).
+// checkPublicPorts fails when a required public port cannot be had. Without an optional one Forge
+// Solo runs all the same: rentals have no port of their own, which the tray, launcher.log and the
+// dashboard say, or the 1175 node takes no incoming peers.
 //
 // It never listens on a public address itself: Windows Firewall asks the person at the screen to
 // let through a program that does, and forge-solo.exe has no rule (the miner and the nodes do). It
@@ -34,6 +38,7 @@ var auxNoPeers bool
 // the other program.
 func checkPublicPorts() *portError {
 	auxNoPeers = false
+	setRunningNote("rentals", "")
 	for _, p := range publicPorts {
 		err := portTaken(p.port, p.what)
 		switch {
@@ -43,6 +48,12 @@ func checkPublicPorts() *portError {
 		case p.port == aux1175P2P:
 			auxNoPeers = true
 			logf("%s: the 1175 node runs without incoming peers, and merge mining goes on (%v)", err.why(), err.cause)
+		case p.what == rentalWhat && err.reserved:
+			setRunningNote("rentals", noteRentalsReserved)
+			logf("%s: rentals have no port of their own until Windows lets it go and you restart Forge Solo (%v)", err.why(), err.cause)
+		case p.what == rentalWhat:
+			setRunningNote("rentals", noteNoRentals)
+			logf("%s: rentals have no port of their own until you stop it and restart Forge Solo (%v)", err.why(), err.cause)
 		default:
 			logf("%s: that part is left out (%v)", err.why(), err.cause)
 		}

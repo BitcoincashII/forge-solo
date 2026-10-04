@@ -67,6 +67,7 @@
         // a fault on an order that is paying off.
         let rentalsLive = 0;
         let lastConn = null, lastRentalPort = 0;
+        let lastNoRental = '';  // why rentals have no port of their own (noRentalPort), or ''
         let lastMiningStatusAt = 0;
         let minerBlocksCount = 0;
         let soloBlocksKnown = false;  // minerBlocksCount was read from the API
@@ -567,8 +568,9 @@
         //     right answer -- the same reasoning as stratumHostHint().
         //   * A marketplace dials in from the internet, so it needs the PUBLIC address and the
         //     rental port, and only if a rental listener actually came up. On Windows and Linux
-        //     none does while another program holds 3335, which is why the port comes from the
-        //     live mining status rather than from a constant here.
+        //     none does while another program holds 3335 (on Windows, or while Windows keeps it),
+        //     which is why the port comes from the live mining status rather than from a constant
+        //     here, and the card then says why rentals have no port, and what to do.
         //
         // Inbound peer counts are the honest test of a P2P forward. Outbound peers prove
         // nothing -- a node behind a closed port still makes plenty. One inbound peer means
@@ -630,16 +632,30 @@
 
             // Which port a marketplace should dial. The dedicated rental listener exists to
             // give an aggregated order its own high difficulty floor, but it is not always
-            // running: on Windows and Linux another program can hold 3335. Then the main port
-            // is the honest answer rather than nothing at all.
+            // running: on Windows and Linux another program can hold 3335, and on Windows,
+            // Windows can keep it for itself. Rentals then have no port of their own, and the
+            // card says why and what to do. 3333 is never offered instead: an order sent there
+            // starts at 1,024.
+            // The status banner reads the mining status only once the node is synced and an
+            // address is set; before that it is read here.
+            let ms = lastMiningStatus;
+            if (!ms) {
+                try {
+                    ms = await apiFetch('/api/v1/mining-status');
+                } catch (e) {
+                    ms = null;
+                }
+            }
             const group = document.getElementById('connRentalGroup');
-            const rentalPort = (lastMiningStatus && Number(lastMiningStatus.rental_port))
-                || Number(c.stratumPort) || 3333;
-            lastConn = c; lastRentalPort = rentalPort;
+            const rentalPort = (ms && Number(ms.rental_port)) || Number(c.rentalPort) || 3335;
+            lastConn = c; lastRentalPort = rentalPort; lastNoRental = noRentalPort(ms);
             if (group) {
                 group.hidden = false;
                 const value = document.getElementById('connRental');
-                if (c.publicIp) {
+                if (lastNoRental) {
+                    value.textContent = 'No port for rentals';
+                    document.getElementById('connRentalNote').textContent = lastNoRental;
+                } else if (c.publicIp) {
                     value.textContent = 'stratum+tcp://' + c.publicIp + ':' + rentalPort;
                     renderRentalNote(c, rentalPort);
                 } else {
@@ -665,7 +681,7 @@
 
         function renderRentalNote(c, rentalPort) {
             const note = document.getElementById('connRentalNote');
-            if (!note || !c.publicIp) return;
+            if (!note || !c.publicIp || lastNoRental) return;
             note.textContent = rentalsLive > 0
                 ? 'Rented hashrate is reaching you on port ' + rentalPort + ' right now.'
                 : 'Forward port ' + rentalPort + ' to this machine in your router, '

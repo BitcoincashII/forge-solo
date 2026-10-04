@@ -253,7 +253,7 @@ func TestEveryTrayTextFits(t *testing.T) {
 					arg = call.Args[1]
 				case "setRunningNote":
 					sites++
-					a := call.Args[0]
+					a := call.Args[1]
 					id, isID := a.(*ast.Ident)
 					lit, isLit := a.(*ast.BasicLit)
 					if !(isID && tipConsts[id.Name] && strings.HasPrefix(id.Name, "note")) && !(isLit && lit.Value == `""`) {

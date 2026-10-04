@@ -212,6 +212,21 @@ func TestRunningOnlyWithEverythingRunning(t *testing.T) {
 	if tp.last() != "Forge Solo: running" {
 		t.Fatalf("WIN-RUNNING-ALL: with everything running the tray says %q", tp.last())
 	}
+	// Another program holds the rental port: running, why rentals have no port, and what to do. A
+	// damaged old database folder comes first: the tray has room for one.
+	t.Cleanup(func() { setRunningNote("rentals", ""); setRunningNote("database", "") })
+	setRunningNote("rentals", noteNoRentals)
+	showRunning()
+	if want := "Forge Solo: running. No rentals: stop what uses 3335, restart"; tp.last() != want {
+		t.Fatalf("WIN-RUNNING-RENTALS: with the rental port taken the tray says %q, not %q", tp.last(), want)
+	}
+	setRunningNote("database", noteDegraded)
+	showRunning()
+	if tp.last() != tipRunningWith(noteDegraded) {
+		t.Fatalf("WIN-RUNNING-NOTE-ORDER: with both notes the tray says %q", tp.last())
+	}
+	setRunningNote("database", "")
+	setRunningNote("rentals", "")
 	setTrouble("database", tipMoveFailed)
 	tp.add("something else")
 	showRunning()

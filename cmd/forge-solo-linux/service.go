@@ -235,7 +235,7 @@ func install(h host, out io.Writer, web string, given bool) (err error) {
 	}
 	rent := fmt.Sprintf("(rentals: %d)", rentalPort)
 	if len(left) > 0 {
-		rent = fmt.Sprintf("(no rentals: another program has port %d)", rentalPort)
+		rent = noRentals(rentalPort)
 	}
 	fmt.Fprintf(out, `
 Forge Solo is installed and running as the %[1]s service.

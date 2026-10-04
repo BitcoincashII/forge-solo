@@ -132,14 +132,31 @@ var (
 // one in trouble; a move of the old data that failed ("database") comes first.
 var runningKeys = []string{"bch2", "aux1175", "api", "stratum"}
 
-// runningNote is said after "running" in the tray: what the dashboard also says, about an earlier
-// version's data, while Forge Solo runs as it should.
-var runningNote string
+// runningNotes are said after "running" in the tray, by what each is about: what the dashboard also
+// says about an earlier version's data ("database") and about the rental port ("rentals"), while
+// Forge Solo runs as it should. The tray has room for one, the first in noteOrder.
+var (
+	runningNotes = map[string]string{}
+	noteOrder    = []string{"database", "rentals"}
+)
 
-func setRunningNote(s string) {
+// setRunningNote sets the note about key; "" takes it away.
+func setRunningNote(key, s string) {
 	troubleMu.Lock()
-	runningNote = s
+	runningNotes[key] = s
 	troubleMu.Unlock()
+}
+
+// runningNote is the note the tray shows after "running", or "".
+func runningNote() string {
+	troubleMu.Lock()
+	defer troubleMu.Unlock()
+	for _, k := range noteOrder {
+		if n := runningNotes[k]; n != "" {
+			return n
+		}
+	}
+	return ""
 }
 
 // showTrouble shows the first trouble in the tray, if there is one, and reports whether there was.
@@ -170,10 +187,7 @@ func showRunning() {
 			return
 		}
 	}
-	troubleMu.Lock()
-	note := runningNote
-	troubleMu.Unlock()
-	status(tipRunningWith(note))
+	status(tipRunningWith(runningNote()))
 }
 
 // startOrKeepTrying starts the program under key and reports whether it runs. One that cannot start

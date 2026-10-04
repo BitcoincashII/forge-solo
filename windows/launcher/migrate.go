@@ -66,7 +66,7 @@ func dbPath() string { return dpath("forgesolo.db") }
 // which says why and offers to start without the old data, and the miner does not mine.
 func prepareDatabase() {
 	clearTrouble("database")
-	setRunningNote("")
+	setRunningNote("database", "")
 	removeLeftLinks()
 	action, reason, verified := quickPlan(dbPath(), dpath("pgdata"))
 	if action == "" {
@@ -99,7 +99,7 @@ func prepareDatabase() {
 			Reason: skipName + " is there: Forge Solo started without the data of the earlier version"})
 	case planDegraded:
 		recordStatus(migrationStatus{State: stateDegraded, Reason: reason})
-		setRunningNote(noteDegraded)
+		setRunningNote("database", noteDegraded)
 	case planMove, planMerge:
 		moveData(action == planMerge)
 	default:

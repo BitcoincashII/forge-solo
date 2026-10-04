@@ -306,6 +306,25 @@ const Modal = {
     }
 };
 
+// Why rentals (NiceHash, MiningRigRentals) have no port of their own, and what to do, from the API's
+// mining status, or '' while the rental port listens or the mining service has not said. On Windows
+// and Linux, Forge Solo starts without it when another program holds it, and on Windows when
+// Windows keeps it for itself. The connect card and Settings both say this, in the launchers'
+// words; neither offers 3333 instead, whose difficulty floor suits one miner, not an order that
+// arrives as one connection.
+function noRentalPort(ms) {
+    if (!ms || ms.rental_port !== 0) return '';
+    const taken = Number(ms.rental_port_taken) || 0;
+    if (taken > 0) {
+        return 'Another program uses port ' + taken + ', the rental port: rentals have no port of their own until you stop it and restart Forge Solo.';
+    }
+    const reserved = Number(ms.rental_port_reserved) || 0;
+    if (reserved > 0) {
+        return 'Windows keeps port ' + reserved + ', the rental port, for itself: rentals have no port of their own until Windows lets it go and you restart Forge Solo.';
+    }
+    return 'The rental port did not open: rentals have no port of their own. The mining service\'s log says why.';
+}
+
 // Forge Solo 1.0.13 keeps its data in a new database, and moves an earlier version's data into it
 // once. The API's health answer says what came of that. Status 'maintenance': the move was needed
 // and failed, so Forge Solo does not mine and the API answers nothing else; every page shows one

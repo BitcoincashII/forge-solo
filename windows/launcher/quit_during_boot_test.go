@@ -34,7 +34,8 @@ func bootWorld(t *testing.T, scripts map[string]string) {
 		for _, k := range []string{"stratum", "api", "bch2", "aux1175", "migrate"} {
 			stop(k)
 		}
-		setRunningNote("")
+		setRunningNote("database", "")
+		setRunningNote("rentals", "")
 		mu.Lock()
 		stopping = false
 		mu.Unlock()
@@ -257,20 +258,24 @@ func TestATakenPublicPortStopsTheStart(t *testing.T) {
 	_ = l.Close()
 
 	optional := port(true)
-	publicPorts = []pp{{optional, "the port for rented hashpower", false}}
+	publicPorts = []pp{{optional, rentalWhat, false}}
 	if err := checkPublicPorts(); err != nil {
 		t.Fatalf("PUBLIC-PORT-OPTIONAL: an optional port taken stopped the start: %v", err)
 	}
+	// What is wrong, and what to do, as the dashboard and Linux say it.
+	if got := runningNote(); got != noteNoRentals {
+		t.Errorf("PUBLIC-PORT-RENTAL-TRAY: with the rental port taken the tray says running%q, not running%q", got, noteNoRentals)
+	}
 
 	required := port(true)
-	publicPorts = []pp{{optional, "the port for rented hashpower", false}, {required, "the miner port", true}}
+	publicPorts = []pp{{optional, rentalWhat, false}, {required, "the miner port", true}}
 	boot()
 	b, _ := os.ReadFile(dpath("launcher.log"))
 	if !strings.Contains(string(b), "Forge Solo cannot start: another program uses port "+required+", the miner port") {
 		t.Fatalf("PUBLIC-PORT-TAKEN: the log does not name the taken miner port %s:\n%s", required, b)
 	}
-	if !strings.Contains(string(b), "another program uses port "+optional+", the port for rented hashpower: that part is left out") {
-		t.Errorf("PUBLIC-PORT-OPTIONAL-LOGGED: the taken rental port %s is not logged:\n%s", optional, b)
+	if !strings.Contains(string(b), "another program uses port "+optional+", the rental port: rentals have no port of their own until you stop it and restart Forge Solo (") {
+		t.Errorf("PUBLIC-PORT-OPTIONAL-LOGGED: the taken rental port %s is not logged with what to do:\n%s", optional, b)
 	}
 	if _, err := os.Stat(ran); err == nil {
 		t.Fatal("PUBLIC-PORT-STOPS-START: boot went on to start the nodes with the miner port taken")
