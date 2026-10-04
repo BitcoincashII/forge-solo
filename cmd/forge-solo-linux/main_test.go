@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"os"
+	"os/user"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -101,6 +102,110 @@ func TestRootIsRefusedAnotherAccountsDataDir(t *testing.T) {
 	}
 	if left, _ := os.ReadDir(dir); len(left) != 0 {
 		t.Errorf("ROOT-WIRING: the refused run wrote %v", left)
+	}
+}
+
+// The refusal's hints are commands that work: by name when the owner has an account, and when the
+// uid has none, ones that need none (sudo -u 4242 and chown 4242: both fail). The service's
+// follow whether it is installed: after uninstall-service it is not.
+func TestRootRefusalHints(t *testing.T) {
+	base := rootOwned{dir: "/srv/fsd", uid: 4242, gid: 4343, exe: "/home/a/rel/forge-solo", sudoUser: "alice"}
+	says := func(d rootOwned) string {
+		err := rootRefusal(d)
+		if !errors.Is(err, errRootForeignDataDir) {
+			t.Errorf("ROOT-HINT-ERR: %v", err)
+		}
+		return err.Error()
+	}
+
+	s := says(base)
+	if !strings.Contains(s, "uid 4242, which has no account") || strings.Contains(s, "sudo -u") || strings.Contains(s, "chown -R 4242: ") {
+		t.Errorf("ROOT-HINT-NOACCOUNT: a uid with no account:\n%s", s)
+	}
+	if !strings.Contains(s, "sudo chown -R alice: /srv/fsd") || !strings.Contains(s, "sudo chown -R 4242:4343 /srv/fsd") {
+		t.Errorf("ROOT-HINT-NOACCOUNT-CHOWN: a uid with no account:\n%s", s)
+	}
+	d := base
+	d.sudoUser = ""
+	if s := says(d); !strings.Contains(s, "sudo chown -R YOUR-ACCOUNT: /srv/fsd") {
+		t.Errorf("ROOT-HINT-NOSUDO: run as root without sudo:\n%s", s)
+	}
+
+	d = base
+	d.name = "bob"
+	if s := says(d); !strings.Contains(s, "sudo -u bob /home/a/rel/forge-solo run --data-dir /srv/fsd") || !strings.Contains(s, "sudo chown -R bob: /srv/fsd") {
+		t.Errorf("ROOT-HINT-NAME: an owner with an account:\n%s", s)
+	}
+
+	d = base
+	d.dir, d.service, d.unit, d.name = serviceData, true, true, serviceUser
+	if s := says(d); !strings.Contains(s, "sudo systemctl start forge-solo") || !strings.Contains(s, "sudo -u forge-solo /opt/forge-solo/forge-solo run --data-dir /var/lib/forge-solo") {
+		t.Errorf("ROOT-HINT-SERVICE: the installed service's data:\n%s", s)
+	}
+	d.unit = false
+	if s := says(d); strings.Contains(s, "systemctl") || !strings.Contains(s, "not installed now") ||
+		!strings.Contains(s, "sudo /home/a/rel/forge-solo install-service") || !strings.Contains(s, "sudo -u forge-solo /opt/forge-solo/forge-solo run") {
+		t.Errorf("ROOT-HINT-UNINSTALLED: the data of a service that was uninstalled:\n%s", s)
+	}
+	d.name = "" // and its user deleted
+	if s := says(d); strings.Contains(s, "sudo -u") || !strings.Contains(s, "sudo chown -R alice: /var/lib/forge-solo") {
+		t.Errorf("ROOT-HINT-UNINSTALLED-NOUSER: and its user deleted:\n%s", s)
+	}
+}
+
+// The owner's name as the system finds it: an account only LDAP or SSSD knows is named, which
+// Forge Solo, reading /etc/passwd only, could not do.
+func TestOwnerName(t *testing.T) {
+	oldLookup, oldID := lookupName, idName
+	t.Cleanup(func() { lookupName, idName = oldLookup, oldID })
+	lookupName = func(string) (string, error) { return "", errors.New("unknown user") }
+	idName = func(uid string) (string, error) {
+		if uid == "4242" {
+			return "carol", nil
+		}
+		return "", errors.New("no such user")
+	}
+	if n := ownerName(4242); n != "carol" {
+		t.Errorf("ROOT-NAME-NSS: an account the system knows: %q", n)
+	}
+	if n := ownerName(4343); n != "" {
+		t.Errorf("ROOT-NAME-NONE: a uid with no account: %q", n)
+	}
+	lookupName, idName = oldLookup, oldID
+	me, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := ownerName(uint32(os.Getuid())); n != me.Username {
+		t.Errorf("ROOT-NAME-REAL: this account is %q, want %q", n, me.Username)
+	}
+	if n := ownerName(3999999); n != "" {
+		t.Errorf("ROOT-NAME-REAL-NONE: uid 3999999 is %q", n)
+	}
+}
+
+// The refusal knows the service's data directory, and whether the service is installed.
+func TestRootRefusalSeesTheService(t *testing.T) {
+	svc, other := t.TempDir(), t.TempDir()
+	unit := filepath.Join(t.TempDir(), "forge-solo.service")
+	if os.Geteuid() == 0 { // as root, hand the directories to another account
+		for _, d := range []string{svc, other} {
+			if err := os.Chown(d, 65534, 65534); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := checkRootDataDirAt(0, svc, svc, unit); err == nil || strings.Contains(err.Error(), "systemctl") || !strings.Contains(err.Error(), "not installed now") {
+		t.Errorf("ROOT-WIRING-UNINSTALLED: the service's data, no unit: %v", err)
+	}
+	if err := os.WriteFile(unit, []byte("[Unit]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkRootDataDirAt(0, svc, svc, unit); err == nil || !strings.Contains(err.Error(), "sudo systemctl start forge-solo") {
+		t.Errorf("ROOT-WIRING-UNIT: the service's data, its unit installed: %v", err)
+	}
+	if err := checkRootDataDirAt(0, other, svc, unit); err == nil || !strings.Contains(err.Error(), "Run it as its owner") {
+		t.Errorf("ROOT-WIRING-OTHER: another account's data: %v", err)
 	}
 }
 

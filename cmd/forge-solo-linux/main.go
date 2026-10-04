@@ -21,6 +21,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -252,6 +253,12 @@ var errRootForeignDataDir = errors.New("refusing to run as root on a data direct
 // longer open them: the service's node then stopped at every start while systemd showed it
 // running.
 func checkRootDataDir(euid int, dataDir string) error {
+	return checkRootDataDirAt(euid, dataDir, serviceData, unitPath)
+}
+
+// checkRootDataDirAt is checkRootDataDir with the service's data directory and unit file where
+// they are given (the tests' own).
+func checkRootDataDirAt(euid int, dataDir, svcData, unit string) error {
 	if euid != 0 {
 		return nil
 	}
@@ -263,28 +270,94 @@ func checkRootDataDir(euid int, dataDir string) error {
 	if !ok || sys.Uid == 0 {
 		return nil
 	}
-	owner := strconv.FormatUint(uint64(sys.Uid), 10)
-	if u, err := user.LookupId(owner); err == nil {
-		owner = u.Username
-	}
-	why := fmt.Sprintf("%s belongs to %s. Files a run as root wrote there would be root's, and Forge Solo running as %s "+
-		"could no longer open them", dataDir, owner, owner)
-	if filepath.Clean(dataDir) == serviceData {
-		installed := filepath.Join(serviceDir, "forge-solo")
-		return fmt.Errorf("%w: %s.\n"+
-			"  It is the service's: start the service instead: sudo systemctl start %s\n"+
-			"  To run it in a terminal, run it as the service's user: sudo -u %s %s run --data-dir %s\n"+
-			"  If a run as root has already left files there, sudo %s install-service gives them back to the service",
-			errRootForeignDataDir, why, serviceName, owner, installed, dataDir, installed)
-	}
+	_, err = os.Stat(unit)
 	exe := "forge-solo"
 	if inst, err := installDir(); err == nil {
 		exe = filepath.Join(inst, "forge-solo")
 	}
-	return fmt.Errorf("%w: %s.\n"+
-		"  Run it as its owner instead: sudo -u %s %s run --data-dir %s\n"+
-		"  If a run as root has already left files there: sudo chown -R %s: %s",
-		errRootForeignDataDir, why, owner, exe, dataDir, owner, dataDir)
+	return rootRefusal(rootOwned{dir: dataDir, uid: sys.Uid, gid: sys.Gid, name: ownerName(sys.Uid),
+		service: filepath.Clean(dataDir) == filepath.Clean(svcData), unit: err == nil, exe: exe, sudoUser: os.Getenv("SUDO_USER")})
+}
+
+// rootOwned is a data directory a run as root was refused, and what the refusal says to do.
+type rootOwned struct {
+	dir      string
+	uid, gid uint32
+	name     string // the owner's account: "" when the uid has none on this machine
+	service  bool   // it is the service's data directory
+	unit     bool   // the service is installed
+	exe      string // this program
+	sudoUser string // who ran sudo, from SUDO_USER
+}
+
+// rootRefusal says why a run as root on d is refused, and gives commands that work: sudo cannot
+// run anything as a uid with no account, and chown takes "uid:" only for one with an account.
+func rootRefusal(d rootOwned) error {
+	owner := d.name
+	if owner == "" {
+		owner = fmt.Sprintf("uid %d, which has no account on this machine", d.uid)
+	}
+	why := fmt.Sprintf("%s belongs to %s. Files a run as root wrote there would be root's, and Forge Solo running as "+
+		"its owner could no longer open them", d.dir, owner)
+	you := d.sudoUser
+	if you == "" || you == "root" {
+		you = "YOUR-ACCOUNT"
+	}
+	makeYours := fmt.Sprintf("  To run it as your own account instead, make it yours, then run it without sudo: sudo chown -R %s: %s", you, d.dir)
+	installed := filepath.Join(serviceDir, "forge-solo")
+	var hints []string
+	switch {
+	case d.service && d.unit:
+		hints = append(hints, "  It is the service's: start the service instead: sudo systemctl start "+serviceName)
+		if d.name != "" {
+			hints = append(hints, fmt.Sprintf("  To run it in a terminal, run it as the service's user: sudo -u %s %s run --data-dir %s", d.name, installed, d.dir))
+		}
+		hints = append(hints, fmt.Sprintf("  If a run as root has already left files there, sudo %s install-service gives them back to the service", installed))
+	case d.service:
+		hints = append(hints, fmt.Sprintf("  It is the data of the Forge Solo service, which is not installed now. To install it again, "+
+			"which takes this data over: sudo %s install-service", d.exe))
+		if d.name != "" {
+			hints = append(hints, fmt.Sprintf("  To run it in a terminal as its owner: sudo -u %s %s run --data-dir %s", d.name, installed, d.dir))
+		} else {
+			hints = append(hints, makeYours)
+		}
+	case d.name != "":
+		hints = append(hints, fmt.Sprintf("  Run it as its owner instead: sudo -u %s %s run --data-dir %s", d.name, d.exe, d.dir),
+			fmt.Sprintf("  If a run as root has already left files there: sudo chown -R %s: %s", d.name, d.dir))
+	default:
+		hints = append(hints, makeYours,
+			fmt.Sprintf("  If a run as root has already left files there: sudo chown -R %d:%d %s", d.uid, d.gid, d.dir))
+	}
+	return fmt.Errorf("%w: %s.\n%s", errRootForeignDataDir, why, strings.Join(hints, "\n"))
+}
+
+// lookupName is uid's account name as Forge Solo reads it (/etc/passwd only), and idName as the
+// system finds it (LDAP, SSSD and systemd-homed too), the way sudo and chown do. Variables: the
+// tests stand in others.
+var (
+	lookupName = func(uid string) (string, error) {
+		u, err := user.LookupId(uid)
+		if err != nil {
+			return "", err
+		}
+		return u.Username, nil
+	}
+	idName = func(uid string) (string, error) {
+		out, err := exec.Command("id", "-nu", uid).Output()
+		return strings.TrimSpace(string(out)), err
+	}
+)
+
+// ownerName is uid's account name: "" when it has none on this machine.
+func ownerName(uid uint32) string {
+	s := strconv.FormatUint(uint64(uid), 10)
+	if n, err := lookupName(s); err == nil && n != "" {
+		return n
+	}
+	if n, err := idName(s); err == nil && n != "" {
+		return n
+	}
+	return ""
 }
 
 // rootWarning is shown when Forge Solo is started as root.
