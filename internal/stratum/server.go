@@ -548,7 +548,7 @@ func (s *Server) resetIdleDifficulties(now time.Time) {
 		workerName := c.WorkerName
 		c.mu.Unlock()
 		if stuck {
-			s.rememberDifficulty(minerID, workerName, floor) // don't re-hand the too-high level next time
+			s.rememberDifficulty(minerID, workerName, hostOf(c.IP), floor) // don't re-hand the too-high level next time
 			s.sendCurrentDifficulty(c)
 			s.logger.Info("Idle difficulty reset",
 				zap.String("miner", minerID),
@@ -1914,7 +1914,7 @@ func (s *Server) authorize(client *Client, req *Request) (*Response, authorized)
 		// miner (identified by NOT being such a marketplace) keeps the resume so it
 		// does not re-ramp from the floor on every reconnect.
 		if !isManyMinerMarketplace(client.UserAgent) {
-			if remembered, ok := s.recallDifficulty(minerID, workerName); ok && remembered > start {
+			if remembered, ok := s.recallDifficulty(minerID, workerName, hostOf(client.IP)); ok && remembered > start {
 				start = remembered
 			}
 		}
@@ -2413,15 +2413,20 @@ type diffMem struct {
 // resumes the S19's ramped difficulty onto the Bitaxe, which then cannot submit at all --
 // adjustVardiff only runs from handleSubmit, so nothing corrects it until
 // idleDifficultyLoop notices minutes later.
-func diffMemoryKey(minerID, workerName string) string {
-	return minerID + "\x00" + workerName
+//
+// The worker name alone does not tell devices apart either: several can log in under one label
+// (the bare payout address, or the same "rig" on each). So the key also holds the host the
+// device connects from. A miner or rental proxy that reconnects comes back from the same address
+// and keeps its level.
+func diffMemoryKey(minerID, workerName, host string) string {
+	return minerID + "\x00" + workerName + "\x00" + host
 }
 
-func (s *Server) rememberDifficulty(minerID, workerName string, diff float64) {
+func (s *Server) rememberDifficulty(minerID, workerName, host string, diff float64) {
 	if minerID == "" || diff <= 0 {
 		return
 	}
-	s.diffMemory.Store(diffMemoryKey(minerID, workerName), diffMem{diff: diff, at: time.Now()})
+	s.diffMemory.Store(diffMemoryKey(minerID, workerName, host), diffMem{diff: diff, at: time.Now()})
 }
 
 // isManyMinerMarketplace reports whether the client's user-agent identifies a
@@ -2440,8 +2445,8 @@ func isManyMinerMarketplace(userAgent string) bool {
 }
 
 // recallDifficulty returns a miner's remembered vardiff level if it is still fresh.
-func (s *Server) recallDifficulty(minerID, workerName string) (float64, bool) {
-	v, ok := s.diffMemory.Load(diffMemoryKey(minerID, workerName))
+func (s *Server) recallDifficulty(minerID, workerName, host string) (float64, bool) {
+	v, ok := s.diffMemory.Load(diffMemoryKey(minerID, workerName, host))
 	if !ok {
 		return 0, false
 	}
@@ -2672,7 +2677,7 @@ func (s *Server) adjustVardiffAt(client *Client, now time.Time) {
 		client.mu.Unlock()
 
 		// Remember this share-proven level so the miner resumes near it on reconnect.
-		s.rememberDifficulty(minerID, workerName, newDiff)
+		s.rememberDifficulty(minerID, workerName, hostOf(client.IP), newDiff)
 
 		// Send difficulty synchronously to ensure miner receives it
 		s.sendDifficulty(client, newDiff)

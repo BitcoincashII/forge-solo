@@ -14,10 +14,10 @@ func TestDiffMemoryPrunesExpiredButKeepsLive(t *testing.T) {
 	s := NewServerForTest()
 	now := time.Now()
 
-	fresh := diffMemoryKey("miner", "live")
-	stale := diffMemoryKey("miner", "rotated-away")
+	fresh := diffMemoryKey("miner", "live", "192.168.1.20")
+	stale := diffMemoryKey("miner", "rotated-away", "192.168.1.20")
 	// Exactly at the TTL boundary must survive: only strictly older entries are junk.
-	edge := diffMemoryKey("miner", "edge")
+	edge := diffMemoryKey("miner", "edge", "192.168.1.20")
 
 	s.diffMemory.Store(fresh, diffMem{diff: 1024, at: now})
 	s.diffMemory.Store(stale, diffMem{diff: 2048, at: now.Add(-diffMemoryTTL - time.Minute)})
@@ -46,7 +46,7 @@ func TestDiffMemoryPruneIsSafeWhenNothingIsStale(t *testing.T) {
 	s := NewServerForTest()
 	s.cleanupDiffMemory() // empty: must not panic
 
-	s.diffMemory.Store(diffMemoryKey("m", "w"), diffMem{diff: 512, at: time.Now()})
+	s.diffMemory.Store(diffMemoryKey("m", "w", "192.168.1.20"), diffMem{diff: 512, at: time.Now()})
 	s.cleanupDiffMemory()
 	n := 0
 	s.diffMemory.Range(func(_, _ interface{}) bool { n++; return true })
