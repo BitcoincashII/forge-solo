@@ -524,9 +524,10 @@ if want snapshot; then
 fi
 # Kept answers read as their committed snapshots, which the Windows CI job's dashboard-snapshot.ps1
 # must write byte for byte the same: the answers of a run after a move (dashboard); the same with
-# every time written in other zones, some with a fraction of a second (dashboard-zones); 1.0.12's
-# answers on a cluster in America/Chicago (dashboard-1012); and a list of times, and of text that
-# only looks like one (dashboard-times).
+# every time written in other zones, some with a fraction of a second, which reads as the nearest
+# second as the move rounds it, half a second as the next (dashboard-zones); 1.0.12's answers on a
+# cluster in America/Chicago (dashboard-1012); and a list of times, and of text that only looks
+# like one (dashboard-times).
 # recorded ANSWERS SNAPSHOT: testdata/migrate/ANSWERS read as testdata/migrate/SNAPSHOT.
 recorded() {
   scripts/dashboard-snapshot.sh --from "testdata/migrate/$1" "$OUT/recorded.$1.json" || return 1

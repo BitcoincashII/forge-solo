@@ -62,7 +62,9 @@ KNOWN_1012 = [
 
 # A time is written in UTC and to the second, as forgesolo.db keeps it: PostgreSQL kept the
 # fraction, and wrote the server's time zone (on Windows the PC's). One without a zone keeps none.
-TIME = re.compile(r"([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.[0-9]+)?"
+# Half a second or more counts as the next second, as the move rounds it (a time in the last second
+# of the year 9999, which has no next, keeps its own).
+TIME = re.compile(r"([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.([0-9]+))?"
                   r"([Zz]|([+-])([0-9]{2})(?::?([0-9]{2}))?)?")
 
 def text(s):
@@ -71,13 +73,18 @@ def text(s):
         return s
     try:
         t = datetime.datetime(*(int(x) for x in m.group(1, 2, 3, 4, 5, 6)))
-        if m.group(8):
-            off = int(m.group(9)) * 60 + int(m.group(10) or 0)
-            t -= datetime.timedelta(minutes=off if m.group(8) == "+" else -off)
+        if m.group(9):
+            off = int(m.group(10)) * 60 + int(m.group(11) or 0)
+            t -= datetime.timedelta(minutes=off if m.group(9) == "+" else -off)
     except (ValueError, OverflowError):
         return s
+    if (m.group(7) or "0")[0] >= "5":
+        try:
+            t += datetime.timedelta(seconds=1)
+        except OverflowError:
+            pass
     return "%04d-%02d-%02dT%02d:%02d:%02d%s" % (t.year, t.month, t.day, t.hour, t.minute, t.second,
-                                              "Z" if m.group(7) else "")
+                                              "Z" if m.group(8) else "")
 
 EMPTY_OBJECT, EMPTY_LIST = object(), object()
 

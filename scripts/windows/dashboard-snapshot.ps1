@@ -190,8 +190,10 @@ function Format-Text([string]$s) {
 
 # A time is written in UTC and to the second, as forgesolo.db keeps it: PostgreSQL kept the
 # fraction, and wrote the server's time zone (on Windows the PC's). One without a zone keeps none.
-# PowerShell 7 reads most times as dates itself (in the PC's zone); 5.1 leaves them as text.
-$time = '\A([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.[0-9]+)?([Zz]|([+-])([0-9]{2})(?::?([0-9]{2}))?)?\z'
+# Half a second or more counts as the next second, as the move rounds it (a time in the last second
+# of the year 9999, which has no next, keeps its own). PowerShell 7 reads most times as dates itself
+# (in the PC's zone); 5.1 leaves them as text.
+$time = '\A([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.([0-9]+))?([Zz]|([+-])([0-9]{2})(?::?([0-9]{2}))?)?\z'
 function Format-Time([string]$s) {
     $m = [regex]::Match($s, $time)
     if (-not $m.Success) { return $s }
@@ -199,18 +201,25 @@ function Format-Time([string]$s) {
     try {
         $t = [DateTime]::new([int]$g[1].Value, [int]$g[2].Value, [int]$g[3].Value,
             [int]$g[4].Value, [int]$g[5].Value, [int]$g[6].Value, [DateTimeKind]::Utc)
-        if ($g[8].Success) {
-            $off = [int]$g[9].Value * 60
-            if ($g[10].Success) { $off += [int]$g[10].Value }
-            if ($g[8].Value -eq '+') { $off = -$off }
+        if ($g[9].Success) {
+            $off = [int]$g[10].Value * 60
+            if ($g[11].Success) { $off += [int]$g[11].Value }
+            if ($g[9].Value -eq '+') { $off = -$off }
             $t = $t.AddMinutes($off)
         }
     } catch {
         return $s
     }
+    if ($g[7].Success -and $g[7].Value[0] -ge [char]'5') { $t = Add-Second $t }
     $u = $t.ToString('yyyy-MM-ddTHH:mm:ss', $inv)
-    if ($g[7].Success) { return $u + 'Z' }
+    if ($g[8].Success) { return $u + 'Z' }
     return $u
+}
+
+# t a second later, or t in the last second of the year 9999, which has no next.
+function Add-Second([datetime]$t) {
+    if ($t.Ticks -ge [datetime]::MaxValue.Ticks - [timespan]::TicksPerSecond) { return $t }
+    return $t.AddSeconds(1)
 }
 
 # A value as the file writes it: numbers as integers when they are whole, else to 8 decimals without
@@ -221,8 +230,10 @@ function Format-Value($v) {
     if ([object]::ReferenceEquals($v, $emptyList)) { return '[]' }
     if ($v -is [bool]) { if ($v) { return 'true' } else { return 'false' } }
     if ($v -is [datetime]) {
-        if ($v.Kind -eq [DateTimeKind]::Unspecified) { return Format-Text $v.ToString('yyyy-MM-ddTHH:mm:ss', $inv) }
-        return Format-Text ($v.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss', $inv) + 'Z')
+        $z = ''
+        if ($v.Kind -ne [DateTimeKind]::Unspecified) { $v = $v.ToUniversalTime(); $z = 'Z' }
+        if ($v.Ticks % [timespan]::TicksPerSecond -ge [timespan]::TicksPerSecond / 2) { $v = Add-Second $v }
+        return Format-Text ($v.ToString('yyyy-MM-ddTHH:mm:ss', $inv) + $z)
     }
     if ($v -is [int] -or $v -is [long] -or $v -is [decimal] -or $v -is [double] -or $v -is [single]) {
         $d = [decimal]$v
