@@ -7,25 +7,28 @@
 # for ever. Started once with -reindex, the node rebuilds it from the blocks on disk. Forge Solo for
 # Windows does the same.
 
-# said_damaged LOG FROM succeeds if the node's last run wrote to LOG that its chain data is damaged.
-# FROM is LOG's length when that run started. A LOG shorter than that was trimmed by the node as it
-# started (it keeps the last 10 MB); the run's lines then follow the empty lines the node writes
-# each time it opens LOG.
-said_damaged() {
-    [ -f "$1" ] || return 1
+# last_run LOG FROM prints what the node's last run wrote to LOG about its chain data: "damaged" if
+# it said the data is damaged, else "loaded" if it loaded the chain, else nothing. FROM is LOG's
+# length when that run started. A LOG shorter than that was trimmed by the node as it started (it
+# keeps the last 10 MB); the run's lines then follow the empty lines the node writes each time it
+# opens LOG.
+last_run() {
+    [ -f "$1" ] || return 0
     from=$2
     [ "$(($(wc -c < "$1")))" -ge "$from" ] || from=0
     tail -c +"$((from + 1))" "$1" | LC_ALL=C awk '
-        /^$/ { if (++empty == 4) damaged = 0; next }
+        /^$/ { if (++empty == 4) damaged = loaded = 0; next }
         { empty = 0 }
         /Corrupted block database detected|restart with -reindex/ { damaged = 1 }
-        END { exit !damaged }'
+        /init message: Done loading/ { loaded = 1 }
+        END { if (damaged) print "damaged"; else if (loaded) print "loaded" }'
 }
 
 # rebuild_once DATADIR NAME FOLDER succeeds when the node should start with -reindex: its last run
-# said its chain data is damaged, and no rebuild has been tried in this container. A rebuild that
-# did not help is not tried again until the app is restarted (a new container); the folders to
-# delete are logged instead. NAME is the node's name in the log, FOLDER its folder in the app's data.
+# said its chain data is damaged, and this container has tried no rebuild since a run last loaded
+# the chain. A rebuild that did not help, or stopped before the chain was loaded, is not tried again
+# until the app is restarted (a new container); the folders to delete are logged instead. NAME is
+# the node's name in the log, FOLDER its folder in the app's data.
 rebuild_once() {
     log=$1/debug.log
     start=$1/debug-log-start
@@ -35,10 +38,11 @@ rebuild_once() {
     now=0
     [ -f "$log" ] && now=$(($(wc -c < "$log")))
     echo "$now" > "$start" 2>/dev/null || true
-    if ! said_damaged "$log" "$from"; then
-        rm -f "$tried"
-        return 1
-    fi
+    case $(last_run "$log" "$from") in
+        damaged) ;;
+        loaded) rm -f "$tried"; return 1 ;;
+        *) return 1 ;;
+    esac
     if [ "$(cat "$tried" 2>/dev/null)" = "$(uname -n)" ]; then
         echo "[entrypoint] the $2 still finds its chain data damaged after rebuilding it: stop Forge Solo," \
              "delete the blocks and chainstate folders in app-data/bch2-apps-forge-solo/$3, then start it again" >&2

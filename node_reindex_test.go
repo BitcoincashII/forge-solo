@@ -130,12 +130,14 @@ func (n *standIn) append(s string) {
 	}
 }
 
-// What the nodes write: for a block file they cannot read and for a block index they cannot load, as
-// real runs of both nodes wrote it; and for a rebuild (a run with -reindex) that fails, the error
-// without the advice to reindex.
+// What the nodes write: once they have loaded the chain; for a block file they cannot read and for a
+// block index they cannot load, as real runs of both nodes wrote it; for a rebuild (a run with
+// -reindex) that fails, the error without the advice to reindex; and for a run that stops before it
+// loads the chain, for another reason.
 var (
 	nodeStarts      = "2026-10-03T12:00:00Z Using data directory"
 	nodeLoaded      = "2026-10-03T12:00:09Z init message: Done loading"
+	stoppedEarly    = "2026-10-03T12:00:01Z Error: Disk space is too low!"
 	unreadableBlock = []string{
 		"2026-10-03T12:00:01Z Verification error: ReadBlockFromDisk failed at 60",
 		"2026-10-03T12:00:01Z : Corrupted block database detected.",
@@ -206,6 +208,57 @@ func TestNodeWithDamagedChainIsRebuiltOnce(t *testing.T) {
 			n.run(damaged(unreadableBlock)...)
 			if reindex, _ := n.start(); !reindex {
 				t.Fatal("REINDEX-AGAIN: chain data damaged again later, after a rebuild that worked, is not rebuilt")
+			}
+		})
+	}
+}
+
+// A rebuild that stops before the chain is loaded, for another reason (a full disk, say), is still
+// the one rebuild this container tries, as a rebuild on Windows is tried once per run of Forge Solo:
+// only a run that loads the chain clears the marker.
+func TestNodeRebuildThatStopsEarlyCounts(t *testing.T) {
+	for _, img := range nodeImages {
+		t.Run(img.dir, func(t *testing.T) {
+			n := newStandIn(t, img)
+			tried := filepath.Join(n.datadir, "reindex-tried")
+			n.run(damaged(unreadableBlock)...)
+			if reindex, _ := n.start(); !reindex {
+				t.Fatal("REINDEX-DAMAGED: after a run that could not read a block file, no -reindex")
+			}
+			n.run(nodeStarts, stoppedEarly)
+			if reindex, _ := n.start(); reindex {
+				t.Fatal("REINDEX-STOPPED-EARLY: a run that stopped without saying its chain data is damaged brought on -reindex")
+			}
+			if _, err := os.Stat(tried); err != nil {
+				t.Fatalf("REINDEX-STOPPED-EARLY: a rebuild that stopped before the chain was loaded no longer counts as tried (stat err %v)", err)
+			}
+			n.run(damaged(unloadableIndex)...)
+			if reindex, log := n.start(); reindex || !strings.Contains(log, "the "+img.name+" still finds its chain data damaged after rebuilding it") {
+				t.Fatalf("REINDEX-STOPPED-EARLY: after a rebuild that stopped early, the same container rebuilt again: -reindex %v, log %q", reindex, log)
+			}
+
+			// The same when the node trimmed debug.log: a run before the last one loaded the chain.
+			m := newStandIn(t, img)
+			marker := filepath.Join(m.datadir, "reindex-tried")
+			m.append("...end of a line\n\n\n\n\n" + nodeStarts + "\n" + nodeLoaded + "\n\n\n\n\n\n" + nodeStarts + "\n" + stoppedEarly + "\n")
+			if err := os.WriteFile(filepath.Join(m.datadir, "debug-log-start"), []byte("99999999\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(marker, []byte("this-container\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if reindex, _ := m.start(); reindex {
+				t.Fatal("REINDEX-TRIMMED-STOPPED: a last run that stopped early brought on -reindex")
+			}
+			if _, err := os.Stat(marker); err != nil {
+				t.Fatalf("REINDEX-TRIMMED-STOPPED: a run before the last one, which loaded the chain, cleared the marker (stat err %v)", err)
+			}
+
+			// A run that loaded the chain and then said it is damaged is a damaged run.
+			d := newStandIn(t, img)
+			d.run(append([]string{nodeStarts, nodeLoaded}, unreadableBlock...)...)
+			if reindex, _ := d.start(); !reindex {
+				t.Fatal("REINDEX-DAMAGED-AFTER-LOADING: a run that loaded the chain and then said it is damaged brought on no -reindex")
 			}
 		})
 	}
