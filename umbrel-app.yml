@@ -18,14 +18,17 @@ description: >-
   This is a home miner, not a production pool: one household.
 
   Includes:
-  - A built-in BCH2 full node (auto-syncs and keeps the whole chain)
-  - A built-in 1175 (ESF) node for AuxPoW merge-mining
-  - A simple dashboard: hashrate, effort, your blocks, payouts, and the TIDES window
-  - Block rewards paid straight to your address by the coinbase, with no payout wallet
-  - Variable difficulty (works with small ASICs like the Bitaxe)
+    - A built-in BCH2 full node (auto-syncs and keeps the whole chain)
+    - A built-in 1175 (ESF) node for AuxPoW merge-mining
+    - A simple dashboard: hashrate, effort, your blocks, payouts, and the TIDES window
+    - Block rewards paid straight to your address by the coinbase, with no payout wallet
+    - Variable difficulty (works with small ASICs like the Bitaxe)
 
-  Forge Solo needs ports 3333, 3335, 8339 and 25360 on your Umbrel: if another app already uses
-  one, installing stops with "exit code 1".
+  Set your BCH2 payout address, and your 1175 payout address, on the app's Settings page:
+  every block's reward is paid there, and the miner's worker name is just a label. Then point
+  your miner at stratum+tcp://<your-umbrel-ip>:3333 and you're mining. Braiins connects each
+  miner individually, so it uses 3333 like your own hardware; NiceHash and MiningRigRentals put
+  the whole order behind one connection, so they use 3335.
 
   Settings asks for Forge Solo's password before it saves a change. umbrelOS shows it when you
   open the app, and any time later when you right-click the Forge Solo icon.
@@ -33,11 +36,12 @@ description: >-
   To accept inbound peers, forward TCP 8339 (BCH2) and 25360 (1175) in your router. To
   accept rented hashpower, forward 3333 (Braiins) or 3335 (NiceHash/MiningRigRentals).
 
-  Set your BCH2 payout address on the app's Settings page: every block's reward is
-  paid there, and the miner's worker name is just a label. Then point your miner at
-  stratum+tcp://<your-umbrel-ip>:3333 , set your 1175 payout address, and you're
-  mining. Braiins connects each miner individually, so it uses 3333 like your own hardware;
-  NiceHash and MiningRigRentals put the whole order behind one connection, so they use 3335.
+  Forge Solo needs ports 3333 and 3335 for miners, and 8339 and 25360 for the nodes' peers. If
+  another app already uses one, installing stops with "exit code 1", and the parts of Forge Solo
+  that had started, such as the nodes, keep running in the background: free the port and install
+  Forge Solo again. An app installed after Forge Solo whose own port is 3333 or 3335 takes that
+  port without an error: Bleskomat Server uses 3333 and Bitmagnet uses 3335, so neither can run
+  beside Forge Solo.
 
 developer: BCH2 Team
 website: https://bch2.org
@@ -47,18 +51,19 @@ support: https://github.com/BitcoincashII/forge-solo/issues
 # app page reads gallery.length.
 gallery: []
 releaseNotes: >-
-  This update makes Forge Solo smaller and safer, and records the blocks you find more reliably.
+  Forge Solo now keeps its data in one file, is much smaller, and records the blocks you find more reliably.
 
 
   Highlights:
-    - Settings asks for Forge Solo's password before it saves a change. umbrelOS shows the password when you open the app, and when you right-click its icon.
-    - Other apps on your Umbrel reach only the dashboard. The database, nodes and mining service talk over a private network.
-    - The app needs about 0.8 GB of disk instead of 2.3 GB. Its database is sized for this app, sends no telemetry, no longer stores every share, and its logs are capped.
-    - A block found while the node is busy is retried for 30 minutes instead of 6 seconds, and one found while the database is down is recorded once it is back, if the app keeps running. An orphaned block is marked within about 6 blocks. A new payout address applies at once.
-    - The dashboard's totals stay right past 100 blocks, the hashrate reads right soon after a restart, connected miners show as online, and in TIDES mode Your Blocks Found counts the TIDES blocks you found.
-    - Each miner's difficulty stays near the right level instead of swinging every few minutes.
+    - At the first start your settings, blocks and payouts move into db/forgesolo.db, once.
+    - The old database stays in postgres/ for going back to 1.0.12. Once 1.0.13 shows your data, you can delete it. If the move fails, nothing is lost: the dashboard says why and offers to start without the old data.
+    - Installing downloads about 220 MB instead of 900 MB, and the images take about 0.5 GB of disk instead of 2.3 GB. Logs take at most 30 MB per service.
+    - Settings asks for Forge Solo's password, which umbrelOS shows when you open the app and when you right-click its icon. Other apps reach only the dashboard.
+    - A found block is retried for 30 minutes while the node is busy, and recorded once it can be. A new payout address applies at once.
+    - The dashboard's totals stay right past 100 blocks, and the pages work on phones.
+    - Each miner's difficulty stays near the right level, never above the network's.
+    - The BCH2 node rebuilds chain data a power cut damaged, once, instead of restarting for ever.
     - The mining ports and TIDES mode hold up against bad shares, idle connections and a slow pool.
-    - PostgreSQL 16.15 and nginx 1.30, and fixes to the 1175 node.
 
 
   Full release notes: https://github.com/BitcoincashII/forge-solo/blob/main/RELEASE_NOTES.md
