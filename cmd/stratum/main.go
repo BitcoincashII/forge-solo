@@ -390,7 +390,7 @@ func miningStatusFrom(configured, dbConnected bool, connections, authorized, job
 		}
 	case st.LastJobAgeSec > jobStaleAfterSec:
 		st.Reason = "stale_template"
-		st.Message = fmt.Sprintf("No new work in %ds — the BCH2 node stopped serving block templates.", st.LastJobAgeSec)
+		st.Message = fmt.Sprintf("No new work in %ds: the BCH2 node stopped serving block templates.", st.LastJobAgeSec)
 		if tmplErr != "" {
 			st.Message += " Last error: " + tmplErr
 		}
@@ -400,14 +400,14 @@ func miningStatusFrom(configured, dbConnected bool, connections, authorized, job
 		// nobody connected -- the one state a solo miner most needs to be told about,
 		// because a rig that dropped at 3am looks identical to one that is working.
 		st.Reason = "no_miners"
-		st.Message = "No miner is connected. The node is synced and work is ready — point a miner at the stratum port."
+		st.Message = "No miner is connected. The node is synced and work is ready: point a miner at the stratum port."
 	case connections > 0 && authorized == 0:
 		// Jobs are being produced and miners keep arriving, but not one has got past
 		// mining.authorize. The usual cause is the worker username, and a refused miner
 		// reconnects -- so `connections` climbs while nothing works, which is exactly what
 		// "it syncs but will not hash" looks like from the outside.
 		st.Reason = "miners_refused"
-		st.Message = "Miners are connecting but none are authorizing. Check the worker username in your miner — any label works, or use your BCH2 address."
+		st.Message = "Miners are connecting but none are authorizing. Check the worker username in your miner: any label works, or use your BCH2 address."
 	case authorized > 0 && (st.LastShareAge < 0 || st.LastShareAge > noShareAfterSec):
 		// Connected, authorized and receiving work, yet producing nothing.
 		st.Reason = "no_shares"
