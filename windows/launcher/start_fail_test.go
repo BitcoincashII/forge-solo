@@ -68,6 +68,7 @@ func startFailWorld(t *testing.T, scripts map[string]string) *tips {
 // about programs that could not start.
 func resetStartState() {
 	minerDue.Store(false)
+	dbWatched.Store(false)
 	troubleMu.Lock()
 	clear(trouble)
 	clear(retrying)
@@ -220,6 +221,13 @@ func TestRunningOnlyWithEverythingRunning(t *testing.T) {
 	if tp.last() != "Forge Solo: running" {
 		t.Fatalf("WIN-RUNNING-ALL: with everything running the tray says %q", tp.last())
 	}
+	setTrouble("database", "Forge Solo: the database stopped on its own and is started again (see launcher.log)")
+	tp.add("something else")
+	showRunning()
+	if tp.last() != "Forge Solo: the database stopped on its own and is started again (see launcher.log)" {
+		t.Fatalf("WIN-RUNNING-DB: with the database being started again the tray says %q", tp.last())
+	}
+	clearTrouble("database")
 	stop("bch2")
 	couldNotStart("bch2", "the BCH2 node", errors.New("held"), time.Minute)
 	tp.add("something else")

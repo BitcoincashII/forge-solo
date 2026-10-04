@@ -191,11 +191,22 @@ func startOrKeepTrying(key string) bool {
 // names it in the tray with the reason.
 func couldNotStart(key, what string, err error, wait time.Duration) {
 	logf("%s could not start: %v; trying again in %v", what, err, wait)
-	tip := trimTip("Forge Solo: " + what + " could not start: " + startError(err))
+	setTrouble(key, trimTip("Forge Solo: "+what+" could not start: "+startError(err)))
+}
+
+// setTrouble notes what is wrong with the program under key, and shows it in the tray.
+func setTrouble(key, tip string) {
 	troubleMu.Lock()
 	trouble[key] = tip
 	troubleMu.Unlock()
 	status(tip)
+}
+
+// clearTrouble forgets what was wrong with the program under key.
+func clearTrouble(key string) {
+	troubleMu.Lock()
+	delete(trouble, key)
+	troubleMu.Unlock()
 }
 
 // keepStarting starts the program under key after wait, again after twice as long each time it

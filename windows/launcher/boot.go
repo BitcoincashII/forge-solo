@@ -374,6 +374,7 @@ func boot() {
 		return
 	}
 	logf("database started")
+	watchDatabase()
 	status("Forge Solo: starting the nodes (the first sync can take a while)…")
 	startNodes()
 	if isStopping() {

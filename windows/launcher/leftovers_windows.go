@@ -70,6 +70,23 @@ func waitPIDOS(pid int, d time.Duration) bool {
 	return ev == windows.WAIT_OBJECT_0
 }
 
+// processExitOS is closed once process pid has exited, or at once when it cannot be opened. The
+// handle held meanwhile keeps the process's number from going to another program.
+func processExitOS(pid int) <-chan struct{} {
+	done := make(chan struct{})
+	h, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
+	if err != nil {
+		close(done)
+		return done
+	}
+	go func() {
+		defer windows.CloseHandle(h)
+		_, _ = windows.WaitForSingleObject(h, windows.INFINITE)
+		close(done)
+	}()
+	return done
+}
+
 func killPIDOS(pid int) error {
 	h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, uint32(pid))
 	if err != nil {

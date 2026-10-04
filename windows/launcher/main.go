@@ -162,9 +162,7 @@ func runPiped(key string, c *exec.Cmd, stdin io.WriteCloser) error {
 		closeIfAny(stdin)
 		return err
 	}
-	troubleMu.Lock()
-	delete(trouble, key) // it runs: what the tray said about its start no longer holds
-	troubleMu.Unlock()
+	clearTrouble(key) // it runs: what the tray said about its start no longer holds
 	// One wait per process, for everything that waits on it.
 	done, since := make(chan struct{}), time.Now()
 	go func() {
