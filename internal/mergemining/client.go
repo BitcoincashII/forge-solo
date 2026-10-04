@@ -3,6 +3,7 @@ package mergemining
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -60,10 +61,48 @@ func (c *Client) call(method string, params ...any) (json.RawMessage, error) {
 		return nil, fmt.Errorf("%s decode: %w", method, err)
 	}
 	if r.Error != nil {
-		return nil, fmt.Errorf("%s rpc error %d: %s", method, r.Error.Code, r.Error.Message)
+		return nil, &RPCError{Method: method, Code: r.Error.Code, Message: r.Error.Message}
 	}
 	return r.Result, nil
 }
+
+// RPCError is an error the 1175 node answered with, as opposed to no answer at all.
+type RPCError struct {
+	Method  string
+	Code    int
+	Message string
+}
+
+func (e *RPCError) Error() string {
+	return fmt.Sprintf("%s rpc error %d: %s", e.Method, e.Code, e.Message)
+}
+
+// BlockConfirmations asks the node for a block's confirmations on its active chain: -1 for a
+// block it has off that chain. found is false when the node does not know the block.
+func (c *Client) BlockConfirmations(hash string) (confirmations int64, found bool, err error) {
+	res, err := c.call("getblock", hash)
+	if err != nil {
+		var rpcErr *RPCError
+		if errors.As(err, &rpcErr) && rpcErr.Code == rpcInvalidAddressOrKey {
+			return 0, false, nil
+		}
+		return 0, false, err
+	}
+	var b struct {
+		Confirmations *int64 `json:"confirmations"`
+	}
+	if err := json.Unmarshal(res, &b); err != nil || b.Confirmations == nil {
+		return 0, false, fmt.Errorf("getblock: no confirmations in %.80s", res)
+	}
+	return *b.Confirmations, true, nil
+}
+
+// The node's RPC error codes this package acts on (src/rpc/protocol.h).
+const (
+	rpcInvalidAddressOrKey = -5  // getblock: "Block not found"
+	RPCInvalidParameter    = -8  // submitauxblock: "Block hash not found in pending work"
+	RPCInWarmup            = -28 // the node is starting
+)
 
 // GetAuxBlock requests aux work paying the coinbase reward to payoutAddress.
 // Returns an error (e.g. "AuxPoW not yet active") until the aux chain reaches

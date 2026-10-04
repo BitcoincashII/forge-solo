@@ -724,23 +724,7 @@ func (s *Server) submitAux(job *Job, en1, en2, ntime, nonce, versionBits, finder
 	if ac == nil {
 		return
 	}
-	accepted, err := ac.SubmitAuxBlock(job.AuxWork.Hash, auxHex)
-	if err != nil {
-		s.logger.Warn("aux: submitauxblock error",
-			zap.String("aux_hash", job.AuxWork.Hash), zap.Error(err))
-		return
-	}
-	if accepted {
-		s.logger.Info("🎉 AUX (1175) BLOCK FOUND",
-			zap.Int64("aux_height", job.AuxWork.Height),
-			zap.String("aux_hash", job.AuxWork.Hash))
-		if cb := s.getOnAuxBlock(); cb != nil {
-			cb(job.AuxWork.Height, job.AuxWork.Hash, job.AuxWork.CoinbaseValue, finder, isSolo)
-		}
-	} else {
-		s.logger.Warn("aux: block rejected (likely stale aux tip)",
-			zap.String("aux_hash", job.AuxWork.Hash))
-	}
+	s.sendAuxBlock(ac, job, auxHex, finder, isSolo)
 }
 
 // buildCoinbaseFromParts constructs the coinbase transaction
