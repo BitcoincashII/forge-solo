@@ -958,7 +958,15 @@ func (s *Server) acceptLoop() {
 		if err != nil {
 			continue
 		}
-		if s.clientCount.Load() >= s.connectionLimitFor(conn.RemoteAddr()) || !s.acceptOpen() {
+		if !s.acceptOpen() {
+			conn.Close()
+			continue
+		}
+		// The slot is taken here, before the handler starts, and handleClient gives it back. Taken
+		// in the handler, every connection accepted before the handlers ran was let in: on a 1- or
+		// 2-CPU host a burst went far past the cap and past the quarter kept for this network.
+		if s.clientCount.Add(1) > s.connectionLimitFor(conn.RemoteAddr()) {
+			s.clientCount.Add(-1)
 			conn.Close()
 			continue
 		}
@@ -1018,7 +1026,10 @@ func (s *Server) releaseIPSlot(host string) {
 	}
 }
 
+// handleClient serves one connection. acceptLoop has counted it in clientCount; this gives the slot
+// back when it ends.
 func (s *Server) handleClient(conn net.Conn) {
+	defer s.clientCount.Add(-1)
 	host := hostOf(conn.RemoteAddr().String())
 	if !s.reserveIPSlot(host) {
 		s.logger.Warn("refused connection: per-IP limit reached",
@@ -1040,10 +1051,8 @@ func (s *Server) handleClient(conn net.Conn) {
 		tc.SetKeepAlivePeriod(30 * time.Second) // Check every 30 seconds
 	}
 
-	s.clientCount.Add(1)
 	s.stats.ActiveConnections.Add(1)
 	defer func() {
-		s.clientCount.Add(-1)
 		s.stats.ActiveConnections.Add(-1)
 		conn.Close()
 	}()
