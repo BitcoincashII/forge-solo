@@ -1,0 +1,2 @@
+HTTP 200
+{"blocks":[{"coin":"BCH2","height":99000,"is_paid":true,"reward":33.33333333,"share_pct":66.66666666,"time":1784556000},{"coin":"1175","height":5010,"reward":0.525,"share_pct":75.00000000000001,"status":"confirmed","time":1788357600}],"total":1}

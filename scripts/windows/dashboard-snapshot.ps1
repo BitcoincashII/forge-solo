@@ -2,24 +2,89 @@
 What the dashboard shows of an install's data, as one sorted JSON file, byte for byte as
 scripts/dashboard-snapshot.sh writes it on Umbrel and Linux: the payout settings, the TIDES Gateway
 ID, each miner's settings, blocks, payouts and 1175 blocks, and the health answer with the state of
-the move from PostgreSQL. What changes from one minute to the next and what differs by platform is
-left out, so the same data gives the same file on every platform, before an update and after it.
+the move from PostgreSQL. What changes from one minute to the next and what differs by platform
+(the server's time zone included) is left out, so the same data gives the same file on every
+platform, before an update and after it.
 
   scripts\windows\dashboard-snapshot.ps1 -Base http://127.0.0.1:3080 -Out after.json
   scripts\windows\dashboard-snapshot.ps1 -Base http://127.0.0.1:3080 -Out before.json -Save answers
   scripts\windows\dashboard-snapshot.ps1 -From answers -Out out.json
+  scripts\windows\dashboard-snapshot.ps1 -Before before.json -After after.json   # 0 when they match
+
+-Before and -After list the lines that differ. When one of the two was taken on 1.0.12 (only 1.0.13
+answers password_required), what 1.0.13 shows differently of the same data by design is left out.
 
 The miners are those of testdata\migrate\seed-1012.sql unless $env:MINERS names others, as
-"label=address" pairs separated by spaces. Windows PowerShell 5.1 and PowerShell 7 both run it.
+"label=address" pairs separated by spaces; a label is letters, digits and _. Windows PowerShell
+5.1 and PowerShell 7 both run it.
 #>
 param(
     [string]$Base,
-    [Parameter(Mandatory = $true)][string]$Out,
+    [string]$Out,
     [string]$Save,
-    [string]$From
+    [string]$From,
+    [string]$Before,
+    [string]$After
 )
 $ErrorActionPreference = 'Stop'
-if (($Base -eq '') -eq ($From -eq '')) { throw 'give -Base URL or -From DIR' }
+$inv = [Globalization.CultureInfo]::InvariantCulture
+
+# What 1.0.13's API shows differently from 1.0.12's of the same data, one pattern a change, on the
+# lines of a snapshot (as in the .sh).
+$known1012 = @(
+    '^"[A-Za-z0-9_]+-payouts\.',
+    '^"[A-Za-z0-9_]+-solo-(blocks|payouts)\.total',
+    '^"[A-Za-z0-9_]+-solo-(blocks|payouts)\.(blocks|payouts)": (null|\[\])\z',
+    '^"pool-config\.password_required":'
+)
+
+# A snapshot's lines by key, each as '"key": value'.
+function Get-Lines($path) {
+    $got = New-Object 'System.Collections.Generic.Dictionary[string,string]' ([StringComparer]::Ordinal)
+    foreach ($l in [IO.File]::ReadAllText($path, [Text.Encoding]::ASCII).Split("`n")) {
+        $m = [regex]::Match($l.TrimEnd("`r"), '\A("(?:[^"\\]|\\.)*"): (.*?),?\z')
+        if ($m.Success) { $got[$m.Groups[1].Value] = $m.Groups[1].Value + ': ' + $m.Groups[2].Value }
+    }
+    return , $got
+}
+
+if ($Before -or $After) {
+    if (-not ($Before -and $After) -or $Base -or $From -or $Out) { throw 'give -Before FILE -After FILE alone' }
+    $b = Get-Lines $Before
+    $a = Get-Lines $After
+    $pw = '"pool-config.password_required"'
+    $known = @()
+    if ($b.ContainsKey($pw) -ne $a.ContainsKey($pw)) { $known = $known1012 }
+    $keys = New-Object 'System.Collections.Generic.SortedSet[string]' ([StringComparer]::Ordinal)
+    foreach ($k in $b.Keys) { [void]$keys.Add($k) }
+    foreach ($k in $a.Keys) { [void]$keys.Add($k) }
+    $left = 0
+    $differ = 0
+    $report = New-Object System.Collections.Generic.List[string]
+    foreach ($k in $keys) {
+        $lb = $null; $la = $null
+        [void]$b.TryGetValue($k, [ref]$lb)
+        [void]$a.TryGetValue($k, [ref]$la)
+        if ($lb -ceq $la) { continue }
+        $byDesign = $false
+        foreach ($p in $known) {
+            foreach ($l in @($lb, $la)) { if ($null -ne $l -and [regex]::IsMatch($l, $p)) { $byDesign = $true } }
+        }
+        if ($byDesign) { $left++; continue }
+        $differ++
+        if ($null -ne $lb) { $report.Add("- $lb") }
+        if ($null -ne $la) { $report.Add("+ $la") }
+    }
+    if ($known.Count) {
+        Write-Output "one of the two was taken on 1.0.12: $left lines that 1.0.13 shows differently by design are left out"
+    }
+    foreach ($l in $report) { Write-Output $l }
+    if ($differ) { Write-Output "$differ lines differ"; exit 1 }
+    Write-Output 'the same'
+    exit 0
+}
+
+if (-not $Out -or (($Base -eq '') -eq ($From -eq ''))) { throw 'give -Base URL or -From DIR, and -Out FILE' }
 
 $miners = $env:MINERS
 if (-not $miners) {
@@ -53,8 +118,6 @@ $volatile = @{
         'bestDiff|athDiff|totalWork|lastShare', 'currentHeight|balance|matureBalance|immatureBalance|balanceKnown')
     'solo-blocks'   = @('blocks\.\d+\.(confirmations|matures_in|mature)')
 }
-$fraction = '^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)\.\d+(Z|[+-]\d\d:\d\d)$'
-$inv = [Globalization.CultureInfo]::InvariantCulture
 $emptyObject = New-Object object
 $emptyList = New-Object object
 
@@ -98,20 +161,48 @@ function Format-Text([string]$s) {
     return $b.ToString()
 }
 
+# A time is written in UTC and to the second, as forgesolo.db keeps it: PostgreSQL kept the
+# fraction, and wrote the server's time zone (on Windows the PC's). One without a zone keeps none.
+# PowerShell 7 reads most times as dates itself (in the PC's zone); 5.1 leaves them as text.
+$time = '\A([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.[0-9]+)?([Zz]|([+-])([0-9]{2})(?::?([0-9]{2}))?)?\z'
+function Format-Time([string]$s) {
+    $m = [regex]::Match($s, $time)
+    if (-not $m.Success) { return $s }
+    $g = $m.Groups
+    try {
+        $t = [DateTime]::new([int]$g[1].Value, [int]$g[2].Value, [int]$g[3].Value,
+            [int]$g[4].Value, [int]$g[5].Value, [int]$g[6].Value, [DateTimeKind]::Utc)
+        if ($g[8].Success) {
+            $off = [int]$g[9].Value * 60
+            if ($g[10].Success) { $off += [int]$g[10].Value }
+            if ($g[8].Value -eq '+') { $off = -$off }
+            $t = $t.AddMinutes($off)
+        }
+    } catch {
+        return $s
+    }
+    $u = $t.ToString('yyyy-MM-ddTHH:mm:ss', $inv)
+    if ($g[7].Success) { return $u + 'Z' }
+    return $u
+}
+
 # A value as the file writes it: numbers as integers when they are whole, else to 8 decimals without
-# trailing zeros; text as JSON, ASCII only, times to the second.
+# trailing zeros; text as JSON, ASCII only, times in UTC to the second.
 function Format-Value($v) {
     if ($null -eq $v) { return 'null' }
     if ([object]::ReferenceEquals($v, $emptyObject)) { return '{}' }
     if ([object]::ReferenceEquals($v, $emptyList)) { return '[]' }
     if ($v -is [bool]) { if ($v) { return 'true' } else { return 'false' } }
-    if ($v -is [datetime]) { return Format-Text ($v.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss', $inv) + 'Z') }
+    if ($v -is [datetime]) {
+        if ($v.Kind -eq [DateTimeKind]::Unspecified) { return Format-Text $v.ToString('yyyy-MM-ddTHH:mm:ss', $inv) }
+        return Format-Text ($v.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss', $inv) + 'Z')
+    }
     if ($v -is [int] -or $v -is [long] -or $v -is [decimal] -or $v -is [double] -or $v -is [single]) {
         $d = [decimal]$v
         if ($d -eq [decimal]::Truncate($d) -and [math]::Abs($d) -lt 1e15) { return ([long]$d).ToString($inv) }
         return $d.ToString('F8', $inv).TrimEnd('0').TrimEnd('.')
     }
-    return Format-Text ([regex]::Replace([string]$v, $fraction, '$1$2'))
+    return Format-Text (Format-Time ([string]$v))
 }
 
 function Get-Answer($path) {

@@ -3,19 +3,23 @@
 # TIDES Gateway ID, each miner's settings, blocks, payouts and 1175 blocks, and the health answer
 # with the state of the move from PostgreSQL. What changes from one minute to the next (hashrates,
 # uptimes, the node's height, live TIDES figures) and what differs by platform (where the password
-# is kept, the platform's name) is left out, so the same data gives the same file on Umbrel, on
-# Windows (scripts/windows/dashboard-snapshot.ps1 writes it byte for byte the same) and on Linux,
-# before an update and after it.
+# is kept, the platform's name, the server's time zone) is left out, so the same data gives the same
+# file on Umbrel, on Windows (scripts/windows/dashboard-snapshot.ps1 writes it byte for byte the
+# same) and on Linux, before an update and after it.
 #
 #   scripts/dashboard-snapshot.sh http://127.0.0.1:3080 after.json             # Windows' dashboard
 #   scripts/dashboard-snapshot.sh http://<api>:8080 before.json --save DIR     # keep the answers too
 #   scripts/dashboard-snapshot.sh --from DIR out.json                          # from kept answers
+#   scripts/dashboard-snapshot.sh --compare before.json after.json             # 0 when they match
+#
+# --compare lists the lines that differ. When one of the two was taken on 1.0.12 (only 1.0.13
+# answers password_required), what 1.0.13 shows differently of the same data by design is left out.
 #
 # The miners are those of testdata/migrate/seed-1012.sql unless MINERS names others, as
-# "label=address" pairs separated by spaces.
+# "label=address" pairs separated by spaces; a label is letters, digits and _.
 set -euo pipefail
 exec python3 - "$@" <<'PY'
-import json, os, re, sys, urllib.error, urllib.request
+import datetime, json, os, re, sys, urllib.error, urllib.request
 
 MINERS = os.environ.get("MINERS") or (
     "A=bitcoincashii:qzs6rgdp5xs6rgdp5xs6rgdp5xs6rgdp5yc72xjxq2 "
@@ -46,9 +50,33 @@ VOLATILE = {
     "solo-blocks": [r"blocks\.\d+\.(confirmations|matures_in|mature)"],  # the node's height
 }
 
-# A time with a fraction of a second is written to the second: forgesolo.db keeps whole seconds,
-# PostgreSQL kept the fraction.
-FRACTION = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)\.\d+(Z|[+-]\d\d:\d\d)$")
+# What 1.0.13's API shows differently from 1.0.12's of the same data, one pattern a change, on the
+# lines of a snapshot.
+KNOWN_1012 = [
+    r'^"[A-Za-z0-9_]+-payouts\.',                              # a miner's payouts: 1.0.12's failed on PostgreSQL and listed none
+    r'^"[A-Za-z0-9_]+-solo-(blocks|payouts)\.total',           # the totals: of every block in 1.0.13, of the latest 100 in 1.0.12
+    r'^"[A-Za-z0-9_]+-solo-(blocks|payouts)\.(blocks|payouts)": (null|\[\])$',  # none: an empty list in 1.0.13, null in 1.0.12
+    r'^"pool-config\.password_required":',                     # new in 1.0.13: a save needs the app's password
+]
+
+# A time is written in UTC and to the second, as forgesolo.db keeps it: PostgreSQL kept the
+# fraction, and wrote the server's time zone (on Windows the PC's). One without a zone keeps none.
+TIME = re.compile(r"([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.[0-9]+)?"
+                  r"([Zz]|([+-])([0-9]{2})(?::?([0-9]{2}))?)?")
+
+def text(s):
+    m = TIME.fullmatch(s)
+    if not m:
+        return s
+    try:
+        t = datetime.datetime(*(int(x) for x in m.group(1, 2, 3, 4, 5, 6)))
+        if m.group(8):
+            off = int(m.group(9)) * 60 + int(m.group(10) or 0)
+            t -= datetime.timedelta(minutes=off if m.group(8) == "+" else -off)
+    except (ValueError, OverflowError):
+        return s
+    return "%04d-%02d-%02dT%02d:%02d:%02d%s" % (t.year, t.month, t.day, t.hour, t.minute, t.second,
+                                              "Z" if m.group(7) else "")
 
 EMPTY_OBJECT, EMPTY_LIST = object(), object()
 
@@ -67,7 +95,7 @@ def flatten(prefix, v, out):
         out[prefix] = v
 
 # A value as the file writes it: numbers as integers when they are whole, else to 8 decimals without
-# trailing zeros; text as JSON, ASCII only, times to the second.
+# trailing zeros; text as JSON, ASCII only, times in UTC to the second.
 def value(v):
     if v is None:
         return "null"
@@ -81,17 +109,9 @@ def value(v):
         if float(v).is_integer() and abs(v) < 1e15:
             return str(int(v))
         return ("%.8f" % v).rstrip("0").rstrip(".")
-    return json.dumps(FRACTION.sub(r"\1\2", v), ensure_ascii=True)
+    return json.dumps(text(v), ensure_ascii=True)
 
-def main(args):
-    src = base = save = None
-    if len(args) == 3 and args[0] == "--from":
-        src, out = args[1], args[2]
-    elif len(args) == 2 or (len(args) == 4 and args[2] == "--save"):
-        base, out = args[0].rstrip("/"), args[1]
-        save = args[3] if len(args) == 4 else None
-    else:
-        sys.exit("usage: dashboard-snapshot.sh BASE_URL OUT [--save DIR] | --from DIR OUT")
+def snapshot(base, out, save, src):
     if save:
         os.makedirs(save, exist_ok=True)
     flat = {}
@@ -124,6 +144,48 @@ def main(args):
     lines = ["%s: %s" % (json.dumps(k, ensure_ascii=True), value(flat[k])) for k in sorted(flat)]
     with open(out, "w", encoding="ascii", newline="\n") as f:
         f.write("{\n" + ",\n".join(lines) + "\n}\n")
+
+LINE = re.compile(r'("(?:[^"\\]|\\.)*"): (.*?),?')
+
+# A snapshot's lines by key, each as '"key": value'.
+def lines_of(path):
+    with open(path, encoding="ascii") as f:
+        got = {}
+        for l in f.read().split("\n"):
+            m = LINE.fullmatch(l)
+            if m:
+                got[m.group(1)] = m.group(1) + ": " + m.group(2)
+    return got
+
+def compare(before_path, after_path):
+    before, after = lines_of(before_path), lines_of(after_path)
+    pw = '"pool-config.password_required"'
+    known = KNOWN_1012 if (pw in before) != (pw in after) else []
+    left = differ = 0
+    out = []
+    for k in sorted(set(before) | set(after)):
+        b, a = before.get(k), after.get(k)
+        if b == a:
+            continue
+        if any(re.search(p, l) for p in known for l in (b, a) if l is not None):
+            left += 1
+            continue
+        differ += 1
+        out += ["- " + b] if b is not None else []
+        out += ["+ " + a] if a is not None else []
+    if known:
+        print("one of the two was taken on 1.0.12: %d lines that 1.0.13 shows differently by design are left out" % left)
+    print("\n".join(out + ["%d lines differ" % differ if differ else "the same"]))
+    return 1 if differ else 0
+
+def main(args):
+    if len(args) == 3 and args[0] == "--compare":
+        sys.exit(compare(args[1], args[2]))
+    if len(args) == 3 and args[0] == "--from":
+        return snapshot(None, args[2], None, args[1])
+    if len(args) == 2 or (len(args) == 4 and args[2] == "--save"):
+        return snapshot(args[0].rstrip("/"), args[1], args[3] if len(args) == 4 else None, None)
+    sys.exit("usage: dashboard-snapshot.sh BASE_URL OUT [--save DIR] | --from DIR OUT | --compare BEFORE AFTER")
 
 main(sys.argv[1:])
 PY
