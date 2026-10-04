@@ -29,7 +29,7 @@ cannot run, and Forge Solo says so and does not start. Pick the download that ma
 | `i686` | `forge-solo-VERSION-linux-i686.tar.gz` | 32-bit PCs with SSE2: Pentium 4, Pentium M, Atom and newer |
 | `riscv64` | `forge-solo-VERSION-linux-riscv64.tar.gz` | 64-bit RISC-V boards (RV64GC) |
 
-About 1 GB of disk is plenty (the whole BCH2 chain is about 110 MB today), and it uses about
+About 1 GB of disk is plenty (the whole BCH2 chain is about 90 MB today), and it uses about
 150 MB of memory.
 
 ## Start it
@@ -47,8 +47,9 @@ It runs in the foreground; Ctrl-C stops it (see **Stopping**). Then:
    **The dashboard from another computer**).
 2. In **Settings**, enter your BCH2 payout address (`bitcoincashii:q…`), choose **Solo** or
    **TIDES pool**, and press **Save settings**. Mining waits for a payout address. Saving asks
-   for Forge Solo's password, `DASHBOARD_PASSWORD` in `secrets.env` in the data directory: other
-   accounts on this machine can reach the dashboard too. The browser remembers it after that.
+   for Forge Solo's password, `DASHBOARD_PASSWORD` in `secrets.env` in the data directory
+   (`cat ~/.local/share/forge-solo/secrets.env`): other accounts on this machine can reach the
+   dashboard too. The browser remembers it after that.
 3. Point your miners at **stratum+tcp://THIS-MACHINE:3333**. The worker name is only a label for
    the dashboard, and the password can be anything (`x`). Every block pays the payout address in
    Settings, whatever the worker name. NiceHash and MiningRigRentals, which put a whole order
@@ -61,6 +62,11 @@ the dashboard shows its progress, and mining starts once it is done. Everything 
 Run it as an ordinary user: it needs no root. Run as root, it warns, and it refuses a data
 directory another account owns, such as the service's: the files it wrote there would be root's,
 and the service could no longer open them.
+
+To upgrade a copy you run yourself: unpack the new release beside the old one, stop the old one
+(Ctrl-C), and run `./forge-solo` from the new release's folder. The data stays in
+`~/.local/share/forge-solo`, so your settings and blocks carry over. Then delete the old release's
+folder.
 
 ## Run it as a service (systemd)
 
@@ -85,7 +91,8 @@ the service runs you can delete that copy's `~/.local/share/forge-solo`.
 - Logs: `journalctl -u forge-solo -f`, and `/var/lib/forge-solo/logs/`
 - Stop and start: `sudo systemctl stop forge-solo`, `sudo systemctl start forge-solo`
 - Upgrade: unpack the new release and run `sudo ./forge-solo install-service` from it. The data,
-  your settings and the dashboard address (`--web`) are kept.
+  your settings and the dashboard address (`--web`) are kept. The service runs from
+  `/opt/forge-solo`, so you can delete the unpacked folder afterwards.
 - Remove: `sudo /opt/forge-solo/forge-solo uninstall-service`. It stops and removes the service
   and says how to delete the program and the data if you want to.
 
@@ -134,6 +141,9 @@ to let other BCH2 nodes connect to yours, forward 8339. The node's RPC and block
 the dashboard's API and the mining service's internal port listen on 127.0.0.1 only, on free
 ports chosen at each start.
 
+If another program uses port 3335, the rental port, Forge Solo starts without it and says so:
+rentals have no port of their own until you stop that program, then restart Forge Solo.
+
 If a host firewall blocks incoming connections, open the ports your miners and peers use (and
 the dashboard's, 3080, if you serve it to your network with `--web`; install-service names them):
 
@@ -168,6 +178,9 @@ In the data directory:
 |---|---|
 | `bch2/` | the node: the chain, `bch2.conf` (written at every start), `debug.log` |
 | `forgesolo.db` | the database: your settings and your blocks |
+| `forgesolo.db-wal`, `forgesolo.db-shm` | part of the database while it is open: keep them with it |
+| `forgesolo.db.inuse` | held by the API and the mining service while they have the database open: do not delete it while Forge Solo runs |
+| `forge-solo.lock` | held while Forge Solo runs, so that two copies never share a data directory: do not delete it while Forge Solo runs |
 | `config.yaml` | the mining service's configuration (written at every start) |
 | `secrets.env` | the node's RPC password, an internal token and the dashboard password (which Settings asks for) |
 | `logs/` | the mining service's and the API's logs (`stratum.log`, `api.log`) |
@@ -175,9 +188,9 @@ In the data directory:
 ## If something goes wrong
 
 - **"… is already in use by another program"**: another program has port 3333 or 8339, usually
-  another BCH2 node or mining pool on this machine. Stop it first. If another program has 3335,
-  Forge Solo starts without the rental port and says so: NiceHash and MiningRigRentals cannot
-  connect until you stop that program and restart Forge Solo.
+  another BCH2 node or mining pool on this machine. Stop it first.
+- **"another program uses port 3335, the rental port"**: Forge Solo started without it, and rentals
+  have no port of their own. Stop that program, then restart Forge Solo.
 - **"another Forge Solo is already running with the data directory …"**: another copy is running with the
   same data, perhaps the service. Stop that one first.
 - **"Error opening block database"** or **"Corrupted block database detected"** in the node's
@@ -198,8 +211,8 @@ In the data directory:
 
 The BCH2 node is Bitcoin Cash II v27.0.2, built fully static from the public
 `bitcoincashII-core` tag `v27.0.2` (`bin/COPYING-bitcoincashII-core` is its license). The mining
-service and the API are the same code as the Umbrel app's, with a SQLite database in place of
-PostgreSQL.
+service and the API are the same code as on Umbrel and Windows, and all three keep their data in
+the same kind of SQLite file, `forgesolo.db`.
 
 ## Credits
 
