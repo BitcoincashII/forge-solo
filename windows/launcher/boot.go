@@ -305,7 +305,7 @@ func restartMiner() {
 	defer restarting.Store(false)
 	if started("stratum") {
 		logf("restarting the miner")
-		status("Forge Solo: restarting the miner…")
+		status(tipRestartingMiner)
 		stopGracefully("stratum", stratumStopGrace)
 		time.Sleep(2 * time.Second)
 	} else if minerDue.Load() {
@@ -321,15 +321,15 @@ func restartMiner() {
 // boot starts everything. Quit may come at any point of it: from then on nothing more starts, and
 // boot stops where it is.
 func boot() {
-	status("Forge Solo: preparing…")
+	status(tipPreparing)
 	stopLeftovers()
 	if err := checkPublicPorts(); err != nil {
-		logf("Forge Solo cannot start: %v", err)
 		if err.reserved {
-			startFailed(failTip(err.why(), reservedTip))
+			logf("Forge Solo cannot start: %v; %s", err, tryAgainAdvice)
 		} else {
-			startFailed(failTip(err.why(), closeItTip))
+			logf("Forge Solo cannot start: %v; %s", err, closeItAdvice)
 		}
+		startFailed(tipCannotStart(startWhy(err)))
 		return
 	}
 	writeConfigs()
@@ -337,7 +337,7 @@ func boot() {
 	if isStopping() {
 		return
 	}
-	status("Forge Solo: starting the nodes (the first sync can take a while)…")
+	status(tipStartingNodes)
 	startNodes()
 	if isStopping() {
 		return
@@ -385,8 +385,8 @@ var (
 func openDashboard() {
 	l, err := listenExclusive("tcp", "127.0.0.1:"+webPort)
 	if err != nil {
-		logf("the dashboard cannot open: another program uses port %s (%v)", webPort, err)
-		status("Forge Solo: another program uses port " + webPort + ", so the dashboard cannot open." + closeItTip)
+		logf("the dashboard cannot open: another program uses port %s (%v); %s", webPort, err, closeItAdvice)
+		status(tipNoDashboard(webPort))
 		offerTryAgain(retryDashboard)
 		return
 	}
@@ -394,7 +394,7 @@ func openDashboard() {
 	dashboardOpen.Store(true)
 	go serveDashboard(l)
 	if !showTrouble() {
-		status("Forge Solo: set your payout address in the dashboard")
+		status(tipSetAddress)
 		showRunning() // opened by Try Again, with everything else running already
 	}
 	openBrowser("http://127.0.0.1:" + webPort)

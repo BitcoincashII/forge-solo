@@ -31,23 +31,11 @@ func startFailed(tip string) {
 	offerTryAgain(retryStart)
 }
 
-// The tray's advice after a failed start.
+// What launcher.log says to do after a failed start; the tray says why, and offers Try Again.
 const (
-	tryAgainTip = " Right-click here: Try Again."
-	closeItTip  = " Close it, then right-click here: Try Again."
-	reservedTip = " See launcher.log, then Try Again."
+	tryAgainAdvice = "then right-click Forge Solo's tray icon: Try Again"
+	closeItAdvice  = "close that program, " + tryAgainAdvice
 )
-
-// failTip is the tray's tooltip for a start that failed: why, cut short if need be so that the
-// advice after it still shows (Windows shows 127 characters).
-func failTip(why, advice string) string {
-	const prefix = "Forge Solo cannot start: "
-	room := 127 - len([]rune(prefix)) - 1 - len([]rune(advice))
-	if r := []rune(why); len(r) > room {
-		why = string(r[:room-1]) + "…"
-	}
-	return prefix + why + "." + advice
-}
 
 // tryAgain is the tray's Try Again. It acts once per offer: a second click does nothing.
 func tryAgain() {
@@ -61,8 +49,8 @@ func tryAgain() {
 		logf("trying again")
 		if prepErr != nil {
 			if prepErr = prepare(); prepErr != nil {
-				logf("Forge Solo cannot start: %v", prepErr)
-				startFailed(failTip(prepErr.Error(), tryAgainTip))
+				logf("Forge Solo cannot start: %v; %s", prepErr, tryAgainAdvice)
+				startFailed(tipCannotStart(startWhy(prepErr)))
 				return
 			}
 		}

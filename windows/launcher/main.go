@@ -276,12 +276,13 @@ var (
 // slow to answer.
 var setTooltip = systray.SetTooltip
 
-// status shows s as the tray tooltip, unless the stop has begun: its own tooltip stays.
+// status shows s, one of the tray's texts (tips.go), as the tray tooltip, unless the stop has begun:
+// its own tooltip stays. A program's own reason for not starting can make s long: it is cut short.
 func status(s string) {
 	tipMu.Lock()
 	defer tipMu.Unlock()
 	if !stopShown {
-		setTooltip(s)
+		setTooltip(trimTip(s))
 	}
 }
 
@@ -290,7 +291,7 @@ func showStopping() {
 	tipMu.Lock()
 	defer tipMu.Unlock()
 	stopShown = true
-	setTooltip("Forge Solo: shutting down cleanly…")
+	setTooltip(tipStopping)
 }
 
 // writeAlways rewrites generated config every boot so upgrades pick up new settings.
@@ -334,7 +335,7 @@ func assignPorts() error {
 	for _, p := range portPlan {
 		port, err := pickPort(p.from)
 		if err != nil {
-			return fmt.Errorf("no free local port for %s (%d-%d)", p.name, p.from, p.from+portWindow-1)
+			return fmt.Errorf("no free local port (for %s, in %d-%d)", p.name, p.from, p.from+portWindow-1)
 		}
 		*p.port = port
 	}
@@ -357,7 +358,7 @@ func main() {
 	rotateLog(dpath("launcher.log"), launcherLogLimit)
 	// Read before the tray starts, so its menu never sees them half loaded.
 	if prepErr = prepare(); prepErr != nil {
-		logf("Forge Solo cannot start: %v", prepErr)
+		logf("Forge Solo cannot start: %v; %s", prepErr, tryAgainAdvice)
 	}
 	go watchTray(exe)
 	// No exit callback: the tray calls it as it removes its icon, and the stop is shutdown's.
@@ -389,7 +390,7 @@ func onReady() {
 	close(trayReady)
 	systray.SetIcon(trayIcon)
 	systray.SetTitle("Forge Solo")
-	systray.SetTooltip("Forge Solo: starting…")
+	systray.SetTooltip(tipStarting)
 	// Shown only after a start that failed, or a dashboard another program's port kept closed.
 	mRetry := systray.AddMenuItem("Try Again", "Start Forge Solo again")
 	mRetry.Hide()
@@ -408,7 +409,7 @@ func onReady() {
 	mQuit := systray.AddMenuItem("Quit Forge Solo", "")
 	watchSessionEnd()
 	if prepErr != nil {
-		startFailed(failTip(prepErr.Error(), tryAgainTip))
+		startFailed(tipCannotStart(startWhy(prepErr)))
 	} else {
 		go boot()
 	}
@@ -432,14 +433,6 @@ func onReady() {
 			}
 		}
 	}()
-}
-
-// trimTip shortens a tray tooltip to what Windows shows (127 characters).
-func trimTip(s string) string {
-	if r := []rune(s); len(r) > 127 {
-		return string(r[:126]) + "…"
-	}
-	return s
 }
 
 // trayReady is closed once the tray icon is up and its menu made.

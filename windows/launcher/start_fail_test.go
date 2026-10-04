@@ -122,7 +122,7 @@ func TestANodeThatCannotStartIsTriedAgain(t *testing.T) {
 	if strings.Contains(launcherLog(), "nodes started") {
 		t.Errorf("WIN-START-NODES-NOT-STARTED: launcher.log says the nodes started with no BCH2 node:\n%s", launcherLog())
 	}
-	if !tp.has("Forge Solo: the BCH2 node could not start: no such file or directory") {
+	if !tp.has("Forge Solo cannot start the BCH2 node: no such file") {
 		t.Errorf("WIN-START-TRAY: the tray never named the BCH2 node and why it could not start: %q", tp.all())
 	}
 	if tp.has("Forge Solo: running") {
@@ -148,7 +148,7 @@ func TestAnAPIThatCannotStartIsTriedAgain(t *testing.T) {
 	if !waitFor(5*time.Second, func() bool { return started("stratum") }) {
 		t.Fatalf("WIN-START-API-MINER: the miner did not start with the API missing; log:\n%s", launcherLog())
 	}
-	if !strings.Contains(launcherLog(), "the dashboard's API could not start") || !tp.has("Forge Solo: the dashboard's API could not start") {
+	if !strings.Contains(launcherLog(), "the dashboard's API could not start") || !tp.has("Forge Solo cannot start the dashboard's API: ") {
 		t.Errorf("WIN-START-API-SAID: the API's failure is not in launcher.log and the tray: %q\n%s", tp.all(), launcherLog())
 	}
 	if err := os.WriteFile(ipath("api.exe"), []byte("#!/bin/sh\n"+sleeper+"\n"), 0o755); err != nil {
@@ -169,7 +169,7 @@ func TestARestartThatFailsIsTriedAgain(t *testing.T) {
 	if !waitFor(5*time.Second, func() bool { return strings.Contains(launcherLog(), "exited on its own") }) {
 		t.Fatalf("setup: the miner did not exit; log:\n%s", launcherLog())
 	}
-	if !waitFor(3*time.Second, func() bool { return tp.has("Forge Solo: the miner could not start: no such file or directory") }) {
+	if !waitFor(3*time.Second, func() bool { return tp.has("Forge Solo cannot start the miner: no such file or directory") }) {
 		t.Errorf("WIN-RESTART-TRAY: the tray does not say the miner could not start again: %q", tp.all())
 	}
 	// The first try came restartFirstWait (50 ms) after the exit; the next is 100 ms after it.
@@ -212,10 +212,10 @@ func TestRunningOnlyWithEverythingRunning(t *testing.T) {
 	if tp.last() != "Forge Solo: running" {
 		t.Fatalf("WIN-RUNNING-ALL: with everything running the tray says %q", tp.last())
 	}
-	setTrouble("database", moveFailedTip)
+	setTrouble("database", tipMoveFailed)
 	tp.add("something else")
 	showRunning()
-	if tp.last() != moveFailedTip {
+	if tp.last() != tipMoveFailed {
 		t.Fatalf("WIN-RUNNING-DB: with the move of the old data failed, the miner idle, the tray says %q", tp.last())
 	}
 	clearTrouble("database")
@@ -223,7 +223,7 @@ func TestRunningOnlyWithEverythingRunning(t *testing.T) {
 	couldNotStart("bch2", "the BCH2 node", errors.New("held"), time.Minute)
 	tp.add("something else")
 	showRunning()
-	if tp.last() != "Forge Solo: the BCH2 node could not start: held" {
+	if tp.last() != "Forge Solo cannot start the BCH2 node: held" {
 		t.Fatalf("WIN-RUNNING-SAYS-TROUBLE: with the BCH2 node unable to start the tray says %q", tp.last())
 	}
 }

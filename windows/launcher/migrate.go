@@ -57,9 +57,6 @@ var migrateLimit = 10 * time.Minute
 // (a variable so that the tests can use another).
 var pgPortFrom = 30000
 
-// moveFailedTip is the tray's word on a move that failed. It stays until the next start.
-const moveFailedTip = "Forge Solo could not move your data to the new database. Nothing was lost: the dashboard says why and what you can do."
-
 func dbPath() string { return dpath("forgesolo.db") }
 
 // prepareDatabase decides, before anything opens forgesolo.db, what this start does about an
@@ -102,7 +99,7 @@ func prepareDatabase() {
 			Reason: skipName + " is there: Forge Solo started without the data of the earlier version"})
 	case planDegraded:
 		recordStatus(migrationStatus{State: stateDegraded, Reason: reason})
-		setRunningNote(". The old database's folder is damaged and is not used: see the dashboard.")
+		setRunningNote(noteDegraded)
 	case planMove, planMerge:
 		moveData(action == planMerge)
 	default:
@@ -224,7 +221,7 @@ func migratorPlan() (action, reason string, err error) {
 // Quit or Windows ending the session meanwhile ends the migrator and stops PostgreSQL, and nothing
 // is put in place: the next start moves the data. A move that fails leaves everything as it was.
 func moveData(merge bool) {
-	status("Forge Solo: moving your data to the new database (once, a few minutes at most)…")
+	status(tipMoving)
 	if sec.DBPass == "" {
 		moveFailed(migrationStatus{Code: codeSource, Reason: "secrets.env lacks the old database's password"})
 		return
@@ -329,7 +326,7 @@ func migratorDone(code int, err error, before []byte) bool {
 	now, _ := os.ReadFile(statusPath())
 	if st, _, _ := readStatus(); st.State == stateFailed && !bytes.Equal(now, before) {
 		logf("old data: %s stopped with exit code %d: %s", migrateExe, code, st.Reason)
-		setTrouble("database", moveFailedTip)
+		setTrouble("database", tipMoveFailed)
 		return false
 	}
 	reason := fmt.Sprintf("%s stopped with exit code %d", migrateExe, code)
@@ -346,7 +343,7 @@ func moveFailed(s migrationStatus) {
 	s.State = stateFailed
 	s.Detail = strings.TrimSpace(s.Detail)
 	recordStatus(s)
-	setTrouble("database", moveFailedTip)
+	setTrouble("database", tipMoveFailed)
 }
 
 // oldDatabaseURL is the old database's address for forge-solo-migrate, which it reads from its

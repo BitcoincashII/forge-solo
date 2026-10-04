@@ -100,7 +100,7 @@ func exitedOnItsOwn(key string, c *exec.Cmd, st *os.ProcessState, since time.Tim
 		code = st.ExitCode()
 	}
 	logf("%s (%s) exited on its own after %v, exit code %d: starting it again in %v", what, key, ran.Round(time.Second), code, wait)
-	status("Forge Solo: " + what + " stopped on its own and is started again (see launcher.log)")
+	status(tipRestarting(what))
 	if damagedChain(key) {
 		start = repairOnce(key, what, start)
 	}
@@ -173,7 +173,7 @@ func showRunning() {
 	troubleMu.Lock()
 	note := runningNote
 	troubleMu.Unlock()
-	status(trimTip("Forge Solo: running" + note))
+	status(tipRunningWith(note))
 }
 
 // startOrKeepTrying starts the program under key and reports whether it runs. One that cannot start
@@ -204,7 +204,7 @@ func startOrKeepTrying(key string) bool {
 // names it in the tray with the reason.
 func couldNotStart(key, what string, err error, wait time.Duration) {
 	logf("%s could not start: %v; trying again in %v", what, err, wait)
-	setTrouble(key, trimTip("Forge Solo: "+what+" could not start: "+startError(err)))
+	setTrouble(key, tipProgramCannotStart(what, startError(err)))
 }
 
 // setTrouble notes what is wrong with the program under key, and shows it in the tray.
@@ -363,10 +363,10 @@ func repairOnce(key, what string, start func() error) func() error {
 	}
 	if again {
 		logf("%s still finds its chain data damaged after rebuilding it: delete the blocks and chainstate folders in %s in the data folder, then start Forge Solo again", what, folder)
-		status(trimTip("Forge Solo: " + what + "'s chain data is damaged. Delete " + folder + `\blocks and ` + folder + `\chainstate in the data folder, then restart.`))
+		status(tipChainDamaged(what))
 		return start
 	}
 	logf("%s says its chain data is damaged: starting it once with -reindex, which rebuilds it from the blocks on disk (this takes a few minutes)", what)
-	status("Forge Solo: rebuilding " + what + "'s chain data (a few minutes)…")
+	status(tipRebuilding(what))
 	return func() error { return startNode(key, "-reindex") }
 }

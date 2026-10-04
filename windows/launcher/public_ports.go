@@ -61,12 +61,20 @@ type portError struct {
 func (e *portError) Error() string { return e.why() + " (" + e.cause.Error() + ")" }
 func (e *portError) Unwrap() error { return e.cause }
 
-// why is what the tray says.
+// why is what launcher.log says.
 func (e *portError) why() string {
 	if e.reserved {
 		return "Windows keeps port " + e.port + ", " + e.what + ", for itself"
 	}
 	return "another program uses port " + e.port + ", " + e.what
+}
+
+// trayWhy is why in the few words the tray has room for.
+func (e *portError) trayWhy() string {
+	if e.reserved {
+		return "Windows keeps port " + e.port + " for itself"
+	}
+	return "another program uses port " + e.port
 }
 
 // listenProbe listens on an address to see whether the system lets a program have it (a stand-in

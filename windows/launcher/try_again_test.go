@@ -40,7 +40,7 @@ func tryWorld(t *testing.T) (tp, shown *tips, boots func() int) {
 	boots = func() int {
 		n := 0
 		for _, s := range tp.all() {
-			if s == "Forge Solo: preparing…" {
+			if s == tipPreparing {
 				n++
 			}
 		}
@@ -72,16 +72,19 @@ func holdMinerPort(t *testing.T) (string, net.Listener) {
 }
 
 // Another program on the miner port: Forge Solo cannot start, and keeps its tray icon, which says
-// what to do and offers Try Again. A second start of Forge Solo only opened the dashboard of the
-// copy already running, which nothing served, and that copy never tried again. Try Again with the
-// port still taken says so again; with it free, the start goes on.
+// why and offers Try Again; launcher.log says what to do. A second start of Forge Solo only opened
+// the dashboard of the copy already running, which nothing served, and that copy never tried again.
+// Try Again with the port still taken says so again; with it free, the start goes on.
 func TestTryAgainAfterAPortWasTaken(t *testing.T) {
 	tp, shown, boots := tryWorld(t)
 	port, held := holdMinerPort(t)
 	boot()
-	want := "Forge Solo cannot start: another program uses port " + port + ", the miner port. Close it, then right-click here: Try Again."
+	want := "Forge Solo cannot start: another program uses port " + port
 	if tp.last() != want || strings.Join(shown.all(), " ") != "true" {
 		t.Fatalf("TRY-AGAIN-OFFERED: the tray says %q, Try Again %v; want %q and Try Again shown", tp.last(), shown.all(), want)
+	}
+	if !strings.Contains(launcherLog(), "another program uses port "+port+", the miner port (") || !strings.Contains(launcherLog(), closeItAdvice) {
+		t.Fatalf("TRY-AGAIN-LOGGED: launcher.log does not say which port, and what to do:\n%s", launcherLog())
 	}
 	tryAgain()
 	if !shownTimes(shown, 3) || tp.last() != want || boots() != 2 || dashboardOpen.Load() {
@@ -194,21 +197,5 @@ func TestTryAgainOpensTheDashboardAndSaysRunning(t *testing.T) {
 	}
 	if tp.last() != "Forge Solo: running" {
 		t.Fatalf("TRY-AGAIN-DASHBOARD-RUNNING: the dashboard is open and everything runs, yet the tray says %q", tp.last())
-	}
-}
-
-// Every advice after a failed start fits the 127 characters Windows shows, however long the
-// reason: the reason is cut, not the advice.
-func TestFailTipsFit(t *testing.T) {
-	for _, tc := range []struct{ why, advice string }{
-		{"another program uses port 8339, the BCH2 node's peer port", closeItTip},
-		{"Windows keeps port 25360, the 1175 node's peer port, for itself", reservedTip},
-		{"the database did not start (see launcher.log and pglog.txt)", tryAgainTip},
-		{strings.Repeat("secrets.env cannot be read (a long reason) ", 5), tryAgainTip},
-	} {
-		tip := failTip(tc.why, tc.advice)
-		if len([]rune(tip)) > 127 || !strings.HasSuffix(tip, tc.advice) {
-			t.Errorf("TRY-TIP-FITS: %d characters, %q", len([]rune(tip)), tip)
-		}
 	}
 }

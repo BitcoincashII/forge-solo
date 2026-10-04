@@ -198,7 +198,7 @@ func TestAMovedInstallStartsWithoutTheMigrator(t *testing.T) {
 			if n := count(got, "migrate plan") + count(got, "pg_ctl"); n != 0 {
 				t.Fatalf("%s: a moved install ran the migrator or PostgreSQL: %v", c.code, got)
 			}
-			if tp.has("Forge Solo could not move") {
+			if tp.has(tipMoveFailed) {
 				t.Errorf("%s: the tray says the move failed: %q", c.code, tp.all())
 			}
 			if _, err := os.Stat(ipath("pgsql")); !os.IsNotExist(err) {
@@ -231,7 +231,7 @@ func TestADamagedOldFolderAfterAMoveIsIgnored(t *testing.T) {
 		t.Errorf("MOVE-DEGRADED-STATUS: %+v", s)
 	}
 	if !waitFor(5*time.Second, func() bool {
-		return tp.last() == "Forge Solo: running. The old database's folder is damaged and is not used: see the dashboard."
+		return tp.last() == tipRunningWith(noteDegraded)
 	}) {
 		t.Errorf("MOVE-DEGRADED-TRAY: the tray says %q", tp.last())
 	}
@@ -297,7 +297,7 @@ func TestTheMoveRunsInOrder(t *testing.T) {
 			if _, err := os.Stat(ipath("pgsql")); !os.IsNotExist(err) {
 				t.Errorf("MOVE-CLEANUP-AFTER: the bundled PostgreSQL is still installed after a checked move (%v)", err)
 			}
-			if tp.has("Forge Solo could not move") {
+			if tp.has(tipMoveFailed) {
 				t.Errorf("MOVE-NO-FAIL-TRAY: %q", tp.all())
 			}
 		})
@@ -376,7 +376,7 @@ func TestAFailedMoveStillStartsEverything(t *testing.T) {
 			if _, err := os.Lstat(filepath.Join(pd, "ForgeSolo", "links", "0123abcd")); !os.IsNotExist(err) {
 				t.Errorf("%s-JUNCTIONS: the move's junctions are still there (%v)", c.code, err)
 			}
-			if !tp.has(moveFailedTip) || tp.has("Forge Solo: running") {
+			if !tp.has(tipMoveFailed) || tp.has("Forge Solo: running") {
 				t.Errorf("%s-TRAY: the tray said %q", c.code, tp.all())
 			}
 			if _, err := os.Stat(dbPath()); c.plan == "move" && !os.IsNotExist(err) {
@@ -436,7 +436,7 @@ func TestAMoveWithoutTheBundledPostgreSQLSaysHowToGetIt(t *testing.T) {
 			if got := callsIn(calls); count(got, "pg_ctl")+count(got, "migrate prepare")+count(got, "migrate commit") != 0 {
 				t.Errorf("%s-NOTHING-RUN: %v", c.code, got)
 			}
-			if !tp.has(moveFailedTip) || tp.has("Forge Solo: running") {
+			if !tp.has(tipMoveFailed) || tp.has("Forge Solo: running") {
 				t.Errorf("%s-TRAY: the tray said %q", c.code, tp.all())
 			}
 		})
@@ -494,7 +494,7 @@ func TestAStartThatNeedsNothingClearsAnEarlierStatus(t *testing.T) {
 			if got := callsIn(calls); count(got, "migrate plan")+count(got, "pg_ctl") != 0 {
 				t.Errorf("MOVE-STALE-STATUS-NOTHING-RUN: %v", got)
 			}
-			if tp.has(moveFailedTip) || !waitFor(5*time.Second, func() bool { return tp.last() == "Forge Solo: running" }) {
+			if tp.has(tipMoveFailed) || !waitFor(5*time.Second, func() bool { return tp.last() == "Forge Solo: running" }) {
 				t.Errorf("MOVE-STALE-STATUS-TRAY: the tray said %q", tp.all())
 			}
 		})
@@ -577,7 +577,7 @@ func TestADeferredMoveStartsNormally(t *testing.T) {
 	if got := callsIn(calls); count(got, "migrate commit") != 0 || count(got, "stop") != 1 {
 		t.Errorf("MOVE-DEFERRED-STEPS: %v", got)
 	}
-	if tp.has(moveFailedTip) || !waitFor(5*time.Second, func() bool { return tp.last() == "Forge Solo: running" }) {
+	if tp.has(tipMoveFailed) || !waitFor(5*time.Second, func() bool { return tp.last() == "Forge Solo: running" }) {
 		t.Errorf("MOVE-DEFERRED-RUNNING: the tray said %q", tp.all())
 	}
 }
