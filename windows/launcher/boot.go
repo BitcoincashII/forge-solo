@@ -209,18 +209,20 @@ var dbStarting atomic.Bool
 
 func startPostgres() bool {
 	pgdata := dpath("pgdata")
+	md(pgdata)
+	for _, p := range []string{pgdata, ipath("pgsql", "bin")} {
+		if _, bad := pgForm(p); bad != "" {
+			logf("the database cannot start: the bundled PostgreSQL cannot take the folder name %q in %s. It has characters outside this PC's language for non-Unicode programs, and the drive keeps no short (8.3) name for it", bad, p)
+			return false
+		}
+	}
 	if _, err := os.Stat(filepath.Join(pgdata, "PG_VERSION")); os.IsNotExist(err) {
-		md(pgdata)
 		pwf := dpath("pgpw.txt")
 		_ = os.WriteFile(pwf, []byte(sec.DBPass), 0o600)
 		init := pgCmd("pgsql\\bin\\initdb.exe", "-D", pgPath(pgdata), "-U", "forge", "-A", "scram-sha-256",
 			"--pwfile", pgPath(pwf), "-E", "UTF8", "--no-locale")
 		_ = runToEnd(init, nil)
 		_ = os.Remove(pwf)
-	}
-	if !isASCII(pgPath(pgdata)) || !isASCII(pgPath(ipath("pgsql", "bin"))) {
-		logf("the database cannot start: the names of Forge Solo's folders (%s, %s) have characters the bundled PostgreSQL cannot take, and this drive keeps no short names for them", installDir, dataDir)
-		return false
 	}
 	log := dpath("pglog.txt")
 	rotateLog(log, 10<<20)

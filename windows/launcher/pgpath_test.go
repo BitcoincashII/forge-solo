@@ -6,62 +6,100 @@ import (
 	"testing"
 )
 
-// shortNames stands in for the short (8.3) names a Windows drive keeps, for the test.
-func shortNames(t *testing.T, names map[string]string) {
+// codePage stands in, for the test, for the short (8.3) names a Windows drive keeps (by the path
+// of the file or folder) and for the names the system's code page holds.
+func codePage(t *testing.T, short map[string]string, holds ...string) {
 	t.Helper()
-	saved := shortPath
-	shortPath = func(p string) (string, error) {
-		if s, ok := names[p]; ok {
+	savedShort, savedHolds := shortName, codePageHolds
+	shortName = func(p string) (string, error) {
+		if s, ok := short[p]; ok {
 			return s, nil
 		}
 		return "", errors.New("no such file")
 	}
-	t.Cleanup(func() { shortPath = saved })
+	codePageHolds = func(s string) bool {
+		for _, h := range holds {
+			if s == h {
+				return true
+			}
+		}
+		return false
+	}
+	t.Cleanup(func() { shortName, codePageHolds = savedShort, savedHolds })
 }
 
-// The bundled PostgreSQL takes its paths in the system's code page: one with a character outside it
-// is given in its short form, which is ASCII. Plain ASCII is given as it is.
-func TestPostgresGetsPathsItCanTake(t *testing.T) {
-	cn := "/Users/" + string([]rune{0x6D4B, 0x8BD5}) + "/AppData/Roaming/ForgeSolo"
-	shortNames(t, map[string]string{
-		cn:             "/Users/5B3D~1/AppData/Roaming/FORGES~1",
-		cn + "/pgdata": "/Users/5B3D~1/AppData/Roaming/FORGES~1/pgdata",
-		cn + "/" + string([]rune{0x6570, 0x636E}): "/Users/5B3D~1/AppData/Roaming/FORGES~1/6570~1",
-		"/Users/José/x": "/Users/José/x", // the drive keeps no short names
-		// An ASCII path has a short name too, which must not be used: nothing changes for the users
-		// this was never a problem for.
-		"/Users/dev/AppData/Roaming/ForgeSolo/pgdata": "/Users/dev/AppData/Roaming/FORGES~1/pgdata",
-	})
+var (
+	cn    = string([]rune{0x6D4B, 0x8BD5}) // a Chinese name, which a Western code page lacks
+	pawel = "Pawe\u0142"                   // a Polish l, which a Western code page lacks
+	jose  = "Jos\u00e9"                    // an e acute, which a Western code page holds
+)
+
+// A path in plain ASCII is given as it is: nothing changes for the users this was never a problem
+// for.
+func TestPgPathASCII(t *testing.T) {
+	codePage(t, map[string]string{"/Users/dev/AppData/Roaming/ForgeSolo": "FORGES~1"})
 	if got := pgPath("/Users/dev/AppData/Roaming/ForgeSolo/pgdata"); got != "/Users/dev/AppData/Roaming/ForgeSolo/pgdata" {
 		t.Errorf("PGPATH-ASCII: an ASCII path was changed to %q", got)
 	}
-	if got := pgPath(cn + "/pgdata"); got != "/Users/5B3D~1/AppData/Roaming/FORGES~1/pgdata" {
-		t.Errorf("PGPATH-SHORT: %q was given as %q, not in its short form", cn+"/pgdata", got)
+}
+
+// A part with a character outside the code page is given by the short name the drive keeps for
+// it, which is ASCII; the other parts stay as they are. A file not made yet keeps its own name.
+func TestPgPathUsesTheShortNamesTheDriveKeeps(t *testing.T) {
+	codePage(t, map[string]string{
+		"/Users/" + cn: "5B3D~1",
+		"/Users/" + cn + "/AppData/Roaming/ForgeSolo/" + cn: "6570~1",
+	})
+	if got := pgPath("/Users/" + cn + "/AppData/Roaming/ForgeSolo/pgdata"); got != "/Users/5B3D~1/AppData/Roaming/ForgeSolo/pgdata" {
+		t.Errorf("PGPATH-SHORT: given as %q, not by its short name", got)
 	}
-	// Its own name outside the code page too: only its own short form will do.
-	if got := pgPath(cn + "/" + string([]rune{0x6570, 0x636E})); got != "/Users/5B3D~1/AppData/Roaming/FORGES~1/6570~1" {
-		t.Errorf("PGPATH-SHORT: a path whose last part is outside the code page was given as %q", got)
+	if got := pgPath("/Users/" + cn + "/AppData/Roaming/ForgeSolo/" + cn); got != "/Users/5B3D~1/AppData/Roaming/ForgeSolo/6570~1" {
+		t.Errorf("PGPATH-SHORT-LAST: a path whose last part is outside the code page was given as %q", got)
 	}
-	if got := pgPath(cn + "/pglog.txt"); got != filepath.Join("/Users/5B3D~1/AppData/Roaming/FORGES~1", "pglog.txt") {
-		t.Errorf("PGPATH-NEW-FILE: a file not made yet was given as %q, not in its folder's short form", got)
-	}
-	if got := pgPath("/Users/José/x"); got != "/Users/José/x" {
-		t.Errorf("PGPATH-NO-SHORT: with no short name, the path was given as %q", got)
+	if got := pgPath("/Users/" + cn + "/AppData/Roaming/ForgeSolo/pglog.txt"); got != "/Users/5B3D~1/AppData/Roaming/ForgeSolo/pglog.txt" {
+		t.Errorf("PGPATH-NEW-FILE: a file not made yet was given as %q", got)
 	}
 }
 
-// The programs themselves start from, and in, their short paths: they find their own folder in the
-// code page too ("program postgres is needed by initdb but was not found").
+// A user name like "Pawel" with a Polish l: the drive keeps a short name for it (PAWE~1), but
+// GetShortPathName leaves the part long, since the code page's look-alike "Pawel" would be a valid
+// short name. Read part by part, the short name is found.
+func TestPgPathFindsTheShortNameGetShortPathNameMisses(t *testing.T) {
+	codePage(t, map[string]string{"C:/Users/" + pawel: "PAWE~1"})
+	if got, bad := pgForm("C:/Users/" + pawel + "/AppData/Roaming/ForgeSolo/pgdata"); got != "C:/Users/PAWE~1/AppData/Roaming/ForgeSolo/pgdata" || bad != "" {
+		t.Errorf("PGPATH-STORED-SHORT: given as %q (cannot take %q), not by the short name the drive keeps", got, bad)
+	}
+}
+
+// A drive with short names off (often one other than C:): a name the code page holds is given as
+// it is, as the release before did, and PostgreSQL takes it.
+func TestPgPathKeepsANameTheCodePageHolds(t *testing.T) {
+	codePage(t, nil, jose)
+	if got, bad := pgForm("D:/Users/" + jose + "/AppData/Roaming/ForgeSolo/pgdata"); got != "D:/Users/"+jose+"/AppData/Roaming/ForgeSolo/pgdata" || bad != "" {
+		t.Errorf("PGPATH-CODE-PAGE: given as %q (cannot take %q); the code page holds %q", got, bad, jose)
+	}
+}
+
+// A name neither shortened nor held by the code page: there is no form PostgreSQL can take, and
+// pgForm names the part at fault.
+func TestPgPathNamesThePartItCannotGive(t *testing.T) {
+	codePage(t, nil, jose)
+	path := "D:/Users/" + pawel + "/AppData/Roaming/ForgeSolo/pgdata"
+	if got, bad := pgForm(path); got != path || bad != pawel {
+		t.Errorf("PGPATH-NEITHER: gave %q, naming %q as the part it cannot take; want the path as it is and %q", got, bad, pawel)
+	}
+}
+
+// The programs themselves start from, and in, paths they can take: they find their own folder in
+// the code page too ("program postgres is needed by initdb but was not found").
 func TestPostgresProgramsStartFromShortPaths(t *testing.T) {
 	saved := installDir
-	installDir = "/Users/" + string([]rune{0x6D4B, 0x8BD5}) + "/Programs/ForgeSolo"
+	installDir = filepath.FromSlash("/Users/" + cn + "/Programs/ForgeSolo")
 	t.Cleanup(func() { installDir = saved })
-	shortNames(t, map[string]string{
-		installDir:                             "/Users/5B3D~1/Programs/FORGES~1",
-		installDir + "/pgsql\\bin\\pg_ctl.exe": "/Users/5B3D~1/Programs/FORGES~1/pgsql/bin/pg_ctl.exe",
-	})
+	codePage(t, map[string]string{filepath.FromSlash("/Users/" + cn): "5B3D~1"})
 	c := pgCmd("pgsql\\bin\\pg_ctl.exe", "start")
-	if c.Path != "/Users/5B3D~1/Programs/FORGES~1/pgsql/bin/pg_ctl.exe" || c.Args[0] != c.Path || c.Dir != "/Users/5B3D~1/Programs/FORGES~1" {
+	dir := filepath.FromSlash("/Users/5B3D~1/Programs/ForgeSolo")
+	if c.Path != filepath.Join(dir, "pgsql\\bin\\pg_ctl.exe") || c.Args[0] != c.Path || c.Dir != dir {
 		t.Fatalf("PGPATH-CMD: pg_ctl runs as %q (args[0] %q) in %q", c.Path, c.Args[0], c.Dir)
 	}
 }

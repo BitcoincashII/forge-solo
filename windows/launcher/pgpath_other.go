@@ -4,5 +4,9 @@ package main
 
 import "errors"
 
-// shortPath has no short names to give outside Windows; the tests put in a stand-in.
-var shortPath = func(string) (string, error) { return "", errors.New("only on Windows") }
+// shortName and codePageHolds have no short names or code page outside Windows; the tests put in
+// stand-ins.
+var (
+	shortName     = func(string) (string, error) { return "", errors.New("only on Windows") }
+	codePageHolds = func(string) bool { return false }
+)
