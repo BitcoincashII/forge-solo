@@ -5,6 +5,7 @@ package stats
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -13,7 +14,8 @@ import (
 	"sync"
 	"time"
 
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 var (
@@ -72,6 +74,49 @@ func GetDBConnStr() string {
 	return GetDBPath()
 }
 
+// SQLiteDSN is how every Forge Solo program opens the SQLite database at path. The api and the
+// stratum share the file, so each connection:
+//   - waits up to 10 s for the other's write lock (busy_timeout) instead of failing at once;
+//   - starts every transaction with BEGIN IMMEDIATE (_txlock), taking the write lock where SQLite
+//     waits for it. A plain BEGIN takes it at the transaction's first write, and when the other
+//     program has written since the transaction's first read, SQLite fails that write at once
+//     with SQLITE_BUSY: Distribute1175Block failed that way under load;
+//   - uses WAL, so reads go on while the other program writes;
+//   - syncs every commit to disk (synchronous FULL), as PostgreSQL did. It is SQLite's default
+//     too; it is set here so that no change of default can loosen it.
+func SQLiteDSN(path string) string {
+	return path + "?_busy_timeout=10000&_journal_mode=WAL&_txlock=immediate&_pragma=synchronous(FULL)"
+}
+
+// sqliteConns is how many connections a program keeps open to the database. A write that waits
+// for the other program's lock holds its connection while it waits; with one connection every
+// dashboard read and the health ping waited behind it, and reported the database as down.
+const sqliteConns = 4
+
+// isBusy reports whether err is SQLITE_BUSY or one of its extended codes.
+func isBusy(err error) bool {
+	var se *sqlite.Error
+	return errors.As(err, &se) && se.Code()&0xff == sqlite3.SQLITE_BUSY
+}
+
+// pingBusyFor is how long InitDB tries again while the database answers SQLITE_BUSY.
+const pingBusyFor = 5 * time.Second
+
+// ping opens the first connection. Two programs opening a database file that does not exist yet
+// race to switch it to WAL, and SQLite fails the loser with SQLITE_BUSY at once, without waiting:
+// on a fresh install the api or the stratum failed its first start that way. The switch takes
+// moments, so a BUSY answer is tried again every 100 ms, for up to pingBusyFor.
+func ping(d *sql.DB) error {
+	deadline := time.Now().Add(pingBusyFor)
+	for {
+		err := d.Ping()
+		if err == nil || !isBusy(err) || time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 // InitDB initializes SQLite database
 func InitDB(connStr string) error {
 	dbMu.Lock()
@@ -89,17 +134,17 @@ func InitDB(connStr string) error {
 	}
 
 	var err error
-	db, err = sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
+	db, err = sql.Open("sqlite", SQLiteDSN(dbPath))
 	if err != nil {
 		return err
 	}
 
-	// SQLite settings for reliability
-	db.SetMaxOpenConns(1) // SQLite works best with single connection
-	db.SetMaxIdleConns(1)
+	// The connections stay open for the life of the program (no maximum lifetime).
+	db.SetMaxOpenConns(sqliteConns)
+	db.SetMaxIdleConns(sqliteConns)
 	db.SetConnMaxLifetime(0)
 
-	if err = db.Ping(); err != nil {
+	if err = ping(db); err != nil {
 		db.Close()
 		db = nil
 		return err
