@@ -890,24 +890,133 @@ func rejectCrossSiteWrites(c *fiber.Ctx) error {
 	return c.Next()
 }
 
-// lanAddress is this machine's address on its own network: the source address of its default
-// route, which is what a miner beside it dials. The dashboard shows it where the page itself is
-// opened on 127.0.0.1 (Windows, Linux), since that address reaches only a miner on this same
-// machine. A UDP "connection" only looks the route up: no packet is sent, and 192.0.2.1 is a
-// documentation address that routes nowhere. Empty when there is no default route. On Umbrel the
-// API runs in a container, so this is the container's address; the dashboard never uses it
-// there, because the page is opened by the Umbrel's own name.
+// lanAddress is this machine's address on its own network, which a miner beside it dials. The
+// dashboard shows it where the page itself is opened on 127.0.0.1 (Windows, Linux), since that
+// address reaches only a miner on this same machine. On Umbrel the API runs in a container, so
+// this is the container's address; the dashboard never uses it there, because the page is opened
+// by the Umbrel's own name.
 func lanAddress() string {
+	return pickLANAddress(routeSourceAddress(), systemInterfaces())
+}
+
+// routeSourceAddress is the source address of this machine's route to the internet. A UDP
+// "connection" only looks the route up: no packet is sent, and 192.0.2.1 is a documentation
+// address that routes nowhere. nil when there is no such route.
+func routeSourceAddress() net.IP {
 	c, err := net.Dial("udp4", "192.0.2.1:9")
 	if err != nil {
-		return ""
+		return nil
 	}
 	defer c.Close()
-	a, ok := c.LocalAddr().(*net.UDPAddr)
-	if !ok || a.IP == nil || a.IP.IsLoopback() || a.IP.IsUnspecified() {
+	if a, ok := c.LocalAddr().(*net.UDPAddr); ok {
+		return a.IP
+	}
+	return nil
+}
+
+// lanInterface is what pickLANAddress needs to know of a network interface.
+type lanInterface struct {
+	name  string
+	flags net.Flags
+	mac   net.HardwareAddr
+	addrs []net.IP
+}
+
+func systemInterfaces() []lanInterface {
+	ifs, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+	var out []lanInterface
+	for _, i := range ifs {
+		li := lanInterface{name: i.Name, flags: i.Flags, mac: i.HardwareAddr}
+		if addrs, err := i.Addrs(); err == nil {
+			for _, a := range addrs {
+				if n, ok := a.(*net.IPNet); ok {
+					li.addrs = append(li.addrs, n.IP)
+				}
+			}
+		}
+		out = append(out, li)
+	}
+	return out
+}
+
+// Interfaces whose names start with these are virtual: bridges for containers and virtual
+// machines, and VPN tunnels. Compared in lower case.
+var virtualInterfacePrefixes = []string{
+	"docker", "br-", "veth", "virbr", "vboxnet", "vmnet", "lxcbr", "lxdbr", "cni", "flannel", "cali", "podman",
+	"vethernet", "virtualbox", "vmware", "tun", "tap", "wg", "utun", "ppp", "tailscale", "zt", "nordlynx",
+	"protonvpn", "mullvad", "openvpn", "wireguard", "wintun",
+}
+
+// onTheLAN reports whether an interface is one on the machine's own network: up, not loopback and
+// not point-to-point, with a hardware address (a tunnel has none; a TAP-Windows adapter's starts
+// 00:FF), and not named as a virtual one is.
+func onTheLAN(i lanInterface) bool {
+	if i.flags&net.FlagUp == 0 || i.flags&net.FlagLoopback != 0 || i.flags&net.FlagPointToPoint != 0 {
+		return false
+	}
+	if len(i.mac) == 0 || (len(i.mac) >= 2 && i.mac[0] == 0x00 && i.mac[1] == 0xff) {
+		return false
+	}
+	name := strings.ToLower(i.name)
+	for _, p := range virtualInterfacePrefixes {
+		if strings.HasPrefix(name, p) {
+			return false
+		}
+	}
+	return true
+}
+
+// privateRank is how likely a private (RFC 1918) IPv4 address is a home network's, lower first:
+// 192.168/16, 10/8, 172.16/12 (Docker's and Hyper-V's own). -1 for any other address.
+func privateRank(ip net.IP) int {
+	ip4 := ip.To4()
+	switch {
+	case ip4 == nil:
+		return -1
+	case ip4[0] == 192 && ip4[1] == 168:
+		return 0
+	case ip4[0] == 10:
+		return 1
+	case ip4[0] == 172 && ip4[1]&0xf0 == 16:
+		return 2
+	}
+	return -1
+}
+
+// pickLANAddress is the address to tell miners. The route's source address alone is the
+// tunnel's while a full-tunnel VPN is on (OpenVPN, WireGuard, most VPN apps), and no miner on
+// the LAN can reach that: it is used when it is a private address on a LAN interface. Otherwise
+// the likeliest such address is, and on a machine with none, the route's address as before.
+func pickLANAddress(route net.IP, ifaces []lanInterface) string {
+	var best net.IP
+	bestRank := 3
+	for _, i := range ifaces {
+		if !onTheLAN(i) {
+			continue
+		}
+		for _, ip := range i.addrs {
+			rank := privateRank(ip)
+			if rank < 0 {
+				continue
+			}
+			if route != nil && ip.Equal(route) {
+				return ip.To4().String()
+			}
+			if rank < bestRank {
+				best, bestRank = ip.To4(), rank
+			}
+		}
+	}
+	if best != nil {
+		return best.String()
+	}
+	if route == nil || route.IsLoopback() || route.IsUnspecified() {
 		return ""
 	}
-	return a.IP.String()
+	return route.String()
 }
 
 // mergeMiningAvailable is false where the app runs no 1175 node (MERGE_MINING_AVAILABLE=0, set by
