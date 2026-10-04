@@ -187,16 +187,26 @@ func (jm *JobManager) EnableMergeMining(nodeURL, user, pass, payoutAddr string) 
 // the optional side chain. Now a background poller owns the network call and this is a
 // memory read; if the poller is stuck or the work is stale, BCH2 simply builds a job with
 // no aux commitment, exactly as it does when merge mining is off.
-func (jm *JobManager) fetchAuxWork() (*mergemining.AuxWork, []byte) {
+//
+// The third value is the 1175 address in effect ("" while merge mining is off), read under the
+// same lock as the work, which is always fetched for it.
+func (jm *JobManager) fetchAuxWork() (*mergemining.AuxWork, []byte, string) {
 	jm.mu.RLock()
 	defer jm.mu.RUnlock()
-	if !jm.auxEnabled || jm.auxWork == nil || jm.auxCommitment == nil {
-		return nil, nil
+	if !jm.auxEnabled {
+		return nil, nil, ""
 	}
-	if time.Since(jm.auxWorkAt) > auxWorkMaxAge {
-		return nil, nil
+	if jm.auxWork == nil || jm.auxCommitment == nil || time.Since(jm.auxWorkAt) > auxWorkMaxAge {
+		return nil, nil, jm.auxPayout
 	}
-	return jm.auxWork, jm.auxCommitment
+	return jm.auxWork, jm.auxCommitment, jm.auxPayout
+}
+
+// AuxWorkNow is the 1175 work the next job carries (nil for none) and the 1175 address in effect
+// ("" while merge mining is off): what the job loop compares the current job with.
+func (jm *JobManager) AuxWorkNow() (*mergemining.AuxWork, string) {
+	w, _, payTo := jm.fetchAuxWork()
+	return w, payTo
 }
 
 // auxRefreshLoop polls the aux node off the job-build path until merge mining is disabled.
@@ -630,7 +640,7 @@ func (jm *JobManager) CreateJob(template *BlockTemplate) *Job {
 	// job by up to the HTTP timeout, including the job that follows a new block. That is
 	// orphan exposure. Fixing it properly means fetching aux work off the critical path and
 	// using the last known-good commitment; until then, keep that timeout short.
-	auxWork, commitment := jm.fetchAuxWork()
+	auxWork, commitment, auxPayTo := jm.fetchAuxWork()
 
 	coinbase1, coinbase2, payTo := jm.buildCoinbase(template, commitment)
 
@@ -664,6 +674,7 @@ func (jm *JobManager) CreateJob(template *BlockTemplate) *Job {
 		OriginalPrevHash: originalPrevHash,
 		Transactions:     txData,
 		AuxWork:          auxWork,
+		AuxPayTo:         auxPayTo,
 		CoinbaseValue:    template.CoinbaseValue,
 		PayTo:            payTo,
 	}
@@ -865,6 +876,11 @@ type Job struct {
 	// built: a block found on a job from before the dashboard changed the address pays the old
 	// one, and is recorded under it. "" for a TIDES job.
 	PayTo string
+
+	// AuxPayTo is the 1175 address in effect when the job was built, the one its AuxWork pays: a
+	// 1175 block found on a job from before the dashboard changed it pays the old one. "" while
+	// merge mining is off.
+	AuxPayTo string
 
 	// CoinbaseValue is the satoshi value this job's own coinbase pays -- subsidy
 	// PLUS the fees of the transactions in THIS job. It is baked into CoinBase2 at

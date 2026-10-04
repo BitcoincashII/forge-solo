@@ -81,7 +81,7 @@ func TestHangingAuxNodeYieldsNoCommitment(t *testing.T) {
 	}()
 	jm.EnableMergeMining(srv.URL, "u", "p", "esf1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq")
 
-	if work, commitment := jm.fetchAuxWork(); work != nil || commitment != nil {
+	if work, commitment, _ := jm.fetchAuxWork(); work != nil || commitment != nil {
 		t.Errorf("hanging aux node yielded work=%v commitment=%v, want neither", work, commitment)
 	}
 	if h := jm.AuxHealth(); h.LastErr == "" {
@@ -125,7 +125,7 @@ func TestRepointDiscardsWorkFetchedForTheOldAddress(t *testing.T) {
 	if h := jm.AuxHealth(); h.Payout != "esf1new" {
 		t.Fatalf("payout = %q, want the re-pointed address", h.Payout)
 	}
-	if work, _ := jm.fetchAuxWork(); work != nil {
+	if work, _, _ := jm.fetchAuxWork(); work != nil {
 		t.Errorf("aux work is being served after a re-point (%v); it was fetched for the previous address (served=%v)", work, served.Load())
 	}
 }
