@@ -10,7 +10,9 @@ the runtime for the whole machine.
 They come from Microsoft's own installer, at a fixed URL and checked by SHA-256, and each DLL is
 checked too. That installer is a WiX bundle: the runtime's MSI and its cabinet sit in a cabinet
 appended to the exe, which 7-Zip does not list, so it is cut out by its header and the bundle's
-manifest says which payload is which. Needs 7z (p7zip-full) and msiextract (msitools).
+manifest says which payload is which. Needs 7z (p7zip-full) and msiextract (msitools); on Windows,
+which has no msiextract, msiexec unpacks the MSI instead (an administrative install, which installs
+nothing).
 
 Usage: vcruntime.py DESTDIR    (writes the three DLLs into DESTDIR)
 To move to a newer runtime: VCREDIST_URL from https://aka.ms/vs/17/release/vc_redist.x64.exe's
@@ -76,7 +78,10 @@ def main(dest):
         os.mkdir(pkg)
         shutil.copy(os.path.join(tmp, "pl", ids[msi]), os.path.join(pkg, msi))
         shutil.copy(os.path.join(tmp, "pl", ids["cab1.cab"]), os.path.join(pkg, "cab1.cab"))
-        run("msiextract", "-C", "out", msi, cwd=pkg)
+        if os.name == "nt" and not shutil.which("msiextract"):
+            run("msiexec", "/a", os.path.join(pkg, msi), "/qn", "TARGETDIR=" + os.path.join(pkg, "out"), cwd=pkg)
+        else:
+            run("msiextract", "-C", "out", msi, cwd=pkg)
         found = {f.lower(): os.path.join(d, f) for d, _, fs in os.walk(os.path.join(pkg, "out")) for f in fs}
         wrong = []
         for name, want in DLLS.items():

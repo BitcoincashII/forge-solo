@@ -45,16 +45,19 @@ func TestInnoSetupImageIsPinned(t *testing.T) {
 type workflow struct {
 	Jobs map[string]struct {
 		If             string `yaml:"if"`
+		RunsOn         string `yaml:"runs-on"`
 		TimeoutMinutes int    `yaml:"timeout-minutes"`
 		Environment    string `yaml:"environment"`
 		Steps          []struct {
-			Name string         `yaml:"name"`
-			ID   string         `yaml:"id"`
-			If   string         `yaml:"if"`
-			Uses string         `yaml:"uses"`
-			Run  string         `yaml:"run"`
-			Env  map[string]any `yaml:"env"`
-			With map[string]any `yaml:"with"`
+			Name             string         `yaml:"name"`
+			ID               string         `yaml:"id"`
+			If               string         `yaml:"if"`
+			Uses             string         `yaml:"uses"`
+			Run              string         `yaml:"run"`
+			Shell            string         `yaml:"shell"`
+			WorkingDirectory string         `yaml:"working-directory"`
+			Env              map[string]any `yaml:"env"`
+			With             map[string]any `yaml:"with"`
 		} `yaml:"steps"`
 	} `yaml:"jobs"`
 }
@@ -308,5 +311,86 @@ func TestReleaseBundlesTheVCRuntime(t *testing.T) {
 	}
 	if !regexp.MustCompile(`VCREDIST_SHA256 = "[0-9a-f]{64}"`).Match(script) {
 		t.Error("VCRT-PINNED: vcruntime.py does not pin Microsoft's installer by SHA-256")
+	}
+}
+
+// The switch to SQLite is guarded in CI. The race suite runs the SQLite build too, with the
+// packages of the move; the migrator is cross-built for each platform it ships on; the move runs
+// end to end on real clusters, from a database 1.0.12's own code made (the v1.0.12 tag: the whole
+// history); and a job on Windows itself tests what only Windows can show, its locks and renames,
+// code pages and junctions, and a whole move with the PostgreSQL the release ships, compared with
+// the Linux run of the same rows.
+func TestSQLiteSwitchIsGuardedInCI(t *testing.T) {
+	w := loadWorkflow(t, ".github/workflows/test.yml")
+	// A script's lines, each trimmed, without the comments: a command commented out is not run.
+	uncommented := func(s string) string {
+		var out []string
+		for _, l := range strings.Split(s, "\n") {
+			if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "#") {
+				out = append(out, l)
+			}
+		}
+		return strings.Join(out, "\n")
+	}
+	race := uncommented(stepRun(t, w, "unit", "Test with race detector"))
+	if !strings.Contains(race, "go test -count=1 -race -tags sqlite ./internal/stratum/ ./cmd/stratum/ ./cmd/api/ ./internal/mining/ ./internal/stats/ ./internal/dblock/ ./internal/pgmigrate/") {
+		t.Errorf("CI-SQLITE-RACE: the race step does not run the SQLite build with the move's packages:\n%s", race)
+	}
+	cross := uncommented(stepRun(t, w, "unit", "Build Forge Solo for Linux for every architecture it ships"))
+	for _, want := range []string{
+		"for arch in amd64 arm64; do\nCGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -tags sqlite -o /dev/null ./cmd/forge-solo-migrate\ndone",
+		"CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags sqlite -o /dev/null ./cmd/forge-solo-migrate",
+	} {
+		if !strings.Contains(cross, want) {
+			t.Errorf("CI-MIGRATOR-CROSS: the cross-build step lacks:\n%s", want)
+		}
+	}
+
+	it := w.Jobs["integration"]
+	runs := map[string]bool{}
+	for _, s := range it.Steps {
+		runs[strings.TrimSpace(s.Run)] = true
+		if strings.HasPrefix(s.Uses, "actions/checkout@") && fmt.Sprint(s.With["fetch-depth"]) != "0" {
+			t.Errorf("CI-FULL-HISTORY: the integration job's checkout has fetch-depth %v, not 0: the move's test needs the v1.0.12 tag", s.With["fetch-depth"])
+		}
+	}
+	if !runs["./scripts/it-pg-to-sqlite.sh"] {
+		t.Error("CI-PG-TO-SQLITE: the integration job does not run scripts/it-pg-to-sqlite.sh")
+	}
+	if !runs["./scripts/it-postgres.sh"] {
+		t.Error("CI-PG-KEPT: the integration job no longer runs scripts/it-postgres.sh")
+	}
+
+	win, ok := w.Jobs["windows-native"]
+	if !ok || win.RunsOn != "windows-latest" {
+		t.Fatalf("CI-WIN-NATIVE: no windows-native job on windows-latest (runs-on %q)", win.RunsOn)
+	}
+	var all []string
+	for _, s := range win.Steps {
+		all = append(all, s.WorkingDirectory+"$ "+uncommented(s.Run))
+	}
+	job := strings.Join(all, "\n")
+	for code, want := range map[string]string{
+		"CI-WIN-LOCKS":        "go test -count=1 -v -tags sqlite ./internal/dblock",
+		"CI-WIN-INUSE":        "go test -count=1 -v -tags sqlite ./internal/stats -run 'InUse|InitDBWaits|ApiAndStratum|Pragmas'",
+		"CI-WIN-COMMIT":       "go test -count=1 -v -tags sqlite ./internal/pgmigrate -run 'Commit|InUse|Plan'",
+		"CI-WIN-LAUNCHER":     "windows/launcher$ go test -count=1 -v -run 'ACP|Junction|PgReachable|FastPath' .",
+		"CI-WIN-PG-PINS":      `PG_SHA256=$(sed -n "s/^  PG_SHA256: '\(.*\)'\$/\1/p" .github/workflows/release.yml)`,
+		"CI-WIN-PG-CHECKED":   `echo "${PG_SHA256}  $RUNNER_TEMP/pg.zip" | sha256sum -c -`,
+		"CI-WIN-VCRT":         `python scripts/windows/vcruntime.py "$RUNNER_TEMP/pg/pgsql/bin"`,
+		"CI-WIN-MOVE":         `go test -count=1 -v -run '^TestMoveThroughAJunctionOnWindows$' .`,
+		"CI-WIN-MOVE-PASSED":  `grep -q -- '--- PASS: TestMoveThroughAJunctionOnWindows'`,
+		"CI-WIN-SAME-ROWS":    `IT_WANT=../../testdata/migrate/seed-1012.db.json`,
+		"CI-WIN-SNAPSHOT-PS1": `scripts\windows\dashboard-snapshot.ps1 -From testdata\migrate\dashboard`,
+	} {
+		if !strings.Contains(job, want) {
+			t.Errorf("%s: the windows-native job lacks:\n%s", code, want)
+		}
+	}
+	for _, s := range win.Steps {
+		if run := uncommented(s.Run); strings.Contains(run, "TestMoveThroughAJunctionOnWindows$") &&
+			(!strings.Contains(run, `FS_PGSQL="$RUNNER_TEMP/pg/pgsql"`) || !strings.Contains(run, "FS_MIGRATE=")) {
+			t.Error("CI-WIN-MOVE: the move runs without the bundled PostgreSQL and the migrator, so it would skip")
+		}
 	}
 }

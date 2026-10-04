@@ -80,9 +80,11 @@ func pgRun(t *testing.T, r *pgReach, name string, args ...string) {
 // The whole move on Windows, with the real bundled PostgreSQL (FS_PGSQL: an installed pgsql folder)
 // and forge-solo-migrate.exe (FS_MIGRATE), from an install folder and a data folder whose names
 // PostgreSQL cannot take, on a drive that keeps no short names: through junctions. An earlier
-// version's database is made there as 1.0.12 made it; prepareDatabase moves it, stops PostgreSQL,
-// removes the junctions, and, the move checked, the bundled PostgreSQL. The next start needs
-// nothing.
+// version's database is made there with 1.0.12's schema and testdata/migrate/seed-1012.sql, the
+// rows every platform's tests move; prepareDatabase moves it, stops PostgreSQL, removes the
+// junctions, and, the move checked, the bundled PostgreSQL. The next start needs nothing. With
+// FS_MOVED set, the moved forgesolo.db is copied there, for the CI job to compare with the Linux
+// run's (internal/pgmigrate TestITSnapshot).
 func TestMoveThroughAJunctionOnWindows(t *testing.T) {
 	pgsql, migrator := os.Getenv("FS_PGSQL"), os.Getenv("FS_MIGRATE")
 	if pgsql == "" || migrator == "" {
@@ -128,15 +130,11 @@ func TestMoveThroughAJunctionOnWindows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seed := string(schema) + `
-INSERT INTO pool_config (id, pool_address, coinbase_tag, payout_mode, updated_at) VALUES (1, 'bitcoincashii:qwindows', '/w-tag/', 'solo', '2026-09-30 12:00:00.4+00');
-INSERT INTO miners (address, solo_mining, address_1175, settings_pin_hash) VALUES ('bitcoincashii:qwindows', true, 'es1qwindows', 'pin');
-INSERT INTO blocks (height, hash, miner_address, reward, status, is_solo, created_at) VALUES
-  (100, repeat('a', 64), 'bitcoincashii:qwindows', 50, 'confirmed', true, '2026-09-29 10:00:00+00'),
-  (101, repeat('b', 64), 'bitcoincashii:qwindows', 50, 'pending', true, '2026-09-30 10:00:00+00');
-INSERT INTO payouts (miner_address, block_height, amount, confirmed, status, txid) VALUES ('bitcoincashii:qwindows', 100, 50, true, 'paid', 'coinbase-direct');
-`
-	if err := os.WriteFile(dpath("seed.sql"), []byte(seed), 0o600); err != nil {
+	rows, err := os.ReadFile("../../testdata/migrate/seed-1012.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dpath("seed.sql"), append(append(schema, '\n'), rows...), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	pgRun(t, r, "psql.exe", "-h", "127.0.0.1", "-p", port, "-U", "forge", "-d", "postgres", "-c", "CREATE DATABASE forgesolo")
@@ -159,8 +157,9 @@ INSERT INTO payouts (miner_address, block_height, amount, confirmed, status, txi
 		Counts map[string]int `json:"counts"`
 	}
 	b, _ := os.ReadFile(dpath(markerName))
-	if err := json.Unmarshal(b, &m); err != nil || m.Counts["blocks"] != 2 || m.Counts["payouts"] != 1 || m.Counts["miners"] != 1 {
-		t.Errorf("MOVE-WINDOWS-COUNTS: postgres-migrated.json says %s (%v)", b, err)
+	if err := json.Unmarshal(b, &m); err != nil || m.Counts["blocks"] != 152 || m.Counts["payouts"] != 155 || m.Counts["miners"] != 2 ||
+		m.Counts["blocks_1175"] != 4 || m.Counts["payouts_1175"] != 4 {
+		t.Errorf("MOVE-WINDOWS-COUNTS: postgres-migrated.json says %s (%v); the seed has 152 blocks, 155 payouts, 2 miners, 4 and 4 for 1175", b, err)
 	}
 	if postmasterPID() != 0 {
 		t.Errorf("MOVE-WINDOWS-STOPPED: PostgreSQL still runs after the move")
@@ -180,6 +179,11 @@ INSERT INTO payouts (miner_address, block_height, amount, confirmed, status, txi
 	out, err := exec.Command(ipath(migrateExe), "plan", "--db", dbPath(), "--pgdata", dpath("pgdata")).Output()
 	if err != nil || strings.TrimSpace(string(out)) != "none" {
 		t.Errorf("MOVE-WINDOWS-MIGRATOR-AGREES: forge-solo-migrate plan says %q (%v)", out, err)
+	}
+	if keep := os.Getenv("FS_MOVED"); keep != "" {
+		if err := copyFile(dbPath(), keep); err != nil {
+			t.Fatalf("MOVE-WINDOWS-KEEP: %v", err)
+		}
 	}
 }
 

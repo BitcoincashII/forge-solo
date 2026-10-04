@@ -102,10 +102,19 @@ jobs:
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch GOARM=$arm go build -tags sqlite -o /dev/null ./cmd/stratum
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch GOARM=$arm go build -tags sqlite -o /dev/null ./cmd/api
           done
+          # forge-solo-migrate ships in the migrate image (amd64, arm64) and in the Windows installer.
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -tags sqlite -o /dev/null ./cmd/forge-solo-migrate
+          done
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags sqlite -o /dev/null ./cmd/forge-solo-migrate
 
+      # Both builds: every platform runs on SQLite, where the api and the stratum share one file and
+      # the move replaces it under the in-use lock.
       - name: Test with race detector
         if: ${{ !cancelled() && steps.go.outcome == 'success' }}
-        run: go test -count=1 -race ./internal/stratum/ ./cmd/stratum/ ./cmd/api/ ./internal/mining/ ./internal/stats/
+        run: |
+          go test -count=1 -race ./internal/stratum/ ./cmd/stratum/ ./cmd/api/ ./internal/mining/ ./internal/stats/
+          go test -count=1 -race -tags sqlite ./internal/stratum/ ./cmd/stratum/ ./cmd/api/ ./internal/mining/ ./internal/stats/ ./internal/dblock/ ./internal/pgmigrate/ ./internal/migstatus/ ./cmd/forge-solo-migrate/
 
       - name: Build every binary, both tags
         if: ${{ !cancelled() && steps.go.outcome == 'success' }}
@@ -265,3 +274,78 @@ jobs:
           grep -q 'bin\\forge-solo-migrate.exe' /tmp/iscc.log || { echo "::error::the migrator is not in the installer"; exit 1; }
           grep -q 'pgsql\\bin\\placeholder.txt' /tmp/iscc.log || { echo "::error::PostgreSQL is not in the installer"; exit 1; }
           if grep -q 'init-db.sql' /tmp/iscc.log; then echo "::error::the installer still installs the PostgreSQL schema"; exit 1; fi
+
+  # What only Windows can show: its file locks and renames under a program that has the file open,
+  # its code pages, its junctions, and a whole move from a data folder named in a script the code
+  # page lacks, with the PostgreSQL and Visual C++ runtime the release ships. The jobs above run on
+  # Linux and only compile the Windows code.
+  windows-native:
+    name: Windows natively (locks, code pages, junctions, a move)
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: The database's locks and the move's decisions and commit, on Windows
+        run: |
+          go test -count=1 -v -tags sqlite ./internal/dblock | tee "$RUNNER_TEMP/locks.log"
+          go test -count=1 -v -tags sqlite ./internal/stats -run 'InUse|InitDBWaits|ApiAndStratum|Pragmas' | tee -a "$RUNNER_TEMP/locks.log"
+          go test -count=1 -v -tags sqlite ./internal/pgmigrate -run 'Commit|InUse|Plan' | tee "$RUNNER_TEMP/commit.log"
+          if grep -h -- '--- SKIP' "$RUNNER_TEMP/locks.log" "$RUNNER_TEMP/commit.log"; then echo "::error::a test skipped"; exit 1; fi
+
+      - name: The launcher's code page, junction and fast-path tests, on Windows
+        working-directory: windows/launcher
+        run: |
+          go test -count=1 -v -run 'ACP|Junction|PgReachable|FastPath' . | tee "$RUNNER_TEMP/launcher.log"
+          if grep -- '--- SKIP' "$RUNNER_TEMP/launcher.log" | grep -v TestMoveThroughAJunctionOnWindows; then echo "::error::a test skipped"; exit 1; fi
+
+      # With release.yml's own pins and script.
+      - name: PostgreSQL and its Visual C++ runtime, as the release fetches them
+        run: |
+          PG_VERSION=$(sed -n "s/^  PG_VERSION: '\(.*\)'\$/\1/p" .github/workflows/release.yml)
+          PG_SHA256=$(sed -n "s/^  PG_SHA256: '\(.*\)'\$/\1/p" .github/workflows/release.yml)
+          curl -fsSL -o "$RUNNER_TEMP/pg.zip" "https://get.enterprisedb.com/postgresql/postgresql-${PG_VERSION}-1-windows-x64-binaries.zip"
+          echo "${PG_SHA256}  $RUNNER_TEMP/pg.zip" | sha256sum -c -
+          7z x -y -o"$RUNNER_TEMP/pg" "$RUNNER_TEMP/pg.zip" 'pgsql/bin/*' 'pgsql/lib/*' 'pgsql/share/*' > /dev/null
+          python scripts/windows/vcruntime.py "$RUNNER_TEMP/pg/pgsql/bin"
+          test -f "$RUNNER_TEMP/pg/pgsql/bin/vcruntime140.dll"
+
+      - name: A move through junctions, from folders named in a script the code page lacks
+        run: |
+          go build -tags sqlite -o "$RUNNER_TEMP/forge-solo-migrate.exe" ./cmd/forge-solo-migrate
+          cd windows/launcher
+          FS_PGSQL="$RUNNER_TEMP/pg/pgsql" FS_MIGRATE="$RUNNER_TEMP/forge-solo-migrate.exe" FS_MOVED="$RUNNER_TEMP/moved.db" \
+            go test -count=1 -v -run '^TestMoveThroughAJunctionOnWindows$' . | tee "$RUNNER_TEMP/move.log"
+          grep -q -- '--- PASS: TestMoveThroughAJunctionOnWindows' "$RUNNER_TEMP/move.log"
+
+      # scripts/it-pg-to-sqlite.sh moves the same rows on Linux and checks the same file. The path is the
+      # package's own (go test runs there): Git Bash's $PWD would reach Go as /d/a/..., not D:\a\...
+      - name: The moved database holds what the Linux run of the same rows holds
+        run: |
+          IT_DB="$RUNNER_TEMP/moved.db" IT_WANT=../../testdata/migrate/seed-1012.db.json \
+            go test -count=1 -v -tags 'sqlite it' -run '^TestITSnapshot$' ./internal/pgmigrate | tee "$RUNNER_TEMP/snapshot.log"
+          grep -q -- '--- PASS: TestITSnapshot' "$RUNNER_TEMP/snapshot.log"
+
+      # The Linux run checks that dashboard-snapshot.sh reads the same answers as the same file.
+      - name: The dashboard snapshot reads the same on Windows as on Linux
+        shell: powershell
+        run: |
+          scripts\windows\dashboard-snapshot.ps1 -From testdata\migrate\dashboard -Out "$env:RUNNER_TEMP\dashboard.json"
+          $want = [IO.File]::ReadAllBytes("$PWD\testdata\migrate\dashboard-snapshot.json")
+          $got = [IO.File]::ReadAllBytes("$env:RUNNER_TEMP\dashboard.json")
+          if ([Convert]::ToBase64String($want) -ne [Convert]::ToBase64String($got)) {
+            Write-Output "::error::dashboard-snapshot.ps1 does not write what dashboard-snapshot.sh writes"
+            fc.exe /n "$PWD\testdata\migrate\dashboard-snapshot.json" "$env:RUNNER_TEMP\dashboard.json"
+            exit 1
+          }
