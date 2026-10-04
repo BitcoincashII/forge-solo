@@ -2,7 +2,10 @@
 
 package stats
 
-import "log"
+import (
+	"log"
+	"time"
+)
 
 // SQL that differs between the two backends.
 //
@@ -15,6 +18,11 @@ import "log"
 // epochSecondsExpr renders a timestamp column as an integer Unix epoch.
 func epochSecondsExpr(col string) string {
 	return "EXTRACT(EPOCH FROM " + col + ")::bigint"
+}
+
+// dbTime is t as a query parameter for a timestamp column.
+func dbTime(t time.Time) interface{} {
+	return t
 }
 
 // Init1175Schema creates the 1175 merge-mining ledger tables.

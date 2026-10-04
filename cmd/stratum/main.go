@@ -502,6 +502,7 @@ const aux1175Maturity = 100
 // take is tried again until it does, as for a BCH2 block.
 func aux1175BlockHandler(height int64, hash string, coinbaseValueSat int64, finder string, isSolo bool) {
 	gross := float64(coinbaseValueSat) / 1e8
+	foundAt := time.Now() // what the dashboard lists the block at, however late the record is
 
 	// The aux tip just moved. Cached aux work now names a parent that has been superseded,
 	// and every job built until the next scheduled poll would commit to it -- on 1175's
@@ -535,7 +536,7 @@ func aux1175BlockHandler(height int64, hash string, coinbaseValueSat int64, find
 				return nil
 			}
 		}
-		return stats.Record1175Block(height, hash, gross, finder, isSolo)
+		return stats.Record1175BlockAt(height, hash, gross, finder, isSolo, foundAt)
 	}
 	distribute := func() {
 		if keptSibling {
@@ -2298,8 +2299,14 @@ func (p *BlockFindingShareProcessor) submitBlock(share *stratum.Share) {
 			// create a sendable payout row: the wallet sendtoaddress path targets a
 			// nonexistent wallet, would fail forever, and risks a double-pay. Mirrors the
 			// 1175 coinbase-direct settle.
+			//
+			// The block is listed at the time its share came in, however late the record is.
+			foundAt := share.SubmittedAt
+			if foundAt.IsZero() {
+				foundAt = time.Now()
+			}
 			record := func() error {
-				return stats.SaveSoloBlockCoinbaseDirect(owner, job.Height, payoutAmount, hashStr)
+				return stats.SaveSoloBlockCoinbaseDirectAt(owner, job.Height, payoutAmount, hashStr, foundAt)
 			}
 			if err := record(); err != nil {
 				// The block is on the chain and paid all the same: only its record is missing,

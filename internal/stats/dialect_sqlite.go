@@ -5,6 +5,7 @@ package stats
 import (
 	"log"
 	"strings"
+	"time"
 )
 
 // SQLite counterparts of the fragments in dialect.go. See that file for why the split is
@@ -18,6 +19,12 @@ import (
 // epochSecondsExpr renders a timestamp column as an integer Unix epoch.
 func epochSecondsExpr(col string) string {
 	return "CAST(strftime('%s', substr(" + col + ", 1, 19)) AS INTEGER)"
+}
+
+// dbTime is t as a query parameter for a timestamp column: UTC text, the form CURRENT_TIMESTAMP
+// writes and epochSecondsExpr reads. A time.Time is stored in a form strftime cannot read.
+func dbTime(t time.Time) interface{} {
+	return t.UTC().Format("2006-01-02 15:04:05")
 }
 
 // Init1175Schema creates the 1175 merge-mining ledger tables.

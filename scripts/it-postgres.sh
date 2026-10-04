@@ -77,5 +77,6 @@ run_must_pass TestPostgresStoredOldDefaultTagReadsAsNoneChosen ./internal/stats/
 run_must_pass TestPostgresSoloSharesAreNotStoredAndOldOnesAreCleared ./internal/stats/ -run TestPostgresSoloSharesAreNotStoredAndOldOnesAreCleared
 run_must_pass TestPostgresClearsThousandsOfShareChunks ./internal/stats/ -run TestPostgresClearsThousandsOfShareChunks
 run_must_pass TestPostgresDashboardTotalsCoverEveryBlock ./internal/stats/ -run TestPostgresDashboardTotalsCoverEveryBlock
+run_must_pass TestPostgresFoundTimesAreKept ./internal/stats/ -run TestPostgresFoundTimesAreKept
 
 echo "✓ postgres integration suite passed"

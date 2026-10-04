@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 )
 
 // 1175 merge-mining payout ledger: a reorg-safe parallel of the BCH2 payout subsystem.
@@ -23,6 +24,12 @@ import (
 // Record1175Block durably records a found aux block (idempotent). Must be committed
 // BEFORE distribution so a distribution failure is retryable and never loses the block.
 func Record1175Block(height int64, hash string, grossReward float64, finder string, isSolo bool) error {
+	return Record1175BlockAt(height, hash, grossReward, finder, isSolo, time.Now())
+}
+
+// Record1175BlockAt is Record1175Block for a block found at foundAt: a record retried after a
+// database outage is listed at the time the block was found, not when the database came back.
+func Record1175BlockAt(height int64, hash string, grossReward float64, finder string, isSolo bool, foundAt time.Time) error {
 	dbMu.RLock()
 	defer dbMu.RUnlock()
 	if db == nil {
@@ -41,9 +48,9 @@ func Record1175Block(height int64, hash string, grossReward float64, finder stri
 	res, err := db.Exec(`
 		UPDATE blocks_1175
 		SET hash = $2, gross_reward = $3, finder = $4, is_solo = $5,
-		    distributed = false, status = 'pending', created_at = CURRENT_TIMESTAMP
+		    distributed = false, status = 'pending', created_at = $6
 		WHERE height = $1 AND hash <> $2`,
-		height, hash, grossReward, finder, isSolo)
+		height, hash, grossReward, finder, isSolo, dbTime(foundAt))
 	if err != nil {
 		return err
 	}
@@ -56,9 +63,9 @@ func Record1175Block(height int64, hash string, grossReward float64, finder stri
 
 	_, err = db.Exec(`
 		INSERT INTO blocks_1175 (height, hash, gross_reward, finder, is_solo, distributed, status, created_at)
-		VALUES ($1, $2, $3, $4, $5, false, 'pending', CURRENT_TIMESTAMP)
+		VALUES ($1, $2, $3, $4, $5, false, 'pending', $6)
 		ON CONFLICT (height) DO NOTHING`,
-		height, hash, grossReward, finder, isSolo)
+		height, hash, grossReward, finder, isSolo, dbTime(foundAt))
 	return err
 }
 

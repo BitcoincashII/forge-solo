@@ -1343,24 +1343,25 @@ type blockRowExecer interface {
 	Exec(query string, args ...interface{}) (sql.Result, error)
 }
 
-// recordBlockRow records a found block idempotently and reorg-aware. blocks has
-// UNIQUE(height), so if a DIFFERENT block already occupies this height it was reorged
+// recordBlockRowAt records a block found at foundAt, idempotently and reorg-aware. blocks
+// has UNIQUE(height), so if a DIFFERENT block already occupies this height it was reorged
 // out (only possible while immature, since the reorg cap is far below coinbase
 // maturity) and we replace it with the block the node just accepted as canonical. A
 // re-record of the same hash is a no-op.
-func recordBlockRow(ex blockRowExecer, height int64, hash, miner string, reward float64, isSolo bool) error {
+func recordBlockRowAt(ex blockRowExecer, height int64, hash, miner string, reward float64, isSolo bool, foundAt time.Time) error {
 	solo := 0
 	if isSolo {
 		solo = 1
 	}
 	now := sqliteNow()
+	found := dbTime(foundAt)
 	// Positional placeholders: postgres reuses $2 for hash in both SET and WHERE, so
 	// hash is passed twice here.
 	res, err := ex.Exec(`
 		UPDATE blocks
 		SET hash = ?, miner_address = ?, reward = ?, is_solo = ?, status = 'pending', created_at = ?
 		WHERE height = ? AND hash <> ?`,
-		hash, miner, reward, solo, now, height, hash)
+		hash, miner, reward, solo, found, height, hash)
 	if err != nil {
 		return err
 	}
@@ -1381,7 +1382,7 @@ func recordBlockRow(ex blockRowExecer, height int64, hash, miner string, reward 
 		INSERT INTO blocks (height, hash, miner_address, reward, is_solo, status, created_at)
 		VALUES (?, ?, ?, ?, ?, 'pending', ?)
 		ON CONFLICT DO NOTHING`,
-		height, hash, miner, reward, solo, now)
+		height, hash, miner, reward, solo, found)
 	return err
 }
 
@@ -1468,6 +1469,12 @@ func ConfirmSoloBlock(height int64) error {
 // processor -- selecting only rows WHERE txid IS NULL OR txid=” -- never touches.
 // Reorg-aware via recordBlockRow.
 func SaveSoloBlockCoinbaseDirect(minerID string, blockHeight int64, amount float64, blockHash string) error {
+	return SaveSoloBlockCoinbaseDirectAt(minerID, blockHeight, amount, blockHash, time.Now())
+}
+
+// SaveSoloBlockCoinbaseDirectAt is SaveSoloBlockCoinbaseDirect for a block found at foundAt: a
+// record retried after a database outage lists the block, and its payout, at the time it was found.
+func SaveSoloBlockCoinbaseDirectAt(minerID string, blockHeight int64, amount float64, blockHash string, foundAt time.Time) error {
 	dbMu.RLock()
 	defer dbMu.RUnlock()
 	if db == nil {
@@ -1479,20 +1486,20 @@ func SaveSoloBlockCoinbaseDirect(minerID string, blockHeight int64, amount float
 	}
 	defer tx.Rollback()
 
-	if err = recordBlockRow(tx, blockHeight, blockHash, minerID, amount, true); err != nil {
+	if err = recordBlockRowAt(tx, blockHeight, blockHash, minerID, amount, true, foundAt); err != nil {
 		return fmt.Errorf("failed to insert solo block: %w", err)
 	}
 
 	// ON CONFLICT only overwrites an unpaid/orphaned row (never a genuinely paid one),
 	// so re-records are idempotent. Requires uq_payouts_miner_height.
-	now := sqliteNow()
+	found := dbTime(foundAt)
 	_, err = tx.Exec(`
 		INSERT INTO payouts (miner_address, block_height, amount, confirmed, txid, status, created_at, paid_at)
 		VALUES (?, ?, ?, 1, 'coinbase-direct', 'paid', ?, ?)
 		ON CONFLICT (miner_address, block_height) DO UPDATE
 		SET amount = excluded.amount, confirmed = 1, txid = 'coinbase-direct', status = 'paid', paid_at = excluded.paid_at
 		WHERE payouts.txid IS NULL OR payouts.txid = '' OR payouts.status = 'orphaned'`,
-		minerID, blockHeight, amount, now, now)
+		minerID, blockHeight, amount, found, found)
 	if err != nil {
 		return fmt.Errorf("failed to insert solo coinbase-direct payout: %w", err)
 	}

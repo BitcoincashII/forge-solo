@@ -362,6 +362,12 @@ func SavePoolConfig(poolAddr, payout1175, tag string) error {
 // selecting only rows WHERE txid IS NULL OR txid=” — never touches. Mirrors
 // Settle1175ByCoinbase; reorg-aware via recordBlockRow.
 func SaveSoloBlockCoinbaseDirect(minerID string, blockHeight int64, amount float64, blockHash string) error {
+	return SaveSoloBlockCoinbaseDirectAt(minerID, blockHeight, amount, blockHash, time.Now())
+}
+
+// SaveSoloBlockCoinbaseDirectAt is SaveSoloBlockCoinbaseDirect for a block found at foundAt: a
+// record retried after a database outage lists the block, and its payout, at the time it was found.
+func SaveSoloBlockCoinbaseDirectAt(minerID string, blockHeight int64, amount float64, blockHash string, foundAt time.Time) error {
 	dbMu.RLock()
 	defer dbMu.RUnlock()
 	if db == nil {
@@ -374,7 +380,7 @@ func SaveSoloBlockCoinbaseDirect(minerID string, blockHeight int64, amount float
 	defer tx.Rollback()
 
 	// Record the block (reorg-aware: a superseded height voids its prior unpaid rows).
-	if err = recordBlockRow(tx, blockHeight, blockHash, minerID, amount, true); err != nil {
+	if err = recordBlockRowAt(tx, blockHeight, blockHash, minerID, amount, true, foundAt); err != nil {
 		return fmt.Errorf("failed to insert solo block: %w", err)
 	}
 
@@ -382,11 +388,11 @@ func SaveSoloBlockCoinbaseDirect(minerID string, blockHeight int64, amount float
 	// an unpaid/orphaned row (never a genuinely paid one), so re-records are idempotent.
 	_, err = tx.Exec(`
 		INSERT INTO payouts (miner_address, block_height, amount, confirmed, txid, status, created_at, paid_at)
-		VALUES ($1, $2, $3, true, 'coinbase-direct', 'paid', NOW(), NOW())
+		VALUES ($1, $2, $3, true, 'coinbase-direct', 'paid', $4, $4)
 		ON CONFLICT (miner_address, block_height) DO UPDATE
-		SET amount = EXCLUDED.amount, confirmed = true, txid = 'coinbase-direct', status = 'paid', paid_at = NOW()
+		SET amount = EXCLUDED.amount, confirmed = true, txid = 'coinbase-direct', status = 'paid', paid_at = EXCLUDED.paid_at
 		WHERE payouts.txid IS NULL OR payouts.txid = '' OR payouts.status = 'orphaned'`,
-		minerID, blockHeight, amount)
+		minerID, blockHeight, amount, foundAt)
 	if err != nil {
 		return fmt.Errorf("failed to insert solo coinbase-direct payout: %w", err)
 	}
@@ -504,11 +510,16 @@ type blockRowExecer interface {
 // we replace it with the block we just found, which the node accepted as canonical.
 // A re-record of the same hash is a no-op.
 func recordBlockRow(ex blockRowExecer, height int64, hash, miner string, reward float64, isSolo bool) error {
+	return recordBlockRowAt(ex, height, hash, miner, reward, isSolo, time.Now())
+}
+
+// recordBlockRowAt is recordBlockRow for a block found at foundAt.
+func recordBlockRowAt(ex blockRowExecer, height int64, hash, miner string, reward float64, isSolo bool, foundAt time.Time) error {
 	res, err := ex.Exec(`
 		UPDATE blocks
-		SET hash = $2, miner_address = $3, reward = $4, is_solo = $5, status = 'pending', created_at = NOW()
+		SET hash = $2, miner_address = $3, reward = $4, is_solo = $5, status = 'pending', created_at = $6
 		WHERE height = $1 AND hash <> $2`,
-		height, hash, miner, reward, isSolo)
+		height, hash, miner, reward, isSolo, foundAt)
 	if err != nil {
 		return err
 	}
@@ -530,7 +541,7 @@ func recordBlockRow(ex blockRowExecer, height int64, hash, miner string, reward 
 		INSERT INTO blocks (height, hash, miner_address, reward, is_solo, status, created_at)
 		VALUES ($1, $2, $3, $4, $5, 'pending', $6)
 		ON CONFLICT DO NOTHING`,
-		height, hash, miner, reward, isSolo, time.Now())
+		height, hash, miner, reward, isSolo, foundAt)
 	return err
 }
 
