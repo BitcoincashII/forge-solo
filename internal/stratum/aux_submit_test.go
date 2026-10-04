@@ -111,6 +111,9 @@ func auxServer(t *testing.T, node *fake1175, timeout time.Duration) (*Server, *c
 	t.Helper()
 	srv := httptest.NewServer(node)
 	t.Cleanup(srv.Close)
+	auxSent.Lock()
+	auxSent.at = nil // the 1175 solutions an earlier test sent
+	auxSent.Unlock()
 	s, cp := perJobServer()
 	ac := mergemining.NewClient(srv.URL, "u", "p")
 	if timeout > 0 {

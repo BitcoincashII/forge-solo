@@ -2,11 +2,73 @@ package stratum
 
 import (
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/BitcoincashII/forge-solo/internal/mergemining"
 	"go.uber.org/zap"
 )
+
+// auxSent holds the headers already sent to the 1175 node as 1175 blocks, so a share sent again,
+// refused or not, does not send its block again. Only real 1175 solutions are kept, for an hour.
+var auxSent struct {
+	sync.Mutex
+	at map[string]time.Time
+}
+
+const auxSentFor = time.Hour
+
+// firstAuxSubmit reports whether a 1175 solution with this header hash was not sent before, and
+// counts it as sent from now on.
+func firstAuxSubmit(header []byte) bool {
+	auxSent.Lock()
+	defer auxSent.Unlock()
+	now := time.Now()
+	for k, at := range auxSent.at {
+		if now.Sub(at) > auxSentFor {
+			delete(auxSent.at, k)
+		}
+	}
+	if _, ok := auxSent.at[string(header)]; ok {
+		return false
+	}
+	if auxSent.at == nil {
+		auxSent.at = map[string]time.Time{}
+	}
+	auxSent.at[string(header)] = now
+	return true
+}
+
+// auxSolution reports whether a share whose header hash is blockHash (display order) solves its
+// job's 1175 work, with merge mining on, and was not sent before.
+func (s *Server) auxSolution(job *Job, blockHash []byte) bool {
+	if job == nil || job.AuxWork == nil || blockHash == nil || s.getAuxClient() == nil ||
+		!auxHashMeetsTarget(blockHash, job.AuxWork.Target) {
+		return false
+	}
+	return firstAuxSubmit(blockHash)
+}
+
+// submitRefusedShareAux sends the 1175 block a refused share solves: one on the job of the BCH2
+// tip before the current one, or over the intake rate limit. A 1175 block's proof does not depend
+// on the BCH2 tip (1175 checks the header's work, the coinbase's commitment and its merkle branch),
+// so the share is still a valid 1175 block, and its work is still in the 1175 node. The share
+// itself stays refused and is not credited.
+func (s *Server) submitRefusedShareAux(job *Job, blockHash []byte, en1, en2, ntime, nonce, versionBits, minerID string, isSolo bool) {
+	if !s.auxSolution(job, blockHash) {
+		return
+	}
+	finder := minerID
+	// The miner an accepted share is credited to (handleSubmit), so the 1175 ledger names the same.
+	if s.config.SoloOnly && s.config.CreditPayoutAddress {
+		if payout := normalizeMinerAddress(s.SoloPayoutAddress()); payout != "" {
+			finder = payout
+		}
+	}
+	s.logger.Info("A refused share solves a 1175 block; sending it to the 1175 node",
+		zap.String("miner", finder), zap.String("aux_hash", job.AuxWork.Hash))
+	go s.submitAux(job, en1, en2, ntime, nonce, versionBits, finder, isSolo)
+}
 
 // How long a solved 1175 block is kept in front of a 1175 node that does not answer, and the
 // waits between tries. The node keeps the block's work for about an hour (its last 256 work

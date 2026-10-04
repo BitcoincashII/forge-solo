@@ -1985,7 +1985,8 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	// miner that has not yet ramped off the difficulty floor exceeds this limit for as long
 	// as the ramp takes, and a solution found in that window would be answered with error
 	// 26 and never looked at. A block is worth more than every share this limit protects
-	// against, so the limit drops shares, never solutions.
+	// against, so the limit drops shares, never solutions: a BCH2 block is accepted, and a
+	// 1175 block is sent to the 1175 node (its share still refused).
 	var overRate bool
 	if maxRate := s.config.MaxSharesPerSecond; maxRate > 0 {
 		client.mu.Lock()
@@ -2132,8 +2133,15 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 
 	// A share on a job from before the last block can no longer become a block: it is stale, as
 	// ckpool marks every share on a workbase older than the last block change (stratifier.c:
-	// "if (id < sdata->blockchange_id) stale = true;").
+	// "if (id < sdata->blockchange_id) stale = true;"). It can still solve its job's 1175 block,
+	// which does not depend on the BCH2 tip: that block is sent (ckpool, too, tests a stale share
+	// for a block).
 	if cur, ok := s.currentJob.Load().(*Job); ok && cur != nil && cur.PrevBlockHash != job.PrevBlockHash {
+		if job.AuxWork != nil && s.getAuxClient() != nil {
+			if _, _, staleHash, verr := s.validateShare(job, extranonce1, extranonce2, ntime, nonce, versionBits, 0); verr == nil {
+				s.submitRefusedShareAux(job, staleHash, extranonce1, extranonce2, ntime, nonce, versionBits, minerID, soloMining)
+			}
+		}
 		s.noteInvalidShare(client, "stale_job")
 		return &Response{ID: req.ID, Result: false, Error: ErrJobNotFound}
 	}
@@ -2160,6 +2168,9 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	if overRate {
 		netDiff := BitsToDifficulty(job.NBits)
 		if err != nil || !isValid || netDiff <= 0 || actualDiff < netDiff {
+			if err == nil {
+				s.submitRefusedShareAux(job, blockHash, extranonce1, extranonce2, ntime, nonce, versionBits, minerID, soloMining)
+			}
 			return &Response{ID: req.ID, Result: false, Error: ErrRateLimited}
 		}
 		s.logger.Warn("submit exceeded the intake rate limit but SOLVES A BLOCK — accepting it",
@@ -2333,7 +2344,7 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	// Merge mining: if this share's parent hash also meets the aux (1175) target,
 	// submit the AuxPoW. The target check is cheap and inline; the rebuild+submit
 	// runs async only on a winner, so BCH2 share handling is never delayed.
-	if job.AuxWork != nil && auxHashMeetsTarget(blockHash, job.AuxWork.Target) && s.getAuxClient() != nil {
+	if s.auxSolution(job, blockHash) {
 		go s.submitAux(job, extranonce1, extranonce2, ntime, nonce, versionBits, minerID, soloMining)
 	}
 
