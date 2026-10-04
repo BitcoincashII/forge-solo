@@ -10,4 +10,10 @@ DATADIR="/data/.bch2"
 # address they saved.
 rm -f "$DATADIR/external-ip"
 
+# shellcheck source=docker/node/damaged-chain.sh
+. /damaged-chain.sh
+if rebuild_once "$DATADIR" "BCH2 node" node; then
+    set -- "$@" -reindex
+fi
+
 exec /usr/local/bin/bitcoincashIId "$@"

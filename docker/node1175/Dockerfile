@@ -26,6 +26,7 @@ RUN set -eux; \
 
 COPY entrypoint.sh /entrypoint.sh
 COPY peeraddr.sh /peeraddr.sh
+COPY damaged-chain.sh /damaged-chain.sh
 RUN chmod +x /entrypoint.sh
 EXPOSE 25360 25361
 ENTRYPOINT ["/entrypoint.sh"]

@@ -59,10 +59,16 @@ func runEntrypoint(t *testing.T) (args string, datadir string) {
 	script := string(src)
 	const dataLine = `DATADIR="/data/.bch2"`
 	const execLine = `exec /usr/local/bin/bitcoincashIId "$@"`
-	if strings.Count(script, dataLine) != 1 || strings.Count(script, execLine) != 1 {
-		t.Fatalf("NOT-PRUNED-HARNESS: the entrypoint no longer has exactly one %q and one %q line; "+
-			"update this test rather than let it test nothing", dataLine, execLine)
+	const sourceLine = `. /damaged-chain.sh`
+	if strings.Count(script, dataLine) != 1 || strings.Count(script, execLine) != 1 || strings.Count(script, sourceLine) != 1 {
+		t.Fatalf("NOT-PRUNED-HARNESS: the entrypoint no longer has exactly one %q, one %q and one %q line; "+
+			"update this test rather than let it test nothing", dataLine, execLine, sourceLine)
 	}
+	lib, err := filepath.Abs("docker/node/damaged-chain.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script = strings.Replace(script, sourceLine, `. "`+lib+`"`, 1)
 	dir := t.TempDir()
 	datadir = filepath.Join(dir, "data")
 	if err := os.MkdirAll(filepath.Join(datadir, "blocks"), 0o755); err != nil {

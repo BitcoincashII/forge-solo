@@ -30,6 +30,7 @@ RUN set -eux; \
     rm -rf /tmp/bch2.tar.gz /tmp/bitcoincashII-*
 
 COPY entrypoint.sh /entrypoint.sh
+COPY damaged-chain.sh /damaged-chain.sh
 RUN chmod +x /entrypoint.sh
 EXPOSE 8339 28332
 ENTRYPOINT ["/entrypoint.sh"]

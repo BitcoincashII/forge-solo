@@ -12,6 +12,7 @@ set -e
 # getpeerinfo.addrlocal carries the same fact one hop out: the address a peer observed
 # our connection arriving from. Learn it while running, persist it, and advertise it
 # from the next start.
+# shellcheck source=docker/node1175/peeraddr.sh
 . /peeraddr.sh
 
 DATADIR="/data/.elevenseventyfive"
@@ -57,5 +58,11 @@ learn_external_ip() {
     done
 }
 learn_external_ip &
+
+# shellcheck source=docker/node1175/damaged-chain.sh
+. /damaged-chain.sh
+if rebuild_once "$DATADIR" "1175 node" node1175; then
+    set -- "$@" -reindex
+fi
 
 exec /usr/local/bin/elevenseventyfived "$@"
