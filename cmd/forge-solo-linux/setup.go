@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -257,10 +258,20 @@ func writeConfigs(dataDir string, p ports, s secrets) error {
 	return writeFileAtomic(filepath.Join(dataDir, "config.yaml"), []byte(stratumConf(p)), 0o600)
 }
 
-// defaultDataDir is /var/lib/forge-solo for root, else the user's XDG data directory.
+// currentUser is the name of the account this runs as ("" if unknown); a test stands in another.
+var currentUser = func() string {
+	if u, err := user.Current(); err == nil {
+		return u.Username
+	}
+	return ""
+}
+
+// defaultDataDir is /var/lib/forge-solo for root and for the service's user, else the user's XDG
+// data directory. The service's user has /var/lib/forge-solo as its home, so its XDG directory
+// was /var/lib/forge-solo/.local/share/forge-solo, where nothing is.
 func defaultDataDir() string {
-	if os.Geteuid() == 0 {
-		return "/var/lib/forge-solo"
+	if os.Geteuid() == 0 || currentUser() == serviceUser {
+		return serviceData
 	}
 	if x := os.Getenv("XDG_DATA_HOME"); x != "" {
 		return filepath.Join(x, "forge-solo")

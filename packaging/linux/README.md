@@ -79,7 +79,8 @@ the dashboard's address, a service that was running is left running, or started 
 
 The service has its own data directory: the payout address and settings you saved in a copy you
 started yourself (kept in `~/.local/share/forge-solo`) are not carried over. Save them again on
-the service's dashboard, with the password from `sudo cat /var/lib/forge-solo/secrets.env`.
+the service's dashboard, with the password from `sudo cat /var/lib/forge-solo/secrets.env`. Once
+the service runs you can delete that copy's `~/.local/share/forge-solo`.
 
 - Logs: `journalctl -u forge-solo -f`, and `/var/lib/forge-solo/logs/`
 - Stop and start: `sudo systemctl stop forge-solo`, `sudo systemctl start forge-solo`

@@ -8,6 +8,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -609,20 +610,76 @@ func cliCmd(args []string) error {
 	if err != nil {
 		return err
 	}
-	conf := filepath.Join(dataDir, "bch2", "bch2.conf")
+	code, err := cliRun{inst: inst, dataDir: dataDir, svcData: serviceData, unit: unitPath, args: args,
+		stdin: os.Stdin, stdout: os.Stdout, stderr: os.Stderr}.run()
+	if err == nil && code != 0 {
+		os.Exit(code)
+	}
+	return err
+}
+
+// cliRun is one forge-solo cli: the release, the data directory, the command, where the service
+// keeps its data and its unit (the tests' own), and the terminal.
+type cliRun struct {
+	inst, dataDir, svcData, unit string
+	args                         []string
+	stdin                        io.Reader
+	stdout, stderr               io.Writer
+}
+
+// run runs the command against the node of the Forge Solo that runs with r.dataDir, and returns
+// bitcoincashII-cli's exit code. A user who had run a copy of their own before installing the
+// service got "Authorization failed" from the service's node, which their own copy's settings
+// reached on the same port.
+func (r cliRun) run() (int, error) {
+	conf := filepath.Join(r.dataDir, "bch2", "bch2.conf")
 	if _, err := os.Stat(conf); err != nil {
-		return fmt.Errorf("%s not found: is Forge Solo running with --data-dir %s? (as the service: sudo -u %s forge-solo cli --data-dir %s …)",
-			conf, dataDir, serviceUser, serviceData)
-	}
-	cmd := exec.Command(filepath.Join(inst, "bin", "bitcoincashII-cli"),
-		append([]string{"-datadir=" + filepath.Join(dataDir, "bch2"), "-conf=" + conf}, args...)...)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	if err := cmd.Run(); err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			os.Exit(ee.ExitCode())
+		if errors.Is(err, os.ErrPermission) {
+			return 0, fmt.Errorf("%s cannot be read as this user%s", conf, r.serviceHint(true))
 		}
-		return err
+		return 0, fmt.Errorf("%s not found: is Forge Solo running with --data-dir %s?%s", conf, r.dataDir, r.serviceHint(false))
 	}
-	return nil
+	if !dataDirInUse(r.dataDir) {
+		return 0, fmt.Errorf("no Forge Solo is running with the data directory %s: start it first, or give the one it "+
+			"runs with (--data-dir)%s", r.dataDir, r.serviceHint(false))
+	}
+	var said bytes.Buffer
+	cmd := exec.Command(filepath.Join(r.inst, "bin", "bitcoincashII-cli"),
+		append([]string{"-datadir=" + filepath.Join(r.dataDir, "bch2"), "-conf=" + conf}, r.args...)...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = r.stdin, r.stdout, io.MultiWriter(r.stderr, &said)
+	err := cmd.Run()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) {
+		return 0, err
+	}
+	if s := said.String(); strings.Contains(s, "Authorization failed") || strings.Contains(s, "Could not connect") {
+		if hint := r.serviceHint(false); hint != "" {
+			fmt.Fprintf(r.stderr, "forge-solo: that is the node of the Forge Solo running with %s.%s\n", r.dataDir, hint)
+		}
+	}
+	return ee.ExitCode(), nil
+}
+
+// serviceHint says how to reach the service's node, when the service is installed and is not the
+// one asked; always when this user cannot read the data directory.
+func (r cliRun) serviceHint(always bool) string {
+	if _, err := os.Stat(r.unit); err != nil || (filepath.Clean(r.dataDir) == filepath.Clean(r.svcData) && !always) {
+		return ""
+	}
+	return fmt.Sprintf("\nFor the service's node, run cli as root: sudo %s cli %s",
+		filepath.Join(serviceDir, "forge-solo"), strings.Join(r.args, " "))
+}
+
+// dataDirInUse reports whether a Forge Solo runs with dataDir: it holds forge-solo.lock there.
+func dataDirInUse(dataDir string) bool {
+	f, err := os.Open(filepath.Join(dataDir, "forge-solo.lock"))
+	if err != nil {
+		return !errors.Is(err, os.ErrNotExist)
+	}
+	defer f.Close()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB); err != nil {
+		return true
+	}
+	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	return false
 }
