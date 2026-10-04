@@ -51,9 +51,19 @@ func installerFunc(t *testing.T, decl string) string {
 	return pascalCode(s)
 }
 
-// pascalCode is Pascal source without its comments (// to the end of the line, and { }), so that a
-// statement commented out does not count. String literals are kept as they are.
+// pascalCode is Pascal source without its comments (// to the end of the line, and { }) and blank
+// lines, so that a statement commented out does not count. String literals are kept as they are.
 func pascalCode(s string) string {
+	var lines []string
+	for _, l := range strings.Split(pascalUncommented(s), "\n") {
+		if strings.TrimSpace(l) != "" {
+			lines = append(lines, l)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func pascalUncommented(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
 		switch {
@@ -215,6 +225,120 @@ func TestInstallerSaysWhichAccountWhenElevated(t *testing.T) {
 	if strings.Contains(body, "Abort") || strings.Contains(installerFunc(t, "function InitializeSetup"), "Result := False") {
 		t.Error("ELEVATED-NO-REFUSAL: Setup refuses to run as administrator; with UAC off that locks the account out")
 	}
+}
+
+// The installer's one elevated step shows Windows' prompt, which names Windows Command Processor,
+// not Forge Solo, and nothing said what it was for. Refused or failed, the step left no firewall
+// rules, and Setup finished without a word: miners on the network could not connect and nothing
+// said why. The Ready page and the uninstaller's question now say what the prompt is for.
+// Afterwards the rules themselves are checked, and what is missing is logged and said, with what
+// it means and how to put it right, in a box an install run with /SUPPRESSMSGBOXES goes past.
+func TestInstallerSaysWhenTheElevatedStepFails(t *testing.T) {
+	memo := installerFunc(t, "function UpdateReadyMemo(")
+	if text := pascalLiterals(memo); !regexp.MustCompile(`\n  if not IsAdmin\(\) then\n    Result := Result \+ 'Permission:'`).MatchString(memo) ||
+		!strings.Contains(text, "Windows will ask whether Windows Command Processor may make") || !strings.Contains(text, "Choose Yes") {
+		t.Errorf("UAC-WARN-INSTALL: the Ready page does not say what Windows' prompt is for:\n%s", memo)
+	}
+	m := regexp.MustCompile(`(?m)^ConfirmUninstall=(.*?)\r?$`).FindStringSubmatch(installerSection(t, "Messages"))
+	if m == nil || !strings.Contains(m[1], "%1") || !strings.Contains(m[1], "Windows Command Processor") || !strings.Contains(m[1], "choose Yes") {
+		t.Errorf("UAC-WARN-UNINSTALL: the uninstaller's question does not say what Windows' prompt is for: %q", m)
+	}
+
+	elevated := installerFunc(t, "function Elevated(Cmd: String): Boolean;")
+	if !strings.Contains(elevated, "\n  Result := ShellExec('runas', ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);\n  if Result then") {
+		t.Errorf("UAC-RESULT: Elevated does not return whether the elevated step ran:\n%s", elevated)
+	}
+	if !regexp.MustCompile(`(?m)^\s+Log\('The firewall and Defender step did not run: ' \+ SysErrorMessage\(ResultCode\)\);`).MatchString(elevated) {
+		t.Error("UAC-LOG: a step that did not run is not logged, with why")
+	}
+	if !strings.Contains(installerFunc(t, "function RuleInPlace(Name: String): Boolean;"),
+		`Result := Exec(ExpandConstant('{sys}\netsh.exe'), 'advfirewall firewall show rule name="' + Name + '"',`+"\n    '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);") {
+		t.Error("UAC-CHECK-HOW: RuleInPlace does not ask netsh whether the rule is there (exit code 0)")
+	}
+	var checked, put []string
+	for _, r := range regexp.MustCompile(`RuleInPlace\(RuleName\('([^']+)'`).FindAllStringSubmatch(installerFunc(t, "function RulesInPlace: Integer;"), -1) {
+		checked = append(checked, r[1])
+	}
+	for _, r := range regexp.MustCompile(`FirewallRule\('([^']+)'`).FindAllStringSubmatch(installerFunc(t, "procedure CurStepChanged(CurStep: TSetupStep);"), -1) {
+		put = append(put, r[1])
+	}
+	count := regexp.MustCompile(`(?m)^  RuleCount = (\d+);`).FindStringSubmatch(installerSection(t, "Code"))
+	slices.Sort(checked)
+	slices.Sort(put)
+	if !slices.Equal(checked, put) || count == nil || count[1] != strconv.Itoa(len(put)) {
+		t.Errorf("UAC-CHECK-RULES: the check looks for %v (RuleCount %v), the install puts %v in place", checked, count, put)
+	}
+
+	install := installerFunc(t, "procedure CurStepChanged(CurStep: TSetupStep);")
+	if !strings.Contains(install, "\n    Ran := Elevated(Cmd);\n") || strings.Contains(install, "ShellExec(") {
+		t.Error("UAC-RESULT-INSTALL: the install does not keep whether its elevated step ran")
+	}
+	if !regexp.MustCompile(`\n    Ran := Elevated\(Cmd\);\n\s+InPlace := RulesInPlace;\n`).MatchString(install) {
+		t.Error("UAC-CHECK-INSTALL: the install does not check its rules after the elevated step")
+	}
+	tell := regexp.MustCompile(`(?s)\n    if InPlace < RuleCount then\n    begin\n(.*?)\n    end;`).FindStringSubmatch(install)
+	if tell == nil || !strings.Contains(tell[1], "SuppressibleMsgBox(Missing + ") || !strings.Contains(tell[1], "changes to your device.', mbError, MB_OK, IDOK);") {
+		t.Fatalf("UAC-TELL-INSTALL: a missing rule is not said, in a box with one button:\n%s", install)
+	}
+	for _, want := range []string{
+		"Forge Solo is installed, but Setup could not add all of its firewall rules.",
+		"Forge Solo is installed, but Windows did not let Setup add its firewall rules and Defender exclusions.",
+		"Until the rules are added, miners on other devices on your network cannot connect to this PC.",
+		"To add them, run this installer again and choose Yes when Windows asks",
+	} {
+		if !strings.Contains(pascalLiterals(tell[1]), want) {
+			t.Errorf("UAC-TELL-INSTALL-TEXT: the message does not say %q", want)
+		}
+	}
+
+	uninstall := installerFunc(t, "procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);")
+	if !strings.Contains(uninstall, "\n    Ran := Elevated(Cmd);\n") || strings.Contains(uninstall, "ShellExec(") {
+		t.Error("UAC-RESULT-UNINSTALL: the uninstall does not keep whether its elevated step ran")
+	}
+	if !regexp.MustCompile(`\n    Ran := Elevated\(Cmd\);\n\s+InPlace := RulesInPlace;\n`).MatchString(uninstall) {
+		t.Error("UAC-CHECK-UNINSTALL: the uninstall does not check for rules left after the elevated step")
+	}
+	left := regexp.MustCompile(`(?s)\n    if not Ran or \(InPlace > 0\) then\n    begin\n(.*?)\n    end;`).FindStringSubmatch(uninstall)
+	if left == nil {
+		t.Fatalf("UAC-TELL-UNINSTALL: what the uninstaller leaves is not said:\n%s", uninstall)
+	}
+	for _, want := range []string{
+		"Forge Solo is removed, but the uninstaller could not remove all of its firewall rules.",
+		"Forge Solo is removed, but Windows did not let the uninstaller remove its firewall rules and Defender exclusions.",
+		"Inbound Rules: delete the rules named",
+		"Add or remove exclusions: remove the folders in ",
+	} {
+		if !strings.Contains(pascalLiterals(left[1]), want) {
+			t.Errorf("UAC-TELL-UNINSTALL-TEXT: the message does not say %q", want)
+		}
+	}
+	if !strings.Contains(uninstall, "\n  if CurUninstallStep = usPostUninstall then\n  begin\n    if LeftBehind <> '' then\n      SuppressibleMsgBox(LeftBehind, mbError, MB_OK, IDOK);") {
+		t.Error("UAC-TELL-UNINSTALL-SHOWN: what the uninstaller leaves is not shown once it has finished, in a box with one button")
+	}
+
+	// Each value the checks above look at is set only where they look: set again after that, the
+	// installer would say nothing while the checks still passed.
+	for _, c := range []struct {
+		code, name, in string
+		n              int
+	}{
+		{"UAC-ONCE-RESULT", "Result", elevated, 1},
+		{"UAC-ONCE-RAN-INSTALL", "Ran", install, 1},
+		{"UAC-ONCE-INPLACE-INSTALL", "InPlace", install, 1},
+		{"UAC-ONCE-MISSING", "Missing", install, 2},
+		{"UAC-ONCE-RAN-UNINSTALL", "Ran", uninstall, 1},
+		{"UAC-ONCE-INPLACE-UNINSTALL", "InPlace", uninstall, 1},
+		{"UAC-ONCE-LEFTBEHIND", "LeftBehind", pascalCode(installerSection(t, "Code")), 4},
+	} {
+		if n := pascalAssignments(c.in, c.name); n != c.n {
+			t.Errorf("%s: %s is set %d times, want %d", c.code, c.name, n, c.n)
+		}
+	}
+}
+
+// pascalAssignments is how many times Pascal code assigns to the variable name.
+func pascalAssignments(code, name string) int {
+	return len(regexp.MustCompile(`\b`+regexp.QuoteMeta(name)+`\s*:=`).FindAllStringIndex(code, -1))
 }
 
 // Every program the installer puts in place is 64-bit (x64). It also installed on 32-bit Windows

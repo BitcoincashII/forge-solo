@@ -45,6 +45,9 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Messages]
 ; Shown instead of installing where Forge Solo cannot run (ArchitecturesAllowed).
 WindowsVersionNotSupported=Forge Solo needs 64-bit Windows: Windows 10 or 11 on an x64 PC, or Windows 11 on ARM.
+; The uninstaller's elevated step gets Windows' prompt for Windows Command Processor, not for Forge
+; Solo: say beforehand what it is for.
+ConfirmUninstall=Are you sure you want to completely remove %1 and all of its components?%n%nIf Windows then asks whether Windows Command Processor may make changes to your device, choose Yes: that lets the uninstaller remove Forge Solo's firewall rules and Defender exclusions.
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"
@@ -85,6 +88,13 @@ Filename: "{app}\{#MyAppExe}"; Description: "Launch Forge Solo now"; Flags: nowa
 //    Defender never scans is a place any other program could hide files. An upgrade removes the
 //    whole-folder exclusion earlier versions added.
 // Mining from THIS PC (127.0.0.1:3333) needs no rule at all.
+//
+// Windows' prompt for that step names Windows Command Processor, not Forge Solo, so the Ready page
+// and the uninstaller's question say beforehand what it is for. Afterwards the rules themselves are
+// checked: if the prompt was refused, or the step failed, Setup says what is missing, what that
+// means and how to put it right, and logs it. Without the rules, miners on the network cannot
+// connect, and nothing else would say why.
+
 // PSQuote quotes S for PowerShell. A single-quoted string ends at the first single quote unless it
 // is doubled, and a Windows user name can have one (C:\Users\O'Brien). PowerShell takes the
 // typographic quotes U+2018 to U+201B for single quotes too.
@@ -126,6 +136,41 @@ begin
     'netsh advfirewall firewall delete rule name="' + RuleName(Base) + '" & ';
 end;
 
+// RuleInPlace is whether Windows Firewall has a rule of this name. Reading the rules needs no
+// permission.
+function RuleInPlace(Name: String): Boolean;
+var ResultCode: Integer;
+begin
+  Result := Exec(ExpandConstant('{sys}\netsh.exe'), 'advfirewall firewall show rule name="' + Name + '"',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+end;
+
+const
+  // RuleCount is how many rules the install puts in place (FirewallRule).
+  RuleCount = 4;
+
+// RulesInPlace is how many of this install's firewall rules Windows Firewall has.
+function RulesInPlace: Integer;
+begin
+  Result := 0;
+  if RuleInPlace(RuleName('Forge Solo Miner (3333)')) then Result := Result + 1;
+  if RuleInPlace(RuleName('Forge Solo Rentals (3335)')) then Result := Result + 1;
+  if RuleInPlace(RuleName('Forge Solo BCH2 P2P (8339)')) then Result := Result + 1;
+  if RuleInPlace(RuleName('Forge Solo 1175 P2P (25360)')) then Result := Result + 1;
+end;
+
+// Elevated runs Cmd, the commands of the one elevated step, and logs whether it ran. It is False
+// if it did not: Windows' prompt was refused, or no administrator gave permission.
+function Elevated(Cmd: String): Boolean;
+var ResultCode: Integer;
+begin
+  Result := ShellExec('runas', ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  if Result then
+    Log('The firewall and Defender step ran, exit code ' + IntToStr(ResultCode))
+  else
+    Log('The firewall and Defender step did not run: ' + SysErrorMessage(ResultCode));
+end;
+
 // DefenderPaths lists, quoted for PowerShell, the data folders written constantly.
 function DefenderPaths(DataDir: String): String;
 begin
@@ -155,8 +200,32 @@ begin
   end;
 end;
 
+// MemoPart is one part of the Ready page's summary, and the blank line after it, if it has one.
+function MemoPart(S, NewLine: String): String;
+begin
+  Result := '';
+  if S <> '' then
+    Result := S + NewLine + NewLine;
+end;
+
+// The Ready page says what Windows' prompt for the elevated step is for, just before it comes.
+// Running as administrator, Setup gets no prompt.
+function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo,
+  MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
+begin
+  Result := MemoPart(MemoUserInfoInfo, NewLine) + MemoPart(MemoDirInfo, NewLine) +
+    MemoPart(MemoTypeInfo, NewLine) + MemoPart(MemoComponentsInfo, NewLine) +
+    MemoPart(MemoGroupInfo, NewLine) + MemoPart(MemoTasksInfo, NewLine);
+  if not IsAdmin() then
+    Result := Result + 'Permission:' + NewLine +
+      Space + 'Windows will ask whether Windows Command Processor may make' + NewLine +
+      Space + 'changes to your device. Choose Yes: Setup uses it to add the' + NewLine +
+      Space + 'firewall rules that let miners on your network connect, and' + NewLine +
+      Space + 'Defender exclusions for the blockchains and the database.';
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
-var ResultCode: Integer; DataDir, Cmd: String;
+var InPlace: Integer; DataDir, Cmd, Missing: String; Ran: Boolean;
 begin
   if CurStep = ssPostInstall then
   begin
@@ -170,12 +239,34 @@ begin
       FirewallRule('Forge Solo BCH2 P2P (8339)', 'bitcoincashIId.exe', '8339', 'any') +
       FirewallRule('Forge Solo 1175 P2P (25360)', 'elevenseventyfived.exe', '25360', 'any') +
       'powershell -NoProfile -Command "Remove-MpPreference -ExclusionPath ' + PSQuote(DataDir) + ' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionPath ' + DefenderPaths(DataDir) + ' -ErrorAction SilentlyContinue"';
-    ShellExec('runas', ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Ran := Elevated(Cmd);
+    // The rules themselves say whether the step worked: cmd's exit code is only that of its last
+    // command, and with UAC off a standard account's netsh fails without a prompt.
+    InPlace := RulesInPlace;
+    Log('Firewall rules in place for ' + ExpandConstant('{username}') + ': ' + IntToStr(InPlace) + ' of ' + IntToStr(RuleCount));
+    if InPlace < RuleCount then
+    begin
+      if Ran then
+        Missing := 'Forge Solo is installed, but Setup could not add all of its firewall rules.'
+      else
+        Missing := 'Forge Solo is installed, but Windows did not let Setup add its firewall rules ' +
+          'and Defender exclusions.';
+      // One button, so that an install run with /SUPPRESSMSGBOXES goes on.
+      SuppressibleMsgBox(Missing + #13#10#13#10 +
+        'Until the rules are added, miners on other devices on your network cannot connect to ' +
+        'this PC. Mining from this PC itself works.' + #13#10#13#10 +
+        'To add them, run this installer again and choose Yes when Windows asks whether Windows ' +
+        'Command Processor may make changes to your device.', mbError, MB_OK, IDOK);
+    end;
   end;
 end;
 
+var
+  // What the uninstaller could not remove, said once it has finished.
+  LeftBehind: String;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
-var ResultCode: Integer; DataDir, Cmd: String;
+var InPlace: Integer; DataDir, Cmd: String; Ran: Boolean;
 begin
   if CurUninstallStep = usUninstall then
   begin
@@ -187,7 +278,24 @@ begin
       'netsh advfirewall firewall delete rule name="Forge Solo BCH2 P2P (8333)" & ' +
       FirewallRemove('Forge Solo 1175 P2P (25360)') +
       'powershell -NoProfile -Command "Remove-MpPreference -ExclusionPath ' + PSQuote(DataDir) + ', ' + DefenderPaths(DataDir) + ' -ErrorAction SilentlyContinue"';
-    ShellExec('runas', ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Ran := Elevated(Cmd);
+    InPlace := RulesInPlace;
+    Log('Firewall rules left for ' + ExpandConstant('{username}') + ': ' + IntToStr(InPlace) + ' of ' + IntToStr(RuleCount));
+    if not Ran or (InPlace > 0) then
+    begin
+      if Ran then
+        LeftBehind := 'Forge Solo is removed, but the uninstaller could not remove all of its ' +
+          'firewall rules.'
+      else
+        LeftBehind := 'Forge Solo is removed, but Windows did not let the uninstaller remove its ' +
+          'firewall rules and Defender exclusions.';
+      LeftBehind := LeftBehind + #13#10#13#10 + 'To remove them yourself, open Windows Security:' + #13#10 +
+        '- Firewall & network protection > Advanced settings > Inbound Rules: delete the ' +
+        'rules named "Forge Solo ... for ' + ExpandConstant('{username}') + '".';
+      if not Ran then
+        LeftBehind := LeftBehind + #13#10 + '- Virus & threat protection > Manage settings > Add ' +
+          'or remove exclusions: remove the folders in ' + DataDir + '.';
+    end;
   end;
 
   // Uninstalling used to leave the data folder untouched, and that folder holds secrets.env
@@ -200,6 +308,9 @@ begin
   // open its own database.
   if CurUninstallStep = usPostUninstall then
   begin
+    // One button, so that an uninstall run with /SUPPRESSMSGBOXES goes on.
+    if LeftBehind <> '' then
+      SuppressibleMsgBox(LeftBehind, mbError, MB_OK, IDOK);
     DataDir := ExpandConstant('{userappdata}\ForgeSolo');
     if DirExists(DataDir) then
     begin
