@@ -34,7 +34,7 @@ func (n *auxWorkNode) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h := sha256.Sum256([]byte(req.Params[0] + tip))
 		json.NewEncoder(w).Encode(map[string]any{"result": map[string]any{
 			"hash": hex.EncodeToString(h[:]), "chainid": 1175, "previousblockhash": tip, "height": 206,
-			"target": strings.Repeat("f", 64), "coinbasevalue": 25_0000_0000, "bits": "207fffff",
+			"target": strings.Repeat("f", 64), "coinbasevalue": int64(25_0000_0000), "bits": "207fffff",
 		}, "error": nil})
 	case "getbestblockhash":
 		json.NewEncoder(w).Encode(map[string]any{"result": tip, "error": nil})

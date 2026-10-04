@@ -121,7 +121,7 @@ func TestA1175BlockFoundWhileTheDatabaseIsDownIsRecordedLater(t *testing.T) {
 		t.Fatal(err)
 	}
 	shortRetries(t)
-	useAuxConfNode(t)
+	_, logs := useAuxConfNode(t)
 	const finder = "bitcoincashii:qfinder1175"
 	hash := strings.Repeat("a", 64)
 
@@ -157,6 +157,7 @@ func TestA1175BlockFoundWhileTheDatabaseIsDownIsRecordedLater(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
+	waitForLog(t, logs, "DATA2-1175-DONE", "1175 block distributed") // the retry's last word, before the test's cleanup
 }
 
 // The retry decides between siblings again once the database is back: the block on the aux chain

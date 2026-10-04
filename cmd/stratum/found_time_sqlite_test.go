@@ -66,7 +66,7 @@ func TestA1175BlockRecordedAfterAnOutageKeepsItsFoundTime(t *testing.T) {
 	}
 	shortRetries(t)
 	blockRecordRetryFor = 10 * time.Second
-	useAuxConfNode(t)
+	_, logs := useAuxConfNode(t)
 	const finder = "bitcoincashii:qfinder1175"
 	stats.CloseDB()
 	found := time.Now()
@@ -93,4 +93,5 @@ func TestA1175BlockRecordedAfterAnOutageKeepsItsFoundTime(t *testing.T) {
 	if !near(blocks[0].Time, found) {
 		t.Fatalf("DATA5-1175-TIME: found at %d, listed at %d", found.Unix(), blocks[0].Time)
 	}
+	waitForLog(t, logs, "DATA5-1175-DONE", "1175 block distributed") // the retry's last word, before the test's cleanup
 }
