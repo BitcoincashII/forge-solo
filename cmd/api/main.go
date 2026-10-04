@@ -305,7 +305,7 @@ func main() {
 				if err := stats.InitDB(dbConnStr); err != nil {
 					continue
 				}
-				zapLogger.Info("✅ database connection established — settings will persist")
+				zapLogger.Info("✅ database connection established: settings will persist")
 				loadMinerSettingsFromDB()
 				return
 			}
@@ -1580,7 +1580,7 @@ func savePoolConfig(c *fiber.Ctx) error {
 	poolAddr := strings.TrimSpace(input.PoolAddress)
 	if poolAddr != "" {
 		if !isValidBCH2Address(poolAddr) {
-			return c.Status(400).JSON(fiber.Map{"success": false, "error": "Invalid BCH2 payout address — must be a mainnet bitcoincashii: P2PKH address (starts with bitcoincashii:q)"})
+			return c.Status(400).JSON(fiber.Map{"success": false, "error": "Invalid BCH2 payout address: it must be a mainnet bitcoincashii: P2PKH address (starting bitcoincashii:q)"})
 		}
 		// Store the canonical lowercase form. isValidBCH2Address lowercases before
 		// checking, so an upper/mixed-case CashAddr (what a QR scan or some wallets hand
@@ -1598,7 +1598,7 @@ func savePoolConfig(c *fiber.Ctx) error {
 	// into the field, so a user who no longer controlled that address had no path at all.
 	payout1175 := strings.TrimSpace(input.PayoutAddress1175)
 	if payout1175 != "" && !isValid1175Address(payout1175) {
-		return c.Status(400).JSON(fiber.Map{"success": false, "error": "Invalid 1175 (ESF) address — must be a valid esf1… address"})
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "Invalid 1175 (ESF) address: it must be a valid esf1… address"})
 	}
 
 	// Blank clears the tag back to the default rather than silently restoring the old one.
@@ -1616,7 +1616,7 @@ func savePoolConfig(c *fiber.Ctx) error {
 		// TIDES credits the payout address in the pool's share log: without one there is
 		// nothing to credit, and nothing to mine to in solo either.
 		if mode == stats.PayoutModeTides && poolAddr == "" {
-			return c.Status(400).JSON(fiber.Map{"success": false, "error": "Set your BCH2 payout address before choosing TIDES — it is the address TIDES pays"})
+			return c.Status(400).JSON(fiber.Map{"success": false, "error": "Set your BCH2 payout address before choosing TIDES: it is the address TIDES pays"})
 		}
 	}
 
@@ -1625,7 +1625,7 @@ func savePoolConfig(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"success": false, "error": "Failed to save the settings: " + err.Error()})
 	}
 	// The stratum reads settings every 8 s and uses them from its next job (at least every 15 s).
-	msg := "Settings saved. Mining uses them within half a minute (the next job) — no restart needed."
+	msg := "Settings saved. Mining uses them within half a minute (the next job); no restart needed."
 	if mode == stats.PayoutModeTides {
 		msg = "Settings saved. TIDES mode starts within half a minute (the next job): the blocks your install finds pay " +
 			"everyone with work in Forge Pool's TIDES window, and you are paid from every TIDES block found while you have work in it."
@@ -1778,7 +1778,7 @@ func saveMinerSettings(c *fiber.Ctx) error {
 	// unprotected. Deny (retryable) rather than silently proceeding as "no PIN".
 	if !authorized && sensitive && pinErr != nil {
 		return c.Status(503).JSON(fiber.Map{"success": false, "error": "Temporarily unavailable",
-			"message": "Can't verify your PIN right now — please try again in a moment."})
+			"message": "Can't verify your PIN right now. Try again in a moment."})
 	}
 
 	// No trust-on-first-use: an unauthorized caller may NOT claim/redirect a fund-critical
