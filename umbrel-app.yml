@@ -70,10 +70,13 @@ defaultPassword: ""
 # under Default credentials. Forge Solo asks for it before it saves a settings change.
 deterministicPassword: true
 # Umbrel's hourly backups skip the chains: they are copied live, file by file, so a restored copy
-# may need a reindex anyway, and both nodes download them again. Settings and the block history
+# may need a reindex anyway, and both nodes download them again. They skip the nodes' debug.log
+# too: tens of megabytes of what the app's own logs already hold. Settings and the block history
 # (postgres) are kept.
 backupIgnore:
   - node/blocks
   - node/chainstate
+  - node/debug.log
   - node1175/blocks
   - node1175/chainstate
+  - node1175/debug.log

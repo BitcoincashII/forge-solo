@@ -11,7 +11,8 @@ import (
 
 // Compose's "version" is obsolete: umbreld logged a warning about it on every compose action.
 // Neither node keeps a wallet, so none can be created or used over RPC. Umbrel's backups skip the
-// chains, which are copied live and downloaded again anyway.
+// chains, which are copied live and downloaded again anyway, and the nodes' debug.log, which
+// repeats their container logs and grows to tens of megabytes between restarts.
 func TestComposeAndManifestHousekeeping(t *testing.T) {
 	b, err := os.ReadFile("docker-compose.yml")
 	if err != nil {
@@ -59,7 +60,10 @@ func TestComposeAndManifestHousekeeping(t *testing.T) {
 		}
 	}
 	allowed := regexp.MustCompile(`^[-a-zA-Z0-9._/*]+$`) // umbreld skips anything else
-	want := map[string]bool{"node/blocks": true, "node/chainstate": true, "node1175/blocks": true, "node1175/chainstate": true}
+	want := map[string]bool{
+		"node/blocks": true, "node/chainstate": true, "node/debug.log": true,
+		"node1175/blocks": true, "node1175/chainstate": true, "node1175/debug.log": true,
+	}
 	for _, p := range manifest.BackupIgnore {
 		if !allowed.MatchString(p) || !mounted[strings.SplitN(p, "/", 2)[0]] {
 			t.Errorf("PKG5-BACKUP-IGNORE: %q is not a path umbreld can apply to a mounted directory", p)

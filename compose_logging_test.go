@@ -7,8 +7,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Every container's log is capped. Docker keeps a container's log until the container is replaced,
-// and nothing else trims it: an idle install logged 3.6 MB a day, a busy one tens of megabytes.
+// Every container's log is capped by the app, below the 100 MB umbrelOS 2.0 keeps for each
+// container: an idle install logged 3.6 MB a day, a busy one tens of megabytes.
 func TestEveryContainerLogIsCapped(t *testing.T) {
 	b, err := os.ReadFile("docker-compose.yml")
 	if err != nil {

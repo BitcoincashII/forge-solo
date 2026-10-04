@@ -28,8 +28,7 @@ services:
     image: ghcr.io/bitcoincashii/forge-solo-node:1.0.12@sha256:6598ac97c2525cd217315e5e1a6cc219386bdf4d2c4d218bb046f4341c9263bb
     networks:
       - forge
-    # Kept at most 30 MB: Docker keeps a container's log until the container is replaced,
-    # and nothing else trims it.
+    # At most 30 MB of log: umbrelOS 2.0 keeps up to 100 MB for each container.
     logging:
       driver: json-file
       options:
@@ -88,8 +87,7 @@ services:
     image: ghcr.io/bitcoincashii/forge-solo-node1175:1.0.12@sha256:6db2288a4efe415f4f55deab80f15073f1af6cbc6f84bbbed76d8e9d27c64d73
     networks:
       - forge
-    # Kept at most 30 MB: Docker keeps a container's log until the container is replaced,
-    # and nothing else trims it.
+    # At most 30 MB of log: umbrelOS 2.0 keeps up to 100 MB for each container.
     logging:
       driver: json-file
       options:
@@ -132,8 +130,7 @@ services:
     image: ghcr.io/bitcoincashii/forge-solo-postgres:1.0.13@sha256:0000000000000000000000000000000000000000000000000000000000000000
     networks:
       - forge
-    # Kept at most 30 MB: Docker keeps a container's log until the container is replaced,
-    # and nothing else trims it.
+    # At most 30 MB of log: umbrelOS 2.0 keeps up to 100 MB for each container.
     logging:
       driver: json-file
       options:
@@ -168,8 +165,7 @@ services:
     image: ghcr.io/bitcoincashii/forge-solo-api:1.0.12@sha256:82428bc4299a949c776c8cb7386cc5175f2aec0cdcca50bb927125224c5037f5
     networks:
       - forge
-    # Kept at most 30 MB: Docker keeps a container's log until the container is replaced,
-    # and nothing else trims it.
+    # At most 30 MB of log: umbrelOS 2.0 keeps up to 100 MB for each container.
     logging:
       driver: json-file
       options:
@@ -234,8 +230,7 @@ services:
     image: ghcr.io/bitcoincashii/forge-solo-stratum:1.0.12@sha256:3b75a92739f41b0240a5c04457a23fe965bcd83e08ea5047fe41b944ffeb873c
     networks:
       - forge
-    # Kept at most 30 MB: Docker keeps a container's log until the container is replaced,
-    # and nothing else trims it.
+    # At most 30 MB of log: umbrelOS 2.0 keeps up to 100 MB for each container.
     logging:
       driver: json-file
       options:
@@ -308,8 +303,7 @@ services:
     networks:
       - default
       - forge
-    # Kept at most 30 MB: Docker keeps a container's log until the container is replaced,
-    # and nothing else trims it.
+    # At most 30 MB of log: umbrelOS 2.0 keeps up to 100 MB for each container.
     logging:
       driver: json-file
       options:
