@@ -1,8 +1,8 @@
--- Forge Solo — core schema, applied on fresh Postgres init.
--- The Go services (internal/stats/db.go InitDB) also create this idempotently on
--- every start, so this file is a belt-and-suspenders guarantee that a brand-new
--- install has the full schema before any service connects. Kept in sync with
--- internal/stats/db.go corePostgresSchema and database/schema.sql.
+-- Forge Solo: core schema, applied when Postgres creates a fresh database.
+-- A subset of what the services create on every start (internal/stats/db.go InitDB:
+-- corePostgresSchema, the migrations after it and the 1175 tables), so a brand-new
+-- install has these tables before any service connects. The services create the
+-- rest, one at a time.
 
 DO $$
 BEGIN

@@ -5,6 +5,7 @@ package stats
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"log"
 	"os"
@@ -65,11 +66,10 @@ var dbConnectTimeout = 10
 
 // corePostgresSchema is the canonical core schema for the Postgres (!sqlite) build.
 // The sqlite build creates these tables in db_sqlite.go; the Postgres path must create
-// them here so a fresh install is never schema-less (the mounted init-db.sql only
-// guarantees the database/extension exist). Idempotent (CREATE ... IF NOT EXISTS), safe
-// to run on every start; TimescaleDB features degrade gracefully on plain Postgres. Kept
-// in sync with database/schema.sql and init-db.sql. Includes blocks.is_solo, which
-// recordBlockRow and the solo/pool block queries require.
+// them here so a fresh install is never schema-less. Idempotent (CREATE ... IF NOT
+// EXISTS), safe to run on every start; TimescaleDB features degrade gracefully on plain
+// Postgres. init-db.sql creates a subset of it when Postgres makes a fresh database.
+// Includes blocks.is_solo, which recordBlockRow and the solo/pool block queries require.
 const corePostgresSchema = `
 DO $$
 BEGIN
@@ -204,38 +204,79 @@ func InitDB(connStr string) error {
 		return err
 	}
 
+	if sErr := initPostgresSchema(db); sErr != nil {
+		db.Close()
+		db = nil
+		return sErr
+	}
+
+	log.Printf("✅ Connected to PostgreSQL (pool: %d open, %d idle)", maxOpen, maxIdle)
+	return nil
+}
+
+// schemaLockKey names the advisory lock initPostgresSchema holds ("forgesol" in ASCII).
+const schemaLockKey int64 = 0x666f726765736f6c
+
+// schemaLockWait bounds the wait for another process's schema work.
+var schemaLockWait = time.Minute
+
+// initPostgresSchema creates the schema and runs the migrations, one process at a time. The api
+// and the stratum start together, and two CREATE TABLE IF NOT EXISTS of one table at the same
+// moment fail one of them on Postgres's catalog ("duplicate key value violates unique constraint
+// pg_type_typname_nsp_index"): a database error in the log of a fresh install, and a retry. Every
+// statement runs on the one connection that holds the lock.
+func initPostgresSchema(pool *sql.DB) error {
+	ctx, cancel := context.WithTimeout(context.Background(), schemaLockWait)
+	defer cancel()
+	conn, err := pool.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("core schema init failed: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock($1)`, schemaLockKey); err != nil {
+		return fmt.Errorf("core schema init failed: waiting for another process's schema work: %w", err)
+	}
+	defer func() {
+		if _, err := conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock($1)`, schemaLockKey); err != nil {
+			// The connection may still hold the lock: close it rather than give it back to the pool.
+			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+		}
+	}()
+	exec := func(q string) error {
+		_, err := conn.ExecContext(context.Background(), q)
+		return err
+	}
+
 	// Create the core schema (blocks/payouts/miners/shares/pool_stats). The !sqlite
 	// build must create these itself; without this a fresh install is schema-less and
 	// every block/share/payout write and read fails.
-	if _, sErr := db.Exec(corePostgresSchema); sErr != nil {
-		db.Close()
-		db = nil
+	if sErr := exec(corePostgresSchema); sErr != nil {
 		return fmt.Errorf("core schema init failed: %w", sErr)
 	}
 	// Defensive additive migration for any pre-existing blocks table created before
 	// is_solo existed (recordBlockRow / GetMinerSoloBlocksDB require it).
-	if _, mErr := db.Exec(`ALTER TABLE blocks ADD COLUMN IF NOT EXISTS is_solo BOOLEAN DEFAULT FALSE`); mErr != nil {
+	if mErr := exec(`ALTER TABLE blocks ADD COLUMN IF NOT EXISTS is_solo BOOLEAN DEFAULT FALSE`); mErr != nil {
 		log.Printf("Warning: blocks.is_solo migration: %v", mErr)
 	}
 
 	// Idempotent additive migration: per-miner 1175 merge-mining payout address.
-	if _, mErr := db.Exec(`ALTER TABLE miners ADD COLUMN IF NOT EXISTS address_1175 TEXT`); mErr != nil {
+	if mErr := exec(`ALTER TABLE miners ADD COLUMN IF NOT EXISTS address_1175 TEXT`); mErr != nil {
 		log.Printf("Warning: address_1175 column migration: %v", mErr)
 	}
-	// Idempotent additive migration: optional per-miner settings PIN (bcrypt hash) —
+	// Idempotent additive migration: optional per-miner settings PIN (bcrypt hash),
 	// proof-of-control for changing the redirectable 1175 payout address without a
 	// stratum password (rental-friendly).
-	if _, mErr := db.Exec(`ALTER TABLE miners ADD COLUMN IF NOT EXISTS settings_pin_hash TEXT`); mErr != nil {
+	if mErr := exec(`ALTER TABLE miners ADD COLUMN IF NOT EXISTS settings_pin_hash TEXT`); mErr != nil {
 		log.Printf("Warning: settings_pin_hash column migration: %v", mErr)
 	}
 	// Idempotent additive migration: payouts.status lifecycle column. The core schema and
 	// init-db.sql predate it, yet several payout upserts/queries (and the solo coinbase-direct
 	// settle) reference payouts.status, so a fresh Postgres install must have it.
-	if _, mErr := db.Exec(`ALTER TABLE payouts ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'pending'`); mErr != nil {
+	if mErr := exec(`ALTER TABLE payouts ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'pending'`); mErr != nil {
 		log.Printf("Warning: payouts.status column migration: %v", mErr)
 	}
 	// TIDES mode (Forge Solo as a DATUM gateway to Forge Pool): which way blocks pay.
-	if _, mErr := db.Exec(`ALTER TABLE pool_config ADD COLUMN IF NOT EXISTS payout_mode TEXT DEFAULT 'solo'`); mErr != nil {
+	if mErr := exec(`ALTER TABLE pool_config ADD COLUMN IF NOT EXISTS payout_mode TEXT DEFAULT 'solo'`); mErr != nil {
 		log.Printf("Warning: pool_config.payout_mode column migration: %v", mErr)
 	}
 	// Destructive but deliberate: drop the dead minimum-payout columns. A solo block pays its
@@ -247,14 +288,12 @@ func InitDB(connStr string) error {
 		`ALTER TABLE miners DROP COLUMN IF EXISTS min_payout`,
 		`ALTER TABLE pool_config DROP COLUMN IF EXISTS min_payout`,
 	} {
-		if _, mErr := db.Exec(stmt); mErr != nil {
+		if mErr := exec(stmt); mErr != nil {
 			log.Printf("Warning: dead-column drop migration %q: %v", stmt, mErr)
 		}
 	}
 	// 1175 merge-mining payout ledger tables.
-	Init1175Schema()
-
-	log.Printf("✅ Connected to PostgreSQL (pool: %d open, %d idle)", maxOpen, maxIdle)
+	init1175Schema(conn)
 	return nil
 }
 

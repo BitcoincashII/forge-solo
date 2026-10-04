@@ -3,6 +3,8 @@
 package stats
 
 import (
+	"context"
+	"database/sql"
 	"log"
 	"time"
 )
@@ -25,6 +27,11 @@ func dbTime(t time.Time) interface{} {
 	return t
 }
 
+// schemaExecer runs a statement: the pool, or the one connection InitDB holds its schema lock on.
+type schemaExecer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
 // Init1175Schema creates the 1175 merge-mining ledger tables.
 //
 // blocks_1175.status:  pending | confirmed | orphaned   (+ distributed bool)
@@ -33,6 +40,10 @@ func Init1175Schema() {
 	if db == nil {
 		return
 	}
+	init1175Schema(db)
+}
+
+func init1175Schema(ex schemaExecer) {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS blocks_1175 (
 			height        BIGINT PRIMARY KEY,
@@ -64,7 +75,7 @@ func Init1175Schema() {
 		`ALTER TABLE payouts_1175 ADD COLUMN IF NOT EXISTS batch TEXT`,
 	}
 	for _, s := range stmts {
-		if _, err := db.Exec(s); err != nil {
+		if _, err := ex.ExecContext(context.Background(), s); err != nil {
 			log.Printf("Warning: 1175 payout schema: %v", err)
 		}
 	}
