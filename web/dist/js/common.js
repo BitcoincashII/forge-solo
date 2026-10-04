@@ -325,6 +325,20 @@ const OldData = {
         linux: 'It is DASHBOARD_PASSWORD in secrets.env.'
     },
     PW_KEY: 'forgeSoloPassword',
+    // What starting without the old data does (health: database_file). With no database yet, the
+    // first move failed and Forge Solo starts on a new, empty one. With one there, a merge that was
+    // needed failed (the earlier version ran again after the move, and may hold a newer payout
+    // address): Forge Solo starts on that database as it is and mines to the address saved in it.
+    skipText: {
+        empty: {
+            offer: 'If the move fails again, Forge Solo can start without the old data, with a new, empty database. The old data stays where it is, and Settings can bring it in later. Your payout address is part of it: set it again in Settings after the restart.',
+            chosen: 'You chose to start without the old data. Restart Forge Solo: it then starts with a new, empty database.'
+        },
+        existing: {
+            offer: 'If the move fails again, Forge Solo can start without the old data, on the database it already has, as it is. What the earlier version recorded that is not in that database stays out, such as a payout address you changed after going back to the earlier version. If that database holds a payout address, Forge Solo mines to it as soon as it starts, so check the payout address in Settings right after the restart. The old data stays where it is, and Settings can bring it in later.',
+            chosen: 'You chose to start without the old data. Restart Forge Solo: it then starts on the database it already has, and mines to the payout address saved in it, if there is one. Check the payout address in Settings right after the restart.'
+        }
+    },
 
     init() {
         this.read().then(h => {
@@ -359,6 +373,7 @@ const OldData = {
     // read, and Forge Solo is not mining.
     showNotice(h) {
         this.where = this.pwWhere[h.platform] || this.pwWhere.umbrel;
+        this.without = h.database_file === true ? this.skipText.existing : this.skipText.empty;
         const code = h.code ? ' (code ' + sanitizeHTML(h.code) + ')' : '';
         const el = document.createElement('div');
         el.className = 'maintenance-notice';
@@ -370,7 +385,7 @@ const OldData = {
             <p><strong>Nothing was lost.</strong> The old data is as it was, and nothing was replaced. Forge Solo does not mine until this is settled; the nodes keep running.</p>
             <p><strong>Restart Forge Solo to try again.</strong></p>
             <div class="maintenance-skip">
-                <p>If the move fails again, Forge Solo can start without the old data, with a new, empty database. The old data stays where it is, and Settings can bring it in later. Your payout address is part of it: set it again in Settings after the restart.</p>
+                <p>${this.without.offer}</p>
                 <label for="maintenancePw">Forge Solo password</label>
                 <input id="maintenancePw" type="text" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" spellcheck="false" autocapitalize="none" autocorrect="off">
                 <p class="maintenance-note">${sanitizeHTML(this.where)}</p>
@@ -392,7 +407,7 @@ const OldData = {
         this.chosen = chosen;
         document.getElementById('maintenanceSkipBtn').textContent = chosen ? 'Try the move again instead' : 'Start without the old data';
         document.getElementById('maintenanceStatus').textContent = message ||
-            (chosen ? 'You chose to start without the old data. Restart Forge Solo: it then starts with a new, empty database.' : '');
+            (chosen ? this.without.chosen : '');
     },
 
     // Records the choice with Forge Solo, behind its Settings password as every change.

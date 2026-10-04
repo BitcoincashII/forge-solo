@@ -25,7 +25,9 @@ import (
 //   - /api/v1/health answers 200 with status "maintenance" and the failure's code and reason: the
 //     container's healthcheck passes, so the dashboard comes up and says what happened;
 //   - POST /api/v1/old-data {"skip": true} writes SKIP-POSTGRES-MIGRATION, the choice to start
-//     without the old data, behind the settings password as every other change;
+//     without the old data, behind the settings password as every other change. Forge Solo then
+//     starts on a new, empty database, or on the one already there when a merge was needed
+//     (database_file in the health answer);
 //   - every other API request answers 503;
 //   - the pages are served as usual.
 //
@@ -93,7 +95,7 @@ func (m *maintenanceMode) gate(c *fiber.Ctx) error {
 		st := m.status
 		m.mu.Unlock()
 		return c.JSON(fiber.Map{"status": "maintenance", "code": st.Code, "reason": st.Reason,
-			"platform": platformFromEnv(), "skip_file": skipFileThere(m.db)})
+			"platform": platformFromEnv(), "skip_file": skipFileThere(m.db), "database_file": databaseThere(m.db)})
 	case p == "/api/v1/old-data" && c.Method() == fiber.MethodPost:
 		return saveOldDataChoice(c)
 	case p == "/api" || strings.HasPrefix(p, "/api/") || p == "/metrics" || p == "/health":
@@ -126,6 +128,23 @@ func skipFileThere(db string) bool {
 	_, err := os.Lstat(migstatus.SkipPath(db))
 	return err == nil
 }
+
+// databaseThere reports whether a database is at db, so that starting without the old data starts
+// on it and not on a new, empty one. Unless it is certainly absent it counts as there: the text
+// for that case is the one that warns about its payout address.
+func databaseThere(db string) bool {
+	_, err := os.Lstat(db)
+	return !errors.Is(err, fs.ErrNotExist)
+}
+
+// What the answer to "start without the old data" says happens at the restart. With no database
+// yet (the first move failed), Forge Solo starts on a new, empty one. With one there (a merge
+// that was needed failed: 1.0.12 ran on the old data again after the move, and may hold a newer
+// payout address), it starts on that one as it is and mines to the payout address saved in it.
+const (
+	skipOnANewDatabase     = "Restart Forge Solo: it then starts with a new, empty database, without the data of the earlier version. That data stays where it is, and Settings can bring it in later."
+	skipOnTheDatabaseThere = "Restart Forge Solo: it then starts on the database it already has, as it is, without what the earlier version recorded that is not in it. If that database holds a payout address, Forge Solo mines to it as soon as it starts, so check the payout address in Settings right after the restart. The old data stays where it is, and Settings can bring it in later."
+)
 
 // skipFileText is SKIP-POSTGRES-MIGRATION's content, for whoever finds it.
 const skipFileText = "Forge Solo starts without the data of its earlier version while this file is here.\n" +
@@ -183,8 +202,10 @@ func saveOldDataChoice(c *fiber.Ctx) error {
 
 	var msg string
 	switch {
+	case *in.Skip && state == migstatus.Failed && databaseThere(migrationDB):
+		msg = skipOnTheDatabaseThere
 	case *in.Skip && state == migstatus.Failed:
-		msg = "Restart Forge Solo: it then starts with a new, empty database, without the data of the earlier version. That data stays where it is, and Settings can bring it in later."
+		msg = skipOnANewDatabase
 	case *in.Skip:
 		msg = "Forge Solo goes on starting without the data of the earlier version."
 	case state == migstatus.Failed:

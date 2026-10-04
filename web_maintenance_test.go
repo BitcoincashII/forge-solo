@@ -40,8 +40,7 @@ func TestDashboardShowsTheFailedMove(t *testing.T) {
 	notice := textBetween(old, "showNotice(h) {", "\n    },")
 	for _, want := range []string{"Forge Solo could not move its data", "${sanitizeHTML(h.reason || 'see the log')}",
 		"<strong>Nothing was lost.</strong>", "Forge Solo does not mine until this is settled; the nodes keep running.",
-		"<strong>Restart Forge Solo to try again.</strong>", "Settings can bring it in later",
-		"set it again in Settings after the restart", `id="maintenancePw" type="text" autocomplete="off"`,
+		"<strong>Restart Forge Solo to try again.</strong>", `id="maintenancePw" type="text" autocomplete="off"`,
 		"this.setChosen(h.skip_file === true, '');", "this.choose(!this.chosen)",
 		"setInterval(() => this.read().then(d => { if (d && d.status !== 'maintenance') location.reload(); }), 10000);"} {
 		if !strings.Contains(notice, want) {
@@ -50,6 +49,40 @@ func TestDashboardShowsTheFailedMove(t *testing.T) {
 	}
 	if !strings.Contains(old, "chosen ? 'Try the move again instead' : 'Start without the old data'") {
 		t.Error("WEB-MAINT-BUTTON: the notice has no 'Start without the old data' button")
+	}
+
+	// What starting without the old data does: a new, empty database when there is none yet, and
+	// the database already there, as it is and with its payout address, when there is one
+	// (health: database_file). Mining then starts at once on that address.
+	if !strings.Contains(notice, "this.without = h.database_file === true ? this.skipText.existing : this.skipText.empty;") ||
+		!strings.Contains(notice, "<p>${this.without.offer}</p>") {
+		t.Errorf("WEB-MAINT-DBFILE: the notice does not tell a database already there from none: %s", notice)
+	}
+	if setChosen := textBetween(old, "setChosen(chosen, message) {", "\n    },"); !strings.Contains(setChosen, "(chosen ? this.without.chosen : '')") {
+		t.Errorf("WEB-MAINT-CHOSEN: once chosen, the notice does not say which database Forge Solo starts on: %s", setChosen)
+	}
+	skipText := textBetween(old, "skipText: {", "\n    },")
+	empty := textBetween(skipText, "empty: {", "\n        },")
+	for _, want := range []string{"offer: 'If the move fails again, Forge Solo can start without the old data, with a new, empty database.",
+		"Settings can bring it in later", "Your payout address is part of it: set it again in Settings after the restart.",
+		"chosen: 'You chose to start without the old data. Restart Forge Solo: it then starts with a new, empty database.'"} {
+		if !strings.Contains(empty, want) {
+			t.Errorf("WEB-MAINT-SKIP-EMPTY: with no database yet, the notice lacks %q", want)
+		}
+	}
+	there := textBetween(skipText, "existing: {", "\n        }")
+	for _, want := range []string{"offer: 'If the move fails again, Forge Solo can start without the old data, on the database it already has, as it is.",
+		"What the earlier version recorded that is not in that database stays out",
+		"If that database holds a payout address, Forge Solo mines to it as soon as it starts, so check the payout address in Settings right after the restart.",
+		"Settings can bring it in later",
+		"chosen: 'You chose to start without the old data. Restart Forge Solo: it then starts on the database it already has",
+		"Check the payout address in Settings right after the restart."} {
+		if !strings.Contains(there, want) {
+			t.Errorf("WEB-MAINT-SKIP-THERE: with a database already there, the notice lacks %q", want)
+		}
+	}
+	if there == "" || strings.Contains(there, "empty") {
+		t.Errorf("WEB-MAINT-SKIP-THERE: with a database already there, the notice speaks of an empty one: %s", there)
 	}
 	if strings.Count(js, "h.platform") != 1 || !strings.Contains(notice, "this.pwWhere[h.platform] || this.pwWhere.umbrel") {
 		t.Error("WEB-MAINT-SAME: the notice differs by platform beyond where the password is")
@@ -132,6 +165,11 @@ func TestSettingsCanBringTheOldDataIn(t *testing.T) {
 		if !strings.Contains(script, want) {
 			t.Errorf("WEB-OLDDATA-SCRIPT: Settings lacks %q", want)
 		}
+	}
+	// What was left out is what the earlier version recorded, after going back to it too, not only
+	// what came before 1.0.13.
+	if !strings.Contains(script, "out:'Forge Solo started without the data of its earlier version: the blocks, payouts and settings that version recorded.") {
+		t.Error("WEB-OLDDATA-TEXT: the card does not say the data left out is what the earlier version recorded")
 	}
 	if strings.ContainsRune(script, emDash) || strings.ContainsRune(card[1], emDash) {
 		t.Error("WEB-OLDDATA-EMDASH: the card's text has an em-dash")

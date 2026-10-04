@@ -103,6 +103,9 @@ func TestMaintenanceAnswersTheAPI(t *testing.T) {
 		h.json["reason"] != "the copy of the old data did not check out" || h.json["platform"] != "windows" || h.json["skip_file"] != false {
 		t.Fatalf("MAINT-HEALTH: health answers %d %s, want 200, status maintenance, code 20 and the reason", h.code, h.body)
 	}
+	if h.json["database_file"] != false {
+		t.Errorf("MAINT-DBFILE-ABSENT: with no database there, health says database_file %v, want false", h.json["database_file"])
+	}
 	if a := call(t, app, "HEAD", "/api/v1/health", "", nil); a.code != 200 {
 		t.Errorf("MAINT-HEALTH-HEAD: the healthcheck's HEAD answers %d, want 200", a.code)
 	}
@@ -133,8 +136,11 @@ func TestMaintenanceAnswersTheAPI(t *testing.T) {
 		t.Errorf("MAINT-SKIP-BODY: a body that is not a choice answers %d, want 400 and nothing written", a.code)
 	}
 	a := call(t, app, "POST", "/api/v1/old-data", `{"skip":true}`, withPassword())
-	if msg, _ := a.json["message"].(string); a.code != 200 || a.json["success"] != true || !strings.HasPrefix(msg, "Restart Forge Solo: it then starts with a new, empty database") {
+	if a.code != 200 || a.json["success"] != true {
 		t.Fatalf("MAINT-SKIP: old-data with the password answers %d %s", a.code, a.body)
+	}
+	if msg, _ := a.json["message"].(string); !strings.HasPrefix(msg, "Restart Forge Solo: it then starts with a new, empty database") || strings.Contains(msg, "already has") {
+		t.Errorf("MAINT-SKIP-EMPTY: with no database there, the answer is %q, want a new, empty database", msg)
 	}
 	b, err := os.ReadFile(filepath.Join(filepath.Dir(db), "SKIP-POSTGRES-MIGRATION"))
 	if err != nil || string(b) != skipFileText {
@@ -150,6 +156,53 @@ func TestMaintenanceAnswersTheAPI(t *testing.T) {
 	if _, err := os.Stat(db); err == nil {
 		t.Error("MAINT-NODB: maintenance mode made a database")
 	}
+}
+
+// With a database already there, starting without the old data starts on it as it is, with the
+// payout address saved in it, not on a new, empty one. That is a merge that was needed and failed
+// (1.0.12 ran again after the move, and may hold a newer payout address), or a move that failed
+// while the api ran on its database. The health answer says the database is there, and the
+// choice's answer says what then happens.
+func TestStartingWithoutTheOldDataOnTheDatabaseThere(t *testing.T) {
+	content := []byte("SQLite format 3\x00 the database 1.0.13 used before going back to 1.0.12")
+	dbThere := func() string {
+		t.Helper()
+		db := statusDB(t, migstatus.Failed)
+		if err := os.WriteFile(db, content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return db
+	}
+	saysTheDatabaseThere := func(code string, a answer) {
+		t.Helper()
+		msg, _ := a.json["message"].(string)
+		for _, want := range []string{"Restart Forge Solo: it then starts on the database it already has, as it is,",
+			"If that database holds a payout address, Forge Solo mines to it as soon as it starts",
+			"check the payout address in Settings right after the restart"} {
+			if a.code != 200 || !strings.Contains(msg, want) {
+				t.Errorf("%s: starting without the old data answers %d %q, lacking %q", code, a.code, msg, want)
+			}
+		}
+		if strings.Contains(msg, "empty") {
+			t.Errorf("%s: with a database there, the answer speaks of an empty one: %q", code, msg)
+		}
+	}
+
+	db := dbThere()
+	st, _ := migstatus.Blocked(db)
+	maintenance = newMaintenance(db, st)
+	app := testApp(maintenance)
+	if h := call(t, app, "GET", "/api/v1/health", "", nil); h.code != 200 || h.json["status"] != "maintenance" || h.json["database_file"] != true {
+		t.Errorf("MAINT-DBFILE-THERE: with forgesolo.db there, health answers %d %s, want maintenance with database_file true", h.code, h.body)
+	}
+	saysTheDatabaseThere("OLDDATA-SKIP-THERE", call(t, app, "POST", "/api/v1/old-data", `{"skip":true}`, withPassword()))
+	if b, err := os.ReadFile(db); err != nil || string(b) != string(content) || !skipFileThere(db) {
+		t.Errorf("OLDDATA-SKIP-THERE: the database there changed (%v), or no skip file was written", err)
+	}
+
+	// The move failed while the api ran normally on its database.
+	dbThere()
+	saysTheDatabaseThere("OLDDATA-SKIP-RUNNING", call(t, testApp(nil), "POST", "/api/v1/old-data", `{"skip":true}`, withPassword()))
 }
 
 // The status file is read again while the api is in maintenance: a new failure is what health
