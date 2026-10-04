@@ -498,7 +498,8 @@ const aux1175Maturity = 100
 // aux1175BlockHandler durably records a found aux block and distributes its reward.
 // The record is committed BEFORE distribution so a transient distribution failure is
 // retried by the processor rather than losing the block. Invoked (in the stratum
-// submit goroutine) only when submitauxblock is accepted.
+// submit goroutine) only when submitauxblock is accepted. A record the database does not
+// take is tried again until it does, as for a BCH2 block.
 func aux1175BlockHandler(height int64, hash string, coinbaseValueSat int64, finder string, isSolo bool) {
 	gross := float64(coinbaseValueSat) / 1e8
 
@@ -519,25 +520,53 @@ func aux1175BlockHandler(height int64, hash string, coinbaseValueSat int64, find
 	//
 	// On the chain means confirmations above zero: the node also knows a block it has left off
 	// its chain, at -1, and keeping that one dropped the block that won (PAY-4).
-	if existing, ok := stats.Get1175BlockHashAtHeight(height); ok && existing != hash {
-		if confs, _ := aux1175BlockConfirmations(existing); confs > 0 {
-			logger.Info("💠 1175 sibling at an already-recorded height; the recorded block is the one on the aux chain — keeping it",
-				zap.Int64("height", height),
-				zap.String("recorded", existing),
-				zap.String("this_sibling", hash))
+	//
+	// A retry runs this check again: the database may have taken a sibling meanwhile.
+	var keptSibling bool
+	record := func() error {
+		keptSibling = false
+		if existing, ok := stats.Get1175BlockHashAtHeight(height); ok && existing != hash {
+			if confs, _ := aux1175BlockConfirmations(existing); confs > 0 {
+				logger.Info("💠 1175 sibling at an already-recorded height; the recorded block is the one on the aux chain, keeping it",
+					zap.Int64("height", height),
+					zap.String("recorded", existing),
+					zap.String("this_sibling", hash))
+				keptSibling = true
+				return nil
+			}
+		}
+		return stats.Record1175Block(height, hash, gross, finder, isSolo)
+	}
+	distribute := func() {
+		if keptSibling {
 			return
 		}
+		if err := stats.Distribute1175Block(height, pplnsWindow); err != nil {
+			logger.Warn("1175 distribute failed (processor will retry)", zap.Int64("height", height), zap.Error(err))
+			return
+		}
+		logger.Info("💠 1175 block distributed", zap.Int64("height", height), zap.Float64("gross", gross), zap.Bool("solo", isSolo))
 	}
 
-	if err := stats.Record1175Block(height, hash, gross, finder, isSolo); err != nil {
-		logger.Error("1175 record block FAILED (block may be lost — verify)", zap.Int64("height", height), zap.String("hash", hash), zap.Error(err))
+	if err := record(); err != nil {
+		// The 1175 coinbase pays the block all the same: only its record is missing, and with it
+		// the block from the dashboard. The database is restarting, full or stalled.
+		logger.Error("Failed to record a 1175 block; retrying until the database takes it",
+			zap.Int64("height", height), zap.String("hash", hash), zap.Error(err))
+		go func() {
+			if err := keepTrying(blockRecordRetryFor, record); err != nil {
+				logger.Error("Gave up recording a 1175 block: the 1175 node took it, but it is not on the dashboard",
+					zap.Int64("height", height), zap.String("hash", hash), zap.Error(err))
+				return
+			}
+			if !keptSibling {
+				logger.Info("💠 1175 block recorded after the database came back", zap.Int64("height", height), zap.String("hash", hash))
+			}
+			distribute()
+		}()
 		return
 	}
-	if err := stats.Distribute1175Block(height, pplnsWindow); err != nil {
-		logger.Warn("1175 distribute failed (processor will retry)", zap.Int64("height", height), zap.Error(err))
-		return
-	}
-	logger.Info("💠 1175 block distributed", zap.Int64("height", height), zap.Float64("gross", gross), zap.Bool("solo", isSolo))
+	distribute()
 }
 
 // aux1175BlockConfirmations returns the aux block's confirmations on the 1175 node's
