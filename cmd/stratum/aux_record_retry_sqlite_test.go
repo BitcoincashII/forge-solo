@@ -20,16 +20,31 @@ import (
 )
 
 // auxConfNode is a 1175 node that answers getblock with the confirmations set for a hash, and
-// "Block not found" for any other.
+// "Block not found" for any other. Its getblockchaininfo says it is caught up at height 1000
+// unless chain says otherwise.
 type auxConfNode struct {
 	mu    sync.Mutex
 	confs map[string]float64
+	chain map[string]interface{}
+	asked map[string]int // getblock calls, by hash
 }
 
 func (n *auxConfNode) set(hash string, c float64) {
 	n.mu.Lock()
 	n.confs[hash] = c
 	n.mu.Unlock()
+}
+
+func (n *auxConfNode) setChain(blocks, headers float64, ibd bool) {
+	n.mu.Lock()
+	n.chain = map[string]interface{}{"blocks": blocks, "headers": headers, "initialblockdownload": ibd}
+	n.mu.Unlock()
+}
+
+func (n *auxConfNode) askedAbout(hash string) int {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.asked[hash]
 }
 
 func (n *auxConfNode) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -45,7 +60,21 @@ func (n *auxConfNode) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	n.mu.Lock()
 	c, ok := n.confs[hash]
+	chain := n.chain
+	if req.Method == "getblock" {
+		if n.asked == nil {
+			n.asked = map[string]int{}
+		}
+		n.asked[hash]++
+	}
 	n.mu.Unlock()
+	if req.Method == "getblockchaininfo" {
+		if chain == nil {
+			chain = map[string]interface{}{"blocks": 1000, "headers": 1000, "initialblockdownload": false}
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"result": chain, "error": nil})
+		return
+	}
 	if req.Method != "getblock" || !ok {
 		io.WriteString(w, `{"result":null,"error":{"code":-5,"message":"Block not found"}}`)
 		return

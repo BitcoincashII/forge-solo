@@ -360,6 +360,64 @@ func Orphan1175Block(height int64) error {
 	return tx.Commit()
 }
 
+// Orphaned1175Blocks returns (height, hash) of the blocks marked orphaned at minHeight or above:
+// the ones the processor asks the 1175 node about again.
+func Orphaned1175Blocks(minHeight int64) ([][2]interface{}, error) {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return nil, ErrDatabaseNotInitialized
+	}
+	rows, err := db.Query(`SELECT height, hash FROM blocks_1175 WHERE status='orphaned' AND height >= $1 ORDER BY height`, minHeight)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out [][2]interface{}
+	for rows.Next() {
+		var h int64
+		var hash string
+		if rows.Scan(&h, &hash) == nil {
+			out = append(out, [2]interface{}{h, hash})
+		}
+	}
+	return out, rows.Err()
+}
+
+// Restore1175Block puts a block marked orphaned back to pending, with the credits
+// Orphan1175Block voided, when the 1175 node has it on its chain after all: it was marked
+// while the node had not connected it yet. The processor then confirms it at maturity like
+// any other. It reports whether the block was restored. Atomic.
+func Restore1175Block(height int64, hash string) (bool, error) {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return false, ErrDatabaseNotInitialized
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), DBTimeout)
+	defer cancel()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `UPDATE blocks_1175 SET status='pending' WHERE height=$1 AND hash=$2 AND status='orphaned'`, height, hash)
+	if err != nil {
+		return false, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return false, nil
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE payouts_1175 SET status='pending', txid=NULL, paid_at=NULL WHERE block_height=$1 AND status='orphaned'`, height); err != nil {
+		return false, err
+	}
+	if err = tx.Commit(); err != nil {
+		return false, err
+	}
+	log.Printf("1175 block %d is on the 1175 chain after all; no longer orphaned, its credits restored", height)
+	return true, nil
+}
+
 // ConfirmedPendingMiners1175 lists miners with payable (pending, on a confirmed block) credits.
 func ConfirmedPendingMiners1175() ([]string, error) {
 	dbMu.RLock()

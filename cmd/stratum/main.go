@@ -590,6 +590,31 @@ func aux1175BlockConfirmations(hash string) (int64, bool) {
 	return int64(cf), true
 }
 
+// aux1175ChainState reports the 1175 node's chain height and whether it has caught up with its
+// chain: out of initial sync, with every header it knows connected. answered is false when the
+// node did not answer.
+func aux1175ChainState() (height int64, caughtUp, answered bool) {
+	res, err := rpcCallAuth(aux1175NodeURL, aux1175User, aux1175Pass, "getblockchaininfo", []interface{}{})
+	if err != nil {
+		return 0, false, false
+	}
+	m, ok := res.(map[string]interface{})
+	if !ok {
+		return 0, false, false
+	}
+	blocks, ok1 := m["blocks"].(float64)
+	headers, ok2 := m["headers"].(float64)
+	ibd, ok3 := m["initialblockdownload"].(bool)
+	if !ok1 || !ok2 || !ok3 {
+		return 0, false, false
+	}
+	return int64(blocks), !ibd && blocks >= headers, true
+}
+
+// aux1175OrphanRecheckDepth is how far below the 1175 node's tip a block marked orphaned is still
+// asked about again: about two weeks of 1175 blocks.
+const aux1175OrphanRecheckDepth = 2000
+
 // payout1175Once runs the 1175 payout processor once per process. It was started at boot and
 // again every time merge-mining was switched back on, so each TIDES-to-solo round trip left one
 // more copy polling the 1175 node and retrying distributions alongside the others.
@@ -662,7 +687,18 @@ func run1175PayoutCycle() {
 		}
 	}
 	// 2. reconcile: confirm mature blocks, orphan reorged ones (voids their unpaid credits)
-	if blocks, err := stats.UnconfirmedBlocks1175(); err == nil {
+	//
+	// Only against a 1175 node that has caught up with its chain. While it syncs or rebuilds
+	// its chain (-reindex, or a new sync after its chain data was deleted) it answers -1 for
+	// blocks that are on the chain but not connected yet, and a block judged then was marked
+	// orphaned for good.
+	tip, caughtUp, answered := aux1175ChainState()
+	blocks, err := stats.UnconfirmedBlocks1175()
+	if err == nil && answered && !caughtUp && len(blocks) > 0 {
+		logger.Info("The 1175 node is still catching up with its chain; pending 1175 blocks are judged once it has",
+			zap.Int("pending", len(blocks)), zap.Int64("node_height", tip))
+	}
+	if err == nil && caughtUp {
 		for _, hb := range blocks {
 			height := hb[0].(int64)
 			hash := hb[1].(string)
@@ -681,6 +717,20 @@ func run1175PayoutCycle() {
 			} else if conf >= aux1175Maturity {
 				if err := stats.Confirm1175Block(height); err != nil {
 					logger.Warn("1175 confirm mark failed", zap.Int64("height", height), zap.Error(err))
+				}
+			}
+		}
+	}
+	// 2b. a block marked orphaned that the caught-up node has on its chain after all (a reorg
+	// that turned back, or a mark from before the check above) is put back to pending.
+	if caughtUp {
+		if orphans, err := stats.Orphaned1175Blocks(tip - aux1175OrphanRecheckDepth); err == nil {
+			for _, hb := range orphans {
+				height, hash := hb[0].(int64), hb[1].(string)
+				if conf, found := aux1175BlockConfirmations(hash); found && conf > 0 {
+					if _, err := stats.Restore1175Block(height, hash); err != nil {
+						logger.Warn("1175 un-orphan failed", zap.Int64("height", height), zap.Error(err))
+					}
 				}
 			}
 		}
