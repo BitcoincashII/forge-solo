@@ -143,6 +143,9 @@ func TestTestAddressesAreObviouslyFake(t *testing.T) {
 		"bitcoincashii:qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzse6qye33q": "canonical all-zero-payload vector",
 		"bitcoincashii:qzeh9rcyyy8jlyalgh84e8fst6xh649hly2tfwgvwc": "checksum-valid ledger fixture",
 		"bitcoincashii:qpvg5aehqc3mtrmf2say7tmn0t9cxcw0wsahs5d9r5": "checksum-valid 1175 fixture",
+		// The miner of testdata/migrate/seed-1012.sql, twenty bytes of 0xa1: the dashboard API takes
+		// valid addresses only, and scripts/it-pg-to-sqlite.sh reads the dashboard.
+		"bitcoincashii:qzs6rgdp5xs6rgdp5xs6rgdp5xs6rgdp5yc72xjxq2": "checksum-valid miner of the move's seed",
 		// internal/cashaddr and internal/datum/wire are Forge Pool's packages carried over
 		// verbatim -- the TIDES gateway and the pool must agree to the byte -- tests included.
 		// Their decoder vectors are built on Forge Pool's own payout address, which is public

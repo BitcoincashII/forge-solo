@@ -31,6 +31,15 @@ run_must_pass() {
   echo "✓ ${name}"
 }
 
+# need_tools exits 1 unless every program named is installed: a runner that cannot run a test
+# fails it, rather than passing it for want of trying.
+need_tools() {
+  local t
+  for t in "$@"; do
+    command -v "$t" >/dev/null 2>&1 || { echo "✗ ${t} is needed and missing"; exit 1; }
+  done
+}
+
 # container_log_has is a named predicate so the readiness waits below need no nested
 # bash -c quoting.
 container_log_has() {

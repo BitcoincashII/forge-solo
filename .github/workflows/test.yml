@@ -114,13 +114,17 @@ jobs:
           go build -tags sqlite ./...
 
   integration:
-    name: Integration (postgres + live 1175 node)
+    name: Integration (postgres, the move to SQLite, live 1175 node)
     runs-on: ubuntu-latest
+    # The move's end-to-end run builds the images and waits out three sweeps of the 1175 ledger.
+    timeout-minutes: 60
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+          # The move is tested from a database 1.0.12's own code made: it needs the v1.0.12 tag.
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -132,6 +136,12 @@ jobs:
       # is what stops a silently-unopened gate from reading as a pass.
       - name: 1175 payout ledger (real postgres)
         run: ./scripts/it-postgres.sh
+
+      # 1.0.12's data, as its own code and the seed leave it, moved by the migrate image and the
+      # compose as umbreld runs them, then compared in full; going back to 1.0.12 and forward
+      # again; a move cut short, refused, deferred or damaged; the Windows shape.
+      - name: The move from PostgreSQL to SQLite, end to end
+        run: ./scripts/it-pg-to-sqlite.sh
 
       - name: Merge-mining end to end (live 1175 regtest node)
         run: ./scripts/it-1175.sh
