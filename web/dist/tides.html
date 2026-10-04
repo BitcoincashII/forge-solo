@@ -2,7 +2,7 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TIDES Guide - Forge Solo</title>
-<link rel="stylesheet" href="/css/common.css">
+<link rel="stylesheet" href="/css/common.css?v=20261003b">
 <style>
  .wrap{max-width:760px;margin:0 auto;padding:32px 20px}
  h1{font-size:26px;margin:0 0 6px}
@@ -99,7 +99,7 @@
     <p>DATUM and TIDES were designed and built by OCEAN (<a href="https://ocean.xyz/docs/datum" target="_blank" rel="noopener noreferrer">ocean.xyz/docs/datum</a>, <a href="https://ocean.xyz/docs/tides" target="_blank" rel="noopener noreferrer">ocean.xyz/docs/tides</a>). Forge Solo's TIDES mode follows their design as an independent implementation for Bitcoin Cash II. It does not speak OCEAN's DATUM Protocol, and this project is not affiliated with or endorsed by OCEAN. See LICENSE.</p>
   </div>
 </main>
-<script src="/js/common.js"></script>
+<script src="/js/common.js?v=20261003b"></script>
 <script>
  fetch('/api/v1/pool/config').then(function(r){return r.json()}).then(function(d){
    document.body.classList.toggle('no-mm', d.merge_mining_available === false);

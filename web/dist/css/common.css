@@ -200,17 +200,6 @@ nav a.active {
     background: var(--bch-green-dark);
 }
 
-/* Mobile Menu */
-.mobile-menu {
-    display: none;
-    background: none;
-    border: none;
-    color: var(--text-primary);
-    font-size: 24px;
-    cursor: pointer;
-    padding: var(--spacing-sm);
-}
-
 /* Mode Badge */
 .mode-badge {
     padding: 6px 14px;
@@ -843,24 +832,15 @@ footer a:hover {
         padding: 0 var(--spacing-md);
     }
 
-    nav {
-        display: none;
-        width: 100%;
-        flex-direction: column;
-        gap: var(--spacing-md);
-        padding-top: var(--spacing-lg);
-    }
-
-    nav.open {
-        display: flex;
-    }
-
-    .mobile-menu {
-        display: block;
-    }
-
+    /* The links and the mode badge wrap under the logo when they do not fit beside it. */
     .header-content {
         flex-wrap: wrap;
+        gap: var(--spacing-sm) var(--spacing-md);
+    }
+
+    nav {
+        flex-wrap: wrap;
+        gap: var(--spacing-sm) var(--spacing-md);
     }
 }
 
@@ -883,7 +863,7 @@ footer a:hover {
 
 /* Print Styles */
 @media print {
-    header, footer, .btn, .mobile-menu {
+    header, footer, .btn {
         display: none !important;
     }
 
