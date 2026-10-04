@@ -346,6 +346,26 @@ func (s *Server) vardiffFloor(isRental bool) float64 {
 	return s.config.AbsoluteMinDiff
 }
 
+// networkDifficulty is the network difficulty the current job states (its nBits), or 0 before
+// the first job.
+func (s *Server) networkDifficulty() float64 {
+	if j, ok := s.currentJob.Load().(*Job); ok && j != nil {
+		return BitsToDifficulty(j.NBits)
+	}
+	return 0
+}
+
+// belowNetwork is diff lowered to the network difficulty netDiff where it is above it. A miner sends
+// no share below the difficulty it was given, so one given more than the network's keeps back every
+// block between the two. Every difficulty a miner is given passes through here. Where the network
+// difficulty is below the floor (a test chain) or not known yet (0), diff is left as it is.
+func belowNetwork(diff, netDiff, floor float64) float64 {
+	if netDiff <= 0 || netDiff < floor || diff <= netDiff {
+		return diff
+	}
+	return netDiff
+}
+
 // normalizeDifficultyFloors applies defaults and enforces the ordering the whole difficulty
 // design rests on: the floor a miner may be ASSIGNED must be positive, and must never exceed
 // the floor its shares are JUDGED against.
@@ -1323,6 +1343,7 @@ func (s *Server) handleMessage(client *Client, data []byte) bool {
 			if suggestedDiff > s.config.MaxDiff {
 				suggestedDiff = s.config.MaxDiff
 			}
+			suggestedDiff = belowNetwork(suggestedDiff, s.networkDifficulty(), minDiff)
 			client.mu.Lock()
 			// Record the outgoing target when this RAISES the client, so the grace window in
 			// handleSubmit has something to fall back to. Without this the machinery is present
@@ -1811,6 +1832,7 @@ func (s *Server) authorize(client *Client, req *Request) (*Response, authorized)
 	if len(params) >= 2 {
 		hintedDiff = parsePasswordDiffHint(params[1])
 	}
+	netDiff := s.networkDifficulty()
 
 	client.mu.Lock()
 	// A connection may authorize a few names (a proxy can carry several rigs), and the same
@@ -1926,6 +1948,7 @@ func (s *Server) authorize(client *Client, req *Request) (*Response, authorized)
 		}
 		client.Difficulty = start
 	}
+	client.Difficulty = belowNetwork(client.Difficulty, netDiff, s.vardiffFloor(rental != RentalNone))
 	difficulty := client.Difficulty
 	client.mu.Unlock()
 
@@ -2690,6 +2713,7 @@ func (s *Server) adjustVardiffAt(client *Client, now time.Time) {
 	if newDiff > maxDiff {
 		newDiff = maxDiff
 	}
+	newDiff = belowNetwork(newDiff, s.networkDifficulty(), minDiff)
 
 	// If we recently reduced difficulty due to high rejection rate,
 	// don't increase above 80% of the ceiling that caused the rejection.
@@ -2975,19 +2999,25 @@ func (s *Server) BroadcastJob(job *Job) {
 		s.clearSharesForJob()
 	}
 
+	netDiff := BitsToDifficulty(job.NBits)
 	s.clients.Range(func(key, value interface{}) bool {
 		client := value.(*Client)
-		client.mu.RLock()
+		client.mu.Lock()
 		authorized := client.Authorized
-		client.mu.RUnlock()
+		// The network difficulty moves with every block: a miner above the new one is brought
+		// down to it.
+		lowered := false
+		if authorized {
+			d := belowNetwork(client.Difficulty, netDiff, s.vardiffFloor(client.RentalService != RentalNone))
+			lowered = d != client.Difficulty
+			client.Difficulty = d
+		}
+		client.mu.Unlock()
 		if authorized {
 			// For clean jobs (new block), resend difficulty to ensure miners have it
 			// Some miners (like Whatsminer) may miss difficulty notifications
-			if job.CleanJobs {
-				client.mu.RLock()
-				diff := client.Difficulty
-				client.mu.RUnlock()
-				s.sendDifficulty(client, diff)
+			if job.CleanJobs || lowered {
+				s.sendCurrentDifficulty(client)
 			}
 			s.sendJob(client, job)
 		}

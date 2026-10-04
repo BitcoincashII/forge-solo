@@ -143,34 +143,34 @@ func TestFirstRampStepIsCapped(t *testing.T) {
 	}
 }
 
-// The same over a real connection: a miner writes its first twelve shares in one go.
-func TestFirstSharesSentTogetherDoNotOvershoot(t *testing.T) {
-	s := tcpServer(t, nil)
-	m := dialTestMiner(t, s, "rig1")
-	job := soloTestJob("1")
+// sharesTogether sends job to the miner m (logged in as rig1), finds n shares on it at the floor and
+// writes them in one go. It returns how long finding them took and, once all are answered, the
+// difficulty the stratum has for the miner.
+func sharesTogether(t *testing.T, s *Server, m *testMiner, job *Job, n int) (time.Duration, float64) {
+	t.Helper()
 	s.BroadcastJob(job)
 	for !strings.Contains(m.line(t), MethodNotify) {
 	}
 	start := time.Now()
 	var lines strings.Builder
-	const shares = 12
-	for k := 1; k <= shares; k++ {
+	for k := 1; k <= n; k++ {
 		en2 := fmt.Sprintf("%016x", k)
-		for n := uint32(0); ; n++ {
-			nonce := fmt.Sprintf("%08x", n)
+		for i := uint32(0); ; i++ {
+			nonce := fmt.Sprintf("%08x", i)
 			ok, _, _, err := s.validateShare(job, m.en1, en2, job.NTime, nonce, "", s.config.MinDiff)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if ok {
-				fmt.Fprintf(&lines, `{"id":%d,"method":"mining.submit","params":["rig1","1","%s","%s","%s"]}`+"\n", 100+k, en2, job.NTime, nonce)
+				fmt.Fprintf(&lines, `{"id":%d,"method":"mining.submit","params":["rig1","%s","%s","%s","%s"]}`+"\n",
+					100+k, job.ID, en2, job.NTime, nonce)
 				break
 			}
 		}
 	}
 	mined := time.Since(start)
 	m.c.Write([]byte(lines.String()))
-	for answered := 0; answered < shares; {
+	for answered := 0; answered < n; {
 		if strings.Contains(m.line(t), `"result":true`) {
 			answered++
 		}
@@ -183,6 +183,15 @@ func TestFirstSharesSentTogetherDoNotOvershoot(t *testing.T) {
 		c.mu.RUnlock()
 		return false
 	})
+	return mined, got
+}
+
+// The same over a real connection: a miner writes its first twelve shares in one go.
+func TestFirstSharesSentTogetherDoNotOvershoot(t *testing.T) {
+	s := tcpServer(t, nil)
+	m := dialTestMiner(t, s, "rig1")
+	const shares = 12
+	mined, got := sharesTogether(t, s, m, soloTestJob("1"), shares)
 	// The miner's real rate: twelve shares at the floor in the time it took to find them.
 	want := s.config.MinDiff * float64(s.config.TargetShareTime) / (mined.Seconds() / shares)
 	if got > 2*want {
