@@ -233,15 +233,19 @@ func install(h host, out io.Writer, web string, given bool) (err error) {
 		h.journalTail()
 		return fmt.Errorf("%v. Its last log lines are above: fix what they say, then run install-service again", err)
 	}
+	rent := fmt.Sprintf("(rentals: %d)", rentalPort)
+	if len(left) > 0 {
+		rent = fmt.Sprintf("(no rentals: another program has port %d)", rentalPort)
+	}
 	fmt.Fprintf(out, `
 Forge Solo is installed and running as the %[1]s service.
 
   Dashboard:  %[2]s
-  Miners:     stratum+tcp://<this machine's address>:%[3]d  (rentals: %[4]d)
+  Miners:     stratum+tcp://<this machine's address>:%[3]d  %[4]s
   Data:       %[5]s
   Logs:       journalctl -u %[1]s -f   and %[5]s/logs/
   Stop/start: sudo systemctl stop %[1]s  /  sudo systemctl start %[1]s
-`, serviceName, dashboardURL(web), stratumPort, rentalPort, serviceData)
+`, serviceName, dashboardURL(web), stratumPort, rent, serviceData)
 	fmt.Fprintf(out, "  Settings:   saving a change asks for DASHBOARD_PASSWORD in %s/secrets.env\n", serviceData)
 	if webNeedsPassword(web) {
 		fmt.Fprintf(out, "  Password:   user forge, DASHBOARD_PASSWORD in %s/secrets.env\n", serviceData)

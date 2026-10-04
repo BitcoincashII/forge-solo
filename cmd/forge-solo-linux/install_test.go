@@ -12,6 +12,7 @@ import (
 type fakeHost struct {
 	unitText  string // the installed unit; "" for none
 	running   bool
+	left      []int // the optional ports another program holds
 	fail      map[string]error
 	calls     []string
 	unitWrote string
@@ -36,7 +37,7 @@ func (h *fakeHost) systemctl(args ...string) error {
 	}
 	return err
 }
-func (h *fakeHost) checkPorts(web string) ([]int, error) { return nil, h.step("ports " + web) }
+func (h *fakeHost) checkPorts(web string) ([]int, error) { return h.left, h.step("ports " + web) }
 func (h *fakeHost) checkWeb(web string) error            { return h.step("web " + web) }
 func (h *fakeHost) copyRelease() error                   { return h.step("copy") }
 func (h *fakeHost) ensureUser() error                    { return h.step("user") }
@@ -112,6 +113,21 @@ func TestUnitWeb(t *testing.T) {
 	// One that is not an address gives way to the default, and is named.
 	if web, note := chooseWeb(defaultWeb, false, "nonsense"); web != defaultWeb || !strings.Contains(note, "nonsense") {
 		t.Errorf("UNIT-WEB-BAD: %q %q", web, note)
+	}
+}
+
+// Another program on the rental port: the service is installed without it, and says so.
+func TestInstallWithoutTheRentalPort(t *testing.T) {
+	var out strings.Builder
+	if err := install(&fakeHost{}, &out, defaultWeb, false); err != nil || !strings.Contains(out.String(), "(rentals: 3335)") {
+		t.Errorf("INSTALL-RENTALS: %v\n%s", err, out.String())
+	}
+	out.Reset()
+	if err := install(&fakeHost{left: []int{rentalPort}}, &out, defaultWeb, false); err != nil {
+		t.Fatal(err)
+	}
+	if s := out.String(); !strings.Contains(s, "Note: "+leftOutNote(rentalPort)) || !strings.Contains(s, "(no rentals: another program has port 3335)") {
+		t.Errorf("INSTALL-NO-RENTALS: the output does not say the rental port is left out:\n%s", s)
 	}
 }
 
