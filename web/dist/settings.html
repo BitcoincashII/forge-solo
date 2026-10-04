@@ -29,7 +29,7 @@
  .mm-none{display:none}
  .no-mm .mm{display:none!important}
  .no-mm .mm-none{display:inline}
- /* No rental listener (the Windows build): marketplaces use the miner port. */
+ /* No rental listener (another program holds 3335 on Windows or Linux): marketplaces use the miner port. */
  .rental-none{display:none}
  .no-rental .rental{display:none}
  .no-rental .rental-none{display:block}
@@ -121,7 +121,7 @@
    // Miners on this network dial the page's own hostname -- except where the page is opened on
    // this machine itself (Windows, Linux): 127.0.0.1 reaches only a miner running here, so this
    // machine's network address from /connectivity is shown. The marketplace port is the stratum's
-   // rental listener; where there is none (the Windows build) marketplaces use 3333 too.
+   // rental listener; where there is none (another program holds 3335) marketplaces use 3333 too.
    var host=window.location.hostname||'your-node', rentalPort=3335;
    // The API's JSON answer, or null where there is none: the empty 502 the dashboard's own server
    // sends while the API is down or restarting, nginx's HTML 502 or 504 page on Umbrel.

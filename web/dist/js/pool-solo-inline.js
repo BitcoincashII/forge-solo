@@ -566,9 +566,9 @@
         //   * Your own hardware reaches this box on the LAN, so the page's own hostname is the
         //     right answer -- the same reasoning as stratumHostHint().
         //   * A marketplace dials in from the internet, so it needs the PUBLIC address and the
-        //     rental port, and only if a rental listener actually came up. The Windows build
-        //     ships that listener disabled, which is why the port comes from the live mining
-        //     status rather than from a constant here.
+        //     rental port, and only if a rental listener actually came up. On Windows and Linux
+        //     none does while another program holds 3335, which is why the port comes from the
+        //     live mining status rather than from a constant here.
         //
         // Inbound peer counts are the honest test of a P2P forward. Outbound peers prove
         // nothing -- a node behind a closed port still makes plenty. One inbound peer means
@@ -630,8 +630,8 @@
 
             // Which port a marketplace should dial. The dedicated rental listener exists to
             // give an aggregated order its own high difficulty floor, but it is not always
-            // running -- the Windows build ships it off -- and in that case the main port is
-            // the honest answer rather than nothing at all.
+            // running: on Windows and Linux another program can hold 3335. Then the main port
+            // is the honest answer rather than nothing at all.
             const group = document.getElementById('connRentalGroup');
             const rentalPort = (lastMiningStatus && Number(lastMiningStatus.rental_port))
                 || Number(c.stratumPort) || 3333;

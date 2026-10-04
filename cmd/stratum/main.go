@@ -284,7 +284,8 @@ func buildMiningStatus() miningStatusSnapshot {
 	st := miningStatusFrom(configured, stats.IsDBConnected(), connections, authorized, jobHeight, jobAt, shareAt, tmplErr, time.Now())
 	// The dashboard advertises a rental endpoint only when one is really listening: telling
 	// someone to point a paid order at a port another program holds is worse than saying
-	// nothing. Forge Solo for Windows starts without the rental port when it is taken.
+	// nothing. On Windows and Linux, Forge Solo starts without the rental port when another
+	// program holds it.
 	st.RentalPort = listeningPort(stratumRentalServer)
 	st.MergeMining, st.AuxError, st.AuxLastOKAge = auxStatusFrom(aux, time.Now())
 	st.PayoutMode = currentPayoutMode()
