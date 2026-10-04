@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -1624,7 +1625,7 @@ func getPoolConfig(c *fiber.Ctx) error {
 	if tag == "" {
 		tag = mining.DefaultCoinbaseTag
 	}
-	return c.JSON(fiber.Map{
+	out := fiber.Map{
 		"stratum_port": 3333,
 		"pool_name":    poolNameFromEnv(),
 		"pool_fee":     0.0,
@@ -1646,7 +1647,13 @@ func getPoolConfig(c *fiber.Ctx) error {
 		"platform":          platformFromEnv(),
 		// false: this app runs no 1175 node, so the dashboard hides 1175 merge-mining.
 		"merge_mining_available": mergeMiningAvailable(),
-	})
+	}
+	// Forge Solo for Linux: which secrets.env holds the password, the service's or the one of a
+	// copy run by hand, so Settings can name it.
+	if p := secretsPathFromEnv(); p != "" {
+		out["secrets_path"] = p
+	}
+	return c.JSON(out)
 }
 
 // platformFromEnv is where this app runs, as FORGE_PLATFORM says: "windows" or "linux", which
@@ -1657,6 +1664,17 @@ func platformFromEnv() string {
 		return p
 	}
 	return "umbrel"
+}
+
+// secretsPathFromEnv is where Forge Solo for Linux keeps secrets.env, with DASHBOARD_PASSWORD (the
+// Settings password) in it: in its data directory, beside the database DB_PATH names. "" on the
+// other platforms.
+func secretsPathFromEnv() string {
+	db := strings.TrimSpace(os.Getenv("DB_PATH"))
+	if platformFromEnv() != "linux" || db == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(db), "secrets.env")
 }
 
 // payoutModeOrSolo is the dashboard's payout mode: solo unless TIDES was chosen.

@@ -297,6 +297,27 @@ func TestWindowsSaysTheNetworkMustBePrivate(t *testing.T) {
 	}
 }
 
+// On Linux, Settings said the password is "DASHBOARD_PASSWORD in secrets.env in the Forge Solo
+// data directory", and there are two: the service's in /var/lib/forge-solo (read with sudo) and
+// the one of a copy run by hand, in the user's home. It names the one the API reads, and both when
+// the API does not say.
+func TestLinuxSettingsNamesTheSecretsFile(t *testing.T) {
+	s := readWebFile(t, "settings.html")
+	if !strings.Contains(s, "var pt=d.platform==='linux' ? linuxPwText(d.secrets_path) : PW_TEXT[d.platform];") {
+		t.Error("LINUX-PW-PATH: Settings does not use the secrets.env path the API gives on Linux")
+	}
+	fn := textBetween(s, "function linuxPwText(path){", "\n   }")
+	for _, want := range []string{"/^\\/var\\/lib\\//.test(path) ? 'sudo cat ' : 'cat '", "sanitizeHTML(cmd)",
+		"sudo cat /var/lib/forge-solo/secrets.env for the service, ~/.local/share/forge-solo/secrets.env for a copy you started yourself"} {
+		if !strings.Contains(fn, want) {
+			t.Errorf("LINUX-PW-TEXT: linuxPwText() lacks %q", want)
+		}
+	}
+	if strings.Contains(s, "in secrets.env in the Forge Solo data directory") {
+		t.Error("LINUX-PW-VAGUE: Settings still points at \"secrets.env in the Forge Solo data directory\"")
+	}
+}
+
 // Scripts and style sheets go out with no Cache-Control (only the pages are no-cache), so a
 // browser keeps its copy for hours after an update unless the reference changes. Every page
 // names each of them with the same ?v=, so a bump on one page is not missed on another.

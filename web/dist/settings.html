@@ -174,13 +174,25 @@
        placeholder:'the Settings password (tray icon \u2192 Copy Settings Password)',
        note:'Other programs and accounts on this PC can reach Forge Solo, so a change here needs its Settings password. Right-click the Forge Solo icon in the notification area of the taskbar and choose <strong>Copy Settings Password</strong>, then paste it here. This browser remembers it once a save succeeds.',
        where:'Copy it again: right-click the Forge Solo icon in the notification area, then Copy Settings Password.'
-     },
-     linux:{
-       placeholder:'DASHBOARD_PASSWORD from secrets.env',
-       note:'Other accounts on this machine can reach Forge Solo, so a change here needs its password: <code>DASHBOARD_PASSWORD</code> in <code>secrets.env</code> in the Forge Solo data directory. This browser remembers it once a save succeeds.',
-       where:'It is DASHBOARD_PASSWORD in secrets.env in the Forge Solo data directory.'
      }
    };
+   // Forge Solo for Linux: the secrets.env its password is in (pool config: secrets_path). The
+   // service's, in /var/lib/forge-solo, is read with sudo; a copy run by hand has its own, in
+   // that user's home. Without the path, both are named.
+   function linuxPwText(path){
+     path=(typeof path==='string') ? path : '';
+     var cmd=path ? (/^\/var\/lib\//.test(path) ? 'sudo cat ' : 'cat ')+path : '';
+     return {
+       placeholder:'DASHBOARD_PASSWORD from secrets.env',
+       note:'Other accounts on this machine can reach Forge Solo, so a change here needs its password: <code>DASHBOARD_PASSWORD</code> '+(path
+         ? 'from <code>'+sanitizeHTML(cmd)+'</code>'
+         : 'in <code>secrets.env</code>: <code>sudo cat /var/lib/forge-solo/secrets.env</code> for the service, <code>~/.local/share/forge-solo/secrets.env</code> for a copy you started yourself')+
+         '. This browser remembers it once a save succeeds.',
+       where:'It is DASHBOARD_PASSWORD '+(path
+         ? 'from: '+cmd+'.'
+         : 'in secrets.env: sudo cat /var/lib/forge-solo/secrets.env for the service, ~/.local/share/forge-solo/secrets.env for a copy you started yourself.')
+     };
+   }
    function rememberedPw(){ try{ return localStorage.getItem(PW_KEY)||''; }catch(e){ return ''; } }
    function rememberPw(v){ try{ if(v){ localStorage.setItem(PW_KEY,v); } else { localStorage.removeItem(PW_KEY); } }catch(e){} }
    function askForPw(){
@@ -223,7 +235,7 @@
      d=d||{};
      document.body.classList.toggle('no-mm', d.merge_mining_available === false);
      document.getElementById('winPrivateNote').style.display = d.platform === 'windows' ? 'block' : 'none';
-     var pt=PW_TEXT[d.platform];
+     var pt=d.platform==='linux' ? linuxPwText(d.secrets_path) : PW_TEXT[d.platform];
      if(pt){
        document.getElementById('appPw').placeholder=pt.placeholder;
        document.getElementById('pwNote').innerHTML=pt.note;
