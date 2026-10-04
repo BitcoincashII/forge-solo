@@ -85,11 +85,16 @@ Filename: "{app}\{#MyAppExe}"; Description: "Launch Forge Solo now"; Flags: nowa
 //    Defender never scans is a place any other program could hide files. An upgrade removes the
 //    whole-folder exclusion earlier versions added.
 // Mining from THIS PC (127.0.0.1:3333) needs no rule at all.
-// PSQuote quotes S for PowerShell. A single-quoted string ends at the first apostrophe unless it
-// is doubled, and a Windows user name can have one (C:\Users\O'Brien).
+// PSQuote quotes S for PowerShell. A single-quoted string ends at the first single quote unless it
+// is doubled, and a Windows user name can have one (C:\Users\O'Brien). PowerShell takes the
+// typographic quotes U+2018 to U+201B for single quotes too.
 function PSQuote(S: String): String;
 begin
   StringChangeEx(S, '''', '''''', True);
+  StringChangeEx(S, #$2018, #$2018#$2018, True);
+  StringChangeEx(S, #$2019, #$2019#$2019, True);
+  StringChangeEx(S, #$201A, #$201A#$201A, True);
+  StringChangeEx(S, #$201B, #$201B#$201B, True);
   Result := '''' + S + '''';
 end;
 
