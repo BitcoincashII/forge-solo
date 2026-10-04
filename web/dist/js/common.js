@@ -197,7 +197,14 @@ async function apiFetch(url, options = {}) {
         const response = await fetch(url, mergedOptions);
 
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            // The API's own reason, when it gave one ("the database is not answering"), goes with
+            // the error for the page to show.
+            let body = null;
+            try { body = await response.json(); } catch (e) { body = null; }
+            const err = new Error(`HTTP ${response.status}: ${response.statusText}`);
+            err.status = response.status;
+            err.apiError = (body && typeof body.error === 'string') ? body.error : '';
+            throw err;
         }
 
         return await response.json();

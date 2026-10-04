@@ -221,6 +221,44 @@ func TestSettingsSaysWhenForgeSoloDidNotAnswer(t *testing.T) {
 	}
 }
 
+// While the database is down the API answers 503 with its reason ("These figures cannot be shown
+// right now: the database is not answering."), and mining-status says db_connected:false. The
+// dashboard dropped both: red "Failed to load blocks/payouts" under a green "Mining" banner, and
+// on a page opened during the outage "Can't reach Forge Solo" with 0.00 balances. Settings said
+// "Can't reach Forge Solo" too.
+func TestDatabaseOutageIsShownAsSuch(t *testing.T) {
+	common := readWebFile(t, "js/common.js")
+	if !strings.Contains(textBetween(common, "if (!response.ok) {", "throw err;"), "err.apiError = (body && typeof body.error === 'string') ? body.error : '';") {
+		t.Error("DB-APIFETCH-REASON: apiFetch drops the API's reason from an error answer")
+	}
+	js := readWebFile(t, "js/pool-solo-inline.js")
+	for _, fn := range []string{"async function fetchBlocks() {", "async function fetchPayouts() {"} {
+		if !strings.Contains(textBetween(js, fn, "\n        }\n"), "(e && e.apiError) ? escapeHtml(e.apiError)") {
+			t.Errorf("DB-TABLE-REASON: %s does not show the API's reason when the figures cannot be read", fn)
+		}
+	}
+	if !strings.Contains(js, "if (ms && ms.db_connected === false) {") {
+		t.Error("DB-BANNER: the status banner does not say when the database is not answering")
+	}
+	if strings.Count(js, "configError = (e && e.apiError) || '';") != 2 {
+		t.Error("DB-CONFIG-ERROR: a settings read the API answered with its reason is not kept apart from an unreachable API")
+	}
+	if !strings.Contains(textBetween(js, "function noAddressNotice(forTable) {", "if (!configReachable) {"), "if (configError) {") {
+		t.Error("DB-CONFIG-ERROR-NOTICE: with the settings unreadable, the page says Forge Solo cannot be reached")
+	}
+	page := readWebFile(t, "solo.html")
+	for _, id := range []string{"matureBalance", "immatureBalance", "blocksFound", "totalEarned", "totalPaidAmount", "payoutCount"} {
+		m := regexp.MustCompile(`id="` + id + `"[^>]*>([^<]*)<`).FindStringSubmatch(page)
+		if m == nil || regexp.MustCompile(`\b0(\.0+)?\b`).MatchString(m[1]) {
+			t.Errorf("DB-NO-ZEROS: #%s starts as %q; a figure not read yet is not zero", id, m)
+		}
+	}
+	s := readWebFile(t, "settings.html")
+	if !strings.Contains(textBetween(s, "function loadConfig(){", "\n   }"), "document.getElementById('apiDownWhy').textContent=apiError ||") {
+		t.Error("DB-SETTINGS-REASON: Settings does not show the API's reason when the stored settings cannot be read")
+	}
+}
+
 // Scripts and style sheets go out with no Cache-Control (only the pages are no-cache), so a
 // browser keeps its copy for hours after an update unless the reference changes. Every page
 // names each of them with the same ?v=, so a bump on one page is not missed on another.

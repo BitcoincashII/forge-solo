@@ -7,9 +7,18 @@
         // and telling a correctly configured user to set an address they already set
         // invites them to overwrite it from a Settings page that shows no error either.
         let configReachable = false;
+        // The API's reason when it answered the settings read with an error of its own ("cannot
+        // read its saved settings right now (database unavailable)"): Forge Solo answers, but
+        // whether an address is set is not known. '' otherwise.
+        let configError = '';
 
         // Message for a table body or banner when we genuinely do not know the address.
         function noAddressNotice(forTable) {
+            if (configError) {
+                // The API's first sentence: the rest of its text is about a save.
+                return configError.split('. ')[0].replace(/\.?$/, '.') +
+                       ' Your address, blocks and payouts show here again by themselves once it can.';
+            }
             if (!configReachable) {
                 return "Can't reach Forge Solo: the numbers below aren't live yet. " +
                        "If the app just started or updated, give it a minute.";
@@ -185,13 +194,15 @@
                 try {
                     const cfg = await apiFetch('/api/v1/pool/config');
                     configReachable = true;
+                    configError = '';
                     if (cfg && cfg.platform) platform = cfg.platform;
                     if (cfg && cfg.pool_address && cfg.pool_address !== minerAddress) {
                         minerAddress = cfg.pool_address;
-                        var a = document.getElementById('minerAddress');
-                        if (a) a.textContent = minerAddress;
                     }
-                } catch (e) {}
+                } catch (e) {
+                    configError = (e && e.apiError) || '';
+                }
+                showAddressLine();
             }
             var msg = '', tone = 'gold';   // gold = needs attention, green = ready / mining
             try {
@@ -203,7 +214,7 @@
                     msg = '⏳ <b>BCH2 node syncing: ' + pct.toFixed(2) + '%</b> (block ' + (Number(s.blocks) || 0) + ' / ' + (Number(s.headers) || 0) + '). You can mine once it reaches 100%.'
                         + '<div style="margin-top:7px;height:7px;background:rgba(255,255,255,0.18);border-radius:4px;overflow:hidden">'
                         + '<div style="height:100%;width:' + pct.toFixed(1) + '%;background:#0ac18e;transition:width .6s"></div></div>';
-                    if (!minerAddress && configReachable) msg += '<div style="height:8px"></div>⚙️ Meanwhile, set your <a href="/settings" style="color:inherit;font-weight:600;text-decoration:underline">payout address</a> in Settings.';
+                    if (!minerAddress && configReachable && !configError) msg += '<div style="height:8px"></div>⚙️ Meanwhile, set your <a href="/settings" style="color:inherit;font-weight:600;text-decoration:underline">payout address</a> in Settings.';
                 } else if (s.status === 'starting') {
                     // s.message is the node's own word for the step it is on ("Loading block index…").
                     msg = '⏳ <b>Starting the BCH2 node:</b> ' + escapeHtml(s.message || 'loading its chain') + ' This can take a few minutes; mining starts once it is ready.';
@@ -214,7 +225,7 @@
                 } else if (!minerAddress) {
                     // Without the stored settings there is no knowing whether an address is set:
                     // asking for one sent users to Settings to retype what was already saved.
-                    msg = configReachable
+                    msg = configReachable && !configError
                         ? '✅ <b>Node synced.</b> Now set your <a href="/settings" style="color:inherit;font-weight:600;text-decoration:underline">payout address</a> in Settings to start mining.'
                         : '⚠️ ' + noAddressNotice(false);
                 } else {
@@ -272,9 +283,15 @@
                         tone = 'green';
                         msg = '✅ <b>Node synced, ready to mine.</b> Point a miner at <b>port ' + stratumHostHint() + '</b>.';
                     }
+                    // Mining goes on from the settings the mining service already has; what the
+                    // database holds (blocks, payouts) cannot be shown meanwhile.
+                    if (ms && ms.db_connected === false) {
+                        tone = 'gold';
+                        msg += '<div style="margin-top:6px">⚠️ Forge Solo\'s database is not answering, so your blocks and payouts cannot be shown right now. They show again by themselves once it answers.</div>';
+                    }
                 }
             } catch (e) {
-                if (!minerAddress) msg = (configReachable ? '⚙️ ' : '⚠️ ') + noAddressNotice(false);
+                if (!minerAddress) msg = (configReachable && !configError ? '⚙️ ' : '⚠️ ') + noAddressNotice(false);
             }
             // TIDES mode: say which way blocks are paying right now. The fallback line is the
             // one that matters -- a miner who chose TIDES must not find out from the payouts
@@ -822,7 +839,9 @@
                 soloBlocksKnown = false;
                 renderBlocksFound();
                 document.getElementById('totalEarned').textContent = 'Total: --';
-                tbody.innerHTML = '<tr><td colspan="7"><div class="error-state"><span class="error-icon">!</span><span data-i18n="p_error_load_blocks">' + (typeof PT !== 'undefined' && PT.p_error_load_blocks ? PT.p_error_load_blocks : 'Failed to load blocks') + '</span></div></td></tr>';
+                // The API's reason when it gave one ("the database is not answering").
+                const why = (e && e.apiError) ? escapeHtml(e.apiError) : (typeof PT !== 'undefined' && PT.p_error_load_blocks ? PT.p_error_load_blocks : 'Failed to load blocks');
+                tbody.innerHTML = '<tr><td colspan="7"><div class="error-state"><span class="error-icon">!</span><span>' + why + '</span></div></td></tr>';
             }
         }
 
@@ -876,7 +895,8 @@
                 console.error("Failed to fetch payouts", e);
                 document.getElementById("payoutCount").textContent = "(--)";
                 document.getElementById("totalPaidAmount").textContent = "--";
-                tbody.innerHTML = '<tr><td colspan="4"><div class="error-state"><span class="error-icon">!</span><span data-i18n="p_error_load_payouts">' + (typeof PT !== 'undefined' && PT.p_error_load_payouts ? PT.p_error_load_payouts : 'Failed to load payouts') + '</span></div></td></tr>';
+                const why = (e && e.apiError) ? escapeHtml(e.apiError) : (typeof PT !== 'undefined' && PT.p_error_load_payouts ? PT.p_error_load_payouts : 'Failed to load payouts');
+                tbody.innerHTML = '<tr><td colspan="4"><div class="error-state"><span class="error-icon">!</span><span>' + why + '</span></div></td></tr>';
             }
         }
 
@@ -919,6 +939,14 @@
             }
         }
 
+        // The address line under the heading: the address, or why there is none to show.
+        function showAddressLine() {
+            const el = document.getElementById('minerAddress');
+            if (!el) return;
+            el.textContent = minerAddress || (configError ? '(unavailable: Forge Solo cannot read its settings right now)'
+                : (configReachable ? '(configure payout address)' : '(unavailable: cannot reach Forge Solo)'));
+        }
+
         (async function initDashboard() {
             if (!minerAddress) {
                 try {
@@ -926,9 +954,10 @@
                     configReachable = true;
                     if (cfg && cfg.platform) platform = cfg.platform;
                     if (cfg && cfg.pool_address) minerAddress = cfg.pool_address;
-                } catch (e) {}
-                var _el = document.getElementById('minerAddress');
-                if (_el) _el.textContent = minerAddress || (configReachable ? '(configure payout address)' : '(unavailable: cannot reach Forge Solo)');
+                } catch (e) {
+                    configError = (e && e.apiError) || '';
+                }
+                showAddressLine();
             }
             await updateStatusBanner();
             fetchStats();
