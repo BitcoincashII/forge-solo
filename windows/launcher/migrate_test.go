@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -61,6 +62,7 @@ func moveWorld(t *testing.T, plan string) (calls string, tp *tips) {
 	})
 	md(ipath("pgsql", "bin"))
 	writeFile(t, ipath("pgsql", "bin", "pg_ctl.exe"), "#!/bin/sh\n"+pgctlStandIn+"\n", 0o755)
+	writeFile(t, ipath("pgsql", "bin", "postgres.exe"), "#!/bin/sh\nexit 1\n", 0o755) // pg_ctl's stand-in is the server
 	oldData(t, "pg_control-shutdown")
 	sec.DBPass = "old-db-password"
 	installedPrograms = func() []runningProgram {
@@ -372,6 +374,86 @@ func TestAFailedMoveStillStartsEverything(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A move needed when the bundled PostgreSQL is not installed: forgesolo.db deleted after a checked
+// move (which removed PostgreSQL), or an earlier version's data copied in after an install that had
+// none (a new PC). The status file says the move needs PostgreSQL and that running the installer
+// again installs it, the tray says the move failed, and everything else starts. Once it is back, the
+// next start moves the data.
+func TestAMoveWithoutTheBundledPostgreSQLSaysHowToGetIt(t *testing.T) {
+	for _, c := range []struct {
+		code, plan string
+		setup      func(t *testing.T)
+		missing    []string
+	}{
+		{code: "MOVE-FAIL-NO-PGSQL", plan: "move", setup: func(t *testing.T) {
+			moved(t, "pg_control-shutdown")
+			prepareDatabase() // a checked move: the bundled PostgreSQL goes
+			if _, err := os.Stat(ipath("pgsql")); !os.IsNotExist(err) {
+				t.Fatalf("setup: the bundled PostgreSQL is still there (%v)", err)
+			}
+			if err := os.Remove(dbPath()); err != nil {
+				t.Fatal(err)
+			}
+		}, missing: []string{"pg_ctl.exe", "postgres.exe"}},
+		{code: "MOVE-FAIL-NO-PGSQL-COPIED", plan: "merge", setup: func(t *testing.T) {
+			writeFile(t, dbPath(), "", 0o600) // the new install's database
+			if err := os.RemoveAll(ipath("pgsql")); err != nil {
+				t.Fatal(err)
+			}
+		}, missing: []string{"pg_ctl.exe", "postgres.exe"}},
+		{code: "MOVE-FAIL-NO-POSTGRES-EXE", plan: "move", setup: func(t *testing.T) {
+			if err := os.Remove(ipath("pgsql", "bin", "postgres.exe")); err != nil { // an antivirus took it
+				t.Fatal(err)
+			}
+		}, missing: []string{"postgres.exe"}},
+	} {
+		t.Run(c.code, func(t *testing.T) {
+			calls, tp := moveWorld(t, c.plan)
+			c.setup(t)
+			bootAll(t)
+			s := readStatusT(t)
+			if s.State != stateFailed || s.Code != codeSource || s.Reason != noPostgresReason {
+				t.Fatalf("%s: the status is %+v, want failed (%d) because %q", c.code, s, codeSource, noPostgresReason)
+			}
+			for _, name := range []string{"pg_ctl.exe", "postgres.exe"} {
+				named := strings.Contains(s.Detail, ipath("pgsql", "bin", name))
+				if want := slices.Contains(c.missing, name); named != want {
+					t.Errorf("%s-DETAIL: the detail names %s: %v, want %v: %q", c.code, name, named, want, s.Detail)
+				}
+			}
+			if got := callsIn(calls); count(got, "pg_ctl")+count(got, "migrate prepare")+count(got, "migrate commit") != 0 {
+				t.Errorf("%s-NOTHING-RUN: %v", c.code, got)
+			}
+			if !tp.has(moveFailedTip) || tp.has("Forge Solo: running") {
+				t.Errorf("%s-TRAY: the tray said %q", c.code, tp.all())
+			}
+		})
+	}
+	t.Run("MOVE-FAIL-NO-PGSQL-REMEDY", func(t *testing.T) {
+		_, tp := moveWorld(t, "move")
+		saved := filepath.Join(t.TempDir(), "pgsql")
+		if err := os.Rename(ipath("pgsql"), saved); err != nil {
+			t.Fatal(err)
+		}
+		bootAll(t)
+		if s := readStatusT(t); s.Reason != noPostgresReason {
+			t.Fatalf("setup: %+v", s)
+		}
+		if err := os.Rename(saved, ipath("pgsql")); err != nil { // the installer run again
+			t.Fatal(err)
+		}
+		prepareDatabase() // the next start
+		if s := readStatusT(t); s.State != stateDone {
+			t.Errorf("MOVE-FAIL-NO-PGSQL-REMEDY: with PostgreSQL back the next start gives %+v", s)
+		}
+		tp.add("something else")
+		showRunning()
+		if tp.last() != "Forge Solo: running" {
+			t.Errorf("MOVE-FAIL-NO-PGSQL-REMEDY-TRAY: the tray says %q", tp.last())
+		}
+	})
 }
 
 // A commit that reports success while the files say otherwise (no marker that matches the old

@@ -227,6 +227,10 @@ func moveData(merge bool) {
 		moveFailed(migrationStatus{Code: codeSource, Reason: "secrets.env lacks the old database's password"})
 		return
 	}
+	if missing := missingPostgres(); missing != "" {
+		moveFailed(migrationStatus{Code: codeSource, Reason: noPostgresReason, Detail: missing})
+		return
+	}
 	r, err := reachPostgres()
 	if err != nil {
 		moveFailed(migrationStatus{Code: codeOther, Reason: "the bundled PostgreSQL cannot reach the old database's folder", Detail: err.Error()})
@@ -283,6 +287,26 @@ func moveData(merge bool) {
 	}
 	logf("old data: moved into forgesolo.db and checked")
 	removeMoveTools()
+}
+
+// noPostgresReason is why a move fails when the bundled PostgreSQL is not installed: the launcher
+// removed it after a move (and forgesolo.db was deleted since), or the old data was copied in after
+// an install that had none. The installer installs it for an account with old data.
+const noPostgresReason = "the bundled PostgreSQL, which the move needs, is not installed: run the Forge Solo installer again (it installs PostgreSQL when the old data is there), then start Forge Solo"
+
+// missingPostgres names the bundled PostgreSQL programs a move runs that are not installed, or is
+// "" when both are there.
+func missingPostgres() string {
+	var missing []string
+	for _, name := range []string{"pg_ctl.exe", "postgres.exe"} {
+		if _, err := os.Stat(ipath("pgsql", "bin", name)); errors.Is(err, fs.ErrNotExist) {
+			missing = append(missing, ipath("pgsql", "bin", name))
+		}
+	}
+	if len(missing) == 0 {
+		return ""
+	}
+	return "not found: " + strings.Join(missing, ", ")
 }
 
 // migratorDone reports whether a step of the migrator succeeded. Deferred (31: something holds
@@ -394,7 +418,9 @@ func pglogTail() string {
 
 // removeMoveTools deletes what only a move needs, once it is done and checked: the bundled
 // PostgreSQL programs (never the old data, pgdata) and PostgreSQL's log. Going back to 1.0.12 and
-// forward again puts them back: the installer installs PostgreSQL for an account with old data.
+// forward again puts them back: the installer installs PostgreSQL for an account with old data. A
+// move needed again later (forgesolo.db deleted) fails with noPostgresReason, which says to run the
+// installer again.
 func removeMoveTools() {
 	if installDir != "" {
 		pg := ipath("pgsql")
