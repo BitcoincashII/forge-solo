@@ -77,6 +77,7 @@ type Server struct {
 	diffMemory     sync.Map // minerID(address) -> diffMem: last vardiff level, reused across reconnects
 	ipConnsMu      sync.Mutex
 	ipConns        map[string]int // remote host -> live connections, for the per-IP cap
+	logs           logLimit       // the lines all clients together may cause; see serverLogBudget
 	shutdownCh     chan struct{}
 	writeWait      time.Duration // how long one write to a miner may take; 0 is writeTimeout. Set before Start.
 	stopOnce       sync.Once     // Stop may be called again; closing shutdownCh twice panics
@@ -1060,7 +1061,7 @@ func (s *Server) handleClient(conn net.Conn) {
 	defer s.clientCount.Add(-1)
 	host := hostOf(conn.RemoteAddr().String())
 	if !s.reserveIPSlot(host) {
-		s.logger.Warn("refused connection: per-IP limit reached",
+		s.limitedLog(true, "refused connection: per-IP limit reached", 0,
 			zap.String("ip", host),
 			zap.Int("limit", s.config.MaxConnectionsPerIP))
 		conn.Close()
@@ -1107,7 +1108,7 @@ func (s *Server) handleClient(conn net.Conn) {
 	// Log external connections at Info level for debugging. Loopback either way: the compose
 	// healthcheck's probe arrives from ::1 on some hosts, and was logged as external every 30 s.
 	if !isLoopback(client.IP) {
-		s.logger.Info("External client connected", zap.String("ip", client.IP))
+		s.limitedLog(false, "External client connected", 0, zap.String("ip", client.IP))
 	} else {
 		s.logger.Debug("Client connected", zap.String("ip", client.IP))
 	}
@@ -1175,6 +1176,14 @@ func (s *Server) handleClient(conn net.Conn) {
 	scanErr := scanner.Err()
 	reason := client.whyClosed(scanErr, authorized)
 
+	// The line about the connection ending also reports the lines its own budget left out since
+	// its last one, so they are counted even when it says nothing more.
+	left := client.logs.drain()
+	endLog := func(warn bool, msg string, fields ...zap.Field) {
+		s.limitedLog(warn, msg, left, fields...)
+		left = 0
+	}
+
 	// Log EXTERNAL connections that never subscribed. A local probe that opens a socket
 	// and closes it is the container healthcheck, not a miner with a problem.
 	//
@@ -1184,7 +1193,7 @@ func (s *Server) handleClient(conn net.Conn) {
 	// self-inflicted. That volume is not just untidy -- it buries the case the warning
 	// exists for, a real miner failing to complete the handshake.
 	if !isLoopback(client.IP) && !subscribed {
-		s.logger.Warn("External client disconnected without subscribing",
+		endLog(true, "External client disconnected without subscribing",
 			zap.String("ip", client.IP),
 			zap.String("reason", reason),
 			zap.Duration("connected_duration", duration),
@@ -1192,14 +1201,14 @@ func (s *Server) handleClient(conn net.Conn) {
 	}
 	// Subscribed but never logged in: a miner with a username the stratum refuses, or a probe.
 	if !isLoopback(client.IP) && subscribed && !authorized {
-		s.logger.Info("External client disconnected before logging in",
+		endLog(false, "External client disconnected before logging in",
 			zap.String("ip", client.IP),
 			zap.String("reason", reason),
 			zap.Duration("connected_duration", duration))
 	}
 
 	if authorized && minerID != "" {
-		s.logger.Info("Client disconnected",
+		endLog(false, "Client disconnected",
 			zap.String("miner", minerID),
 			zap.String("worker", workerName),
 			zap.String("rental_service", rental.String()),
@@ -1225,7 +1234,7 @@ func (s *Server) readFirstByte(client *Client, conn net.Conn) ([]byte, bool) {
 		if _, err := conn.Read(one); err != nil {
 			// The container healthcheck opens a socket and closes it; that is not a miner.
 			if !isLoopback(client.IP) {
-				s.logger.Warn("External client disconnected without subscribing",
+				s.limitedLog(true, "External client disconnected without subscribing", 0,
 					zap.String("ip", client.IP),
 					zap.Duration("connected_duration", time.Since(client.ConnectedAt)),
 					zap.Error(err))
@@ -1244,7 +1253,7 @@ func (s *Server) readFirstByte(client *Client, conn net.Conn) ([]byte, bool) {
 		if c == 0x16 {
 			looks = "a TLS handshake"
 		}
-		s.logger.Warn("Closed a connection that did not start with a stratum message",
+		s.limitedLog(true, "Closed a connection that did not start with a stratum message", 0,
 			zap.String("ip", client.IP),
 			zap.String("first_byte", fmt.Sprintf("0x%02x", c)),
 			zap.String("looks_like", looks))
@@ -1320,7 +1329,7 @@ func (s *Server) handleMessage(client *Client, data []byte) bool {
 			} else {
 				// Usual for a moment after a start: miners reconnect before the first job is made, and
 				// BroadcastJob sends it to them when it is.
-				s.logger.Info("No job yet for a miner that just logged in: it gets the first one when it is made",
+				s.clientLog(client, false, "No job yet for a miner that just logged in: it gets the first one when it is made",
 					zap.String("miner", auth.minerID))
 			}
 		}
@@ -1362,7 +1371,7 @@ func (s *Server) handleMessage(client *Client, data []byte) bool {
 			}
 			client.Difficulty = suggestedDiff
 			client.mu.Unlock()
-			s.logger.Info("Miner suggested difficulty accepted",
+			s.clientLog(client, false, "Miner suggested difficulty accepted",
 				zap.String("ip", client.IP),
 				zap.Float64("difficulty", suggestedDiff))
 			s.sendDifficulty(client, suggestedDiff)
@@ -1762,8 +1771,8 @@ func (s *Server) authorize(client *Client, req *Request) (*Response, authorized)
 	// such a username under the real payout address, so only an install with no payout
 	// address set -- which cannot serve a job anyway -- still reaches this.
 	if strings.HasPrefix(strings.ToLower(username), "braiins") && minerID == "" {
-		s.logger.Info("Braiins probe connection accepted",
-			zap.String("username", username),
+		s.clientLog(client, false, "Braiins probe connection accepted",
+			zap.String("username", clip(username, maxWorkerLabel)),
 			zap.String("ip", client.IP))
 		// Set a dummy address for probe - won't receive payouts
 		minerID = "probe"
@@ -1772,8 +1781,8 @@ func (s *Server) authorize(client *Client, req *Request) (*Response, authorized)
 
 	// Reject invalid addresses - they cannot receive payouts
 	if minerID == "" {
-		s.logger.Warn("Rejected connection with invalid address",
-			zap.String("username", username),
+		s.clientLog(client, true, "Rejected connection with invalid address",
+			zap.String("username", clip(username, maxWorkerLabel)),
 			zap.String("ip", client.IP))
 		return &Response{ID: req.ID, Result: false, Error: ErrUnauthorized}, authorized{}
 	}
@@ -3383,6 +3392,12 @@ var authorizedIdleTimeout = 30 * time.Minute
 // its work.
 const clientLogBudget = 20
 
+// serverLogBudget is how many log lines all clients together may cause a minute on one port: each
+// connection's own lines, and the lines about connections opening, closing and being refused. A
+// budget per connection alone did not bound them: every new connection came with a fresh one, and
+// opening and closing connections in a loop rotated the whole log away within minutes.
+const serverLogBudget = 120
+
 // maxUserAgent is how much of a client's user agent is kept and logged.
 const maxUserAgent = 128
 
@@ -3390,7 +3405,7 @@ const maxUserAgent = 128
 // disconnected. ckpool disconnects at the first ("Invalid JSON, disconnecting").
 const maxBadLines = 5
 
-// logLimit is a connection's log budget.
+// logLimit is a log budget: a connection's, or a port's for all its clients.
 type logLimit struct {
 	mu          sync.Mutex
 	windowStart time.Time
@@ -3398,14 +3413,17 @@ type logLimit struct {
 	suppressed  int64
 }
 
-// take reports whether a line may be written now, and how many were left out before it.
-func (l *logLimit) take(now time.Time) (bool, int64) {
+// take reports whether a line may be written now within budget lines a minute, and how many were
+// left out before it. carried is lines already left out by another budget (a connection's own):
+// they are counted here, and reported with this line or, if it is left out too, the next one.
+func (l *logLimit) take(now time.Time, budget int, carried int64) (bool, int64) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if now.Sub(l.windowStart) >= time.Minute {
 		l.windowStart, l.n = now, 0
 	}
-	if l.n >= clientLogBudget {
+	l.suppressed += carried
+	if l.n >= budget {
 		l.suppressed++
 		return false, 0
 	}
@@ -3415,9 +3433,29 @@ func (l *logLimit) take(now time.Time) (bool, int64) {
 	return true, skipped
 }
 
-// clientLog writes a line that a client's own message caused, within that connection's budget.
+// drain returns the count of lines left out and not yet reported, and clears it.
+func (l *logLimit) drain() int64 {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	n := l.suppressed
+	l.suppressed = 0
+	return n
+}
+
+// clientLog writes a line that a client's own message caused, within that connection's budget and
+// the port's (see limitedLog).
 func (s *Server) clientLog(client *Client, warn bool, msg string, fields ...zap.Field) {
-	ok, skipped := client.logs.take(time.Now())
+	ok, skipped := client.logs.take(time.Now(), clientLogBudget, 0)
+	if !ok {
+		return
+	}
+	s.limitedLog(warn, msg, skipped, fields...)
+}
+
+// limitedLog writes a line a client caused within the port's budget, serverLogBudget. carried is
+// lines the connection's own budget left out since its last line.
+func (s *Server) limitedLog(warn bool, msg string, carried int64, fields ...zap.Field) {
+	ok, skipped := s.logs.take(time.Now(), serverLogBudget, carried)
 	if !ok {
 		return
 	}

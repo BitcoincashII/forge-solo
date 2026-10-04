@@ -18,17 +18,35 @@ func TestLogLimit(t *testing.T) {
 	var l logLimit
 	now := time.Unix(1_000_000, 0)
 	for i := 0; i < clientLogBudget; i++ {
-		if ok, _ := l.take(now); !ok {
+		if ok, _ := l.take(now, clientLogBudget, 0); !ok {
 			t.Fatalf("LOG-BUDGET: line %d of %d refused", i+1, clientLogBudget)
 		}
 	}
 	for i := 0; i < 10; i++ {
-		if ok, _ := l.take(now.Add(time.Second)); ok {
+		if ok, _ := l.take(now.Add(time.Second), clientLogBudget, 0); ok {
 			t.Fatalf("LOG-BUDGET: line %d past the budget was allowed", clientLogBudget+i+1)
 		}
 	}
-	if ok, skipped := l.take(now.Add(61 * time.Second)); !ok || skipped != 10 {
+	if ok, skipped := l.take(now.Add(61*time.Second), clientLogBudget, 0); !ok || skipped != 10 {
 		t.Fatalf("LOG-SUPPRESSED-COUNT: after the minute got (%v, %d), want (true, 10)", ok, skipped)
+	}
+}
+
+// The port's budget counts what a connection's budget left out, and reports it with the next line
+// it writes, or, if it leaves that line out too, with the one after.
+func TestLogLimitCountsWhatAnotherBudgetLeftOut(t *testing.T) {
+	var l logLimit
+	now := time.Unix(1_000_000, 0)
+	for i := 0; i < serverLogBudget; i++ {
+		if ok, _ := l.take(now, serverLogBudget, 0); !ok {
+			t.Fatalf("LOG-SERVER-BUDGET: line %d of %d refused", i+1, serverLogBudget)
+		}
+	}
+	if ok, _ := l.take(now, serverLogBudget, 7); ok {
+		t.Fatal("LOG-SERVER-BUDGET: a line past the port's budget was allowed")
+	}
+	if ok, skipped := l.take(now.Add(61*time.Second), serverLogBudget, 2); !ok || skipped != 10 {
+		t.Fatalf("LOG-SERVER-COUNT: got (%v, %d), want (true, 10): 7 and 2 left out by a connection's budget, 1 by the port's", ok, skipped)
 	}
 }
 
