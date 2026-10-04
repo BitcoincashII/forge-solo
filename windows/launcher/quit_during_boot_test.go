@@ -185,6 +185,46 @@ func TestQuitWhileTheDatabaseStarts(t *testing.T) {
 	}
 }
 
+// Quit while pg_ctl starts the database again after its server crashed: postmaster.pid still names
+// the crashed server until the new one writes its own. The stop took the old number for another
+// program's, said "not this install's database", and left the new server running after the exit.
+func TestQuitWhileTheDatabaseStartsAfterACrash(t *testing.T) {
+	bootWorld(t, map[string]string{
+		"pgsql\\bin\\pg_ctl.exe":   `: > "$FS_PGCTL"; sleep 1; printf '4242\n' > "$FS_PIDFILE"; sleep 1; exit 0`,
+		"pgsql\\bin\\createdb.exe": "exit 0",
+		"pgsql\\bin\\psql.exe":     "exit 0",
+	})
+	t.Setenv("FS_PIDFILE", dpath("pgdata", "postmaster.pid"))
+	if err := os.WriteFile(dpath("pgdata", "postmaster.pid"), []byte("999\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pgctlRan := filepath.Join(t.TempDir(), "pg_ctl-ran")
+	t.Setenv("FS_PGCTL", pgctlRan)
+	installedPrograms = func() []runningProgram { return []runningProgram{{4242, "postgres.exe"}} }
+	signalled := make(chan int, 1)
+	signalPostgres = func(pid int, sig byte) error {
+		signalled <- pid
+		return os.Remove(dpath("pgdata", "postmaster.pid"))
+	}
+	pgPort = freePort(t)
+
+	booted := make(chan struct{})
+	go func() { boot(); close(booted) }()
+	if !waitFor(5*time.Second, func() bool { _, err := os.Stat(pgctlRan); return err == nil }) {
+		t.Fatal("setup: pg_ctl never started")
+	}
+	stopForExit()
+	<-booted
+	select {
+	case pid := <-signalled:
+		if pid != 4242 {
+			t.Errorf("QUIT-DURING-DB-RESTART: the stop signalled process %d, not the new server", pid)
+		}
+	default:
+		t.Errorf("QUIT-DURING-DB-RESTART: the stop did not stop the server being started; log:\n%s", launcherLog())
+	}
+}
+
 func portOf(url string) string {
 	_, p, _ := net.SplitHostPort(strings.TrimPrefix(url, "http://"))
 	return p

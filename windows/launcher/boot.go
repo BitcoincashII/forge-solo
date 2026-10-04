@@ -656,10 +656,13 @@ func postmasterPID() int {
 // its postmaster.pid to go, but without starting pg_ctl: once Windows is ending the session it
 // starts no new program (they fail with 0xC0000142), and the database was then killed instead.
 func stopDatabase() {
-	// A start still under way may not have written postmaster.pid yet: wait for it, or for the start
-	// to end.
+	// A start still under way may not have written postmaster.pid yet, or the file may still name
+	// the server before it, which crashed: wait for the new server, or for the start to end.
 	pid := postmasterPID()
-	for wait := time.Now(); pid == 0 && dbStarting.Load() && time.Since(wait) < 10*time.Second; pid = postmasterPID() {
+	for wait := time.Now(); dbStarting.Load() && time.Since(wait) < 10*time.Second; pid = postmasterPID() {
+		if pid != 0 && runs(installedPrograms(), pid, "postgres.exe") {
+			break
+		}
 		time.Sleep(50 * time.Millisecond)
 	}
 	if pid == 0 {
