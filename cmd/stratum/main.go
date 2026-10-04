@@ -602,6 +602,32 @@ func start1175PayoutProcessorOnce() {
 	payout1175Once.Do(func() { go run1175Processor() })
 }
 
+// setAux1175Node points the 1175 payout processor at the 1175 node the config names. Set once:
+// the processor reads it from then on.
+func setAux1175Node(cfg *viper.Viper) {
+	if aux1175NodeURL != "" {
+		return
+	}
+	aux1175NodeURL = fmt.Sprintf("http://%s:%d", cfg.GetString("mergemining.aux_node.host"), cfg.GetInt("mergemining.aux_node.port"))
+	aux1175User = cfg.GetString("mergemining.aux_node.user")
+	aux1175Pass = cfg.GetString("mergemining.aux_node.pass")
+}
+
+// start1175Ledger starts the 1175 payout processor when the install has a 1175 node and the
+// database is up. It judges the 1175 blocks already recorded and mines nothing, so it runs in
+// TIDES mode and without a 1175 address too: blocks found before a switch to TIDES, or before
+// the address was cleared, still mature, and an orphaned one is still marked. Forge Solo for
+// Linux has no 1175 node (mergemining.enabled is off) and starts nothing.
+func start1175Ledger(cfg *viper.Viper) {
+	if !cfg.GetBool("mergemining.enabled") {
+		return
+	}
+	setAux1175Node(cfg)
+	if stats.IsDBConnected() {
+		start1175PayoutProcessorOnce()
+	}
+}
+
 func start1175PayoutProcessor() {
 	ticker := time.NewTicker(120 * time.Second)
 	defer ticker.Stop()
@@ -1082,9 +1108,7 @@ func enableMergeMining1175(cfg *viper.Viper, auxPayout string) *mergemining.Clie
 	// so the node needs no wallet and this path never touches one.
 	merge1175Enabled = true
 	aux1175PayoutAddr = auxPayout
-	aux1175NodeURL = auxURL
-	aux1175User = auxUser
-	aux1175Pass = auxPass
+	setAux1175Node(cfg)
 	logger.Info("⛏️  Merge mining enabled", zap.String("aux_node", auxURL), zap.String("payout", auxPayout))
 	return ac
 }
@@ -1179,8 +1203,10 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 			// The payout processor is started from main() only when the DB was up at boot.
 			// It owns solo block reconciliation (reconcilePendingSoloBlocks,
 			// reconcileOrphanHeights), so without this a block found after a late reconnect
-			// would sit pending forever and an orphaned one would never be voided.
+			// would sit pending forever and an orphaned one would never be voided. The same
+			// for 1175 blocks.
 			startPayoutProcessorOnce()
+			start1175Ledger(cfg)
 		}
 		pool, p1175, tag, err := stats.GetPoolConfig()
 		if err != nil {
@@ -1629,10 +1655,8 @@ func main() {
 
 	go watchPoolConfig(jobManager, config)
 
-	// 1175 merge-mining payout processor (pays miners their accrued 1175).
-	if merge1175Enabled && stats.IsDBConnected() {
-		start1175PayoutProcessorOnce()
-	}
+	// 1175 payout processor: confirms, orphans and settles the 1175 blocks recorded.
+	start1175Ledger(config)
 
 	logger.Info("✅ Stratum server running", zap.Int("port", serverConfig.Port))
 
