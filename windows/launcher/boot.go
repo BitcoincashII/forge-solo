@@ -260,9 +260,12 @@ func dbEnv() []string {
 	}
 }
 
+// startNodes starts both nodes. One that cannot start is tried again in the background, and boot
+// goes on: the miner waits for the BCH2 node.
 func startNodes() {
-	_ = startBCH2()
-	_ = startAux()
+	if bch2, aux := startOrKeepTrying("bch2"), startOrKeepTrying("aux1175"); bch2 && aux {
+		logf("nodes started")
+	}
 }
 
 func startBCH2() error { return startNode("bch2") }
@@ -317,26 +320,33 @@ func startAPI() error {
 // restarting is set while Restart Mining runs: a second click meanwhile does nothing.
 var restarting atomic.Bool
 
+// minerDue is set once boot comes to start the miner, after the nodes' RPC.
+var minerDue atomic.Bool
+
+// minerStart is boot's start of the miner while it runs (the tests wait for it).
+var minerStart sync.WaitGroup
+
+// restartMiner is Restart Mining: the miner is stopped cleanly and started again, or, when it is not
+// running (its program could not start), started at once. Before boot comes to the miner it does
+// nothing: the miner would wait on a node still starting.
 func restartMiner() {
 	if !restarting.CompareAndSwap(false, true) {
 		return
 	}
 	defer restarting.Store(false)
-	// Until boot has started the miner (or when it could not), there is none to restart, and
-	// starting one here would leave two.
-	if !started("stratum") {
+	if started("stratum") {
+		logf("restarting the miner")
+		status("Forge Solo: restarting the miner…")
+		stopGracefully("stratum", stratumStopGrace)
+		time.Sleep(2 * time.Second)
+	} else if minerDue.Load() {
+		logf("starting the miner, which is not running")
+	} else {
 		return
 	}
-	logf("restarting the miner")
-	status("Forge Solo: restarting the miner…")
-	stopGracefully("stratum", stratumStopGrace)
-	time.Sleep(2 * time.Second)
-	if err := startStratum(); err != nil {
-		logf("the miner did not start again: %v", err)
-		status("Forge Solo: the miner did not start again (see launcher.log)")
-		return
+	if startOrKeepTrying("stratum") {
+		showRunning()
 	}
-	status("Forge Solo: running")
 }
 
 // boot starts everything. Quit may come at any point of it: from then on nothing more starts, and
@@ -369,36 +379,34 @@ func boot() {
 	if isStopping() {
 		return
 	}
-	logf("nodes started")
 
 	// The API + dashboard don't need the node's RPC to start (handlers call it lazily and
 	// report "offline"/"syncing" on their own), so bring them up right away. The browser
 	// opens in seconds and the dashboard's status banner shows live sync progress, instead
-	// of the whole UI waiting on the nodes first.
-	if startAPI() != nil {
-		return
+	// of the whole UI waiting on the nodes first. An API that cannot start is tried again in
+	// the background, and the dashboard and the miner start all the same.
+	if startOrKeepTrying("api") {
+		waitTCP("127.0.0.1:"+apiPort, 60*time.Second)
 	}
-	waitTCP("127.0.0.1:"+apiPort, 60*time.Second)
 	if isStopping() {
 		return
 	}
 	openDashboard()
 
 	// Start the miner once the node RPC is answering (stratum needs block templates).
+	minerStart.Add(1)
 	go func() {
+		defer minerStart.Done()
 		waitTCP("127.0.0.1:"+bch2RPC, 600*time.Second)
 		waitTCP("127.0.0.1:"+aux1175RPC, 120*time.Second) // best-effort (merge-mining)
-		if err := startStratum(); err != nil {
-			if !isStopping() {
-				logf("the miner did not start: %v", err)
-				status("Forge Solo: the miner did not start (see launcher.log)")
-			}
+		if isStopping() {
 			return
 		}
-		logf("miner started")
-		if dashboardOpen.Load() {
-			status("Forge Solo: running")
+		minerDue.Store(true)
+		if startOrKeepTrying("stratum") {
+			logf("miner started")
 		}
+		showRunning()
 	}()
 }
 
@@ -421,7 +429,9 @@ func openDashboard() {
 	dashboard = l
 	dashboardOpen.Store(true)
 	go serveDashboard(l)
-	status("Forge Solo: set your payout address in the dashboard")
+	if !showTrouble() {
+		status("Forge Solo: set your payout address in the dashboard")
+	}
 	openBrowser("http://127.0.0.1:" + webPort)
 }
 

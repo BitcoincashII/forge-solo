@@ -88,6 +88,10 @@ var (
 //lint:ignore ST1005 it starts with the product's name
 var errStopping = errors.New("Forge Solo is stopping")
 
+// errStarted refuses a start of a program already running under the same key: two starts at once
+// (a start tried again, and Restart Mining) would leave two, one of them no longer tracked.
+var errStarted = errors.New("already running")
+
 type secrets struct {
 	BCH2Pass, AuxPass, DBPass, Token, Settings string
 }
@@ -141,8 +145,8 @@ func restrictDataDir(dir string) {
 func run(key string, c *exec.Cmd) error { return runPiped(key, c, nil) }
 
 // runPiped starts c and tracks it under key, with stdin, if any, the write end of its stdin pipe,
-// which a clean stop closes. It refuses once the stop has begun. The check, the start and the
-// tracking are one step under mu, so the stop finds every program that started.
+// which a clean stop closes. It refuses once the stop has begun, or while key runs. The check, the
+// start and the tracking are one step under mu, so the stop finds every program that started.
 func runPiped(key string, c *exec.Cmd, stdin io.WriteCloser) error {
 	mu.Lock()
 	defer mu.Unlock()
@@ -150,10 +154,17 @@ func runPiped(key string, c *exec.Cmd, stdin io.WriteCloser) error {
 		closeIfAny(stdin)
 		return errStopping
 	}
+	if procs[key] != nil {
+		closeIfAny(stdin)
+		return errStarted
+	}
 	if err := c.Start(); err != nil {
 		closeIfAny(stdin)
 		return err
 	}
+	troubleMu.Lock()
+	delete(trouble, key) // it runs: what the tray said about its start no longer holds
+	troubleMu.Unlock()
 	// One wait per process, for everything that waits on it.
 	done, since := make(chan struct{}), time.Now()
 	go func() {

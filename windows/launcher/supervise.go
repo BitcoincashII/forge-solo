@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"strings"
@@ -107,15 +109,164 @@ func exitedOnItsOwn(key string, c *exec.Cmd, st *os.ProcessState, since time.Tim
 		return
 	}
 	if err := start(); err != nil {
-		logf("%s did not start again: %v", what, err)
+		if !errors.Is(err, errStopping) && !errors.Is(err, errStarted) {
+			next := nextWait(wait)
+			couldNotStart(key, what, err, next)
+			keepStarting(key, what, start, next)
+		}
 		return
 	}
 	logf("%s started again", what)
-	time.AfterFunc(quick, func() {
-		if started(key) && dashboardOpen.Load() {
-			status("Forge Solo: running")
+	time.AfterFunc(quick, showRunning)
+}
+
+// trouble is what the tray says about a program that is not running as it should (one that could
+// not start), by its key. The tray does not say "running" while there is any.
+var (
+	troubleMu sync.Mutex
+	trouble   = map[string]string{}
+	retrying  = map[string]bool{} // the programs tried again in the background
+)
+
+// runningKeys are the programs that run once Forge Solo has started, in the order the tray names
+// one in trouble; the database comes first.
+var runningKeys = []string{"bch2", "aux1175", "api", "stratum"}
+
+// showTrouble shows the first trouble in the tray, if there is one, and reports whether there was.
+func showTrouble() bool {
+	troubleMu.Lock()
+	tip := ""
+	for _, k := range append([]string{"database"}, runningKeys...) {
+		if tip = trouble[k]; tip != "" {
+			break
 		}
-	})
+	}
+	troubleMu.Unlock()
+	if tip != "" {
+		status(tip)
+	}
+	return tip != ""
+}
+
+// showRunning says "running" in the tray once the dashboard is open and both nodes, the API and the
+// miner run; while one could not start, the tray says that instead. A program still being started
+// again leaves the tray as it is.
+func showRunning() {
+	if showTrouble() || !dashboardOpen.Load() {
+		return
+	}
+	for _, k := range runningKeys {
+		if !started(k) {
+			return
+		}
+	}
+	status("Forge Solo: running")
+}
+
+// startOrKeepTrying starts the program under key and reports whether it runs. One that cannot start
+// (an antivirus holding or removing its program, say) is logged and named in the tray, and tried
+// again in the background until it starts or the stop begins: nothing else on Windows would.
+func startOrKeepTrying(key string) bool {
+	start, what := supervisedProgram(key)
+	err := start()
+	if err == nil || errors.Is(err, errStarted) {
+		return true
+	}
+	if errors.Is(err, errStopping) {
+		return false
+	}
+	wait := nextWait(0)
+	couldNotStart(key, what, err, wait)
+	if supervising.Load() {
+		restartsUnderWay.Add(1)
+		go func() {
+			defer restartsUnderWay.Done()
+			keepStarting(key, what, start, wait)
+		}()
+	}
+	return false
+}
+
+// couldNotStart logs that the program under key could not start, and when it is tried again, and
+// names it in the tray with the reason.
+func couldNotStart(key, what string, err error, wait time.Duration) {
+	logf("%s could not start: %v; trying again in %v", what, err, wait)
+	tip := trimTip("Forge Solo: " + what + " could not start: " + startError(err))
+	troubleMu.Lock()
+	trouble[key] = tip
+	troubleMu.Unlock()
+	status(tip)
+}
+
+// keepStarting starts the program under key after wait, again after twice as long each time it
+// cannot, up to restartMaxWait, until it starts or the stop begins. One loop per program: another
+// start meanwhile (Restart Mining) ends it.
+func keepStarting(key, what string, start func() error, wait time.Duration) {
+	troubleMu.Lock()
+	if retrying[key] {
+		troubleMu.Unlock()
+		return
+	}
+	retrying[key] = true
+	troubleMu.Unlock()
+	defer func() {
+		troubleMu.Lock()
+		delete(retrying, key)
+		troubleMu.Unlock()
+	}()
+	for {
+		if pause(wait) {
+			return
+		}
+		err := start()
+		switch {
+		case err == nil || errors.Is(err, errStarted):
+			if err == nil {
+				logf("%s started", what)
+			}
+			showRunning()
+			return
+		case errors.Is(err, errStopping):
+			return
+		}
+		wait = nextWait(wait)
+		couldNotStart(key, what, err, wait)
+	}
+}
+
+// pause waits d, or less once the stop has begun, and reports whether it has.
+func pause(d time.Duration) bool {
+	for end := time.Now().Add(d); time.Now().Before(end); {
+		if isStopping() {
+			return true
+		}
+		time.Sleep(min(50*time.Millisecond, time.Until(end)))
+	}
+	return isStopping()
+}
+
+// nextWait is the wait after wait: restartFirstWait at first, then twice the one before, up to
+// restartMaxWait.
+func nextWait(wait time.Duration) time.Duration {
+	restartMu.Lock()
+	defer restartMu.Unlock()
+	if wait == 0 {
+		return restartFirstWait
+	}
+	return min(2*wait, restartMaxWait)
+}
+
+// startError is why a program could not start, without its path, which the tray has no room for.
+func startError(err error) string {
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		return pe.Err.Error()
+	}
+	var ee *exec.Error
+	if errors.As(err, &ee) {
+		return ee.Err.Error()
+	}
+	return err.Error()
 }
 
 // The node's own words for chain data it cannot use: after a power cut, a disk that filled up, or a

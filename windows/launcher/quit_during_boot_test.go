@@ -40,6 +40,7 @@ func bootWorld(t *testing.T, scripts map[string]string) {
 		stopShown = false
 		tipMu.Unlock()
 		dashboardOpen.Store(false)
+		resetStartState()
 		if dashboard != nil {
 			_ = dashboard.Close()
 			dashboard = nil
