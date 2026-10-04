@@ -22,8 +22,11 @@ import (
 )
 
 // standIn plays postgres for run: it writes down how it was started, says it is ready in
-// postmaster.pid as PostgreSQL does, and on SIGINT (PostgreSQL's fast shutdown) writes that down,
-// leaves the pg_control STANDIN_CONTROL_AFTER names, as a clean stop rewrites it, and ends.
+// postmaster.pid as PostgreSQL does (its pid, its start time, "ready"), and on SIGINT (PostgreSQL's
+// fast shutdown) writes that down, leaves the pg_control STANDIN_CONTROL_AFTER names, as a clean
+// stop rewrites it, and ends. With STANDIN_STALE_PID it first leaves, for a second, the
+// postmaster.pid a server killed an hour ago would have left with the same pid, and notes in its log
+// when it is ready itself.
 const standIn = `#!/bin/sh
 echo "pid $$" >> "$STANDIN_LOG"
 echo "argv $*" >> "$STANDIN_LOG"
@@ -34,8 +37,13 @@ for a in "$@"; do
 done
 trap 'echo SIGINT >> "$STANDIN_LOG"; if [ -n "$STANDIN_CONTROL_AFTER" ]; then cp "$STANDIN_CONTROL_AFTER" "$D/global/pg_control"; fi; rm -f "$D/postmaster.pid"; exit 0' INT
 trap 'echo SIGQUIT >> "$STANDIN_LOG"; rm -f "$D/postmaster.pid"; exit 1' QUIT
+if [ "$STANDIN_STALE_PID" = "1" ]; then
+  printf '%s\n%s\n%s\n5432\n/tmp\n\n0\nready   \n' "$$" "$D" "$(( $(date +%s) - 3600 ))" > "$D/postmaster.pid"
+  sleep 1
+  echo "really ready" >> "$STANDIN_LOG"
+fi
 if [ "$STANDIN_NEVER_READY" != "1" ]; then
-  printf '%s\n%s\n0\n5432\n/tmp\n\n0\nready   \n' "$$" "$D" > "$D/postmaster.pid"
+  printf '%s\n%s\n%s\n5432\n/tmp\n\n0\nready   \n' "$$" "$D" "$(date +%s)" > "$D/postmaster.pid"
 fi
 i=0
 while [ $i -lt 2400 ]; do sleep 0.05; i=$((i+1)); done
@@ -194,6 +202,19 @@ func TestRunInterrupted(t *testing.T) {
 	}
 	if after, _ := os.ReadFile(migstatus.Path(l.db)); string(after) != string(before) {
 		t.Errorf("MIG-RUN-SIGTERM-STATUS: an interrupted run changed the status to\n%s", after)
+	}
+}
+
+// A server killed half way leaves postmaster.pid with its pid and "ready", and in a new container
+// the next server can get the same pid. run waits for the file its own server writes, whose start
+// time is not older than that server, and only then reads the old data.
+func TestRunWaitsForItsOwnServer(t *testing.T) {
+	l := newLayout(t, "16", "pg_control-shutdown")
+	env, logFile := withStandIn(t, map[string]string{"FORGE_MIGRATE_TEST_SOURCE": "after-ready", "STANDIN_STALE_PID": "1"})
+	r := runCLI(t, env, runArgs(l)...)
+	if s := status(t, l.db); r.code != 0 || s.State != migstatus.Done {
+		t.Fatalf("MIG-RUN-STALE-PID: with the postmaster.pid of a killed server there, run exits %d with status %+v, want done: %s\nthe server's log:\n%s",
+			r.code, s, r.stderr, readLog(logFile))
 	}
 }
 

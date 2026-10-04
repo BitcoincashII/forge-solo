@@ -79,6 +79,15 @@ func testSource(dsn string) (pgmigrate.Source, error) {
 		return oldDatabase(3), nil
 	case "bigger":
 		return oldDatabase(6), nil
+	case "after-ready": // reachable only once the stand-in server says in its log it is ready itself
+		m := oldDatabase(3)
+		m.BeforeRead = func(ctx context.Context, table string) error {
+			if b, _ := os.ReadFile(os.Getenv("STANDIN_LOG")); !strings.Contains(string(b), "really ready") {
+				return errors.New("pq: the database system is not yet accepting connections (57P03)")
+			}
+			return nil
+		}
+		return m, nil
 	case "stall": // reads until it is interrupted, having said so in a file
 		m := oldDatabase(3)
 		m.BeforeRead = func(ctx context.Context, table string) error {

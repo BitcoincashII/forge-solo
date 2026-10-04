@@ -22,6 +22,7 @@ type Server struct {
 	dir     string // its socket and its hba file
 	pgdata  string
 	port    string
+	started time.Time // just before it was started
 	log     *tail
 	exited  chan struct{}
 	stop    sync.Once
@@ -91,6 +92,7 @@ func StartServer(ctx context.Context, pgdata string, logf func(string, ...any)) 
 		// PostgreSQL refuses to run as root; it runs as the owner of its data, as it always has.
 		s.cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: st.Uid, Gid: st.Gid}}
 	}
+	s.started = time.Now()
 	if err := s.cmd.Start(); err != nil {
 		os.RemoveAll(dir)
 		return nil, newErr(CodeSource, "the old data's server could not be started", err)
@@ -123,8 +125,13 @@ func StartServer(ctx context.Context, pgdata string, logf func(string, ...any)) 
 	}
 }
 
-// ready reads the server's postmaster.pid: the server's own pid on its first line and "ready" on
-// its eighth. It returns the port, which names the socket.
+// ready reads the server's postmaster.pid: the server's own pid on its first line, its start time on
+// the third, and "ready" on its eighth. It returns the port, which names the socket.
+//
+// The start time tells this server's file from one a killed server left, which still says "ready"
+// until the new server replaces it, and can name the same pid: in a new container the processes
+// get the same numbers again. Taken for this server's, it had the move connect while PostgreSQL
+// was still recovering, and fail. pg_ctl checks the start time for the same reason.
 func (s *Server) ready() (string, bool) {
 	b, err := os.ReadFile(filepath.Join(s.pgdata, "postmaster.pid"))
 	if err != nil {
@@ -132,6 +139,9 @@ func (s *Server) ready() (string, bool) {
 	}
 	lines := strings.Split(string(b), "\n")
 	if len(lines) < 8 || strings.TrimSpace(lines[0]) != strconv.Itoa(s.cmd.Process.Pid) || strings.TrimSpace(lines[7]) != "ready" {
+		return "", false
+	}
+	if at, err := strconv.ParseInt(strings.TrimSpace(lines[2]), 10, 64); err != nil || at < s.started.Unix() {
 		return "", false
 	}
 	return strings.TrimSpace(lines[3]), true
