@@ -523,37 +523,41 @@ func (s *Server) idleDifficultyLoop() {
 			return
 		case <-ticker.C:
 		}
-		now := time.Now()
-		s.clients.Range(func(_, v interface{}) bool {
-			c, ok := v.(*Client)
-			if !ok {
-				return true
-			}
-			c.mu.Lock()
-			// vardiffFloor is lock-free, so it is safe to call with c.mu held.
-			floor := s.vardiffFloor(c.RentalService != RentalNone)
-			prevDiff := c.Difficulty
-			connFor := now.Sub(c.ConnectedAt)
-			stuck := c.Authorized && c.ValidShares.Load() == 0 &&
-				prevDiff > floor && connFor > idleResetAfter
-			if stuck {
-				c.Difficulty = floor
-			}
-			minerID := c.MinerID
-			workerName := c.WorkerName
-			c.mu.Unlock()
-			if stuck {
-				s.rememberDifficulty(minerID, workerName, floor) // don't re-hand the too-high level next time
-				s.sendDifficulty(c, floor)
-				s.logger.Info("Idle difficulty reset",
-					zap.String("miner", minerID),
-					zap.Float64("from_diff", prevDiff),
-					zap.Float64("to_diff", floor),
-					zap.Duration("connected_for", connFor))
-			}
-			return true
-		})
+		s.resetIdleDifficulties(time.Now())
 	}
+}
+
+// resetIdleDifficulties is one round of idleDifficultyLoop, at time now.
+func (s *Server) resetIdleDifficulties(now time.Time) {
+	s.clients.Range(func(_, v interface{}) bool {
+		c, ok := v.(*Client)
+		if !ok {
+			return true
+		}
+		c.mu.Lock()
+		// vardiffFloor is lock-free, so it is safe to call with c.mu held.
+		floor := s.vardiffFloor(c.RentalService != RentalNone)
+		prevDiff := c.Difficulty
+		connFor := now.Sub(c.ConnectedAt)
+		stuck := c.Authorized && c.ValidShares.Load() == 0 &&
+			prevDiff > floor && connFor > idleResetAfter
+		if stuck {
+			c.Difficulty = floor
+		}
+		minerID := c.MinerID
+		workerName := c.WorkerName
+		c.mu.Unlock()
+		if stuck {
+			s.rememberDifficulty(minerID, workerName, floor) // don't re-hand the too-high level next time
+			s.sendCurrentDifficulty(c)
+			s.logger.Info("Idle difficulty reset",
+				zap.String("miner", minerID),
+				zap.Float64("from_diff", prevDiff),
+				zap.Float64("to_diff", floor),
+				zap.Duration("connected_for", connFor))
+		}
+		return true
+	})
 }
 
 // shareCleanupLoop periodically removes old share entries
@@ -1271,26 +1275,25 @@ func (s *Server) handleMessage(client *Client, data []byte) bool {
 			s.sendDifficulty(client, startDiff)
 		}
 	case MethodAuthorize:
-		resp := s.handleAuthorize(client, &req)
+		resp, auth := s.authorize(client, &req)
 		// Send auth response FIRST
 		s.sendResponse(client, resp)
 		// Then send difficulty and job
 		if resp.Result == true {
-			// Send difficulty once, then job
-			s.sendDifficulty(client, client.Difficulty)
+			s.sendCurrentDifficulty(client)
 			if job := s.currentJob.Load(); job != nil {
 				// Send initial job with clean=true so miner starts fresh
 				initialJob := *job.(*Job)
 				initialJob.CleanJobs = true
 				s.sendJob(client, &initialJob)
 				s.logger.Debug("Sent initial job after auth",
-					zap.String("miner", client.MinerID),
+					zap.String("miner", auth.minerID),
 					zap.String("job_id", initialJob.ID))
 			} else {
 				// Usual for a moment after a start: miners reconnect before the first job is made, and
 				// BroadcastJob sends it to them when it is.
 				s.logger.Info("No job yet for a miner that just logged in: it gets the first one when it is made",
-					zap.String("miner", client.MinerID))
+					zap.String("miner", auth.minerID))
 			}
 		}
 	case MethodConfigure:
@@ -1653,11 +1656,21 @@ func shortAddress(addr string) string {
 	return p[:8] + "…" + p[len(p)-6:]
 }
 
+// authorized is what an accepted mining.authorize set, read while the client's lock was held.
+type authorized struct {
+	minerID string
+}
+
 func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
+	resp, _ := s.authorize(client, req)
+	return resp
+}
+
+func (s *Server) authorize(client *Client, req *Request) (*Response, authorized) {
 	var params []string
 	// Debug log
 	if err := json.Unmarshal(req.Params, &params); err != nil || len(params) < 1 {
-		return &Response{ID: req.ID, Result: false, Error: ErrUnauthorized}
+		return &Response{ID: req.ID, Result: false, Error: ErrUnauthorized}, authorized{}
 	}
 
 	username := params[0]
@@ -1730,7 +1743,7 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 		s.logger.Warn("Rejected connection with invalid address",
 			zap.String("username", username),
 			zap.String("ip", client.IP))
-		return &Response{ID: req.ID, Result: false, Error: ErrUnauthorized}
+		return &Response{ID: req.ID, Result: false, Error: ErrUnauthorized}, authorized{}
 	}
 	// Every label is bounded, on every path above. Uncapped, a username of the payout address
 	// plus a 60 KB label reached the TIDES share queue, made a batch the pool refuses as too
@@ -1799,7 +1812,7 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 	if _, known := client.workerNames[nameKey]; !known {
 		if len(client.workerNames) >= maxWorkerNamesPerConnection {
 			client.mu.Unlock()
-			return &Response{ID: req.ID, Result: false, Error: ErrTooManyWorkers}
+			return &Response{ID: req.ID, Result: false, Error: ErrTooManyWorkers}, authorized{}
 		}
 		if client.workerNames == nil {
 			client.workerNames = make(map[string]struct{})
@@ -1904,6 +1917,7 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 		}
 		client.Difficulty = start
 	}
+	difficulty := client.Difficulty
 	client.mu.Unlock()
 
 	if soloMode {
@@ -1923,16 +1937,16 @@ func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
 			zap.String("worker", workerName),
 			zap.String("accounting", modeStr), // how this miner's shares are counted, not the payout mode
 			zap.String("rental_service", rental.String()),
-			zap.Float64("difficulty", client.Difficulty))
+			zap.Float64("difficulty", difficulty))
 	} else {
 		s.clientLog(client, false, "Miner authorized",
 			zap.String("miner", minerID),
 			zap.String("worker", workerName),
 			zap.String("accounting", modeStr), // how this miner's shares are counted, not the payout mode
-			zap.Float64("difficulty", client.Difficulty))
+			zap.Float64("difficulty", difficulty))
 	}
 
-	return &Response{ID: req.ID, Result: true}
+	return &Response{ID: req.ID, Result: true}, authorized{minerID: minerID}
 }
 
 // parsePasswordDiffHint extracts a fixed difficulty from the stratum password field.
@@ -2802,10 +2816,25 @@ func (s *Server) sendDifficulty(client *Client, diff float64) {
 	// DIFFERENT value leaves the pool and the miner permanently disagreeing about the
 	// target -- including swallowing the post-rejection back-off, whose whole purpose is to
 	// tell a struggling miner to work easier.
+	s.sendDifficultyAs(client, diff, false)
+}
+
+// sendCurrentDifficulty sends the client's difficulty as it stands when the message is queued. A
+// value read before that can be one the idle rescue or a broadcast has since replaced and sent, and
+// sending it afterwards leaves the miner on a difficulty the stratum no longer has for it.
+func (s *Server) sendCurrentDifficulty(client *Client) {
+	s.sendDifficultyAs(client, 0, true)
+}
+
+func (s *Server) sendDifficultyAs(client *Client, diff float64, current bool) {
 	client.sendMu.Lock()
 	defer client.sendMu.Unlock()
 	client.mu.Lock()
-	if client.LastDifficultySent == diff && time.Since(client.LastDifficultySentAt) < 500*time.Millisecond {
+	if current {
+		diff = client.Difficulty
+	}
+	if (current && diff <= 0) ||
+		(client.LastDifficultySent == diff && time.Since(client.LastDifficultySentAt) < 500*time.Millisecond) {
 		client.mu.Unlock()
 		return
 	}
