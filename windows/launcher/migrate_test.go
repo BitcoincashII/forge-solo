@@ -456,6 +456,41 @@ func TestAMoveWithoutTheBundledPostgreSQLSaysHowToGetIt(t *testing.T) {
 	})
 }
 
+// A start that needs nothing replaces what an earlier start recorded (a failed move, a damaged old
+// folder, a move done, a status file that cannot be read) with "none", as forge-solo-migrate run
+// does on Umbrel: the API leaves the maintenance page, the miner mines, and no banner stays for good.
+func TestAStartThatNeedsNothingClearsAnEarlierStatus(t *testing.T) {
+	for _, c := range []struct {
+		name, earlier string
+		moved         bool // a checked move; otherwise the old data was deleted
+	}{
+		{name: "failed", earlier: `{"state": "failed", "code": 10, "reason": "the old database did not start", "detail": "", "at": "2026-10-04T01:02:03Z", "version": "1.0.13"}`},
+		{name: "degraded", earlier: `{"state": "degraded", "code": 0, "reason": "the old database's pg_control is missing", "detail": "", "at": "2026-10-04T01:02:03Z", "version": "1.0.13"}`},
+		{name: "done", moved: true, earlier: `{"state": "done", "code": 0, "reason": "the data of the earlier version is in forgesolo.db", "detail": "", "at": "2026-10-04T01:02:03Z", "version": "1.0.13"}`},
+		{name: "unreadable", earlier: `{"state": "fail`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			calls, tp := moveWorld(t, "move")
+			if c.moved {
+				moved(t, "pg_control-shutdown")
+			} else if err := os.RemoveAll(dpath("pgdata")); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, statusPath(), c.earlier+"\n", 0o600)
+			bootAll(t)
+			if s, ok, err := readStatus(); !ok || err != nil || s.State != stateNone {
+				t.Errorf("MOVE-STALE-STATUS-CLEARED: after an earlier %s, a start that needs nothing leaves %+v (%v, %v)", c.name, s, ok, err)
+			}
+			if got := callsIn(calls); count(got, "migrate plan")+count(got, "pg_ctl") != 0 {
+				t.Errorf("MOVE-STALE-STATUS-NOTHING-RUN: %v", got)
+			}
+			if tp.has(moveFailedTip) || !waitFor(5*time.Second, func() bool { return tp.last() == "Forge Solo: running" }) {
+				t.Errorf("MOVE-STALE-STATUS-TRAY: the tray said %q", tp.all())
+			}
+		})
+	}
+}
+
 // A commit that reports success while the files say otherwise (no marker that matches the old
 // data, so the next start would merge): nothing that a move may still need is removed.
 func TestAMoveNotCheckedKeepsPostgreSQL(t *testing.T) {

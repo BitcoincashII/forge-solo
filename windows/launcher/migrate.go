@@ -89,7 +89,9 @@ func prepareDatabase() {
 	}
 	switch action {
 	case planNone:
-		if _, there, _ := readStatus(); there {
+		// What an earlier start recorded (a failed move, say) no longer holds, readable or not. A
+		// fresh install gets no status file, as on Linux.
+		if there, _ := fileThere(statusPath()); there {
 			recordStatus(migrationStatus{State: stateNone, Reason: "there is nothing to move"})
 		}
 		if verified {
