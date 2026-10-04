@@ -1,7 +1,7 @@
 package main
 
 import (
-	"encoding/binary"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,28 +49,12 @@ func installedProgramsOS() []runningProgram {
 	return out
 }
 
-// loopbackPortsOS lists the ports pid listens on at 127.0.0.1, from the IPv4 TCP listener table
-// (GetExtendedTcpTable, TCP_TABLE_OWNER_PID_LISTENER). Each row is six DWORDs: state, local
-// address (in_addr), local port (network byte order in the low 16 bits), remote address, remote
-// port, owning process id.
+// loopbackPortsOS lists the ports pid listens on at 127.0.0.1, from the IPv4 TCP listener table.
 func loopbackPortsOS(pid int) []int {
-	const afInet, ownerPIDListener = 2, 3
-	var size uint32
-	pGetExtendedTcpTable.Call(0, uintptr(unsafe.Pointer(&size)), 0, afInet, ownerPIDListener, 0)
-	if size == 0 {
-		return nil
-	}
-	buf := make([]byte, size+4096) // room for listeners opened meanwhile
-	size = uint32(len(buf))
-	if r, _, _ := pGetExtendedTcpTable.Call(uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&size)), 0, afInet, ownerPIDListener, 0); r != 0 {
-		return nil
-	}
 	var ports []int
-	n := binary.LittleEndian.Uint32(buf)
-	for i := uint32(0); i < n && 4+(i+1)*24 <= uint32(len(buf)); i++ {
-		row := buf[4+i*24 : 4+(i+1)*24]
-		if int(binary.LittleEndian.Uint32(row[20:24])) == pid && row[4] == 127 && row[5] == 0 && row[6] == 0 && row[7] == 1 {
-			ports = append(ports, int(row[8])<<8|int(row[9]))
+	for _, l := range parseTCPTable(tcpTable(afInet), false) {
+		if l.pid == pid && l.ip.Equal(net.IPv4(127, 0, 0, 1)) {
+			ports = append(ports, l.port)
 		}
 	}
 	return ports
