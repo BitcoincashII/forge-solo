@@ -52,8 +52,9 @@ Options:
   --web HOST:PORT   dashboard address (default 127.0.0.1:3080). Anything but 127.0.0.1 asks for a
                     password: user forge, DASHBOARD_PASSWORD from secrets.env in the data directory.
                     Saving a change in Settings asks for that password wherever the dashboard listens.
-  --reindex         rebuild the node's chain state from the blocks on disk, at this start only: for
-                    a node that stops with "Corrupted block database detected"
+  --reindex         rebuild the node's chain state from the blocks on disk, at this start only.
+                    Forge Solo does this by itself, once a run, when the node stops with "Error
+                    opening block database" or "Corrupted block database detected"
 
 Miners connect to port 3333 (NiceHash and MiningRigRentals: 3335); BCH2 peers to 8339.
 `
@@ -293,11 +294,14 @@ const rootWarning = "Warning: Forge Solo is running as root. It needs no root, a
 
 // nodeChild is the BCH2 node. With reindex its first start rebuilds the chain state from the
 // blocks on disk; a later start in the same run must not begin that again, and need not: the
-// node itself carries on with a rebuild that was cut short.
+// node itself carries on with a rebuild that was cut short. A node that stops saying its chain data
+// is damaged is started once with -reindex, unless this run has already started it so.
 func nodeChild(inst, dataDir, logDir string, reindex bool) *child {
+	chain, out := filepath.Join(dataDir, "bch2"), filepath.Join(logDir, "node.log")
 	c := &child{name: "node", path: filepath.Join(inst, "bin", "bitcoincashIId"), dir: dataDir, grace: nodeGrace,
-		args: []string{"-datadir=" + filepath.Join(dataDir, "bch2"), "-conf=" + filepath.Join(dataDir, "bch2", "bch2.conf")},
-		env:  os.Environ(), log: newRotatingLog(filepath.Join(logDir, "node.log"), logMax)}
+		args: []string{"-datadir=" + chain, "-conf=" + filepath.Join(chain, "bch2.conf")},
+		env:  os.Environ(), log: newRotatingLog(out, logMax),
+		rebuild: &rebuild{chainDir: chain, logs: []string{filepath.Join(chain, "debug.log"), out}, done: reindex}}
 	if reindex {
 		c.onceArgs = []string{"-reindex"}
 	}

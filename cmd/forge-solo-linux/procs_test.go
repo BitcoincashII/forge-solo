@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -170,6 +171,145 @@ func TestRotatingLogRotatesAndTails(t *testing.T) {
 	tail := l.Tail(2)
 	if len(tail) != 2 || tail[1] != "line xxxxxd" {
 		t.Fatalf("tail %q", tail)
+	}
+}
+
+// The node's words for a damaged chainstate, as a power cut left one (LevelDB's MANIFEST
+// overwritten).
+const openFailed = "Fatal LevelDB error: Corruption: no meta-nextfile entry in descriptor\n" +
+	"Error opening block database. Please restart with -reindex or -reindex-chainstate to recover.\n" +
+	"Aborted block database rebuild. Exiting."
+
+// Parts of a stand-in node: each start's arguments go to starts; started with -reindex, it stays
+// up; it says its chain data is damaged.
+const (
+	recordStart = `echo "start:$*" >> starts`
+	upOnReindex = `case "$*" in *-reindex*) echo up > up; while :; do sleep 0.05; done ;; esac`
+	saysOpen    = `printf '%s\n' '` + openFailed + `' >> debug.log`
+)
+
+// nodeStandIn is a node run by script (sh), its debug.log in its directory, restarted quickly.
+// done: this run has already started it with -reindex.
+func nodeStandIn(t *testing.T, script string, done bool) (c *child, dir string, out *syncBuffer) {
+	t.Helper()
+	old := restartFirstDelay
+	restartFirstDelay = 50 * time.Millisecond
+	t.Cleanup(func() { restartFirstDelay = old })
+	out = captureLog(t)
+	c, dir = shChild(t, script, time.Second)
+	c.name = "node"
+	c.args = append(c.args, "sh") // $0 for sh -c; what follows is $*
+	c.rebuild = &rebuild{chainDir: filepath.Join(dir, "chain"), logs: []string{filepath.Join(dir, "debug.log"), c.log.path}, done: done}
+	t.Cleanup(c.Stop)
+	return c, dir, out
+}
+
+func readStarts(t *testing.T, dir string) []string {
+	t.Helper()
+	b, _ := os.ReadFile(filepath.Join(dir, "starts"))
+	return strings.Split(strings.TrimSpace(string(b)), "\n")
+}
+
+// A node that stops saying its chain data is damaged is started once with -reindex, which
+// rebuilds it, as on Windows. It used to be started again as it was, and stop again, forever.
+func TestDamagedChainIsRebuiltOnce(t *testing.T) {
+	for name, body := range map[string]string{
+		"open-failed": saysOpen,
+		"corrupted":   `echo 'Corrupted block database detected.' >> debug.log`,
+		"output-only": `printf '%s\n' '` + openFailed + `' >&2`,
+		// The node says it last: what it wrote before does not hide it.
+		"long-log": `head -c 1500000 /dev/zero | tr '\0' x >> debug.log; echo >> debug.log; echo 'Please restart with -reindex' >> debug.log`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			c, dir, out := nodeStandIn(t, recordStart+"\n"+upOnReindex+"\n"+body+"\nexit 1", false)
+			if err := c.Start(); err != nil {
+				t.Fatal(err)
+			}
+			if !waitFor(t, 10*time.Second, func() bool { _, err := os.Stat(filepath.Join(dir, "up")); return err == nil }) {
+				t.Fatalf("REBUILD-REINDEX: the node was not started with -reindex: starts %q\n%s", readStarts(t, dir), out)
+			}
+			if got := readStarts(t, dir); !reflect.DeepEqual(got, []string{"start:", "start:-reindex"}) {
+				t.Errorf("REBUILD-STARTS: starts %q, want a plain start, then one with -reindex", got)
+			}
+			if !strings.Contains(out.String(), "node says its chain data is damaged: starting it once with -reindex") {
+				t.Errorf("REBUILD-LOGGED: the rebuild was not logged:\n%s", out)
+			}
+		})
+	}
+}
+
+// One rebuild in a run: if the node still says so after it, it is started as usual and the log says
+// which folders to delete. A run started with --reindex has had its rebuild.
+func TestDamagedChainIsRebuiltOnlyOnce(t *testing.T) {
+	for _, done := range []bool{false, true} {
+		c, dir, out := nodeStandIn(t, recordStart+"\n"+saysOpen+"\nexit 1", done)
+		if err := c.Start(); err != nil {
+			t.Fatal(err)
+		}
+		if !waitFor(t, 15*time.Second, func() bool { return len(readStarts(t, dir)) >= 5 }) {
+			t.Fatalf("REBUILD-RESTART: not restarted: %q", readStarts(t, dir))
+		}
+		c.Stop()
+		reindexed := 0
+		for _, s := range readStarts(t, dir) {
+			if strings.Contains(s, "-reindex") {
+				reindexed++
+			}
+		}
+		want := 1
+		if done {
+			want = 0
+		}
+		if reindexed != want {
+			t.Errorf("REBUILD-ONCE: rebuilt before (--reindex) %v: %d starts with -reindex in %q, want %d", done, reindexed, readStarts(t, dir), want)
+		}
+		if s := out.String(); !strings.Contains(s, "still finds its chain data damaged") || !strings.Contains(s, filepath.Join(dir, "chain")) {
+			t.Errorf("REBUILD-STILL: rebuilt before %v: the log does not say which folders to delete:\n%s", done, s)
+		}
+	}
+}
+
+// Only what the node writes after its start counts: words from an earlier run, or another reason
+// to stop, do not rebuild the chain.
+func TestOtherNodeExitsAreNotRebuilt(t *testing.T) {
+	for name, tc := range map[string]struct{ before, body string }{
+		"old-lines": {before: openFailed + "\n", body: "echo 'Shutdown: done' >> debug.log"},
+		"unrelated": {body: "echo 'Error: Unable to bind to 0.0.0.0:8339 on this computer.' >> debug.log"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c, dir, out := nodeStandIn(t, recordStart+"\n"+upOnReindex+"\n"+tc.body+"\nexit 1", false)
+			if err := os.WriteFile(filepath.Join(dir, "debug.log"), []byte(tc.before), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := c.Start(); err != nil {
+				t.Fatal(err)
+			}
+			rebuilding := func() bool { _, err := os.Stat(filepath.Join(dir, "up")); return err == nil }
+			if !waitFor(t, 10*time.Second, func() bool { return rebuilding() || len(readStarts(t, dir)) >= 4 }) {
+				t.Fatalf("REBUILD-RESTART: not restarted: %q", readStarts(t, dir))
+			}
+			c.Stop()
+			for _, s := range readStarts(t, dir) {
+				if s != "start:" {
+					t.Errorf("REBUILD-UNASKED: starts %q: the node was rebuilt\n%s", readStarts(t, dir), out)
+					break
+				}
+			}
+		})
+	}
+}
+
+// A log that is shorter than at the start was trimmed or rotated: all of it is new.
+func TestSaysDamagedReadsATrimmedLogWhole(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "debug.log")
+	if err := os.WriteFile(p, []byte(openFailed), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !saysDamaged(p, 1<<30) {
+		t.Error("REBUILD-TRIMMED: a log trimmed since the start was not read")
+	}
+	if saysDamaged(p, int64(len(openFailed))) {
+		t.Error("REBUILD-PAST-END: words written before the start were counted")
 	}
 }
 

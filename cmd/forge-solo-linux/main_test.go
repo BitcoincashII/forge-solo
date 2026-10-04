@@ -153,6 +153,17 @@ func TestNodeChildReindex(t *testing.T) {
 	if n := nodeChild("/opt/forge-solo", "/data", "/data/logs", false); len(n.onceArgs) != 0 {
 		t.Errorf("REINDEX-UNASKED: a run without --reindex gave the node %q", n.onceArgs)
 	}
+
+	// A node that says its chain data is damaged, in its debug.log or its output, is rebuilt once;
+	// a run started with --reindex has had its rebuild.
+	r := nodeChild("/opt/forge-solo", "/data", "/data/logs", false).rebuild
+	if r == nil || r.chainDir != "/data/bch2" || r.done ||
+		!reflect.DeepEqual(r.logs, []string{"/data/bch2/debug.log", "/data/logs/node.log"}) {
+		t.Errorf("REBUILD-WIRING: the node's rebuild is %+v", r)
+	}
+	if r := nodeChild("/opt/forge-solo", "/data", "/data/logs", true).rebuild; r == nil || !r.done {
+		t.Errorf("REBUILD-WIRING-REINDEX: a run with --reindex: %+v", r)
+	}
 }
 
 // A required public port another program holds is named before anything starts.

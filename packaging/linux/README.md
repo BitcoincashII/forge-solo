@@ -176,12 +176,13 @@ In the data directory:
   connect until you stop that program and restart Forge Solo.
 - **"another Forge Solo is already running with the data directory …"**: another copy is running with the
   same data, perhaps the service. Stop that one first.
-- **"Corrupted block database detected"** in the node's log, after a power cut or a full disk:
-  stop Forge Solo and start it once with `./forge-solo run --reindex`. The node rebuilds its chain
-  state from the blocks on disk; the dashboard shows it as syncing until it is done. For the
-  service: `sudo systemctl stop forge-solo`, then
-  `sudo -u forge-solo /opt/forge-solo/forge-solo run --data-dir /var/lib/forge-solo --reindex`;
-  once the dashboard shows it synced, stop it (Ctrl-C) and `sudo systemctl start forge-solo`.
+- **"Error opening block database"** or **"Corrupted block database detected"** in the node's
+  log, after a power cut or a full disk: Forge Solo starts the node once with `-reindex`, which
+  rebuilds its chain state from the blocks on disk, and says so in its log; the dashboard shows it
+  as syncing until it is done. If the node still stops with it after that, stop Forge Solo (the
+  service: `sudo systemctl stop forge-solo`), delete `bch2/blocks` and `bch2/chainstate` in the
+  data directory, and start it again: the node downloads the chain again. To rebuild by hand:
+  `./forge-solo run --reindex`.
 - **The service's node stops at every start with "could not be read" or "Permission denied"**:
   an earlier Forge Solo was run as root on the service's data directory and left root's files
   there. `sudo /opt/forge-solo/forge-solo install-service` gives them back to the service.
