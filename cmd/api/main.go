@@ -2231,15 +2231,20 @@ func getMinerPayouts(c *fiber.Ctx) error {
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil || data == nil {
 		return c.JSON(fiber.Map{
 			"address":   address,
-			"payouts":   nil,
+			"payouts":   []interface{}{},
 			"total":     0,
 			"totalPaid": 0,
 		})
 	}
+	// A list, also when the stratum has none (it said null).
+	payouts := data["payouts"]
+	if payouts == nil {
+		payouts = []interface{}{}
+	}
 
 	return c.JSON(fiber.Map{
 		"address":   address,
-		"payouts":   data["payouts"],
+		"payouts":   payouts,
 		"total":     data["total"],
 		"totalPaid": data["totalPaid"],
 	})

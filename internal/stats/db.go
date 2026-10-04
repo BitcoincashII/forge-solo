@@ -1004,33 +1004,39 @@ func LoadAllMinerSettings() map[string]*MinerSettings {
 	return result
 }
 
-// GetMinerPayoutsDB returns payout history from database
+// GetMinerPayoutsDB returns a miner's payouts grouped by txid, newest first, how many groups there
+// are, and what the paid ones come to. A group is paid unless a row in it was orphaned or its txid
+// is a reservation (pending_...). The SQLite build answers the same.
 func GetMinerPayoutsDB(minerID string) ([]PayoutRecord, int, float64) {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+
+	payouts := []PayoutRecord{}
 	if db == nil {
 		log.Printf("Warning: GetMinerPayoutsDB called but database not initialized")
-		return []PayoutRecord{}, 0, 0
+		return payouts, 0, 0
 	}
 
-	// Get unique payouts grouped by txid (include pending_ prefixed txids for in-progress payouts)
+	// status is read through MAX: the query groups by txid alone, and status read bare failed
+	// every call with 42803.
 	rows, err := db.Query(`
 		SELECT txid, SUM(amount) as amount, MAX(paid_at) as paid_at, COUNT(*) as blocks,
-		       CASE WHEN COALESCE(status,'') = 'orphaned' THEN false
+		       CASE WHEN MAX(CASE WHEN COALESCE(status,'') = 'orphaned' THEN 1 ELSE 0 END) = 1 THEN false
 		            WHEN txid LIKE 'pending_%' THEN false ELSE true END as is_confirmed
 		FROM payouts
 		WHERE miner_address = $1
 		  AND txid IS NOT NULL
 		  AND txid != ''
 		GROUP BY txid
-		ORDER BY MAX(paid_at) DESC
+		ORDER BY MAX(paid_at) DESC NULLS LAST, txid
 		LIMIT 100`,
 		minerID)
 	if err != nil {
 		log.Printf("Error getting payouts for %s: %v", minerID, err)
-		return []PayoutRecord{}, 0, 0
+		return payouts, 0, 0
 	}
 	defer rows.Close()
 
-	var payouts []PayoutRecord
 	var totalPaid float64
 
 	for rows.Next() {
@@ -1041,7 +1047,7 @@ func GetMinerPayoutsDB(minerID string) ([]PayoutRecord, int, float64) {
 			continue
 		}
 		if paidAt.Valid {
-			p.PaidAt = paidAt.Time
+			p.PaidAt = paidAt.Time.UTC() // as the SQLite build, whatever the server's time zone
 		}
 		// Only count confirmed payouts in totalPaid
 		if p.Confirmed {

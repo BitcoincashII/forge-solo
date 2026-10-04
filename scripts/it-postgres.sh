@@ -80,5 +80,6 @@ run_must_pass TestPostgresDashboardTotalsCoverEveryBlock ./internal/stats/ -run 
 run_must_pass TestPostgresFoundTimesAreKept ./internal/stats/ -run TestPostgresFoundTimesAreKept
 run_must_pass TestPostgresA1175BlockIsPutBack ./internal/stats/ -run TestPostgresA1175BlockIsPutBack
 run_must_pass TestPostgresSchemaIsCreatedOneProcessAtATime ./internal/stats/ -run TestPostgresSchemaIsCreatedOneProcessAtATime
+run_must_pass TestPostgresMinerPayoutsList ./internal/stats/ -run TestPostgresMinerPayoutsList
 
 echo "✓ postgres integration suite passed"

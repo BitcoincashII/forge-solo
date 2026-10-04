@@ -69,6 +69,16 @@ func sqliteNow() string {
 	return SQLiteTime(time.Now())
 }
 
+// parseSQLiteTime reads a stored time as the queries do: its first 19 characters, as UTC. ok is
+// false when they are not a time.
+func parseSQLiteTime(s string) (time.Time, bool) {
+	if len(s) < 19 {
+		return time.Time{}, false
+	}
+	t, err := time.ParseInLocation("2006-01-02 15:04:05", strings.Replace(s[:19], "T", " ", 1), time.UTC)
+	return t, err == nil
+}
+
 // fileExists reports whether a path is present. Used only to adopt a pre-rename database.
 func fileExists(p string) bool {
 	_, err := os.Stat(p)
@@ -696,47 +706,51 @@ func LoadAllMinerSettings() map[string]*MinerSettings {
 	return result
 }
 
-// GetMinerPayoutsDB returns payout history from database
+// GetMinerPayoutsDB returns a miner's payouts grouped by txid, newest first, how many groups there
+// are, and what the paid ones come to. A group is paid unless a row in it was orphaned or its txid
+// is a reservation (pending_...). The Postgres build answers the same.
 func GetMinerPayoutsDB(minerID string) ([]PayoutRecord, int, float64) {
 	dbMu.RLock()
 	defer dbMu.RUnlock()
 
+	payouts := []PayoutRecord{}
 	if db == nil {
-		return []PayoutRecord{}, 0, 0
+		return payouts, 0, 0
 	}
 
 	rows, err := db.Query(`
 		SELECT txid, SUM(amount) as amount, MAX(paid_at) as paid_at, COUNT(*) as blocks,
-		       CASE WHEN COALESCE(status,'') = 'orphaned' THEN 0
+		       CASE WHEN MAX(CASE WHEN COALESCE(status,'') = 'orphaned' THEN 1 ELSE 0 END) = 1 THEN 0
 		            WHEN txid LIKE 'pending_%' THEN 0 ELSE 1 END as is_confirmed
 		FROM payouts
 		WHERE miner_address = ?
 		  AND txid IS NOT NULL
 		  AND txid != ''
 		GROUP BY txid
-		ORDER BY MAX(paid_at) DESC
+		ORDER BY MAX(paid_at) DESC, txid
 		LIMIT 100`,
 		minerID)
 	if err != nil {
 		log.Printf("Warning: failed to query payouts: %v", err)
-		return []PayoutRecord{}, 0, 0
+		return payouts, 0, 0
 	}
 	defer rows.Close()
 
-	var payouts []PayoutRecord
 	var totalPaid float64
 
 	for rows.Next() {
 		var p PayoutRecord
-		var paidAt sql.NullTime
+		// MAX() drops the column's DATETIME type, so the driver returns the stored text, which a
+		// time.Time cannot be scanned from: every row failed to scan and the list was always empty.
+		var paidAt sql.NullString
 		var confirmed int
 		if err := rows.Scan(&p.TxID, &p.Amount, &paidAt, &p.Blocks, &confirmed); err != nil {
 			log.Printf("Warning: failed to scan payout: %v", err)
 			continue
 		}
 		p.Confirmed = confirmed == 1
-		if paidAt.Valid {
-			p.PaidAt = paidAt.Time
+		if t, ok := parseSQLiteTime(paidAt.String); paidAt.Valid && ok {
+			p.PaidAt = t
 		}
 		if p.Confirmed {
 			totalPaid += p.Amount
