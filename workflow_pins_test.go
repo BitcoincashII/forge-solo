@@ -256,7 +256,7 @@ func TestWindowsBuildRunsOnSQLite(t *testing.T) {
 
 	win := stepRun(t, loadWorkflow(t, ".github/workflows/test.yml"), "windows", "Vet and build the services for Windows")
 	for _, want := range []string{
-		"GOOS=windows GOARCH=amd64 go vet -tags sqlite ./...",
+		"GOOS=windows GOARCH=amd64 go vet -tags sqlite ./cmd/stratum ./cmd/api ./cmd/forge-solo-migrate ./internal/...",
 		"for c in stratum api forge-solo-migrate; do\n  CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags sqlite -o /dev/null ./cmd/$c\ndone",
 		"for p in internal/stats internal/dblock internal/pgmigrate; do\n  CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go test -c -tags sqlite -o /dev/null ./$p\ndone",
 	} {

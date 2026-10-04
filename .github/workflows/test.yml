@@ -219,10 +219,10 @@ jobs:
 
       # The services and forge-solo-migrate.exe as the release builds them for Windows, on SQLite.
       # The tests of the packages whose locking, renaming and paths differ on Windows are compiled
-      # for it too.
+      # for it too. cmd/forge-solo-linux is Linux's alone.
       - name: Vet and build the services for Windows
         run: |
-          GOOS=windows GOARCH=amd64 go vet -tags sqlite ./...
+          GOOS=windows GOARCH=amd64 go vet -tags sqlite ./cmd/stratum ./cmd/api ./cmd/forge-solo-migrate ./internal/...
           for c in stratum api forge-solo-migrate; do
             CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags sqlite -o /dev/null ./cmd/$c
           done
