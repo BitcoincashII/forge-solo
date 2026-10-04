@@ -90,6 +90,12 @@ func GetDBConnStr() string {
 	return GetDBPath()
 }
 
+// DatabaseFile is the database file this build opens. The record of the move from PostgreSQL
+// (internal/migstatus) is beside it.
+func DatabaseFile() string {
+	return GetDBPath()
+}
+
 // SQLiteDSN is how every Forge Solo program opens the SQLite database at path. The api and the
 // stratum share the file, so each connection:
 //   - waits up to 10 s for the other's write lock (busy_timeout) instead of failing at once;

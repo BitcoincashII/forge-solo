@@ -24,6 +24,7 @@ import (
 
 	"github.com/BitcoincashII/forge-solo/internal/blockbuild"
 	"github.com/BitcoincashII/forge-solo/internal/mergemining"
+	"github.com/BitcoincashII/forge-solo/internal/migstatus"
 	"github.com/BitcoincashII/forge-solo/internal/mining"
 	"github.com/BitcoincashII/forge-solo/internal/netlisten"
 	"github.com/BitcoincashII/forge-solo/internal/stats"
@@ -1448,6 +1449,12 @@ func main() {
 	defer logger.Sync()
 
 	logger.Info("🔥 Forge Solo - BCH2 Solo Miner")
+
+	// After a failed move of an earlier version's data, no mining until it is settled.
+	if st, blocked := migstatus.Blocked(stats.DatabaseFile()); blocked {
+		waitOutFailedMove(stats.DatabaseFile(), st)
+		return
+	}
 
 	// Initialize database with credentials from environment
 	dbConnStr := stats.GetDBConnStr()

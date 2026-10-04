@@ -23,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/BitcoincashII/forge-solo/internal/migstatus"
 	"github.com/BitcoincashII/forge-solo/internal/mining"
 	"github.com/BitcoincashII/forge-solo/internal/netlisten"
 	"github.com/BitcoincashII/forge-solo/internal/stats"
@@ -284,9 +285,16 @@ func main() {
 
 	zapLogger.Info("🔥 Forge Solo API Server")
 
-	// Initialize database connection for settings persistence
+	// Initialize database connection for settings persistence. Not when the move of an earlier
+	// version's data failed: maintenance mode (maintenance.go).
+	migrationDB = stats.DatabaseFile()
 	dbConnStr := stats.GetDBConnStr()
-	if err := stats.InitDBWithRetry(dbConnStr, 30, 2*time.Second); err != nil {
+	if st, blocked := migstatus.Blocked(migrationDB); blocked {
+		zapLogger.Warn("Maintenance mode: moving the data to the new database failed, so no database is opened (see the dashboard)",
+			zap.Int("code", st.Code), zap.String("reason", st.Reason))
+		maintenance = newMaintenance(migrationDB, st)
+		go maintenance.watch(statusPollEvery)
+	} else if err := stats.InitDBWithRetry(dbConnStr, 30, 2*time.Second); err != nil {
 		zapLogger.Warn("Database not available, settings will not persist", zap.Error(err))
 		// Keep trying. Without this the api runs with a nil handle for the life of the
 		// process: the dashboard reports "not configured" while the stratum mines
@@ -368,6 +376,11 @@ func main() {
 
 	app.Use(settingsPasswordGateFromEnv())
 
+	// In maintenance mode it answers every API request, after the two gates above.
+	if maintenance != nil {
+		app.Use(maintenance.gate)
+	}
+
 	// API routes FIRST
 	api := app.Group("/api/v1")
 	api.Get("/stats", getPoolStats)
@@ -394,6 +407,8 @@ func main() {
 	// TIDES mode: the pool's window and this install's payouts, read from Forge Pool.
 	api.Get("/tides", getTidesPool)
 	api.Get("/tides/me", getTidesMine)
+	// The data of the version before 1.0.13, while it was left out (maintenance.go).
+	api.Post("/old-data", saveOldDataChoice)
 
 	// Alias routes for miningpoolstats and other services that expect /api/stats
 	app.Get("/api/stats", getPoolStats)
@@ -577,9 +592,12 @@ pool_uptime_seconds %.0f
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	<-sigCh
-
-	zapLogger.Info("Shutting down...")
+	select {
+	case <-sigCh:
+		zapLogger.Info("Shutting down...")
+	case <-maintenance.done():
+		zapLogger.Info("The move of the old data is no longer failed: stopping, to be started again normally")
+	}
 	app.Shutdown()
 }
 
@@ -2343,11 +2361,16 @@ func healthCheck(c *fiber.Ctx) error {
 		status = "degraded"
 	}
 
-	return c.JSON(fiber.Map{
+	out := fiber.Map{
 		"status":          status,
 		"db_connected":    dbConnected,
 		"settings_loaded": settingsCount,
-	})
+	}
+	// The move of the earlier version's data, when the dashboard has to say something about it.
+	if m := migrationNote(migrationDB); m != nil {
+		out["migration"] = m
+	}
+	return c.JSON(out)
 }
 
 // getNodeStatus returns BCH2 node sync status

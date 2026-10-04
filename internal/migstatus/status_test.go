@@ -104,3 +104,36 @@ func TestReadRefusesWhatItDoesNotKnow(t *testing.T) {
 		t.Error("MIGSTATUS-BAD: an unknown state was written")
 	}
 }
+
+// Only a failed move keeps the api and the stratum off the database, and a status file that cannot
+// be read, which may hide one.
+func TestBlocked(t *testing.T) {
+	if _, blocked := Blocked(""); blocked {
+		t.Error("MIGSTATUS-BLOCKED-NODB: a build without a database file is blocked")
+	}
+	db := filepath.Join(t.TempDir(), "forgesolo.db")
+	if _, blocked := Blocked(db); blocked {
+		t.Error("MIGSTATUS-BLOCKED-ABSENT: no status file blocks the database")
+	}
+	for _, state := range []string{None, Done, Skipped, Deferred, Degraded, Failed} {
+		if err := Write(db, Status{State: state, Code: 20, Reason: "why"}); err != nil {
+			t.Fatal(err)
+		}
+		s, blocked := Blocked(db)
+		if blocked != (state == Failed) {
+			t.Errorf("MIGSTATUS-BLOCKED: a %s move blocks the database: %v", state, blocked)
+		}
+		if state == Failed && (s.Code != 20 || s.Reason != "why") {
+			t.Errorf("MIGSTATUS-BLOCKED-WHY: a failed move reads %+v", s)
+		}
+	}
+	if err := os.WriteFile(Path(db), []byte(`{"state": "done"`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if s, blocked := Blocked(db); !blocked || s.State != Failed || s.Reason != "migration-status.json cannot be read" || s.Detail == "" {
+		t.Errorf("MIGSTATUS-BLOCKED-GARBLED: a status file that cannot be read gives %+v, blocked %v", s, blocked)
+	}
+	if got := SkipPath(db); got != filepath.Join(filepath.Dir(db), "SKIP-POSTGRES-MIGRATION") {
+		t.Errorf("MIGSTATUS-SKIP: the skip file is %s", got)
+	}
+}

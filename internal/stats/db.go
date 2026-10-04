@@ -58,6 +58,12 @@ func GetDBConnStr() string {
 		host, port, user, password, dbname, sslmode, dbConnectTimeout)
 }
 
+// DatabaseFile is the database file this build opens: none, for PostgreSQL. So it has no record
+// of a move from PostgreSQL either (internal/migstatus).
+func DatabaseFile() string {
+	return ""
+}
+
 // dbConnectTimeout bounds connecting to Postgres, in seconds. lib/pq waits for the server's
 // answer with no limit unless connect_timeout sets one, so a database that took the connection
 // and then stalled held every caller -- the health check, the stratum's settings loop -- whatever

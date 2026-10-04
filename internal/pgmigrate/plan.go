@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/BitcoincashII/forge-solo/internal/migstatus"
 )
 
 // The files beside forgesolo.db that the move reads and writes.
@@ -18,12 +20,12 @@ const (
 	MarkerName = "postgres-migrated.json"
 	// SkipName is the user's choice to start without the old data: the dashboard's button writes
 	// it, and so can anyone by hand.
-	SkipName = "SKIP-POSTGRES-MIGRATION"
+	SkipName = migstatus.SkipName
 )
 
 // MarkerPath and SkipPath are those files beside the database at db.
 func MarkerPath(db string) string { return filepath.Join(filepath.Dir(db), MarkerName) }
-func SkipPath(db string) string   { return filepath.Join(filepath.Dir(db), SkipName) }
+func SkipPath(db string) string   { return migstatus.SkipPath(db) }
 
 // Marker is the content of postgres-migrated.json.
 type Marker struct {

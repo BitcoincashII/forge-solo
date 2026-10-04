@@ -1,7 +1,7 @@
 // Package migstatus is the record of the one-time move of an earlier version's PostgreSQL data into
 // forgesolo.db: migration-status.json, beside the database. forge-solo-migrate writes it, and so does
 // the Windows launcher when the migrator could not run; the api and the stratum read it when they
-// start. Linux never has one.
+// start, and again while a failed move keeps them waiting (Blocked). Linux never has one.
 //
 // The file is small JSON with fixed fields, so a program in another module (the Windows launcher)
 // can write the same bytes; testdata holds one file per state.
@@ -20,6 +20,13 @@ import (
 
 // FileName is the status file's name, beside the database.
 const FileName = "migration-status.json"
+
+// SkipName is the user's choice to start without the old data, beside the database: the
+// dashboard's button writes it, and so can anyone by hand. While it is there the move is skipped.
+const SkipName = "SKIP-POSTGRES-MIGRATION"
+
+// SkipPath is the skip file beside the database at db.
+func SkipPath(db string) string { return filepath.Join(filepath.Dir(db), SkipName) }
 
 // The states. None, Done or no file at all: normal. Skipped, Deferred and Degraded: normal, with a
 // note on the dashboard. Failed: the move was needed and did not happen, so the api serves the
@@ -98,6 +105,24 @@ func Read(db string) (s Status, ok bool, err error) {
 		return Status{}, false, fmt.Errorf("migration status %s: unknown state %q", Path(db), s.State)
 	}
 	return s, true, nil
+}
+
+// Blocked reports whether the api and the stratum must keep off the database at db: the move of
+// the earlier version's data was needed and failed, so a database opened now would start empty
+// in its place. A status file that cannot be read counts as failed, since it may hide a failure;
+// s then says so. db "" (a build without a database file) is never blocked.
+func Blocked(db string) (s Status, blocked bool) {
+	if db == "" {
+		return Status{}, false
+	}
+	s, ok, err := Read(db)
+	switch {
+	case err != nil:
+		return Status{State: Failed, Reason: FileName + " cannot be read", Detail: err.Error()}, true
+	case !ok:
+		return Status{}, false
+	}
+	return s, s.State == Failed
 }
 
 // WriteDurably puts data at path through a file beside it that is synced and then renamed over
