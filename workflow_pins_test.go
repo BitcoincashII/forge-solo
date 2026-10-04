@@ -393,6 +393,13 @@ func TestSQLiteSwitchIsGuardedInCI(t *testing.T) {
 		"CI-WIN-SNAPSHOT-MISSES":  `-File $snap -Before "$m\dashboard-snapshot.json" -After "$env:RUNNER_TEMP\payouts.json"`,
 		"CI-WIN-SNAPSHOT-ERROR":   "-File $snap -Before \"$m\\dashboard\\health.json\" -After \"$m\\dashboard-snapshot.json\"\nif ($LASTEXITCODE -ne 2)",
 		"CI-WIN-SNAPSHOT-FAILS":   "Set-TimeZone -Id UTC\nif ($failed) { exit 1 }\nexit 0",
+		// A zone that was not set would leave every run in the one before, passing there.
+		"CI-WIN-SNAPSHOT-ZONE-SET": "Set-TimeZone -Id $zone\n" +
+			`if ((Get-TimeZone).Id -ne $zone) { Write-Output "::error::the runner's zone is $((Get-TimeZone).Id), not $zone"; $failed = $true }`,
+		"CI-WIN-SNAPSHOT-ZONE-CHILD": "foreach ($ps in 'powershell', 'pwsh') {\n" +
+			"$seen = & $ps -NoProfile -Command '[TimeZoneInfo]::Local.Id'\n" +
+			`Write-Output "$ps started in $zone reads the zone as $seen"` + "\n" +
+			`if ("$seen" -ne $zone) { Write-Output "::error::$ps started in $zone reads the zone as $seen"; $failed = $true }`,
 		// Run from a prompt, the .ps1 runs in the session, whose location is not the process's
 		// directory: every relative path must be taken from the location.
 		"CI-WIN-SNAPSHOT-HERE-LOCATION": "Set-Location $here\n" +

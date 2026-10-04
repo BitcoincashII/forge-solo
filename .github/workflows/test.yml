@@ -340,6 +340,7 @@ jobs:
       # The Linux run checks that dashboard-snapshot.sh reads the same kept answers as the same files.
       # Here dashboard-snapshot.ps1 reads them under Windows PowerShell 5.1 and PowerShell 7, with the
       # runner in UTC and in two other zones: PowerShell 7 reads times as dates in the PC's own zone.
+      # The runner and each PowerShell started in a zone must read that zone.
       - name: The dashboard snapshot reads the same on Windows as on Linux, in any time zone
         shell: powershell
         run: |
@@ -358,7 +359,12 @@ jobs:
           [IO.File]::WriteAllText("$env:RUNNER_TEMP\payouts.json", $payouts, [Text.Encoding]::ASCII)
           foreach ($zone in 'UTC', 'Central Standard Time', 'Chatham Islands Standard Time') {
             Set-TimeZone -Id $zone
+            # If the zone was not set, the runs below would pass in the zone before.
+            if ((Get-TimeZone).Id -ne $zone) { Write-Output "::error::the runner's zone is $((Get-TimeZone).Id), not $zone"; $failed = $true }
             foreach ($ps in 'powershell', 'pwsh') {
+              $seen = & $ps -NoProfile -Command '[TimeZoneInfo]::Local.Id'
+              Write-Output "$ps started in $zone reads the zone as $seen"
+              if ("$seen" -ne $zone) { Write-Output "::error::$ps started in $zone reads the zone as $seen"; $failed = $true }
               foreach ($c in @('dashboard', 'dashboard-snapshot.json'), @('dashboard-zones', 'dashboard-snapshot.json'),
                   @('dashboard-1012', 'dashboard-1012-snapshot.json'), @('dashboard-times', 'dashboard-times-snapshot.json')) {
                 Remove-Item -Force -ErrorAction SilentlyContinue $got
