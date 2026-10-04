@@ -18,7 +18,7 @@ updates:
       - "/docker/api"
       - "/docker/stratum"
       - "/docker/web"
-      - "/docker/postgres"
+      - "/docker/migrate"
       - "/docker/node"
       - "/docker/node1175"
     schedule:

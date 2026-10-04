@@ -72,7 +72,8 @@ deterministicPassword: true
 # Umbrel's hourly backups skip the chains: they are copied live, file by file, so a restored copy
 # may need a reindex anyway, and both nodes download them again. They skip the nodes' debug.log
 # too: tens of megabytes of what the app's own logs already hold. Settings and the block history
-# (postgres) are kept.
+# are kept: db/ (forgesolo.db), and postgres/, the database of 1.0.12 and earlier, kept for going
+# back to it.
 backupIgnore:
   - node/blocks
   - node/chainstate

@@ -6,15 +6,17 @@
 # have installed the ORIGINAL images. Docker resolves name:tag@digest by DIGEST, so bumping the
 # tag alone ships the previous release under a new version number.
 #
-#   scripts/repin-release.sh <version> <node> <node1175> <api> <stratum> <web> <postgres>
+#   scripts/repin-release.sh <version> <node> <node1175> <api> <stratum> <web> <migrate>
 #
 # Digests are the sha256 values (with or without the "sha256:" prefix) CI published for <version>.
+# The migrate image is pinned twice: by the migrate service and by the postgres service that
+# stands in for the old database.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-[ $# -eq 7 ] || { echo "usage: $0 <version> <node> <node1175> <api> <stratum> <web> <postgres>" >&2; exit 2; }
+[ $# -eq 7 ] || { echo "usage: $0 <version> <node> <node1175> <api> <stratum> <web> <migrate>" >&2; exit 2; }
 VERSION="$1"; shift
-declare -A D=( [node]="$1" [node1175]="$2" [api]="$3" [stratum]="$4" [web]="$5" [postgres]="$6" )
+declare -A D=( [node]="$1" [node1175]="$2" [api]="$3" [stratum]="$4" [web]="$5" [migrate]="$6" )
 for k in "${!D[@]}"; do
   D[$k]="${D[$k]#sha256:}"
   [[ "${D[$k]}" =~ ^[0-9a-f]{64}$ ]] || { echo "digest for $k is not a sha256: ${D[$k]}" >&2; exit 1; }
@@ -27,7 +29,7 @@ if [ "$manifest_version" != "$VERSION" ]; then
   exit 1
 fi
 
-for k in node node1175 api stratum web postgres; do
+for k in node node1175 api stratum web migrate; do
   # name:ANYTAG@sha256:ANY  ->  name:VERSION@sha256:NEW   (keeps the rest of the line intact)
   sed -i -E "s#(ghcr\.io/bitcoincashii/forge-solo-${k}):[^@]+@sha256:[0-9a-f]{64}#\1:${VERSION}@sha256:${D[$k]}#" docker-compose.yml
   sed -i -E "s#(\"forge-solo-${k}\": *)\"[0-9a-f]{64}\"#\1\"${D[$k]}\"#" packaging_test.go

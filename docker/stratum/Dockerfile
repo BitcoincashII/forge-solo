@@ -5,7 +5,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/stratum ./cmd/stratum
+# The SQLite build: the database is the file DB_PATH names (forgesolo.db).
+RUN CGO_ENABLED=0 go build -tags sqlite -trimpath -ldflags="-s -w" -o /out/stratum ./cmd/stratum
 
 FROM debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates gettext-base netcat-openbsd \
@@ -15,9 +16,11 @@ COPY docker/stratum/config.template.yaml /etc/forge/config.template.yaml
 COPY docker/stratum/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 # Drop root. This service is the one published to the internet (3333 and 3335), and it needs
-# no privilege: the ports are above 1024 and the only thing it writes is the rendered config.
+# no privilege: the ports are above 1024 and it writes only the rendered config and the
+# database's folder, which belongs to 10001:10001, the user and group the compose runs it as.
 # /etc/forge must be writable because the entrypoint renders config.yaml there at start.
-RUN useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin forge \
+RUN groupadd --system --gid 10001 forge \
+    && useradd --system --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin forge \
     && chown -R forge:forge /etc/forge
 USER forge
 EXPOSE 3333 3335 3337

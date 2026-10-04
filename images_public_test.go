@@ -36,18 +36,22 @@ func TestImagesPublicCheck(t *testing.T) {
 	refused := "acme/refused"                              // gets a token, and then no manifest
 
 	// The real compose's six images, as if each were public. Until CI re-pins it, a release commit
-	// pins zeros for an image new in that release; here that image has a digest of its own.
+	// pins zeros for an image new in that release; here that image has a digest of its own. The
+	// migrate image is pinned twice (migrate, and the postgres service that stands in for the old
+	// database), and the check reads each line.
 	real, err := os.ReadFile("docker-compose.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
 	realCompose := strings.ReplaceAll(string(real), "@"+digest("0"), "@"+digest("f"))
 	pinned := composeImageRe.FindAllStringSubmatch(realCompose, -1)
-	if len(pinned) != 6 {
-		t.Fatalf("IMAGES-PUBLIC-HARNESS: %d pinned images in docker-compose.yml, want 6", len(pinned))
-	}
+	names := map[string]bool{}
 	for _, m := range pinned {
+		names[m[1]] = true
 		public["bitcoincashii/"+m[1]] = "sha256:" + m[3]
+	}
+	if len(names) != 6 || len(pinned) != 7 {
+		t.Fatalf("IMAGES-PUBLIC-HARNESS: %d pinned images on %d lines in docker-compose.yml, want 6 on 7", len(names), len(pinned))
 	}
 
 	manifest := regexp.MustCompile(`^/v2/(.+)/manifests/(sha256:[0-9a-f]{64})$`)
@@ -119,7 +123,7 @@ func TestImagesPublicCheck(t *testing.T) {
 	if out, ok := check(composeOf(one, two, host+"/library/open@"+digest("c"))); !ok || strings.Count(out, "ok   ") != 3 {
 		t.Fatalf("IMAGES-PUBLIC-OK: three images anyone can pull did not all pass:\n%s", out)
 	}
-	if out, ok := check(strings.ReplaceAll(realCompose, "ghcr.io/", host+"/")); !ok || strings.Count(out, "ok   ") != 6 {
+	if out, ok := check(strings.ReplaceAll(realCompose, "ghcr.io/", host+"/")); !ok || strings.Count(out, "ok   ") != len(pinned) {
 		t.Fatalf("IMAGES-PUBLIC-REAL-COMPOSE: the six images of docker-compose.yml, all public, did not all pass:\n%s", out)
 	}
 	for _, tc := range []struct{ code, image, want string }{

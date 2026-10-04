@@ -133,10 +133,6 @@ jobs:
       - name: 1175 payout ledger (real postgres)
         run: ./scripts/it-postgres.sh
 
-      # An update opens the previous release's data directory with this tree's database image.
-      - name: The previous release's database opens on this image
-        run: ./scripts/it-postgres-upgrade.sh
-
       - name: Merge-mining end to end (live 1175 regtest node)
         run: ./scripts/it-1175.sh
 

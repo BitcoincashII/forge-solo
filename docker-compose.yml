@@ -126,40 +126,68 @@ services:
       retries: 5
       start_period: 180s
 
+  # The database server of 1.0.12 and earlier, kept by name only. Its container has the same name
+  # as the one 1.0.12 ran, so an update made while that one still runs replaces it: compose stops
+  # it first, giving PostgreSQL its clean shutdown, and only then starts this and, after it, the
+  # move below. Without a service of this name the old server would go on running on the old
+  # data beside the move's own. This one does nothing and exits.
   postgres:
-    image: ghcr.io/bitcoincashii/forge-solo-postgres:1.0.13@sha256:0000000000000000000000000000000000000000000000000000000000000000
-    networks:
-      - forge
+    image: ghcr.io/bitcoincashii/forge-solo-migrate:1.0.13@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    command: ["noop"]
+    restart: "no"
+    network_mode: none
+    user: "65534:65534"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 1m
     # At most 30 MB of log: umbrelOS 2.0 keeps up to 100 MB for each container.
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
-    restart: unless-stopped
-    stop_grace_period: 1m
-    environment:
-      POSTGRES_USER: forge
-      POSTGRES_PASSWORD: ${APP_DB_PASSWORD}
-      POSTGRES_DB: forgesolo
+
+  # Moves the PostgreSQL data of 1.0.12 and earlier (postgres/) into db/forgesolo.db, once, and
+  # merges what both recorded after a return to 1.0.12 and back. It runs at every start, before
+  # the api and the stratum, and exits: at once when there is nothing to do. It writes what it did
+  # to db/migration-status.json. A move that fails replaces nothing and still exits 0, so the
+  # dashboard can say why; only an interruption holds the api and the stratum back.
+  # As root, with only what it needs: to start PostgreSQL as the old data's owner (SETUID, SETGID)
+  # and stop it (KILL), to read that data (DAC_OVERRIDE), and to give the database's files to
+  # 10001:10001, the api's and the stratum's user (CHOWN, FOWNER).
+  migrate:
+    image: ghcr.io/bitcoincashii/forge-solo-migrate:1.0.13@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    command: ["run", "--db=/data/forgesolo.db", "--pgdata=/pg", "--owner=10001:10001"]
+    restart: "no"
+    network_mode: none
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETUID
+      - SETGID
+      - KILL
+    # Room for PostgreSQL to shut down cleanly when the move is stopped part way.
+    stop_grace_period: 2m
+    # At most 30 MB of log: umbrelOS 2.0 keeps up to 100 MB for each container.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     volumes:
-      - ${APP_DATA_DIR}/postgres:/var/lib/postgresql/data
-      # By its absolute path. Umbrel runs compose with its own fragment file first, and compose
-      # resolves a relative path from the first file's directory: ./init-db.sql named a file in
-      # umbreld's own directory, which does not exist, so Docker created an empty directory there
-      # and postgres failed to read it ("could not read from input file: Is a directory") on
-      # every fresh install. The app's files, this one included, are in APP_DATA_DIR.
-      - ${APP_DATA_DIR}/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U forge -d forgesolo"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      # An install waits for the database to be healthy before it starts the api and stratum, and
-      # fails ("exit code 1") if it is not by start_period plus retries x interval. A first start on
-      # a slow or busy Umbrel, with another app syncing a chain, could take longer than the 80 s
-      # this used to allow. It is healthy, and the install goes on, the moment it answers.
-      start_period: 600s
+      - ${APP_DATA_DIR}/postgres:/pg
+      - ${APP_DATA_DIR}/db:/data
+    depends_on:
+      postgres:
+        condition: service_completed_successfully
 
   api:
     image: ghcr.io/bitcoincashii/forge-solo-api:1.0.12@sha256:82428bc4299a949c776c8cb7386cc5175f2aec0cdcca50bb927125224c5037f5
@@ -176,21 +204,17 @@ services:
     cap_drop:
       - ALL
     restart: unless-stopped
+    # The api and the stratum share one database file, in a folder that belongs to this user.
+    user: "10001:10001"
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       node:
         condition: service_started
+    volumes:
+      - ${APP_DATA_DIR}/db:/data
     environment:
-      - DB_HOST=bch2-apps-forge-solo_postgres_1
-      # At most 10 database connections each: the database allows 40 (docker/postgres).
-      - DB_MAX_OPEN_CONNS=10
-      - DB_MAX_IDLE_CONNS=2
-      - DB_PORT=5432
-      - DB_USER=forge
-      - DB_PASSWORD=${APP_DB_PASSWORD}
-      - DB_NAME=forgesolo
-      - DB_SSLMODE=disable
+      - DB_PATH=/data/forgesolo.db
       - RPC_URL=http://bch2-apps-forge-solo_node_1:8342
       - RPC_USER=forge
       - RPC_PASSWORD=${APP_NODE_RPC_PASSWORD}
@@ -244,13 +268,16 @@ services:
     # Room to stop both ports (2 s grace each for connected miners) and send the pool the TIDES
     # shares still queued, instead of Docker's 10 s default killing it part way.
     stop_grace_period: 30s
+    user: "10001:10001"
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       api:
         condition: service_started
       node1175:
         condition: service_started
+    volumes:
+      - ${APP_DATA_DIR}/db:/data
     ports:
       - "3333:3333"   # your own hardware, and Braiins (which connects each miner individually)
       - "3335:3335"   # proxied rental hashpower: NiceHash / MiningRigRentals
@@ -270,15 +297,7 @@ services:
       # leaving in place.
       - API_HOST=bch2-apps-forge-solo_api_1
       - API_PORT=8080
-      - DB_HOST=bch2-apps-forge-solo_postgres_1
-      # At most 10 database connections each: the database allows 40 (docker/postgres).
-      - DB_MAX_OPEN_CONNS=10
-      - DB_MAX_IDLE_CONNS=2
-      - DB_PORT=5432
-      - DB_USER=forge
-      - DB_PASSWORD=${APP_DB_PASSWORD}
-      - DB_NAME=forgesolo
-      - DB_SSLMODE=disable
+      - DB_PATH=/data/forgesolo.db
       - RPC_USER=forge
       - RPC_PASSWORD=${APP_NODE_RPC_PASSWORD}
       - NODE_HOST=bch2-apps-forge-solo_node_1

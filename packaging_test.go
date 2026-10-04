@@ -13,7 +13,10 @@ package forgesolo
 
 import (
 	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -39,12 +42,30 @@ func TestComposeImagesMatchManifestVersion(t *testing.T) {
 		t.Fatalf("read docker-compose.yml: %v", err)
 	}
 	found := composeImageRe.FindAllSubmatch(compose, -1)
-	if len(found) != 6 {
-		t.Fatalf("found %d pinned forge-solo images in docker-compose.yml, want 6 (node, node1175, api, stratum, web, postgres)", len(found))
+	if got := imageNames(found); len(got) != len(appImages) {
+		t.Fatalf("found %d pinned forge-solo images in docker-compose.yml (%v), want %d (%v)", len(got), got, len(appImages), appImages)
 	}
 	for _, f := range found {
 		if got := string(f[2]); got != want {
 			t.Errorf("%s is pinned to %s but umbrel-app.yml says the app is %s — the store entry copied from this file would ship the wrong images", f[1], got, want)
+		}
+	}
+}
+
+// The app's images are the two nodes, the api, the stratum, the dashboard and the migrator. The
+// database image of earlier releases is gone: 1.0.13 runs no database server, and a postgres
+// image left pinned would be pulled and never used.
+func TestComposePinsTheAppImages(t *testing.T) {
+	compose, err := os.ReadFile("docker-compose.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := imageNames(composeImageRe.FindAllSubmatch(compose, -1)); !slices.Equal(got, appImages) {
+		t.Errorf("PKG-IMAGES: docker-compose.yml pins %v, want %v", got, appImages)
+	}
+	for image := range releaseDigests {
+		if !slices.Contains(appImages, image) {
+			t.Errorf("PKG-IMAGES-TABLE: releaseDigests lists %s, which the app does not use", image)
 		}
 	}
 }
@@ -66,7 +87,23 @@ var releaseDigests = map[string]string{
 	"forge-solo-api":      "82428bc4299a949c776c8cb7386cc5175f2aec0cdcca50bb927125224c5037f5",
 	"forge-solo-stratum":  "3b75a92739f41b0240a5c04457a23fe965bcd83e08ea5047fe41b944ffeb873c",
 	"forge-solo-web":      "e9787ad60148371f380cc7616d5586a090b5f9cca43326dcf76ddcf7e1db8333",
-	"forge-solo-postgres": "0000000000000000000000000000000000000000000000000000000000000000",
+	"forge-solo-migrate":  "0000000000000000000000000000000000000000000000000000000000000000",
+}
+
+// appImages are the images the compose pins, sorted. The migrate image is pinned twice: by the
+// migrate service and by the postgres service that stands in for the old database server.
+var appImages = []string{"forge-solo-api", "forge-solo-migrate", "forge-solo-node", "forge-solo-node1175", "forge-solo-stratum", "forge-solo-web"}
+
+// imageNames are the distinct image names among composeImageRe's matches, sorted.
+func imageNames(found [][][]byte) []string {
+	var names []string
+	for _, f := range found {
+		if n := string(f[1]); !slices.Contains(names, n) {
+			names = append(names, n)
+		}
+	}
+	slices.Sort(names)
+	return names
 }
 
 func TestComposeDigestsAreTheOnesThisReleasePublished(t *testing.T) {
@@ -91,8 +128,8 @@ func TestComposeDigestsAreTheOnesThisReleasePublished(t *testing.T) {
 		t.Fatalf("read docker-compose.yml: %v", err)
 	}
 	found := composeImageRe.FindAllSubmatch(compose, -1)
-	if len(found) != len(releaseDigests) {
-		t.Fatalf("found %d pinned images, want %d", len(found), len(releaseDigests))
+	if got := imageNames(found); len(got) != len(releaseDigests) {
+		t.Fatalf("found %d pinned images (%v), want %d", len(got), got, len(releaseDigests))
 	}
 	for _, f := range found {
 		image, digest := string(f[1]), string(f[3])
@@ -107,6 +144,68 @@ func TestComposeDigestsAreTheOnesThisReleasePublished(t *testing.T) {
 				image, digest, want)
 		}
 	}
+}
+
+// The re-pin writes the digests CI published into the compose and into releaseDigests above. The
+// migrate image is pinned on two lines, by migrate and by postgres (which stands in for the old
+// database server), and both must get its digest.
+func TestRepinPinsEveryImageLine(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Fatalf("REPIN-HARNESS: this test needs bash: %v", err)
+	}
+	m := manifestVersionRe.FindSubmatch(mustRead(t, "umbrel-app.yml"))
+	if m == nil {
+		t.Fatal("umbrel-app.yml has no version: field")
+	}
+	version := string(m[1])
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"scripts/repin-release.sh", "docker-compose.yml", "packaging_test.go", "umbrel-app.yml"} {
+		if err := os.WriteFile(filepath.Join(dir, f), mustRead(t, f), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	order := []string{"node", "node1175", "api", "stratum", "web", "migrate"}
+	digests := map[string]string{}
+	args := []string{"scripts/repin-release.sh", version}
+	for i, k := range order {
+		digests["forge-solo-"+k] = strings.Repeat(string(rune('1'+i)), 64)
+		args = append(args, "sha256:"+digests["forge-solo-"+k])
+	}
+	cmd := exec.Command("bash", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("REPIN-RUN: repin-release.sh %v: %v\n%s", args[1:], err, out)
+	}
+	found := composeImageRe.FindAllStringSubmatch(string(mustRead(t, filepath.Join(dir, "docker-compose.yml"))), -1)
+	if len(found) != 7 {
+		t.Fatalf("REPIN-LINES: %d pinned image lines after the re-pin, want 7", len(found))
+	}
+	for _, f := range found {
+		if f[2] != version || f[3] != digests[f[1]] {
+			t.Errorf("REPIN-PINNED: %s is pinned to %s@%s after the re-pin, want %s@%s", f[1], f[2], f[3], version, digests[f[1]])
+		}
+	}
+	table := string(mustRead(t, filepath.Join(dir, "packaging_test.go")))
+	for image, d := range digests {
+		if !regexp.MustCompile(`"` + image + `": *"` + d + `"`).MatchString(table) {
+			t.Errorf("REPIN-TABLE: releaseDigests does not say %s is %s after the re-pin", image, d)
+		}
+	}
+	if !strings.Contains(table, `const releaseDigestsForVersion = "`+version+`"`) {
+		t.Errorf("REPIN-TABLE-VERSION: releaseDigestsForVersion is not %s after the re-pin", version)
+	}
+}
+
+func mustRead(t *testing.T, path string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }
 
 // Every app image must carry a digest as well as a tag: a tag is mutable, and an Umbrel
