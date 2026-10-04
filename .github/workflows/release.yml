@@ -5,7 +5,7 @@ name: Release
 # scripts/linux/build-release.sh and added to this page afterwards (README, "Releasing").
 #
 # Everything the installer contains is fetched here and sha256-verified fail-closed: both node
-# binaries from their own published releases, PostgreSQL from EnterpriseDB, and the three Go
+# binaries from their own published releases, PostgreSQL from EnterpriseDB, and the Go
 # executables compiled from this checkout. The result is ONE ForgeSolo-Setup-<version>.exe --
 # there is no separate zip, because a user who downloads the wrong one of two assets ends up with
 # something that does not install.
@@ -76,11 +76,17 @@ jobs:
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "Building version $V"
 
-      - name: Build the three executables
+      # The services keep their data in forgesolo.db, as on Umbrel and Linux: built without -tags
+      # sqlite they would look for a PostgreSQL server (build_tags_test.go). forge-solo-migrate.exe
+      # moves an earlier version's database into it, once. The installer takes windows/bin whole.
+      - name: Build the Go executables
+        env:
+          V: ${{ steps.ver.outputs.version }}
         run: |
           mkdir -p windows/bin
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags '-s -w' -o windows/bin/stratum.exe ./cmd/stratum
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags '-s -w' -o windows/bin/api.exe     ./cmd/api
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags sqlite -ldflags '-s -w' -o windows/bin/stratum.exe ./cmd/stratum
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags sqlite -ldflags '-s -w' -o windows/bin/api.exe     ./cmd/api
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags sqlite -ldflags "-s -w -X main.version=$V" -o windows/bin/forge-solo-migrate.exe ./cmd/forge-solo-migrate
           go install github.com/akavel/rsrc@v0.10.2
           (cd windows/launcher && "$(go env GOPATH)/bin/rsrc" -ico forge-solo.ico -arch amd64 -o rsrc.syso)
           (cd windows/launcher && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui -s -w" -o ../bin/forge-solo.exe .)
@@ -107,9 +113,10 @@ jobs:
           7z x -y -o/tmp/esf /tmp/esf.exe > /dev/null
           cp /tmp/esf/daemon/elevenseventyfived.exe windows/bin/
 
+      # PostgreSQL only reads an earlier version's database, once, to move it into forgesolo.db.
       # Only bin, lib and share: the rest of the archive is pgAdmin and headers this never runs.
-      # Stay on 16.x -- a data directory is bound to its major version, so 17.x would leave every
-      # existing install unable to start its database.
+      # Stay on 16.x: a data directory is bound to its major version, and 17.x could not open the
+      # one 1.0.12 left.
       - name: Fetch PostgreSQL
         run: |
           curl -fsSL -o /tmp/pg.zip \
@@ -280,7 +287,7 @@ jobs:
             echo "| Services built from | \`${GITHUB_REPOSITORY}@${GITHUB_SHA}\` |"
             echo "| BCH2 node | ${BCH2_VERSION} |"
             echo "| 1175 node | ${ESF_VERSION} |"
-            echo "| PostgreSQL | ${PG_VERSION} |"
+            echo "| PostgreSQL | ${PG_VERSION}: only to move an earlier version's database |"
             echo
             echo "Every bundled component is fetched during the build and sha256-verified. \`SHA256SUMS-windows\` covers the installer."
           } > /tmp/notes.md

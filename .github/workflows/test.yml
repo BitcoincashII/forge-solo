@@ -217,6 +217,19 @@ jobs:
           go test -race -count=1 ./...
           GOOS=windows GOARCH=amd64 go test -c -o /tmp/launcher-test.exe .
 
+      # The services and forge-solo-migrate.exe as the release builds them for Windows, on SQLite.
+      # The tests of the packages whose locking, renaming and paths differ on Windows are compiled
+      # for it too.
+      - name: Vet and build the services for Windows
+        run: |
+          GOOS=windows GOARCH=amd64 go vet -tags sqlite ./...
+          for c in stratum api forge-solo-migrate; do
+            CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags sqlite -o /dev/null ./cmd/$c
+          done
+          for p in internal/stats internal/dblock internal/pgmigrate; do
+            CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go test -c -tags sqlite -o /dev/null ./$p
+          done
+
       # A release takes the Visual C++ runtime PostgreSQL needs from Microsoft's installer, at a
       # pinned URL with pinned checksums. Check that still works before a release depends on it.
       - name: The Visual C++ runtime for PostgreSQL extracts

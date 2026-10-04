@@ -53,6 +53,7 @@ type workflow struct {
 			If   string         `yaml:"if"`
 			Uses string         `yaml:"uses"`
 			Run  string         `yaml:"run"`
+			Env  map[string]any `yaml:"env"`
 			With map[string]any `yaml:"with"`
 		} `yaml:"steps"`
 	} `yaml:"jobs"`
@@ -210,6 +211,57 @@ func TestUnitJobRunsEveryCheck(t *testing.T) {
 	}
 	if !setUp {
 		t.Error("UNIT-RUNS-EVERY-CHECK: the unit job does not set up Go")
+	}
+}
+
+// The Windows services keep their data in forgesolo.db, as on Umbrel and Linux, and
+// forge-solo-migrate.exe moves an earlier version's database into it: the release builds all three
+// with -tags sqlite into windows/bin, which the installer takes whole, and stamps the migrator with
+// the version, which it writes in the status file. The Windows job vets and builds them the same
+// way, and compiles the tests of the packages whose locking, renaming and paths differ on Windows.
+// PostgreSQL, which reads that database, stays pinned by version and hash.
+func TestWindowsBuildRunsOnSQLite(t *testing.T) {
+	rel := loadWorkflow(t, ".github/workflows/release.yml")
+	build := stepRun(t, rel, "installer", "Build the Go executables")
+	for _, c := range []string{"stratum", "api", "forge-solo-migrate"} {
+		re := regexp.MustCompile(`(?m)^\s*CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags sqlite -ldflags ('[^']*'|"[^"]*") -o windows/bin/` + c + `\.exe +\./cmd/` + c + `$`)
+		if !re.MatchString(build) {
+			t.Errorf("WIN-BUILD-SQLITE-%s: the release does not build %s.exe with -tags sqlite into windows/bin:\n%s", strings.ToUpper(c), c, build)
+		}
+	}
+	for _, want := range []string{
+		`-ldflags "-s -w -X main.version=$V" -o windows/bin/forge-solo-migrate.exe`,
+	} {
+		if !strings.Contains(build, want) {
+			t.Errorf("WIN-BUILD-VERSION: the release build lacks %s", want)
+		}
+	}
+	for _, s := range rel.Jobs["installer"].Steps {
+		if s.Name == "Build the Go executables" && fmt.Sprint(s.Env["V"]) != "${{ steps.ver.outputs.version }}" {
+			t.Errorf("WIN-BUILD-VERSION: V is %q, not the version being built", s.Env["V"])
+		}
+	}
+
+	b, err := os.ReadFile(".github/workflows/release.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`(?m)^  PG_VERSION: '16\.\d+'$`).Match(b) || !regexp.MustCompile(`(?m)^  PG_SHA256: '[0-9a-f]{64}'$`).Match(b) {
+		t.Error("WIN-PG-PINNED: release.yml does not pin PostgreSQL 16 by version and SHA-256")
+	}
+	if fetch := stepRun(t, rel, "installer", "Fetch PostgreSQL"); !strings.Contains(fetch, `echo "${PG_SHA256}  /tmp/pg.zip" | sha256sum -c -`) {
+		t.Error("WIN-PG-PINNED: the PostgreSQL download is not checked against its pinned SHA-256")
+	}
+
+	win := stepRun(t, loadWorkflow(t, ".github/workflows/test.yml"), "windows", "Vet and build the services for Windows")
+	for _, want := range []string{
+		"GOOS=windows GOARCH=amd64 go vet -tags sqlite ./...",
+		"for c in stratum api forge-solo-migrate; do\n  CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags sqlite -o /dev/null ./cmd/$c\ndone",
+		"for p in internal/stats internal/dblock internal/pgmigrate; do\n  CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go test -c -tags sqlite -o /dev/null ./$p\ndone",
+	} {
+		if !strings.Contains(win, want) {
+			t.Errorf("WIN-CI-SQLITE: the Windows job lacks:\n%s", want)
+		}
 	}
 }
 
