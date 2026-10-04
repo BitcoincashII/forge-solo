@@ -236,12 +236,12 @@ func install(h host, out io.Writer, web string, given bool) (err error) {
 	fmt.Fprintf(out, `
 Forge Solo is installed and running as the %[1]s service.
 
-  Dashboard:  http://%[2]s
+  Dashboard:  %[2]s
   Miners:     stratum+tcp://<this machine's address>:%[3]d  (rentals: %[4]d)
   Data:       %[5]s
   Logs:       journalctl -u %[1]s -f   and %[5]s/logs/
   Stop/start: sudo systemctl stop %[1]s  /  sudo systemctl start %[1]s
-`, serviceName, web, stratumPort, rentalPort, serviceData)
+`, serviceName, dashboardURL(web), stratumPort, rentalPort, serviceData)
 	fmt.Fprintf(out, "  Settings:   saving a change asks for DASHBOARD_PASSWORD in %s/secrets.env\n", serviceData)
 	if webNeedsPassword(web) {
 		fmt.Fprintf(out, "  Password:   user forge, DASHBOARD_PASSWORD in %s/secrets.env\n", serviceData)

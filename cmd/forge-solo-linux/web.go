@@ -119,6 +119,37 @@ func isLocalHost(hostport string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+// dashboardURL is where a browser opens the dashboard that listens on web. One that listens on
+// every address (0.0.0.0, :: or no host) is there for other computers, which reach it at this
+// machine's address on the network: http://0.0.0.0:3080 opens nothing.
+func dashboardURL(web string) string {
+	host, port, err := net.SplitHostPort(web)
+	if err != nil {
+		return "http://" + web
+	}
+	if ip := net.ParseIP(host); host == "" || (ip != nil && ip.IsUnspecified()) {
+		if host = lanAddress(); host == "" {
+			host = "<this machine's address>"
+		}
+	}
+	return "http://" + net.JoinHostPort(host, port)
+}
+
+// lanAddress is this machine's address on its network, the one its default route leaves from: ""
+// if there is none. Nothing is sent. (A variable: the tests stand in a network.)
+var lanAddress = func() string {
+	c, err := net.Dial("udp4", "192.0.2.1:9")
+	if err != nil {
+		return ""
+	}
+	defer c.Close()
+	a, ok := c.LocalAddr().(*net.UDPAddr)
+	if !ok || a.IP == nil || a.IP.IsLoopback() || a.IP.IsUnspecified() {
+		return ""
+	}
+	return a.IP.String()
+}
+
 // webNeedsPassword is true unless the dashboard listens on loopback only.
 func webNeedsPassword(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)

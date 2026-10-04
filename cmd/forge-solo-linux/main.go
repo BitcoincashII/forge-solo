@@ -514,10 +514,10 @@ func banner(w io.Writer, web, dataDir string, password, rentals bool) {
 		rent = fmt.Sprintf("(no rentals: another program has port %d)", rentalPort)
 	}
 	fmt.Fprintf(w, `
-  Dashboard:  http://%s
+  Dashboard:  %s
   Miners:     stratum+tcp://<this machine's address>:%d   %s
   Data:       %s   (logs in logs/, the node's in bch2/debug.log)
-`, web, stratumPort, rent, dataDir)
+`, dashboardURL(web), stratumPort, rent, dataDir)
 	if password {
 		fmt.Fprintf(w, "  Password:   user forge, DASHBOARD_PASSWORD in %s\n", filepath.Join(dataDir, "secrets.env"))
 	}

@@ -69,7 +69,7 @@ func TestInstallKeepsTheDashboardAddress(t *testing.T) {
 	if unitWeb(h.unitWrote) != "0.0.0.0:3080" || !h.did("serving 0.0.0.0:3080") {
 		t.Errorf("WEB-KEPT: an upgrade without --web gave the service %q (calls %q)", unitWeb(h.unitWrote), h.calls)
 	}
-	if s := out.String(); !strings.Contains(s, "0.0.0.0:3080, kept from the installed service") || !strings.Contains(s, "Dashboard:  http://0.0.0.0:3080") {
+	if s := out.String(); !strings.Contains(s, "0.0.0.0:3080, kept from the installed service") {
 		t.Errorf("WEB-KEPT-SAID: the output does not say the address was kept:\n%s", s)
 	}
 

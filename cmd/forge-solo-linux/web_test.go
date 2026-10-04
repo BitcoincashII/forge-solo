@@ -11,6 +11,66 @@ import (
 	"testing"
 )
 
+// useLAN stands in this machine's address on its network for the test's duration.
+func useLAN(t *testing.T, addr string) {
+	t.Helper()
+	old := lanAddress
+	lanAddress = func() string { return addr }
+	t.Cleanup(func() { lanAddress = old })
+}
+
+// The dashboard's URL as the banners give it. A dashboard on every address is opened from another
+// computer, at this machine's address: the banners said http://0.0.0.0:3080, which opens nothing.
+func TestDashboardURL(t *testing.T) {
+	useLAN(t, "192.168.1.5")
+	for web, want := range map[string]string{
+		"127.0.0.1:3080": "http://127.0.0.1:3080", "localhost:3080": "http://localhost:3080",
+		"[::1]:3080": "http://[::1]:3080", "192.168.1.7:4000": "http://192.168.1.7:4000",
+		"0.0.0.0:3080": "http://192.168.1.5:3080", ":3080": "http://192.168.1.5:3080", "[::]:3080": "http://192.168.1.5:3080",
+	} {
+		if got := dashboardURL(web); got != want {
+			t.Errorf("URL-HOST: --web %s: %q, want %q", web, got, want)
+		}
+	}
+	useLAN(t, "")
+	if got := dashboardURL("0.0.0.0:3080"); got != "http://<this machine's address>:3080" {
+		t.Errorf("URL-NO-LAN: with no network address: %q", got)
+	}
+
+	// Both banners give it.
+	useLAN(t, "192.168.1.5")
+	var b strings.Builder
+	banner(&b, "0.0.0.0:3080", "/d", true, true)
+	if !strings.Contains(b.String(), "Dashboard:  http://192.168.1.5:3080\n") {
+		t.Errorf("URL-RUN: forge-solo run's banner:\n%s", b.String())
+	}
+	b.Reset()
+	if err := install(&fakeHost{}, &b, "0.0.0.0:3080", true); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b.String(), "Dashboard:  http://192.168.1.5:3080\n") {
+		t.Errorf("URL-INSTALL: install-service's summary:\n%s", b.String())
+	}
+}
+
+// What lanAddress finds is an address this machine has.
+func TestLANAddressIsThisMachines(t *testing.T) {
+	a := lanAddress()
+	if a == "" {
+		t.Skip("no default route here")
+	}
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, x := range addrs {
+		if n, ok := x.(*net.IPNet); ok && n.IP.String() == a {
+			return
+		}
+	}
+	t.Errorf("URL-LAN: %s is not one of this machine's addresses %v", a, addrs)
+}
+
 func webFixture(t *testing.T) (root string, api *httptest.Server, seen *http.Header) {
 	t.Helper()
 	root = t.TempDir()
