@@ -134,6 +134,27 @@ begin
             PSQuote(DataDir + '\elevenseventyfive\chainstate') + ', ' + PSQuote(DataDir + '\pgdata');
 end;
 
+// Setup installs for the Windows account it runs as. Started with "Run as administrator", it can
+// run as another account than the one signed in: an administrator's, over the shoulder, or the
+// separate account Administrator Protection elevates to. Forge Solo then goes to that account's
+// profile and Start menu. The first page says which account. No refusal: Setup also runs as
+// administrator for the account's own install, with UAC off or for the built-in Administrator.
+procedure InitializeWizard;
+var Account: String;
+begin
+  if IsAdmin() then
+  begin
+    Account := ExpandConstant('{username}') + ' (' + ExpandConstant('{%USERPROFILE}') + ')';
+    Log('Setup is running as administrator, for the account ' + Account);
+    CreateOutputMsgPage(wpWelcome, 'Installing as administrator',
+      'Check which Windows account Forge Solo is installed for.',
+      'Setup is running as administrator, so Forge Solo will be installed for the Windows account ' +
+      Account + ': its files, Start menu entry and data go there.' + #13#10#13#10 +
+      'If that is not your account, click Cancel, then run Setup again without "Run as ' +
+      'administrator". It asks for permission itself when it needs it.');
+  end;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var ResultCode: Integer; DataDir, Cmd: String;
 begin

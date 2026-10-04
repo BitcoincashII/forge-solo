@@ -35,8 +35,8 @@ func installerSection(t *testing.T, name string) string {
 	return s
 }
 
-// installerFunc is the installer script's routine declared as decl, up to its closing "end;", or ""
-// if there is none.
+// installerFunc is the installer script's routine declared as decl, up to its closing "end;",
+// without comments, or "" if there is none.
 func installerFunc(t *testing.T, decl string) string {
 	t.Helper()
 	s := installerScript(t)
@@ -48,7 +48,38 @@ func installerFunc(t *testing.T, decl string) string {
 	if j := strings.Index(s, "\nend;"); j >= 0 {
 		s = s[:j+len("\nend;")]
 	}
-	return s
+	return pascalCode(s)
+}
+
+// pascalCode is Pascal source without its comments (// to the end of the line, and { }), so that a
+// statement commented out does not count. String literals are kept as they are.
+func pascalCode(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		switch {
+		case s[i] == '\'':
+			j := i + 1
+			for j < len(s) && (s[j] != '\'' || j+1 < len(s) && s[j+1] == '\'') {
+				if s[j] == '\'' {
+					j++
+				}
+				j++
+			}
+			b.WriteString(s[i:min(j+1, len(s))])
+			i = j
+		case strings.HasPrefix(s[i:], "//"):
+			for i+1 < len(s) && s[i+1] != '\n' {
+				i++
+			}
+		case s[i] == '{':
+			for i < len(s) && s[i] != '}' {
+				i++
+			}
+		default:
+			b.WriteByte(s[i])
+		}
+	}
+	return b.String()
 }
 
 var pascalToken = regexp.MustCompile(`^(?:'((?:[^']|'')*)'|#\$([0-9A-Fa-f]+)|#([0-9]+)|\s*\+\s*|\s+)`)
@@ -145,6 +176,44 @@ func TestInstallerPSQuoteKeepsEveryPathWhole(t *testing.T) {
 		if got, rest, ok := psSingleQuoted(q + ", 'next'"); !ok || got != path || rest != ", 'next'" {
 			t.Errorf("%s: PowerShell reads %s as the string %q, followed by %q", c.code, q, got, rest)
 		}
+	}
+}
+
+// pascalLiterals is the string literals in Pascal code, joined: the text of a message built with +.
+func pascalLiterals(code string) string {
+	var b strings.Builder
+	for _, m := range regexp.MustCompile(`'((?:[^']|'')*)'`).FindAllStringSubmatch(code, -1) {
+		b.WriteString(strings.ReplaceAll(m[1], "''", "'"))
+	}
+	return b.String()
+}
+
+// Run as administrator, Setup can run as another account than the one signed in (an
+// administrator's, over the shoulder, or the separate account Administrator Protection elevates
+// to), and it installs for the account it runs as: Forge Solo went to that account's profile and
+// Start menu without a word. Its first page now says which account, and how to install for your
+// own instead. It does not refuse: with UAC off, or for the built-in Administrator, an elevated
+// Setup is the account's own.
+func TestInstallerSaysWhichAccountWhenElevated(t *testing.T) {
+	body := installerFunc(t, "procedure InitializeWizard;")
+	page := regexp.MustCompile(`(?s)\n  if IsAdmin\(\) then\n  begin\n(.*?)\n  end;`).FindStringSubmatch(body)
+	if page == nil {
+		t.Fatalf("ELEVATED-ONLY: InitializeWizard does not add a page when, and only when, Setup runs as administrator:\n%s", body)
+	}
+	if !strings.Contains(page[1], "CreateOutputMsgPage(wpWelcome,") {
+		t.Error("ELEVATED-FIRST: the account page is not Setup's first page (CreateOutputMsgPage(wpWelcome, ...))")
+	}
+	if !strings.Contains(page[1], "Account := ExpandConstant('{username}')") || !strings.Contains(page[1], "' +\n      Account + '") {
+		t.Error("ELEVATED-ACCOUNT: the page does not name the account Setup installs for")
+	}
+	if text := pascalLiterals(page[1]); !strings.Contains(text, `click Cancel, then run Setup again without "Run as administrator"`) {
+		t.Errorf("ELEVATED-REMEDY: the page does not say how to install for your own account: %q", text)
+	}
+	if !regexp.MustCompile(`(?m)^\s*Log\('Setup is running as administrator, for the account ' \+ Account\);`).MatchString(page[1]) {
+		t.Error("ELEVATED-LOG: a silent install does not log which account it installs for")
+	}
+	if strings.Contains(body, "Abort") || strings.Contains(installerFunc(t, "function InitializeSetup"), "Result := False") {
+		t.Error("ELEVATED-NO-REFUSAL: Setup refuses to run as administrator; with UAC off that locks the account out")
 	}
 }
 
