@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"math/big"
 	"net/http"
 	"os"
@@ -118,6 +119,35 @@ func TestMergeMineMultiTxParent_Live(t *testing.T) {
 		t.Fatalf("aux height did not advance: before=%d after=%d", before, after)
 	}
 	t.Logf("✅ multi-tx AuxPoW accepted; aux chain %d -> %d", before, after)
+
+	// The block is on the node's chain, and the node no longer has its work: sent again, the
+	// answer is -8, which the stratum takes as the cue to ask the chain.
+	client := mergemining.NewClient(rpcURL, user, pass)
+	if confs, found, err := client.BlockConfirmations(job.AuxWork.Hash); err != nil || !found || confs != 1 {
+		t.Fatalf("MM-LIVE-CONFIRMATIONS: getblock says %d confirmations, found %v, %v", confs, found, err)
+	}
+	var rpcErr *mergemining.RPCError
+	if _, err := client.SubmitAuxBlock(job.AuxWork.Hash, auxHex); !errors.As(err, &rpcErr) || rpcErr.Code != mergemining.RPCInvalidParameter {
+		t.Fatalf("MM-LIVE-RESUBMIT: sent again, the node answered %v", err)
+	}
+
+	// The aux tip moved. The poller sees the new tip and the work follows it within a few polls,
+	// with nothing asking it to.
+	tip, err := client.GetBestBlockHash()
+	if err != nil {
+		t.Fatalf("MM-LIVE-TIP: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if w, _ := jm.AuxWorkNow(); w != nil && w.PreviousBlockHash == tip {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("MM-LIVE-TIP-FOLLOW: 5 s after the 1175 tip moved to %s, the work is still on the old one", tip)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	jm.DisableMergeMining()
 }
 
 func reconstructCoinbase(cb1, en1, en2, cb2 string) []byte {

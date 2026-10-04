@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -80,17 +81,27 @@ type JobManager struct {
 
 	// auxRefreshNow lets a caller ask for an immediate poll (buffered, non-blocking).
 	auxRefreshNow chan struct{}
+
+	// auxTriedAt is when aux work was last fetched, whatever came of it.
+	auxTriedAt time.Time
+	// auxPollEvery and auxFetchEvery are auxTipPollInterval and auxRefreshInterval when zero; a
+	// test sets its own before EnableMergeMining.
+	auxPollEvery, auxFetchEvery time.Duration
 }
 
-// auxRefreshInterval is how often the aux node is polled in the background.
+// auxTipPollInterval is how often the aux node is asked for its chain tip (getbestblockhash, a
+// cheap call). Aux work is fetched again when the tip moves, so jobs commit to the new 1175 tip
+// within about two seconds of a 1175 block found by anyone; work on the old tip can only make a
+// 1175 block that is orphaned.
+const auxTipPollInterval = time.Second
+
+// auxRefreshInterval is how often aux work is fetched while the aux tip stands still.
 //
-// NOT as fast as possible, deliberately. Every getauxblock call mints a NEW work item and
-// the 1175 node retains only the last MAX_AUXPOW_WORK_ITEMS = 32 of them, evicting FIFO
-// (see 1175 src/rpc/mining.cpp). submitauxblock is given only the hash, so once a work
-// item is evicted the block that solved it can no longer be submitted at all. Polling
-// every 2s recycled all 32 slots in ~64s; the previous build fetched only at job-build
-// time, i.e. every ~15s, for ~480s of retention. Matching that cadence keeps the
-// submission window where it was while still moving the network call off the job path.
+// NOT every poll, deliberately. Every getauxblock call mints a NEW work item and the 1175
+// node keeps only its last MAX_AUXPOW_WORK_ITEMS = 256, evicting FIFO (1175 v29
+// src/rpc/mining.cpp). submitauxblock is given only the hash, so once a work item is
+// evicted the block that solved it can no longer be submitted at all. Fetching every 15 s,
+// and once per new tip, keeps about an hour of them.
 const auxRefreshInterval = 15 * time.Second
 
 // auxWorkMaxAge is how stale cached aux work may be before it is ignored. Committing to
@@ -209,8 +220,12 @@ func (jm *JobManager) AuxWorkNow() (*mergemining.AuxWork, string) {
 	return w, payTo
 }
 
-// auxRefreshLoop polls the aux node off the job-build path until merge mining is disabled.
+// auxRefreshLoop polls the aux node off the job-build path until merge mining is disabled: its
+// tip every auxTipPollInterval, and its work when the tip has moved, when the work is
+// auxRefreshInterval old, or when RefreshAuxNow asks.
 func (jm *JobManager) auxRefreshLoop() {
+	var forced bool
+	var lastTip string // the last new tip work was fetched for, whatever came of it
 	for {
 		// client, payout and gen MUST be read under ONE lock acquisition.
 		//
@@ -225,7 +240,15 @@ func (jm *JobManager) auxRefreshLoop() {
 		payout := jm.auxPayout
 		gen := jm.auxGen
 		wake := jm.auxRefreshNow
+		work, triedAt := jm.auxWork, jm.auxTriedAt
+		pollEvery, fetchEvery := jm.auxPollEvery, jm.auxFetchEvery
 		jm.mu.RUnlock()
+		if pollEvery <= 0 {
+			pollEvery = auxTipPollInterval
+		}
+		if fetchEvery <= 0 {
+			fetchEvery = auxRefreshInterval
+		}
 
 		if !enabled || client == nil {
 			jm.mu.Lock()
@@ -234,11 +257,23 @@ func (jm *JobManager) auxRefreshLoop() {
 			return
 		}
 
-		jm.refreshAuxOnce(client, payout, gen)
+		fetch := forced || time.Since(triedAt) >= fetchEvery
+		if !fetch && work != nil {
+			// Once per new tip: a fetch that fails waits for the age rule, not the next poll.
+			if tip, err := client.GetBestBlockHash(); err == nil && tip != "" && tip != lastTip &&
+				!strings.EqualFold(tip, work.PreviousBlockHash) {
+				fetch, lastTip = true, tip
+			}
+		}
+		if fetch {
+			jm.refreshAuxOnce(client, payout, gen)
+		}
 
+		forced = false
 		select {
-		case <-time.After(auxRefreshInterval):
-		case <-wake: // RefreshAuxNow: poll again immediately
+		case <-time.After(pollEvery):
+		case <-wake: // RefreshAuxNow: fetch again immediately
+			forced = true
 		}
 	}
 }
@@ -270,6 +305,7 @@ func (jm *JobManager) refreshAuxOnce(client *mergemining.Client, payout string, 
 		if jm.auxGen == gen {
 			jm.auxLastErr = err.Error()
 			jm.auxLastErrAt = time.Now()
+			jm.auxTriedAt = time.Now()
 		}
 		jm.mu.Unlock()
 		return
@@ -281,6 +317,7 @@ func (jm *JobManager) refreshAuxOnce(client *mergemining.Client, payout string, 
 		jm.mu.Unlock()
 		return
 	}
+	jm.auxTriedAt = time.Now()
 	if cerr != nil {
 		jm.auxLastErr = fmt.Sprintf("bad aux child hash %q: %v", w.Hash, cerr)
 		jm.auxLastErrAt = time.Now()

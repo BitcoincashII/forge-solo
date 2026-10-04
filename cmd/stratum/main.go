@@ -1836,8 +1836,8 @@ func main() {
 			tides := gw != nil && currentPayoutMode() == stats.PayoutModeTides
 			modeSwitch := curJob != nil && curJob.Tides != tides && (!tides || gw.Due(false))
 
-			_, auxPayTo := jobManager.AuxWorkNow()
-			if jobDue(curJob, isNewBlock, needPeriodicUpdate, modeSwitch, tides, jobManager.PayoutAddress(), auxPayTo) {
+			auxWork, auxPayTo := jobManager.AuxWorkNow()
+			if jobDue(curJob, isNewBlock, needPeriodicUpdate, modeSwitch, tides, jobManager.PayoutAddress(), auxWork, auxPayTo) {
 				var job *mining.Job
 				if tides {
 					var keep bool

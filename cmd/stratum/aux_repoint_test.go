@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/BitcoincashII/forge-solo/internal/mining"
 )
@@ -59,6 +60,18 @@ func auxJobManager(t *testing.T) (*mining.JobManager, *auxWorkNode, *httptest.Se
 	return jm, node, srv
 }
 
+func (n *auxWorkNode) setTip(tip string) {
+	n.mu.Lock()
+	n.tip = tip
+	n.mu.Unlock()
+}
+
+// dueNow is the job loop's question between two periodic jobs: is a new one due for jm now?
+func dueNow(jm *mining.JobManager, cur *mining.Job) bool {
+	auxWork, auxPayTo := jm.AuxWorkNow()
+	return jobDue(cur, false, false, false, false, jm.PayoutAddress(), auxWork, auxPayTo)
+}
+
 var auxTestTemplate = &mining.BlockTemplate{Version: 0x20000000, PreviousBlockHash: strings.Repeat("00", 32), Bits: "1902c9b9",
 	Height: 83470, CurTime: 1_700_000_000, CoinbaseValue: 50_0000_0000}
 
@@ -68,10 +81,7 @@ var auxTestTemplate = &mining.BlockTemplate{Version: 0x20000000, PreviousBlockHa
 // that one went out without clean_jobs.
 func TestA1175AddressChangeOnTheDashboardMovesMinersAtOnce(t *testing.T) {
 	jm, _, srv := auxJobManager(t)
-	due := func(cur *mining.Job) bool {
-		_, auxPayTo := jm.AuxWorkNow()
-		return jobDue(cur, false, false, false, false, jm.PayoutAddress(), auxPayTo)
-	}
+	due := func(cur *mining.Job) bool { return dueNow(jm, cur) }
 	jm.EnableMergeMining(srv.URL, "u", "p", "esf1old")
 	job1 := jm.CreateJob(auxTestTemplate)
 	if job1 == nil || job1.AuxWork == nil || job1.AuxPayTo != "esf1old" {
@@ -110,5 +120,37 @@ func TestA1175AddressChangeOnTheDashboardMovesMinersAtOnce(t *testing.T) {
 	}
 	if job3 := jm.CreateJob(auxTestTemplate); job3.AuxWork != nil || !mustDropWork(job2, job3, false) {
 		t.Fatalf("AUX-CLEARED-CLEAN: the next job carries %+v, and clean_jobs=%v", job3.AuxWork, mustDropWork(job2, job3, false))
+	}
+}
+
+// Another miner finds a 1175 block: within about two seconds a job goes out with work on the new
+// 1175 tip, without clean_jobs (the miners' work is still good for BCH2). The work was fetched
+// every 15 s and went out with the next periodic job, so merge mining committed to a dead 1175 tip
+// for up to half a minute after each 1175 block.
+func TestAnother1175BlockMovesMinersToTheNewTip(t *testing.T) {
+	jm, node, srv := auxJobManager(t)
+	jm.EnableMergeMining(srv.URL, "u", "p", "esf1")
+	job1 := jm.CreateJob(auxTestTemplate)
+	if job1.AuxWork == nil || job1.AuxWork.PreviousBlockHash != strings.Repeat("11", 32) {
+		t.Fatalf("AUX-TIP-E2E-SETUP: %+v", job1.AuxWork)
+	}
+	if dueNow(jm, job1) {
+		t.Fatal("AUX-TIP-E2E-SETUP: a job is due with nothing changed")
+	}
+	newTip := strings.Repeat("22", 32)
+	node.setTip(newTip)
+	deadline := time.Now().Add(5 * time.Second)
+	for !dueNow(jm, job1) {
+		if time.Now().After(deadline) {
+			t.Fatal("AUX-TIP-E2E-DUE: 5 s after a new 1175 tip no job is due")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	job2 := jm.CreateJob(auxTestTemplate)
+	if job2.AuxWork == nil || job2.AuxWork.PreviousBlockHash != newTip {
+		t.Fatalf("AUX-TIP-E2E-WORK: the next job's 1175 work is %+v", job2.AuxWork)
+	}
+	if mustDropWork(job1, job2, false) {
+		t.Fatal("AUX-TIP-E2E-NO-CLEAN: a new 1175 tip made miners drop work that is still good for BCH2")
 	}
 }

@@ -23,16 +23,16 @@ func TestAnAddressChangeMovesMinersAtOnce(t *testing.T) {
 	old := &mining.Job{PayTo: a}
 	tidesJob := &mining.Job{Tides: true}
 
-	if !jobDue(old, false, false, false, false, b, "") {
+	if !jobDue(old, false, false, false, false, b, nil, "") {
 		t.Error("PAY3-DUE: a changed address waited for the next periodic job")
 	}
-	if jobDue(old, false, false, false, false, a, "") {
+	if jobDue(old, false, false, false, false, a, nil, "") {
 		t.Error("PAY3-NOT-DUE: a new job every second while nothing changed")
 	}
-	if jobDue(old, false, false, false, true, b, "") || jobDue(tidesJob, false, false, false, false, b, "") {
+	if jobDue(old, false, false, false, true, b, nil, "") || jobDue(tidesJob, false, false, false, false, b, nil, "") {
 		t.Error("PAY3-TIDES-WAITS: in TIDES mode an address change asked the gateway for a job at once")
 	}
-	if !jobDue(old, true, false, false, false, a, "") || !jobDue(old, false, true, false, false, a, "") || !jobDue(old, false, false, true, false, a, "") {
+	if !jobDue(old, true, false, false, false, a, nil, "") || !jobDue(old, false, true, false, false, a, nil, "") || !jobDue(old, false, false, true, false, a, nil, "") {
 		t.Error("PAY3-REASONS: a new block, the periodic job or a mode switch no longer builds a job")
 	}
 
@@ -59,16 +59,16 @@ func TestA1175AddressChangeMovesMinersAtOnce(t *testing.T) {
 	work, fresh := &mergemining.AuxWork{Hash: strings.Repeat("aa", 32)}, &mergemining.AuxWork{Hash: strings.Repeat("bb", 32)}
 	old := &mining.Job{PayTo: a, AuxWork: work, AuxPayTo: "esf1old"}
 
-	if !jobDue(old, false, false, false, false, a, "esf1new") {
+	if !jobDue(old, false, false, false, false, a, work, "esf1new") {
 		t.Error("AUX-PAY3-DUE: a changed 1175 address waited for the next periodic job")
 	}
-	if !jobDue(old, false, false, false, false, a, "") {
+	if !jobDue(old, false, false, false, false, a, nil, "") {
 		t.Error("AUX-PAY3-DUE-CLEARED: a cleared 1175 address waited for the next periodic job")
 	}
-	if jobDue(old, false, false, false, false, a, "esf1old") {
+	if jobDue(old, false, false, false, false, a, work, "esf1old") {
 		t.Error("AUX-PAY3-NOT-DUE: a new job every second while nothing changed")
 	}
-	if jobDue(old, false, false, false, true, a, "esf1new") || jobDue(&mining.Job{Tides: true}, false, false, false, false, a, "esf1new") {
+	if jobDue(old, false, false, false, true, a, fresh, "esf1new") || jobDue(&mining.Job{Tides: true}, false, false, false, false, a, fresh, "esf1new") {
 		t.Error("AUX-PAY3-TIDES-WAITS: in TIDES mode a 1175 address change asked the gateway for a job at once")
 	}
 
@@ -83,6 +83,32 @@ func TestA1175AddressChangeMovesMinersAtOnce(t *testing.T) {
 	}
 	if mustDropWork(&mining.Job{PayTo: a, AuxPayTo: "esf1old"}, &mining.Job{PayTo: a, AuxWork: work, AuxPayTo: "esf1new"}, false) {
 		t.Error("AUX-PAY3-NOTHING-TO-DROP: miners dropped work that carried no 1175 work")
+	}
+}
+
+// 1175 work on a new 1175 tip goes out at once, as does 1175 work coming or going, and miners keep
+// their work. Work refreshed on the same tip waits for the periodic job.
+func TestNew1175WorkOnANewTipGoesOutAtOnce(t *testing.T) {
+	a := testAddr(1)
+	tip1, tip2 := strings.Repeat("a1", 32), strings.Repeat("b2", 32)
+	cur := &mining.Job{PayTo: a, AuxWork: &mergemining.AuxWork{Hash: strings.Repeat("aa", 32), PreviousBlockHash: tip1}, AuxPayTo: "esf1"}
+	next := &mergemining.AuxWork{Hash: strings.Repeat("bb", 32), PreviousBlockHash: tip2}
+	same := &mergemining.AuxWork{Hash: strings.Repeat("cc", 32), PreviousBlockHash: strings.ToUpper(tip1)}
+
+	if !jobDue(cur, false, false, false, false, a, next, "esf1") {
+		t.Error("AUX-TIP-DUE: 1175 work on a new tip waited for the next periodic job")
+	}
+	if jobDue(cur, false, false, false, false, a, same, "esf1") {
+		t.Error("AUX-TIP-SAME: 1175 work refreshed on the same tip made a job at once")
+	}
+	if !jobDue(cur, false, false, false, false, a, nil, "esf1") {
+		t.Error("AUX-WORK-WENT: 1175 work gone stale stayed in the miners' job until the periodic one")
+	}
+	if !jobDue(&mining.Job{PayTo: a, AuxPayTo: "esf1"}, false, false, false, false, a, next, "esf1") {
+		t.Error("AUX-WORK-CAME: the first 1175 work waited for the next periodic job")
+	}
+	if mustDropWork(cur, &mining.Job{PayTo: a, AuxWork: next, AuxPayTo: "esf1"}, false) {
+		t.Error("AUX-TIP-KEEPS-WORK: a new 1175 tip made miners drop work still good for BCH2")
 	}
 }
 

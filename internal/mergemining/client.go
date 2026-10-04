@@ -42,6 +42,9 @@ type rpcResp struct {
 }
 
 func (c *Client) call(method string, params ...any) (json.RawMessage, error) {
+	if params == nil {
+		params = []any{} // "params": [], not null
+	}
 	body, _ := json.Marshal(map[string]any{
 		"jsonrpc": "1.0", "id": "forge-mm", "method": method, "params": params,
 	})
@@ -75,6 +78,19 @@ type RPCError struct {
 
 func (e *RPCError) Error() string {
 	return fmt.Sprintf("%s rpc error %d: %s", e.Method, e.Code, e.Message)
+}
+
+// GetBestBlockHash asks the node for its chain tip: a cheap call, made every second.
+func (c *Client) GetBestBlockHash() (string, error) {
+	res, err := c.call("getbestblockhash")
+	if err != nil {
+		return "", err
+	}
+	var tip string
+	if err := json.Unmarshal(res, &tip); err != nil {
+		return "", fmt.Errorf("getbestblockhash unmarshal: %w", err)
+	}
+	return tip, nil
 }
 
 // BlockConfirmations asks the node for a block's confirmations on its active chain: -1 for a
