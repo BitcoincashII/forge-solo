@@ -40,11 +40,13 @@ esac`
 
 // pgctlStandIn is the bundled pg_ctl.exe: it notes how it was run, and starts a "server" (a
 // postmaster.pid naming process 4242, which signalPostgres stops) in the folder given with -D,
-// unless it is to fail ($FS_PGCTL_EXIT).
+// unless it is to fail ($FS_PGCTL_EXIT). With $FS_PGCTL_GIVES_UP it starts the server and fails, as
+// pg_ctl -w does when it gives up waiting for a server that is still starting.
 const pgctlStandIn = `echo "pg_ctl $*" >> "$FS_CALLS"
 d=; while [ $# -gt 0 ]; do [ "$1" = -D ] && d=$2; shift; done
 [ "${FS_PGCTL_EXIT:-0}" = 0 ] || exit "$FS_PGCTL_EXIT"
-printf '4242\n' > "$d/postmaster.pid"`
+printf '4242\n' > "$d/postmaster.pid"
+[ -z "$FS_PGCTL_GIVES_UP" ] || exit 1`
 
 // moveWorld is an install that ran an earlier version, with a stand-in for every program a start
 // runs: the old data in pgdata (PostgreSQL 16, with a real pg_control), its password in secrets,
@@ -315,12 +317,17 @@ func TestAFailedMoveStillStartsEverything(t *testing.T) {
 		status      int
 		ranPrepare  bool
 		leftRunning bool // the old database could not be stopped
+		serverRan   bool // a server was started, which the failure must stop
 	}{
 		{code: "MOVE-FAIL-NOT-STOPPED", plan: "move", setup: func(t *testing.T) {
 			signalPostgres = func(int, byte) error { return errors.New("no pipe") }
 		}, reason: "the old database did not shut down cleanly", status: codeRefused, ranPrepare: true, leftRunning: true},
 		{code: "MOVE-FAIL-PGCTL", plan: "move", env: map[string]string{"FS_PGCTL_EXIT": "1"},
 			reason: "the old database did not start", status: codeSource},
+		// pg_ctl -t 300 gave up while the server it started was still recovering from a hard stop:
+		// that server is stopped, before its junction is removed.
+		{code: "MOVE-FAIL-PGCTL-GAVE-UP", plan: "move", env: map[string]string{"FS_PGCTL_GIVES_UP": "1"},
+			reason: "the old database did not start", status: codeSource, serverRan: true},
 		{code: "MOVE-FAIL-PREPARE", plan: "move", env: map[string]string{"FS_PREPARE": "20", "FS_RECORDS": "20"},
 			reason: "the migrator says why (20)", status: 20, ranPrepare: true},
 		{code: "MOVE-FAIL-PREPARE-UNRECORDED", plan: "move", env: map[string]string{"FS_PREPARE": "21"},
@@ -359,6 +366,9 @@ func TestAFailedMoveStillStartsEverything(t *testing.T) {
 			}
 			if postmasterPID() != 0 && !c.leftRunning {
 				t.Errorf("%s-PG-STOPPED: the old database was left running", c.code)
+			}
+			if got := callsIn(calls); c.serverRan && count(got, "stop") != 1 {
+				t.Errorf("%s-PG-SIGNALLED: the server pg_ctl started was not stopped: %v", c.code, got)
 			}
 			if got := callsIn(calls); count(got, "migrate prepare") != map[bool]int{false: 0, true: 1}[c.ranPrepare] || count(got, "migrate commit") > 1 {
 				t.Errorf("%s-STEPS: %v", c.code, got)
@@ -488,6 +498,32 @@ func TestAStartThatNeedsNothingClearsAnEarlierStatus(t *testing.T) {
 				t.Errorf("MOVE-STALE-STATUS-TRAY: the tray said %q", tp.all())
 			}
 		})
+	}
+}
+
+// Junctions a move cut short left (Forge Solo ended from Task Manager, a power cut) are removed at
+// the next start, even one that needs no move; what they lead to stays.
+func TestJunctionsLeftFromBeforeAreRemovedAtTheStart(t *testing.T) {
+	moveWorld(t, "move")
+	moved(t, "pg_control-shutdown")
+	pd := folder(t, "ProgramData")
+	t.Setenv("ProgramData", pd)
+	westernCodePage(t, nil)
+	links := filepath.Join(pd, "ForgeSolo", "links", "0123abcd")
+	md(links)
+	for name, target := range map[string]string{"data": dataDir, "app": installDir} {
+		if err := makeJunction(filepath.Join(links, name), target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bootAll(t)
+	if _, err := os.Lstat(links); !os.IsNotExist(err) {
+		t.Errorf("MOVE-LEFT-LINKS-REMOVED: the junctions left from before are still there (%v)", err)
+	}
+	for _, f := range []string{dpath("pgdata", "global", "pg_control"), dbPath(), ipath("api.exe"), ipath(migrateExe)} {
+		if _, err := os.Stat(f); err != nil {
+			t.Errorf("MOVE-LEFT-LINKS-TARGETS-KEPT: removing the junctions took %s with them (%v)", f, err)
+		}
 	}
 }
 
