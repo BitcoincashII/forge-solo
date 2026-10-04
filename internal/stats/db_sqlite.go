@@ -215,6 +215,9 @@ func InitDB(connStr string) error {
 
 // openSQLite opens the database at dbPath as db and makes its tables. When it fails, db is nil.
 func openSQLite(dbPath string) error {
+	if err := createPrivate(dbPath); err != nil {
+		return err
+	}
 	var err error
 	db, err = sql.Open("sqlite", SQLiteDSN(dbPath))
 	if err != nil {
@@ -239,6 +242,21 @@ func openSQLite(dbPath string) error {
 		return fmt.Errorf("failed to create tables: %w", err)
 	}
 	return nil
+}
+
+// createPrivate makes the database file at path, empty and readable by this program's user alone,
+// unless it is there already: it holds the payout address and the settings. SQLite would make it
+// with its default mode under the umask, 0644 under the usual 022 and in the Umbrel app's
+// containers, and it gives the -wal and -shm files beside it the database file's mode.
+func createPrivate(path string) error {
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, os.ErrExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("the database %s cannot be created: %w", path, err)
+	}
+	return f.Close()
 }
 
 func createTables() error {
