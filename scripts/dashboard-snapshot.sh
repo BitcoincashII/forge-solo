@@ -10,10 +10,11 @@
 #   scripts/dashboard-snapshot.sh http://127.0.0.1:3080 after.json             # Windows' dashboard
 #   scripts/dashboard-snapshot.sh http://<api>:8080 before.json --save DIR     # keep the answers too
 #   scripts/dashboard-snapshot.sh --from DIR out.json                          # from kept answers
-#   scripts/dashboard-snapshot.sh --compare before.json after.json             # 0 when they match
+#   scripts/dashboard-snapshot.sh --compare before.json after.json
 #
-# --compare lists the lines that differ. When one of the two was taken on 1.0.12 (only 1.0.13
-# answers password_required), what 1.0.13 shows differently of the same data by design is left out.
+# --compare lists the lines that differ: 0 when none does, 1 when one does, 2 when a file cannot be
+# read. When one of the two was taken on 1.0.12 (only 1.0.13 answers password_required), what 1.0.13
+# shows differently of the same data by design is left out.
 #
 # The miners are those of testdata/migrate/seed-1012.sql unless MINERS names others, as
 # "label=address" pairs separated by spaces; a label is letters, digits and _.
@@ -149,16 +150,17 @@ LINE = re.compile(r'("(?:[^"\\]|\\.)*"): (.*?),?')
 
 # A snapshot's lines by key, each as '"key": value'.
 def lines_of(path):
-    with open(path, encoding="ascii") as f:
+    with open(path, encoding="ascii", errors="replace") as f:
         got = {}
         for l in f.read().split("\n"):
             m = LINE.fullmatch(l)
             if m:
                 got[m.group(1)] = m.group(1) + ": " + m.group(2)
+    if not got:
+        raise ValueError("%s is not a snapshot" % path)
     return got
 
-def compare(before_path, after_path):
-    before, after = lines_of(before_path), lines_of(after_path)
+def compare(before, after):
     pw = '"pool-config.password_required"'
     known = KNOWN_1012 if (pw in before) != (pw in after) else []
     left = differ = 0
@@ -180,12 +182,18 @@ def compare(before_path, after_path):
 
 def main(args):
     if len(args) == 3 and args[0] == "--compare":
-        sys.exit(compare(args[1], args[2]))
+        try:
+            before, after = lines_of(args[1]), lines_of(args[2])
+        except (OSError, ValueError) as e:
+            print("cannot read a snapshot: %s" % e, file=sys.stderr)
+            sys.exit(2)
+        sys.exit(compare(before, after))
     if len(args) == 3 and args[0] == "--from":
         return snapshot(None, args[2], None, args[1])
-    if len(args) == 2 or (len(args) == 4 and args[2] == "--save"):
+    if (len(args) == 2 or (len(args) == 4 and args[2] == "--save")) and args[0].startswith(("http://", "https://")):
         return snapshot(args[0].rstrip("/"), args[1], args[3] if len(args) == 4 else None, None)
-    sys.exit("usage: dashboard-snapshot.sh BASE_URL OUT [--save DIR] | --from DIR OUT | --compare BEFORE AFTER")
+    print("usage: dashboard-snapshot.sh BASE_URL OUT [--save DIR] | --from DIR OUT | --compare BEFORE AFTER", file=sys.stderr)
+    sys.exit(2)
 
 main(sys.argv[1:])
 PY

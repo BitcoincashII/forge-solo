@@ -349,7 +349,7 @@ jobs:
           $got = "$env:RUNNER_TEMP\dashboard.json"
           $failed = $false
           # A payout time a second later, and a miner's payouts shown differently between two 1.0.13
-          # snapshots, must be found.
+          # snapshots, must be found (1); a file that is not a snapshot is an error (2).
           $t = [IO.File]::ReadAllText("$m\dashboard-snapshot.json")
           $later = $t -creplace '("A-solo-payouts\.payouts\.1\.paidAt": "[^"]*)00Z"', '${1}01Z"'
           $payouts = $t -creplace '("A-payouts\.total": )2', '${1}3'
@@ -377,6 +377,8 @@ jobs:
               if ($LASTEXITCODE -ne 1) { Write-Output "::error::$ps in $zone misses a payout time a second later"; $failed = $true }
               & $ps -NoProfile -ExecutionPolicy Bypass -File $snap -Before "$m\dashboard-snapshot.json" -After "$env:RUNNER_TEMP\payouts.json"
               if ($LASTEXITCODE -ne 1) { Write-Output "::error::$ps in $zone misses a change between two 1.0.13 snapshots"; $failed = $true }
+              & $ps -NoProfile -ExecutionPolicy Bypass -File $snap -Before "$m\dashboard\health.json" -After "$m\dashboard-snapshot.json"
+              if ($LASTEXITCODE -ne 2) { Write-Output "::error::$ps in $zone takes a file that is not a snapshot for one"; $failed = $true }
             }
           }
           Set-TimeZone -Id UTC

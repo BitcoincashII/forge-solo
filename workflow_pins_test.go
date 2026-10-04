@@ -391,6 +391,7 @@ func TestSQLiteSwitchIsGuardedInCI(t *testing.T) {
 		"CI-WIN-SNAPSHOT-COMPARE": `-File $snap -Before "$m\dashboard-1012-snapshot.json" -After "$m\dashboard-snapshot.json"`,
 		"CI-WIN-SNAPSHOT-LATER":   `-File $snap -Before "$m\dashboard-1012-snapshot.json" -After "$env:RUNNER_TEMP\later.json"`,
 		"CI-WIN-SNAPSHOT-MISSES":  `-File $snap -Before "$m\dashboard-snapshot.json" -After "$env:RUNNER_TEMP\payouts.json"`,
+		"CI-WIN-SNAPSHOT-ERROR":   "-File $snap -Before \"$m\\dashboard\\health.json\" -After \"$m\\dashboard-snapshot.json\"\nif ($LASTEXITCODE -ne 2)",
 		"CI-WIN-SNAPSHOT-FAILS":   "Set-TimeZone -Id UTC\nif ($failed) { exit 1 }\nexit 0",
 	} {
 		if !strings.Contains(job, want) {

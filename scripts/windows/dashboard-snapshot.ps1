@@ -9,10 +9,11 @@ platform, before an update and after it.
   scripts\windows\dashboard-snapshot.ps1 -Base http://127.0.0.1:3080 -Out after.json
   scripts\windows\dashboard-snapshot.ps1 -Base http://127.0.0.1:3080 -Out before.json -Save answers
   scripts\windows\dashboard-snapshot.ps1 -From answers -Out out.json
-  scripts\windows\dashboard-snapshot.ps1 -Before before.json -After after.json   # 0 when they match
+  scripts\windows\dashboard-snapshot.ps1 -Before before.json -After after.json
 
--Before and -After list the lines that differ. When one of the two was taken on 1.0.12 (only 1.0.13
-answers password_required), what 1.0.13 shows differently of the same data by design is left out.
+-Before and -After list the lines that differ: 0 when none does, 1 when one does, 2 when a file
+cannot be read. When one of the two was taken on 1.0.12 (only 1.0.13 answers password_required),
+what 1.0.13 shows differently of the same data by design is left out.
 
 The miners are those of testdata\migrate\seed-1012.sql unless $env:MINERS names others, as
 "label=address" pairs separated by spaces; a label is letters, digits and _. Windows PowerShell
@@ -45,13 +46,23 @@ function Get-Lines($path) {
         $m = [regex]::Match($l.TrimEnd("`r"), '\A("(?:[^"\\]|\\.)*"): (.*?),?\z')
         if ($m.Success) { $got[$m.Groups[1].Value] = $m.Groups[1].Value + ': ' + $m.Groups[2].Value }
     }
+    if ($got.Count -eq 0) { throw "$path is not a snapshot" }
     return , $got
 }
 
+function Exit-Usage([string]$why) {
+    [Console]::Error.WriteLine($why)
+    exit 2
+}
+
 if ($Before -or $After) {
-    if (-not ($Before -and $After) -or $Base -or $From -or $Out) { throw 'give -Before FILE -After FILE alone' }
-    $b = Get-Lines $Before
-    $a = Get-Lines $After
+    if (-not ($Before -and $After) -or $Base -or $From -or $Out) { Exit-Usage 'give -Before FILE -After FILE alone' }
+    try {
+        $b = Get-Lines $Before
+        $a = Get-Lines $After
+    } catch {
+        Exit-Usage "cannot read a snapshot: $($_.Exception.Message)"
+    }
     $pw = '"pool-config.password_required"'
     $known = @()
     if ($b.ContainsKey($pw) -ne $a.ContainsKey($pw)) { $known = $known1012 }
@@ -84,7 +95,7 @@ if ($Before -or $After) {
     exit 0
 }
 
-if (-not $Out -or (($Base -eq '') -eq ($From -eq ''))) { throw 'give -Base URL or -From DIR, and -Out FILE' }
+if (-not $Out -or (($Base -eq '') -eq ($From -eq ''))) { Exit-Usage 'give -Base URL or -From DIR, and -Out FILE' }
 
 $miners = $env:MINERS
 if (-not $miners) {

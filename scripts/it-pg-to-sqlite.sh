@@ -540,13 +540,20 @@ check "snapshot: times read in UTC to the second, other text as it is" recorded 
 check "snapshot: the kept 1.0.12 and 1.0.13 snapshots compare as the same" \
   compared testdata/migrate/dashboard-1012-snapshot.json testdata/migrate/dashboard-snapshot.json 1.0.12
 # A payout time a second later, and a miner's payouts shown differently between two 1.0.13 snapshots,
-# are differences.
-differs() { ! compared "$1" "$2"; }
+# are differences (1); a file that is not a snapshot is an error (2), never the same or a difference.
+compare_says() { # code BEFORE AFTER
+  local rc=0
+  scripts/dashboard-snapshot.sh --compare "$2" "$3" > "$OUT/compare.log" 2>&1 || rc=$?
+  cat "$OUT/compare.log"
+  equal "$rc" "$1"
+}
 sed 's/^\("A-solo-payouts\.payouts\.1\.paidAt": "[^"]*\)00Z"/\101Z"/' testdata/migrate/dashboard-snapshot.json > "$OUT/later.json"
 sed 's/^\("A-payouts\.total": \)2/\13/' testdata/migrate/dashboard-snapshot.json > "$OUT/payouts.json"
 check "snapshot: a payout time a second later is a difference, after 1.0.12 too" \
-  differs testdata/migrate/dashboard-1012-snapshot.json "$OUT/later.json"
-check "snapshot: between two 1.0.13 snapshots, every line counts" differs testdata/migrate/dashboard-snapshot.json "$OUT/payouts.json"
+  compare_says 1 testdata/migrate/dashboard-1012-snapshot.json "$OUT/later.json"
+check "snapshot: between two 1.0.13 snapshots, every line counts" compare_says 1 testdata/migrate/dashboard-snapshot.json "$OUT/payouts.json"
+check "snapshot: a file that is not a snapshot is an error" compare_says 2 testdata/migrate/dashboard/health.json testdata/migrate/dashboard-snapshot.json
+check "snapshot: a snapshot that is not there is an error" compare_says 2 testdata/migrate/dashboard-snapshot.json "$OUT/none.json"
 
 # ── 13. the marker removed while the app runs ──────────────────────────────────────────────────
 save_settings() {
