@@ -26,7 +26,11 @@ const (
 
 var childParts = map[string]func(db string) int{}
 
+// The SQLite build stores every time in UTC. Its tests, and the other programs they start, run
+// five hours behind UTC, as a PC in the Americas does, so a time stored in the local zone reads
+// five hours off.
 func TestMain(m *testing.M) {
+	time.Local = time.FixedZone("UTC-5", -5*60*60)
 	if part := os.Getenv(childEnv); part != "" {
 		run, ok := childParts[part]
 		if !ok {

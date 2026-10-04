@@ -21,10 +21,11 @@ func epochSecondsExpr(col string) string {
 	return "CAST(strftime('%s', substr(" + col + ", 1, 19)) AS INTEGER)"
 }
 
-// dbTime is t as a query parameter for a timestamp column: UTC text, the form CURRENT_TIMESTAMP
-// writes and epochSecondsExpr reads. A time.Time is stored in a form strftime cannot read.
+// dbTime is t as a query parameter for a timestamp column in the files both builds share:
+// SQLiteTime, the form CURRENT_TIMESTAMP writes and epochSecondsExpr reads. A time.Time is stored
+// in a form strftime cannot read.
 func dbTime(t time.Time) interface{} {
-	return t.UTC().Format("2006-01-02 15:04:05")
+	return SQLiteTime(t)
 }
 
 // Init1175Schema creates the 1175 merge-mining ledger tables.

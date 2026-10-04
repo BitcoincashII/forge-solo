@@ -54,14 +54,19 @@ func GetDBPath() string {
 	return filepath.Join(dir, "forgesolo.db")
 }
 
-// sqliteNow is the current time as SQLite writes its own (CURRENT_TIMESTAMP): UTC, to the
-// second, "YYYY-MM-DD HH:MM:SS". Bound as a time.Time, the driver stored Go's String() form,
-// "2026-10-01 01:45:30.009992576 +0000 UTC m=+0.0058", which SQLite's date functions cannot read:
-// strftime('%s', ...) returned NULL, the scan failed, and the dashboard listed no solo blocks at
-// all. The queries read only the first 19 characters of a stored time, so such a row reads too
-// (as UTC: written by a process in another zone, it is off by that zone's offset).
+// SQLiteTime is t as the SQLite build stores every time: UTC, to the second, "YYYY-MM-DD
+// HH:MM:SS", the form SQLite's own CURRENT_TIMESTAMP writes. Bound as a time.Time, the driver
+// stored Go's String() form in t's own zone, "2026-10-01 01:45:30.009992576 -0500 CDT m=+0.0058",
+// which SQLite's date functions cannot read: strftime('%s', ...) returned NULL, the scan failed,
+// and the dashboard listed no solo blocks at all. The queries read only the first 19 characters
+// of a stored time, as UTC, so such a row reads too, off by its zone's offset.
+func SQLiteTime(t time.Time) string {
+	return t.UTC().Format("2006-01-02 15:04:05")
+}
+
+// sqliteNow is the current time as SQLiteTime stores it.
 func sqliteNow() string {
-	return time.Now().UTC().Format("2006-01-02 15:04:05")
+	return SQLiteTime(time.Now())
 }
 
 // fileExists reports whether a path is present. Used only to adopt a pre-rename database.
@@ -1450,7 +1455,7 @@ func recordBlockRowAt(ex blockRowExecer, height int64, hash, miner string, rewar
 		solo = 1
 	}
 	now := sqliteNow()
-	found := dbTime(foundAt)
+	found := SQLiteTime(foundAt)
 	// Positional placeholders: postgres reuses $2 for hash in both SET and WHERE, so
 	// hash is passed twice here.
 	res, err := ex.Exec(`
@@ -1588,7 +1593,7 @@ func SaveSoloBlockCoinbaseDirectAt(minerID string, blockHeight int64, amount flo
 
 	// ON CONFLICT only overwrites an unpaid/orphaned row (never a genuinely paid one),
 	// so re-records are idempotent. Requires uq_payouts_miner_height.
-	found := dbTime(foundAt)
+	found := SQLiteTime(foundAt)
 	_, err = tx.Exec(`
 		INSERT INTO payouts (miner_address, block_height, amount, confirmed, txid, status, created_at, paid_at)
 		VALUES (?, ?, ?, 1, 'coinbase-direct', 'paid', ?, ?)
