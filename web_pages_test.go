@@ -276,6 +276,27 @@ func TestFiguresUseTheDashboardsUnits(t *testing.T) {
 	}
 }
 
+// The Windows installer opens the miner and rental ports (3333, 3335) to private networks only,
+// and Windows treats a new network as public unless told otherwise, so on Windows the dashboard's
+// connect card and Settings say the network must be Private. Umbrel and Linux have no such rule.
+func TestWindowsSaysTheNetworkMustBePrivate(t *testing.T) {
+	const words = "set its network profile to Private"
+	solo := readWebFile(t, "solo.html")
+	if note := regexp.MustCompile(`<div class="conn-note" id="connPrivateNote" hidden>([^\n]*)</div>`).FindStringSubmatch(solo); note == nil || !strings.Contains(note[1], words) {
+		t.Error("WIN-PRIVATE-DASHBOARD: the connect card has no hidden note that the network must be Private")
+	}
+	if !strings.Contains(readWebFile(t, "js/pool-solo-inline.js"), "if (privateNote) privateNote.hidden = platform !== 'windows';") {
+		t.Error("WIN-PRIVATE-DASHBOARD-SHOWN: the connect card's Private note is not shown on Windows alone")
+	}
+	s := readWebFile(t, "settings.html")
+	if note := regexp.MustCompile(`<p class="note" id="winPrivateNote" style="display:none">([^\n]*)</p>`).FindStringSubmatch(s); note == nil || !strings.Contains(note[1], words) {
+		t.Error("WIN-PRIVATE-SETTINGS: Settings has no hidden note that the network must be Private")
+	}
+	if !strings.Contains(textBetween(s, "function applyConfig(d){", "\n   }"), "getElementById('winPrivateNote').style.display = d.platform === 'windows' ? 'block' : 'none';") {
+		t.Error("WIN-PRIVATE-SETTINGS-SHOWN: Settings' Private note is not shown on Windows alone")
+	}
+}
+
 // Scripts and style sheets go out with no Cache-Control (only the pages are no-cache), so a
 // browser keeps its copy for hours after an update unless the reference changes. Every page
 // names each of them with the same ?v=, so a bump on one page is not missed on another.

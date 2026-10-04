@@ -624,6 +624,9 @@
             if (c.lanIp) lanIp = c.lanIp;
             const local = document.getElementById('connLocal');
             if (local) local.textContent = 'stratum+tcp://' + minerHost() + ':' + (c.stratumPort || 3333);
+            // On Windows the miner and rental ports are open to private networks only.
+            const privateNote = document.getElementById('connPrivateNote');
+            if (privateNote) privateNote.hidden = platform !== 'windows';
 
             // Which port a marketplace should dial. The dedicated rental listener exists to
             // give an aggregated order its own high difficulty floor, but it is not always

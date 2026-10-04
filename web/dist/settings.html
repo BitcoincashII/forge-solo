@@ -96,6 +96,8 @@
     <div class="row"><span class="k"><strong>NiceHash</strong> / <strong>MiningRigRentals</strong></span><span class="v" id="stratumUrlRental">stratum+tcp://…:3335</span></div>
     <div class="row"><span class="k">Worker username</span><span class="v">any label (e.g. rig1)</span></div>
     <div class="row"><span class="k">Password</span><span class="v">x (anything)</span></div>
+    <!-- Windows only: the installer opens the miner and rental ports for private networks. -->
+    <p class="note" id="winPrivateNote" style="display:none">Windows lets miners on your network, and rentals, reach this PC only while it treats your network as <strong>Private</strong>. In Windows Settings, under <strong>Network &amp; internet</strong>, open your connection's properties and set its network profile to Private.</p>
     <p class="note">Because each block pays you directly, there is <strong>no minimum payout and no payout schedule</strong>: nothing accumulates, and nothing is waiting to be sent. A block's reward is spendable after the usual 100-block coinbase maturity.</p>
     <p class="note">The worker <strong>username is only a label</strong> for the stats on this dashboard. All BCH2 block rewards go to the single <strong>payout address you set above</strong>, <em>not</em> to the worker username. <span class="mm">Every share also merge-mines <strong>1175 (ESF)</strong> for free when a 1175 address is set.</span></p>
     <p class="note rental"><strong>Rented hashpower</strong> uses a port that depends on how the marketplace connects. <strong>Braiins</strong> connects each miner <em>individually</em>, so it uses the same port as your own hardware, <strong>3333</strong>, and every connection finds its own difficulty. <strong>NiceHash</strong> and <strong>MiningRigRentals</strong> put the whole order behind one connection, so they use <strong>port 3335</strong>, whose difficulty <em>floor</em> is much higher to suit an aggregated order. That is a floor, not a starting point: a connection on 3335 is never assigned less, so point a single small rig at 3333 instead.</p>
@@ -220,6 +222,7 @@
    function applyConfig(d){
      d=d||{};
      document.body.classList.toggle('no-mm', d.merge_mining_available === false);
+     document.getElementById('winPrivateNote').style.display = d.platform === 'windows' ? 'block' : 'none';
      var pt=PW_TEXT[d.platform];
      if(pt){
        document.getElementById('appPw').placeholder=pt.placeholder;

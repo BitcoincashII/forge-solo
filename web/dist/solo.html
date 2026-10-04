@@ -293,6 +293,9 @@
                     <div class="conn-group">
                         <div class="conn-label" data-i18n="p_solo_conn_own">Your own miners, on this network</div>
                         <code class="conn-value" id="connLocal">&mdash;</code>
+                        <!-- Windows only: the installer opens the miner and rental ports for private
+                             networks, so a network Windows treats as public blocks them. -->
+                        <div class="conn-note" id="connPrivateNote" hidden>Windows lets miners on your network, and rentals, reach this PC only while it treats your network as <strong>Private</strong>. In Windows Settings, under <strong>Network &amp; internet</strong>, open your connection's properties and set its network profile to Private.</div>
                     </div>
 
                     <div class="conn-group" id="connRentalGroup" hidden>
