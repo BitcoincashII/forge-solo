@@ -55,6 +55,22 @@ function Exit-Usage([string]$why) {
     exit 2
 }
 
+# A relative path is taken from PowerShell's current location, as a cmdlet takes it: the .NET
+# calls below would take it from the process's directory, which Set-Location does not move.
+function Resolve-Arg([string]$p) {
+    if (-not $p) { return $p }
+    return $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($p)
+}
+try {
+    $Out = Resolve-Arg $Out
+    $Save = Resolve-Arg $Save
+    $From = Resolve-Arg $From
+    $Before = Resolve-Arg $Before
+    $After = Resolve-Arg $After
+} catch {
+    Exit-Usage "cannot use the path: $($_.Exception.GetBaseException().Message)"
+}
+
 if ($Before -or $After) {
     if (-not ($Before -and $After) -or $Base -or $From -or $Out) { Exit-Usage 'give -Before FILE -After FILE alone' }
     try {

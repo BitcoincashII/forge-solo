@@ -393,9 +393,33 @@ func TestSQLiteSwitchIsGuardedInCI(t *testing.T) {
 		"CI-WIN-SNAPSHOT-MISSES":  `-File $snap -Before "$m\dashboard-snapshot.json" -After "$env:RUNNER_TEMP\payouts.json"`,
 		"CI-WIN-SNAPSHOT-ERROR":   "-File $snap -Before \"$m\\dashboard\\health.json\" -After \"$m\\dashboard-snapshot.json\"\nif ($LASTEXITCODE -ne 2)",
 		"CI-WIN-SNAPSHOT-FAILS":   "Set-TimeZone -Id UTC\nif ($failed) { exit 1 }\nexit 0",
+		// Run from a prompt, the .ps1 runs in the session, whose location is not the process's
+		// directory: every relative path must be taken from the location.
+		"CI-WIN-SNAPSHOT-HERE-LOCATION": "Set-Location $here\n" +
+			`if ([Environment]::CurrentDirectory -eq $here) { Write-Output "::error::the process's directory is $here too: this proves nothing"; exit 1 }`,
+		"CI-WIN-SNAPSHOT-HERE-SAVE":  `& $snap -Base "http://127.0.0.1:$port" -Out before.json -Save answers`,
+		"CI-WIN-SNAPSHOT-HERE-OUT":   `if (-not (Same "$here\before.json")) { Write-Output "::error::-Out before.json wrote no snapshot of the kept answers in the location"; $failed = $true }`,
+		"CI-WIN-SNAPSHOT-HERE-SAVED": `if (-not (Test-Path -LiteralPath "$here\answers\health.json")) { Write-Output "::error::-Save answers kept no answers in the location"; $failed = $true }`,
+		"CI-WIN-SNAPSHOT-HERE-FROM": "& $snap -From answers -Out again.json\n} catch {\n" +
+			`Write-Output "::error::-From answers -Out again.json failed in the session: $_"; $failed = $true` + "\n}\n" +
+			`if (-not (Same "$here\again.json")) { Write-Output "::error::-From answers did not read the saved answers as the kept snapshot"; $failed = $true }`,
+		"CI-WIN-SNAPSHOT-HERE-BEFORE": "& $snap -Before before.json -After $kept\n" +
+			`if ($LASTEXITCODE -ne 0) { Write-Output "::error::-Before before.json gave $LASTEXITCODE in the session, not 0"; $failed = $true }`,
+		"CI-WIN-SNAPSHOT-HERE-AFTER": "& $snap -Before $kept -After again.json\n" +
+			`if ($LASTEXITCODE -ne 0) { Write-Output "::error::-After again.json gave $LASTEXITCODE in the session, not 0"; $failed = $true }`,
+		"CI-WIN-SNAPSHOT-HERE-NODRIVE": `& $snap -Before nodrive:\before.json -After $kept` + "\n} catch {\n" +
+			`Write-Output "::error::-Before on a drive that is not there failed in the session: $_"; $failed = $true` + "\n}\n" +
+			`if ($LASTEXITCODE -ne 2) { Write-Output "::error::-Before on a drive that is not there gave $LASTEXITCODE in the session, not 2"; $failed = $true }`,
+		"CI-WIN-SNAPSHOT-HERE-FAILS": "$listener.Stop()\nif ($failed) { exit 1 }\nexit 0",
 	} {
 		if !strings.Contains(job, want) {
 			t.Errorf("%s: the windows-native job lacks:\n%s", code, want)
+		}
+	}
+	// In the session of Windows PowerShell 5.1, which every Windows 10 and 11 PC has.
+	for _, s := range win.Steps {
+		if strings.Contains(s.Run, `& $snap -Base "http://127.0.0.1:$port" -Out before.json -Save answers`) && s.Shell != "powershell" {
+			t.Errorf("CI-WIN-SNAPSHOT-HERE-SHELL: the run in the session has shell %q, not powershell", s.Shell)
 		}
 	}
 	for _, s := range win.Steps {
