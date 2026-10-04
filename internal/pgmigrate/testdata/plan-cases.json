@@ -1,0 +1,33 @@
+{
+  "about": "What a start does about an earlier version's PostgreSQL data: the cases of pgmigrate.Plan, which the Windows launcher's fast path must decide the same way. Each case lays out files under an empty folder; the database is data/forgesolo.db and the old data pgdata. want is Plan's action.",
+  "contents": "A file's content is the text given, or: @<fixture> the bytes of testdata/<fixture>; @flip:<fixture> those bytes with byte 100 changed (a checksum that no longer holds); @marker:<content> a postgres-migrated.json whose pg_control_sha256 is the SHA-256 of that content.",
+  "unreadable": "Files and folders made unreadable (mode 0000). Such a case is only run where that keeps the file from being read: not on Windows and not as root.",
+  "cases": [
+    {"name": "a fresh install: no old data", "files": {}, "want": "none"},
+    {"name": "a fresh install with an empty old-data folder", "files": {"pgdata/.keep": ""}, "want": "none"},
+    {"name": "the old data without PG_VERSION", "files": {"pgdata/global/pg_control": "@pg_control-shutdown"}, "want": "none"},
+    {"name": "an earlier version's data and no database", "files": {"pgdata/PG_VERSION": "16\n", "pgdata/global/pg_control": "@pg_control-shutdown"}, "want": "move"},
+    {"name": "an earlier version's data left running or after a crash, no database", "files": {"pgdata/PG_VERSION": "16\n", "pgdata/global/pg_control": "@pg_control-inproduction"}, "want": "move"},
+    {"name": "moved, and the old data unchanged since", "files": {"data/forgesolo.db": "", "data/postgres-migrated.json": "@marker:@pg_control-shutdown", "pgdata/PG_VERSION": "16\n", "pgdata/global/pg_control": "@pg_control-shutdown"}, "want": "none"},
+    {"name": "moved, then 1.0.12 ran on the old data again", "files": {"data/forgesolo.db": "", "data/postgres-migrated.json": "@marker:@pg_control-shutdown", "pgdata/PG_VERSION": "16\n", "pgdata/global/pg_control": "@pg_control-shutdown-2"}, "want": "merge"},
+    {"name": "moved, then 1.0.12 started on the old data and is running or crashed", "files": {"data/forgesolo.db": "", "data/postgres-migrated.json": "@marker:@pg_control-shutdown", "pgdata/PG_VERSION": "16\n", "pgdata/global/pg_control": "@pg_control-inproduction"}, "want": "merge"},
+    {"name": "moved, then pg_control deleted", "files": {"data/forgesolo.db": "", "data/postgres-migrated.json": "@marker:@pg_control-shutdown", "pgdata/PG_VERSION": "16\n"}, "want": "degraded"},
+    {"name": "moved, then the whole global folder deleted", "files": {"data/forgesolo.db": "", "data/postgres-migrated.json": "@marker:@pg_control-shutdown", "pgdata/PG_VERSION": "16\n", "pgdata/base/.keep": ""}, "want": "degraded"},
+    {"name": "moved, pg_control cut short", "files": {"data/forgesolo.db": "", "data/postgres-migrated.json": "@marker:@pg_control-shutdown", "pgdata/PG_VERSION": "16\n", "pgdata/global/pg_control": "garbage"}, "want": "degraded"},
+    {"name": "moved, pg_control damaged", "files": {"data/forgesolo.db": "", "data/postgres-migrated.json": "@marker:@pg_control-shutdown", "pgdata/PG_VERSION": "16\n", "pgdata/global/pg_control": "@flip:pg_control-shutdown"}, "want": "degraded"},
+    {"name": "moved, PG_VERSION damaged", "files": {"data/forgesolo.db": "", "data/postgres-migrated.json": "@marker:@pg_control-shutdown", "pgdata/PG_VERSION": "garbage", "pgdata/global/pg_control": "@pg_control-shutdown"}, "want": "degraded"},
+    {"name": "moved, pg_control unreadable", "files": {"data/forgesolo.db": "", "data/postgres-migrated.json": "@marker:@pg_control-shutdown", "pgdata/PG_VERSION": "16\n", "pgdata/global/pg_control": "@pg_control-shutdown"}, "unreadable": ["pgdata/global/pg_control"], "want": "degraded"},
+    {"name": "moved, PG_VERSION unreadable", "files": {"data/forgesolo.db": "", "data/postgres-migrated.json": "@marker:@pg_control-shutdown", "pgdata/PG_VERSION": "16\n", "pgdata/global/pg_control": "@pg_control-shutdown"}, "unreadable": ["pgdata/PG_VERSION"], "want": "degraded"},
+    {"name": "moved, the old-data folder unreadable", "files": {"data/forgesolo.db": "", "data/postgres-migrated.json": "@marker:@pg_control-shutdown", "pgdata/PG_VERSION": "16\n", "pgdata/global/pg_control": "@pg_control-shutdown"}, "unreadable": ["pgdata"], "want": "degraded"},
+    {"name": "moved, the marker garbled, the old data intact", "files": {"data/forgesolo.db": "", "data/postgres-migrated.json": "{\"pg_control", "pgdata/PG_VERSION": "16\n", "pgdata/global/pg_control": "@pg_control-shutdown"}, "want": "merge"},
+    {"name": "moved, the old data deleted", "files": {"data/forgesolo.db": "", "data/postgres-migrated.json": "@marker:@pg_control-shutdown"}, "want": "none"},
+    {"name": "a database without a marker: a move cut short after its rename, or a skip taken back", "files": {"data/forgesolo.db": "", "pgdata/PG_VERSION": "16\n", "pgdata/global/pg_control": "@pg_control-shutdown"}, "want": "merge"},
+    {"name": "a marker without a database: the database deleted", "files": {"data/postgres-migrated.json": "@marker:@pg_control-shutdown", "pgdata/PG_VERSION": "16\n", "pgdata/global/pg_control": "@pg_control-shutdown"}, "want": "move"},
+    {"name": "PostgreSQL 15 data, no database", "files": {"pgdata/PG_VERSION": "15\n"}, "want": "failed"},
+    {"name": "PostgreSQL 15 data beside a database without a marker", "files": {"data/forgesolo.db": "", "pgdata/PG_VERSION": "15\n"}, "want": "failed"},
+    {"name": "PG_VERSION unreadable before any move", "files": {"pgdata/PG_VERSION": "16\n", "pgdata/global/pg_control": "@pg_control-shutdown"}, "unreadable": ["pgdata/PG_VERSION"], "want": "failed"},
+    {"name": "started without the old data", "files": {"data/SKIP-POSTGRES-MIGRATION": "", "pgdata/PG_VERSION": "16\n", "pgdata/global/pg_control": "@pg_control-shutdown"}, "want": "skipped"},
+    {"name": "started without the old data, which is damaged", "files": {"data/SKIP-POSTGRES-MIGRATION": "", "data/forgesolo.db": "", "pgdata/PG_VERSION": "garbage"}, "want": "skipped"},
+    {"name": "the skip file with no old data", "files": {"data/SKIP-POSTGRES-MIGRATION": ""}, "want": "skipped"}
+  ]
+}

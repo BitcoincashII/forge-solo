@@ -150,7 +150,7 @@ func mergeInto(t *testing.T, src Source, db string) (*Prepared, error) {
 // before it returns.
 func query(t *testing.T, path, q string, args ...any) []string {
 	t.Helper()
-	db, err := sql.Open("sqlite", path+"?_pragma=query_only(1)")
+	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(10000)&_pragma=query_only(1)")
 	if err != nil {
 		t.Fatal(err)
 	}

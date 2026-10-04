@@ -1,0 +1,8 @@
+{
+  "state": "failed",
+  "code": 20,
+  "reason": "the copy of the old data did not check out",
+  "detail": "blocks: 14 rows in PostgreSQL, 14 read, 14 written, 13 in the new database",
+  "at": "2026-10-04T01:02:08Z",
+  "version": "1.0.13"
+}

@@ -11,12 +11,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/BitcoincashII/forge-solo/internal/dblock"
+	"github.com/BitcoincashII/forge-solo/internal/migstatus"
 	"github.com/BitcoincashII/forge-solo/internal/stats"
 )
 
@@ -487,27 +487,10 @@ func finish(ctx context.Context, t *sql.DB, path string) error {
 	if err := f.Sync(); err != nil {
 		return newErr(CodeWrite, "the new database could not be synced", err)
 	}
-	if err := syncDir(filepath.Dir(path)); err != nil {
+	if err := migstatus.SyncDir(filepath.Dir(path)); err != nil {
 		return newErr(CodeWrite, "the new database could not be synced", err)
 	}
 	return nil
-}
-
-// syncDir makes a new file or a rename in dir durable. Windows has no such call for a folder, and
-// its renames are durable once they return.
-func syncDir(dir string) error {
-	if runtime.GOOS == "windows" {
-		return nil
-	}
-	d, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	err = d.Sync()
-	if cerr := d.Close(); err == nil {
-		err = cerr
-	}
-	return err
 }
 
 // migratingFiles are the files of a prepare's copy.
