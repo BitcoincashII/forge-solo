@@ -1,5 +1,6 @@
-; Forge Solo: single-exe Windows installer. Bundles the launcher, stratum/api services,
-; BCH2 + 1175 nodes, portable PostgreSQL, and the dashboard. Per-user install (no admin).
+; Forge Solo: single-exe Windows installer. Bundles the launcher, the stratum and api services, the
+; migrator, the BCH2 + 1175 nodes and the dashboard, and PostgreSQL only for an account that has data
+; of 1.0.12 or before to move (HasOldData). Per-user install (no admin).
 #define MyAppName "Forge Solo"
 ; Overridable from the command line so CI can stamp the tag it is building:
 ;   iscc /DMyAppVersion=1.0.10 forge-solo.iss
