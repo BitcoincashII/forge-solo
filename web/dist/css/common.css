@@ -553,7 +553,7 @@ table tr:hover {
     display: none;
 }
 
-/* Offline Banner */
+/* Offline Banner: ConnectionStatus (common.js) shows it by its display alone. */
 .offline-banner {
     position: fixed;
     top: 0;
@@ -563,15 +563,10 @@ table tr:hover {
     color: #fff;
     padding: var(--spacing-sm);
     text-align: center;
+    justify-content: center;
     font-size: 14px;
     font-weight: 500;
     z-index: 1000;
-    transform: translateY(-100%);
-    transition: transform var(--transition-normal);
-}
-
-.offline-banner.show {
-    transform: translateY(0);
 }
 
 /* Last Updated Indicator */

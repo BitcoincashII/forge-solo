@@ -109,6 +109,30 @@ func TestDashboardKeepsTheContainersSidePadding(t *testing.T) {
 	}
 }
 
+// The "lost its network connection" banner was switched to display:flex but stayed translated
+// above the top of the window, for a .show class nothing ever added, so it was never seen.
+func TestOfflineBannerComesIntoView(t *testing.T) {
+	if !strings.Contains(readWebFile(t, "js/common.js"), "banner.style.display = this.isOnline ? 'none' : 'flex';") {
+		t.Error("OFFLINE-TOGGLE: ConnectionStatus no longer shows the banner by its display")
+	}
+	found := false
+	for _, r := range cssRules(readWebFile(t, "css/common.css")) {
+		if !hasSelector(r, ".offline-banner") {
+			continue
+		}
+		found = true
+		if strings.Contains(r.body, "translate") || declares(r.body, "visibility", "hidden") || declares(r.body, "opacity", "0") {
+			t.Errorf("OFFLINE-OFFSCREEN: .offline-banner {%s} keeps the banner out of sight when it is shown", strings.TrimSpace(r.body))
+		}
+		if !declares(r.body, "justify-content", "center") {
+			t.Errorf("OFFLINE-CENTRED: the banner is a flex box, so its text is centred by justify-content")
+		}
+	}
+	if !found {
+		t.Error("OFFLINE-OFFSCREEN: common.css has no .offline-banner rule")
+	}
+}
+
 // Scripts and style sheets go out with no Cache-Control (only the pages are no-cache), so a
 // browser keeps its copy for hours after an update unless the reference changes. Every page
 // names each of them with the same ?v=, so a bump on one page is not missed on another.
