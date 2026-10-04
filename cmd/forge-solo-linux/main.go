@@ -40,7 +40,7 @@ Usage:
       ordinary user: it needs no root.
   sudo forge-solo install-service [--web HOST:PORT]
       Install this release to /opt/forge-solo as a systemd service, data in /var/lib/forge-solo.
-      Run it again from a newer release to upgrade; the data is kept.
+      Run it again from a newer release to upgrade; the data and the dashboard address are kept.
   sudo forge-solo uninstall-service
       Stop and remove the service (the program and the data stay).
   forge-solo cli [--data-dir DIR] COMMAND...
@@ -55,8 +55,8 @@ Options:
                     password: user forge, DASHBOARD_PASSWORD from secrets.env in the data directory.
                     Saving a change in Settings asks for that password wherever the dashboard listens.
   --reindex         rebuild the node's chain state from the blocks on disk, at this start only.
-                    Forge Solo does this by itself, once a run, when the node stops with "Error
-                    opening block database" or "Corrupted block database detected"
+                    Forge Solo does this by itself, once in a run, when the node stops with
+                    "Error opening block database" or "Corrupted block database detected"
 
 Miners connect to port 3333 (NiceHash and MiningRigRentals: 3335); BCH2 peers to 8339.
 `
@@ -304,7 +304,7 @@ func rootRefusal(d rootOwned) error {
 	if you == "" || you == "root" {
 		you = "YOUR-ACCOUNT"
 	}
-	makeYours := fmt.Sprintf("  To run it as your own account instead, make it yours, then run it without sudo: sudo chown -R %s: %s", you, d.dir)
+	makeYours := fmt.Sprintf("  To run it as your own account instead, without sudo, first make it yours: sudo chown -R %s: %s", you, d.dir)
 	installed := filepath.Join(serviceDir, "forge-solo")
 	var hints []string
 	switch {
