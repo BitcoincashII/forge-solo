@@ -89,6 +89,26 @@ func TestHeaderNavIsNeverHidden(t *testing.T) {
 	}
 }
 
+// The dashboard's content sits in <div class="container dashboard">: .container gives it its
+// side padding, and a padding shorthand on .dashboard, later on the page, took it away, so below
+// 1200 px the cards touched the window's edges while the header kept its padding.
+func TestDashboardKeepsTheContainersSidePadding(t *testing.T) {
+	s := readWebFile(t, "solo.html")
+	if !strings.Contains(s, `class="container dashboard"`) {
+		t.Fatal("PAD-MARKUP: the dashboard's content is no longer in a .container")
+	}
+	style := regexp.MustCompile(`(?s)<style>(.*?)</style>`).FindStringSubmatch(s)
+	if style == nil {
+		t.Fatal("PAD-MARKUP: solo.html has no <style>")
+	}
+	side := regexp.MustCompile(`(?:^|;)\s*padding(?:-left|-right|-inline)?\s*:`)
+	for _, r := range cssRules(style[1]) {
+		if hasSelector(r, ".dashboard") && side.MatchString(r.body) {
+			t.Errorf("PAD-SIDES: .dashboard sets {%s}, which overrides .container's side padding", r.body)
+		}
+	}
+}
+
 // Scripts and style sheets go out with no Cache-Control (only the pages are no-cache), so a
 // browser keeps its copy for hours after an update unless the reference changes. Every page
 // names each of them with the same ?v=, so a bump on one page is not missed on another.
