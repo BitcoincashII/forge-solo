@@ -1278,8 +1278,10 @@ func (s *Server) handleMessage(client *Client, data []byte) bool {
 		resp, auth := s.authorize(client, &req)
 		// Send auth response FIRST
 		s.sendResponse(client, resp)
-		// Then send difficulty and job
-		if resp.Result == true {
+		// Then the difficulty and the job, on the connection's first login or when this one changed
+		// the difficulty. A repeat is answered alone: re-sending the whole job each time let one
+		// short line make the stratum upload a job, as often as a client cared to send it.
+		if resp.Result == true && auth.sendWork {
 			s.sendCurrentDifficulty(client)
 			if job := s.currentJob.Load(); job != nil {
 				// Send initial job with clean=true so miner starts fresh
@@ -1659,6 +1661,9 @@ func shortAddress(addr string) string {
 // authorized is what an accepted mining.authorize set, read while the client's lock was held.
 type authorized struct {
 	minerID string
+	// sendWork: the connection's first login, or one that changed its difficulty. Either is
+	// followed by the difficulty and the current job.
+	sendWork bool
 }
 
 func (s *Server) handleAuthorize(client *Client, req *Request) *Response {
@@ -1819,6 +1824,7 @@ func (s *Server) authorize(client *Client, req *Request) (*Response, authorized)
 		}
 		client.workerNames[nameKey] = struct{}{}
 	}
+	wasAuthorized, diffBefore := client.Authorized, client.Difficulty
 	client.Authorized = true
 	client.MinerID = minerID
 	client.WorkerName = workerName
@@ -1946,7 +1952,10 @@ func (s *Server) authorize(client *Client, req *Request) (*Response, authorized)
 			zap.Float64("difficulty", difficulty))
 	}
 
-	return &Response{ID: req.ID, Result: true}, authorized{minerID: minerID}
+	return &Response{ID: req.ID, Result: true}, authorized{
+		minerID:  minerID,
+		sendWork: !wasAuthorized || difficulty != diffBefore,
+	}
 }
 
 // parsePasswordDiffHint extracts a fixed difficulty from the stratum password field.
