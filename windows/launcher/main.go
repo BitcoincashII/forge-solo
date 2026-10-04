@@ -342,30 +342,51 @@ func main() {
 	md(dataDir)
 	restrictDataDir(dataDir)
 	rotateLog(dpath("launcher.log"), launcherLogLimit)
-	// Read before the tray starts, so its menu never sees them half loaded. Then the loopback
-	// ports, collision-proof, before any service binds.
-	startErr := setupSecrets()
-	if startErr == nil {
-		startErr = assignPorts()
-	}
-	if startErr != nil {
-		logf("Forge Solo cannot start: %v", startErr)
-	} else {
-		logf("Forge Solo starting: database %s, BCH2 node %s (notices %s), 1175 node %s, miner stats %s, dashboard data %s",
-			pgPort, bch2RPC, bch2ZMQ, aux1175RPC, stratumInt, apiPort)
+	// Read before the tray starts, so its menu never sees them half loaded.
+	if prepErr = prepare(); prepErr != nil {
+		logf("Forge Solo cannot start: %v", prepErr)
 	}
 	go watchTray(exe)
 	// No exit callback: the tray calls it as it removes its icon, and the stop is shutdown's.
-	systray.Run(func() { onReady(startErr) }, nil)
+	systray.Run(onReady, nil)
 	// The tray's loop ended without Quit (Windows closed its window): stop everything and exit.
 	shutdown()
 }
 
-func onReady(startErr error) {
+// prepErr is why Forge Solo could not get ready to start; Try Again prepares again. It is read and
+// written before the tray starts, and then only on the tray menu's loop.
+var prepErr error
+
+// prepare reads secrets.env, making what it lacks, and then picks the loopback ports,
+// collision-proof, before any service binds.
+func prepare() error {
+	sec = secrets{}
+	if err := setupSecrets(); err != nil {
+		return err
+	}
+	if err := assignPorts(); err != nil {
+		return err
+	}
+	logf("Forge Solo starting: database %s, BCH2 node %s (notices %s), 1175 node %s, miner stats %s, dashboard data %s",
+		pgPort, bch2RPC, bch2ZMQ, aux1175RPC, stratumInt, apiPort)
+	return nil
+}
+
+func onReady() {
 	close(trayReady)
 	systray.SetIcon(trayIcon)
 	systray.SetTitle("Forge Solo")
 	systray.SetTooltip("Forge Solo: starting…")
+	// Shown only after a start that failed, or a dashboard another program's port kept closed.
+	mRetry := systray.AddMenuItem("Try Again", "Start Forge Solo again")
+	mRetry.Hide()
+	showTryAgain = func(show bool) {
+		if show {
+			mRetry.Show()
+		} else {
+			mRetry.Hide()
+		}
+	}
 	mOpen := systray.AddMenuItem("Open Dashboard", "")
 	mCopyPw := systray.AddMenuItem(copyPwTitle, "Copy the password the Settings page asks for")
 	mRestart := systray.AddMenuItem("Restart Mining", "Restart the miner")
@@ -373,14 +394,16 @@ func onReady(startErr error) {
 	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("Quit Forge Solo", "")
 	watchSessionEnd()
-	if startErr != nil {
-		systray.SetTooltip(trimTip("Forge Solo cannot start: " + startErr.Error()))
+	if prepErr != nil {
+		startFailed(failTip(prepErr.Error(), tryAgainTip))
 	} else {
 		go boot()
 	}
 	go func() {
 		for {
 			select {
+			case <-mRetry.ClickedCh:
+				tryAgain()
 			case <-mOpen.ClickedCh:
 				openBrowser("http://127.0.0.1:" + webPort)
 			case <-mCopyPw.ClickedCh:

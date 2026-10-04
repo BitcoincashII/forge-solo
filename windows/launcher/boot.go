@@ -357,9 +357,9 @@ func boot() {
 	if err := checkPublicPorts(); err != nil {
 		logf("Forge Solo cannot start: %v", err)
 		if err.reserved {
-			status(trimTip("Forge Solo cannot start: " + err.why() + " (see launcher.log)."))
+			startFailed(failTip(err.why(), reservedTip))
 		} else {
-			status(trimTip("Forge Solo cannot start: " + err.why() + ". Close it, then start Forge Solo again."))
+			startFailed(failTip(err.why(), closeItTip))
 		}
 		return
 	}
@@ -370,7 +370,7 @@ func boot() {
 			return
 		}
 		logf("the database did not start (see pglog.txt)")
-		status("Forge Solo: the database did not start (see launcher.log and pglog.txt in the data folder)")
+		startFailed(failTip("the database did not start (see launcher.log and pglog.txt)", tryAgainTip))
 		return
 	}
 	logf("database started")
@@ -419,12 +419,13 @@ var (
 
 // openDashboard serves the dashboard and opens it in the browser. Its port is fixed, so another
 // program may hold it: the dashboard then cannot open, the browser would show that program, and
-// the tray says so instead. Mining goes on.
+// the tray says so instead, with Try Again. Mining goes on.
 func openDashboard() {
 	l, err := listenExclusive("tcp", "127.0.0.1:"+webPort)
 	if err != nil {
 		logf("the dashboard cannot open: another program uses port %s (%v)", webPort, err)
-		status("Forge Solo: another program uses port " + webPort + ", so the dashboard cannot open. Close it, then restart Forge Solo.")
+		status("Forge Solo: another program uses port " + webPort + ", so the dashboard cannot open." + closeItTip)
+		offerTryAgain(retryDashboard)
 		return
 	}
 	dashboard = l
