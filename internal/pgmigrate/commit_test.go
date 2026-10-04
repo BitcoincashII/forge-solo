@@ -150,7 +150,10 @@ func mergeSetup(t *testing.T, db, pgdata string) *MemSource {
 		pgBlock(first, h, hashOf(h, "a"), addrA, "confirmed", at(1, 0, int(h), 0, 0))
 	}
 	moveAndCommit(t, first, db, pgdata)
-	in(t, db, func() { must(t, stats.SaveSoloBlockCoinbaseDirect(addrA, 300, 3.125, hashOf(300, "a"))) })
+	// At a fixed time: two setups compared with each other must not differ by the clock.
+	in(t, db, func() {
+		must(t, stats.SaveSoloBlockCoinbaseDirectAt(addrA, 300, 3.125, hashOf(300, "a"), at(2, 0, 0, 0, 0)))
+	})
 	second := emptyPG()
 	for h := int64(1); h <= 8; h++ {
 		pgBlock(second, h, hashOf(h, "a"), addrA, "confirmed", at(1, 0, int(h), 0, 0))
