@@ -163,13 +163,7 @@ func TestDashboardTellsAStartingNodeFromOneNotAnswering(t *testing.T) {
 	if i, j, k := strings.Index(js, startHead), strings.Index(js, downHead), strings.Index(js, "} else if (!minerAddress) {"); i < 0 || j < i || k < j {
 		t.Errorf("NODE-JS-ORDER: the starting (%d) and not-answering (%d) branches must come before the synced ones (%d)", i, j, k)
 	}
-	advice := ""
-	if i := strings.Index(js, "function nodeDownAdvice() {"); i >= 0 {
-		advice = js[i:]
-		if j := strings.Index(advice, "\n        }\n"); j >= 0 {
-			advice = advice[:j]
-		}
-	}
+	advice := textBetween(js, "function nodeDownAdvice() {", "\n        }\n")
 	for _, p := range []string{"'windows'", "'linux'", "'umbrel'", "launcher.log", "--reindex"} {
 		if !strings.Contains(advice, p) {
 			t.Errorf("NODE-JS-ADVICE: nodeDownAdvice() has nothing for %s", p)
@@ -177,6 +171,53 @@ func TestDashboardTellsAStartingNodeFromOneNotAnswering(t *testing.T) {
 	}
 	if !strings.Contains(js, "const t = nodeState === 'syncing' ? 'syncing…' : '--';") {
 		t.Errorf("NODE-JS-TILES: the network tiles say syncing for a node that is not syncing")
+	}
+}
+
+// textBetween is src from head up to the first end after it; "" when head is not there.
+func textBetween(src, head, end string) string {
+	i := strings.Index(src, head)
+	if i < 0 {
+		return ""
+	}
+	s := src[i:]
+	if j := strings.Index(s, end); j >= 0 {
+		return s[:j]
+	}
+	return s
+}
+
+// Settings read every answer as JSON. While the API was down or being restarted, the dashboard's
+// server answered a save with an empty 502 (nginx: an HTML one), and the page showed "Error:
+// SyntaxError: ... Unexpected end of JSON input" without saying whether anything was saved.
+func TestSettingsSaysWhenForgeSoloDidNotAnswer(t *testing.T) {
+	unchecked := regexp.MustCompile(`function\s*\(r\)\s*\{\s*return\s+r\.json\(\)\s*;?\s*\}`)
+	for _, page := range []string{"settings.html", "tides.html"} {
+		if m := unchecked.FindString(readWebFile(t, page)); m != "" {
+			t.Errorf("SAVE-UNCHECKED-JSON: %s reads an answer as JSON without looking at it first: %s", page, m)
+		}
+	}
+	s := readWebFile(t, "settings.html")
+	// The page's reads take only the API's own JSON answer; a 503 with an error is no config.
+	if !strings.Contains(textBetween(s, "function readJSON(url){", "\n   }"), "if(r.ok && d && typeof d==='object') return d;") {
+		t.Error("SAVE-READ-CHECKED: readJSON takes an answer that is not a successful one")
+	}
+	if strings.Contains(s, "String(e)") {
+		t.Error("SAVE-RAW-ERROR: Settings shows a JavaScript error as it is")
+	}
+	save := textBetween(s, "fetch('/api/v1/pool/config',{method:'POST'", "function notAnswered(")
+	for _, want := range []string{"jsonOrNull(r)", "function(){ return {status:0, d:null}; }", "st.textContent=notAnswered(a.status);"} {
+		if !strings.Contains(save, want) {
+			t.Errorf("SAVE-NOT-ANSWERED: the save no longer has %q", want)
+		}
+	}
+	na := textBetween(s, "function notAnswered(status){", "\n   }")
+	if !strings.Contains(na, "if(status===0||status===502||status===503){") || !strings.Contains(na, "so nothing was saved") || !strings.Contains(na, "may or may not have gone through") {
+		t.Errorf("SAVE-NOT-ANSWERED-TEXT: only a request that never reached the API is said to have saved nothing: %s", na)
+	}
+	// The API's own 5xx (its database is not answering) keeps what the user typed: no re-read.
+	if b := branchAfter(s, "} else if(a.status>=500){"); b == "" || strings.Contains(b, "loadConfig") {
+		t.Errorf("SAVE-5XX-KEEPS: a save the API could not make must leave the entries in the boxes: %q", b)
 	}
 }
 

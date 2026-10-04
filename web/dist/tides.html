@@ -101,7 +101,7 @@
 </main>
 <script src="/js/common.js?v=20261003b"></script>
 <script>
- fetch('/api/v1/pool/config').then(function(r){return r.json()}).then(function(d){
+ fetch('/api/v1/pool/config').then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(d){
    document.body.classList.toggle('no-mm', d.merge_mining_available === false);
  }).catch(function(){});
 </script>

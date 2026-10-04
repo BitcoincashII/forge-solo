@@ -121,22 +121,34 @@
    // machine's network address from /connectivity is shown. The marketplace port is the stratum's
    // rental listener; where there is none (the Windows build) marketplaces use 3333 too.
    var host=window.location.hostname||'your-node', rentalPort=3335;
+   // The API's JSON answer, or null where there is none: the empty 502 the dashboard's own server
+   // sends while the API is down or restarting, nginx's HTML 502 or 504 page on Umbrel.
+   function jsonOrNull(r){ return r.json().catch(function(){ return null; }); }
+   // A read for this page. Anything but the API's own JSON answer is a failure, with the API's
+   // error text when it sent one.
+   function readJSON(url){
+     return fetch(url).then(function(r){
+       return jsonOrNull(r).then(function(d){
+         if(r.ok && d && typeof d==='object') return d;
+         var e=new Error('HTTP '+r.status); e.apiError=(d && typeof d.error==='string') ? d.error : ''; throw e;
+       });
+     });
+   }
    function showStratumUrls(){
      document.getElementById('stratumUrl').textContent='stratum+tcp://'+host+':3333';
      document.getElementById('stratumUrlRental').textContent='stratum+tcp://'+host+':'+rentalPort;
    }
    showStratumUrls();
    if(host==='localhost'||host==='[::1]'||host==='::1'||/^127\./.test(host)){
-     fetch('/api/v1/connectivity').then(function(r){return r.json()}).then(function(c){
-       if(c&&c.lanIp){ host=c.lanIp; showStratumUrls(); }
+     readJSON('/api/v1/connectivity').then(function(c){
+       if(c.lanIp){ host=c.lanIp; showStratumUrls(); }
      }).catch(function(){});
    }
-   fetch('/api/v1/mining-status').then(function(r){return r.json()}).then(function(m){
-     if(m&&m.rental_port===0){ rentalPort=3333; document.body.classList.add('no-rental'); showStratumUrls(); }
+   readJSON('/api/v1/mining-status').then(function(m){
+     if(m.rental_port===0){ rentalPort=3333; document.body.classList.add('no-rental'); showStratumUrls(); }
    }).catch(function(){});
 
-   fetch('/api/v1/stats')
-     .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+   readJSON('/api/v1/stats')
      .then(function(d){
        if(d.networkDifficulty!=null) document.getElementById('netDiff').textContent=Number(d.networkDifficulty).toLocaleString();
        if(d.hashrate!=null) document.getElementById('poolHr').textContent=d.hashrate;
@@ -180,8 +192,7 @@
    // switch the mode: a save waits for them.
    var configLoaded=false;
    function loadConfig(){
-     return fetch('/api/v1/pool/config')
-       .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+     return readJSON('/api/v1/pool/config')
        .then(function(d){
          document.getElementById('apiDownBanner').style.display='none';
          applyConfig(d);
@@ -234,9 +245,9 @@
    // a fresh install starts mining BCH2 while the 1175 node is still syncing, so aux work
    // can fail indefinitely. Showing the address alone told those users they were earning.
    function refreshMergeMiningHealth(){
-     fetch('/api/v1/mining-status').then(function(r){return r.json()}).then(function(ms){
+     readJSON('/api/v1/mining-status').then(function(ms){
        var es=document.getElementById('esfStatus');
-       if(!ms||!ms.merge_mining||ms.merge_mining==='off') return;
+       if(!ms.merge_mining||ms.merge_mining==='off') return;
        if(ms.merge_mining==='ok'){ es.className='v'; return; }
        es.className='v mm-off';
        var why = ms.merge_mining==='never_worked'
@@ -286,7 +297,17 @@
        headers['X-Forge-Password']=pw;
      }
      fetch('/api/v1/pool/config',{method:'POST',headers:headers,body:JSON.stringify(body)})
-       .then(function(r){return r.json()}).then(function(d){
+       .then(function(r){ return jsonOrNull(r).then(function(d){ return {status:r.status, d:d}; }); },
+             function(){ return {status:0, d:null}; })
+       .then(function(a){
+         var d=a.d;
+         if(!d || typeof d!=='object'){
+           // No answer from the API itself, so what the user typed stays in the boxes.
+           st.className='status err'; st.textContent=notAnswered(a.status);
+           return;
+         }
+         // The API's text, ending in one full stop, for the messages below to follow.
+         var why=String(d.error||'failed').replace(/[\s.]*$/,'')+'.';
          if(d.success){
            if(pw) rememberPw(pw);
            st.className='status ok'; st.textContent=d.message||'Saved';
@@ -307,16 +328,31 @@
            askForPw();
            st.className='status err'; st.textContent=msg;
            document.getElementById('appPw').focus();
+         } else if(a.status>=500){
+           // The API could not save (its database is not answering, say) and says why. What the
+           // user typed stays in the boxes, for the same save to be made again.
+           st.className='status err';
+           st.textContent='Error: '+why+(/nothing was (saved|changed)/i.test(why)?'':' Nothing was saved.')+' Your entries are still here.';
          } else {
-           st.className='status err'; st.textContent='Error: '+(d.error||'failed')+'. Nothing was saved; the fields below have been reset to what is stored.';
+           st.className='status err'; st.textContent='Error: '+why+' Nothing was saved; the fields below have been reset to what is stored.';
            // Re-pull on failure too. The save is all-or-nothing across all three fields, so
            // a user who corrected their BCH2 address and mistyped the optional ESF address
            // got an ESF-only error while the corrected address sat in its input looking
            // saved -- and every block kept paying the old one.
            loadConfig();
          }
-       }).catch(function(e){ st.className='status err'; st.textContent='Error: '+String(e); });
+       });
    });
+
+   // A save that got no answer from the API itself. A 502 or 503 comes from the server in front
+   // of it while it is down or restarting, and a request that failed outright never reached it:
+   // nothing was saved. Anything else (a 504 after a timeout) may have reached it.
+   function notAnswered(status){
+     if(status===0||status===502||status===503){
+       return 'Forge Solo is not answering right now (it may be restarting), so nothing was saved. Your entries are still here: press Save again in a minute.';
+     }
+     return 'Forge Solo did not answer '+(status===504?'in time':'properly (HTTP '+status+')')+', so this save may or may not have gone through. Reload Settings in a minute to see what is stored.';
+   }
    document.getElementById('appPw').addEventListener('keydown', function(e){
      if(e.key==='Enter') document.getElementById('saveBtn').click();
    });
