@@ -86,18 +86,14 @@ func runLoud(name string, args ...string) error {
 
 // installService copies this release to /opt/forge-solo, creates the forge-solo system user and
 // /var/lib/forge-solo, and installs, enables and (re)starts the systemd service. Run again from
-// a newer release, it upgrades in place and keeps the data. It succeeds only once the service is
-// serving its dashboard.
+// a newer release, it upgrades in place and keeps the data and the dashboard address. It succeeds
+// only once the service is serving its dashboard.
 func installService(args []string) error {
-	fs := flag.NewFlagSet("install-service", flag.ContinueOnError)
-	web := fs.String("web", defaultWeb, "dashboard address, host:port; anything but 127.0.0.1 asks for a password")
-	if err := fs.Parse(args); err != nil {
+	web, given, err := parseInstallFlags(args)
+	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
-		return err
-	}
-	if err := checkWebAddr(*web); err != nil {
 		return err
 	}
 	if err := checkKernel(getrandom(), kernelRelease()); err != nil {
@@ -118,55 +114,93 @@ func installService(args []string) error {
 	if err := checkRelease(src); err != nil {
 		return err
 	}
+	return install(systemHost{src: src}, os.Stdout, web, given)
+}
+
+// parseInstallFlags reads install-service's flags: the dashboard address, and whether --web gave it.
+func parseInstallFlags(args []string) (web string, given bool, err error) {
+	fs := flag.NewFlagSet("install-service", flag.ContinueOnError)
+	fs.StringVar(&web, "web", defaultWeb, "dashboard address, host:port; anything but 127.0.0.1 asks for a password")
+	if err := fs.Parse(args); err != nil {
+		return "", false, err
+	}
+	fs.Visit(func(f *flag.Flag) { given = given || f.Name == "web" })
+	return web, given, checkWebAddr(web)
+}
+
+// host is the machine install-service works on (the tests stand in another).
+type host interface {
+	unit() (text string, installed bool) // the service's unit file, if it is installed
+	active() bool                        // the service is running
+	systemctl(args ...string) error
+	checkPorts(web string) (left []int, err error) // checkInstallPorts
+	copyRelease() error                            // the release to /opt/forge-solo
+	ensureUser() error
+	ensureData() error
+	writeUnit(text string) error
+	waitServing(web string) error // waitServiceServing
+	journalTail()
+	firewallHint(web string)
+}
+
+// install installs, or upgrades, the service on h, and reports to out. web is the dashboard
+// address; when --web did not give it, the installed service keeps its own.
+func install(h host, out io.Writer, web string, given bool) error {
+	oldUnit, installed := h.unit()
+	old := ""
+	if installed {
+		old = unitWeb(oldUnit)
+	}
+	web, note := chooseWeb(web, given, old)
+	if note != "" {
+		fmt.Fprintln(out, note)
+	}
 
 	// Stop the service first: its files are about to be replaced, and it holds the ports. Also
 	// when it is not running: one waiting to be started again would start in the middle of this.
-	if _, err := os.Stat(unitPath); err == nil {
-		if exec.Command("systemctl", "is-active", "--quiet", serviceName).Run() == nil {
-			fmt.Println("Stopping the running Forge Solo service…")
+	if installed {
+		if h.active() {
+			fmt.Fprintln(out, "Stopping the running Forge Solo service…")
 		}
-		if err := runLoud("systemctl", "stop", serviceName); err != nil {
+		if err := h.systemctl("stop", serviceName); err != nil {
 			return err
 		}
 	}
 	// Whatever holds Forge Solo's ports now is not the service, and the service would fail to
 	// start beside it. Most often it is a Forge Solo started by hand.
-	left, err := checkInstallPorts(*web)
+	left, err := h.checkPorts(web)
 	if err != nil {
 		return err
 	}
 	for _, port := range left {
-		fmt.Printf("Note: %s.\n", leftOutNote(port))
+		fmt.Fprintf(out, "Note: %s.\n", leftOutNote(port))
 	}
-	if filepath.Clean(src) != serviceDir {
-		fmt.Printf("Installing %s to %s…\n", src, serviceDir)
-		if err := replaceDir(src, serviceDir); err != nil {
-			return err
-		}
-	}
-	if err := ensureServiceUser(); err != nil {
+	if err := h.copyRelease(); err != nil {
 		return err
 	}
-	if err := ensureDataDir(serviceData, serviceUser); err != nil {
+	if err := h.ensureUser(); err != nil {
 		return err
 	}
-	if err := writeFileAtomic(unitPath, []byte(unitFile(*web)), 0o644); err != nil {
+	if err := h.ensureData(); err != nil {
+		return err
+	}
+	if err := h.writeUnit(unitFile(web)); err != nil {
 		return err
 	}
 	for _, a := range [][]string{{"daemon-reload"}, {"enable", serviceName}} {
-		if err := runLoud("systemctl", a...); err != nil {
+		if err := h.systemctl(a...); err != nil {
 			return err
 		}
 	}
-	if err := runLoud("systemctl", "restart", serviceName); err != nil {
-		journalTail()
+	if err := h.systemctl("restart", serviceName); err != nil {
+		h.journalTail()
 		return fmt.Errorf("the %s service could not be started (%v). Its last log lines are above: fix what they say, then run install-service again", serviceName, err)
 	}
-	if err := waitServiceServing(*web, serviceState, serviceStartWait); err != nil {
-		journalTail()
+	if err := h.waitServing(web); err != nil {
+		h.journalTail()
 		return fmt.Errorf("%v. Its last log lines are above: fix what they say, then run install-service again", err)
 	}
-	fmt.Printf(`
+	fmt.Fprintf(out, `
 Forge Solo is installed and running as the %[1]s service.
 
   Dashboard:  http://%[2]s
@@ -174,15 +208,87 @@ Forge Solo is installed and running as the %[1]s service.
   Data:       %[5]s
   Logs:       journalctl -u %[1]s -f   and %[5]s/logs/
   Stop/start: sudo systemctl stop %[1]s  /  sudo systemctl start %[1]s
-`, serviceName, *web, stratumPort, rentalPort, serviceData)
-	fmt.Printf("  Settings:   saving a change asks for DASHBOARD_PASSWORD in %s/secrets.env\n", serviceData)
-	if webNeedsPassword(*web) {
-		fmt.Printf("  Password:   user forge, DASHBOARD_PASSWORD in %s/secrets.env\n", serviceData)
+`, serviceName, web, stratumPort, rentalPort, serviceData)
+	fmt.Fprintf(out, "  Settings:   saving a change asks for DASHBOARD_PASSWORD in %s/secrets.env\n", serviceData)
+	if webNeedsPassword(web) {
+		fmt.Fprintf(out, "  Password:   user forge, DASHBOARD_PASSWORD in %s/secrets.env\n", serviceData)
 	} else {
-		fmt.Printf("  From another computer: ssh -L 3080:%s user@this-machine, then open http://127.0.0.1:3080\n", *web)
+		fmt.Fprintf(out, "  From another computer: ssh -L 3080:%s user@this-machine, then open http://127.0.0.1:3080\n", web)
 	}
-	firewallHint(*web)
+	h.firewallHint(web)
 	return nil
+}
+
+// unitWeb is the --web address in a unit file's ExecStart line: "" if it has none.
+func unitWeb(unit string) string {
+	for _, line := range strings.Split(unit, "\n") {
+		cmd, ok := strings.CutPrefix(strings.TrimSpace(line), "ExecStart=")
+		if !ok {
+			continue
+		}
+		f := strings.Fields(cmd)
+		for i, a := range f {
+			if a == "--web" && i+1 < len(f) {
+				return f[i+1]
+			}
+			if w, ok := strings.CutPrefix(a, "--web="); ok {
+				return w
+			}
+		}
+	}
+	return ""
+}
+
+// chooseWeb is the dashboard address the service gets, and what to say about it: the one --web
+// gave, else the installed service's own (old), else the default. An upgrade used to move a
+// dashboard served to the network back to 127.0.0.1, and the network lost it.
+func chooseWeb(web string, given bool, old string) (string, string) {
+	switch {
+	case old == "":
+		return web, ""
+	case checkWebAddr(old) != nil:
+		if given {
+			return web, ""
+		}
+		return web, fmt.Sprintf("Dashboard address: %s (the installed service's %q is not a host:port).", web, old)
+	case !given:
+		return old, fmt.Sprintf("Dashboard address: %s, kept from the installed service (give --web to change it).", old)
+	case web != old:
+		return web, fmt.Sprintf("Dashboard address: %s, changed from %s.", web, old)
+	}
+	return web, ""
+}
+
+// systemHost is this machine; src is the release being installed.
+type systemHost struct{ src string }
+
+func (systemHost) unit() (string, bool) {
+	b, err := os.ReadFile(unitPath)
+	return string(b), err == nil
+}
+
+func (systemHost) active() bool {
+	return exec.Command("systemctl", "is-active", "--quiet", serviceName).Run() == nil
+}
+
+func (systemHost) systemctl(args ...string) error       { return runLoud("systemctl", args...) }
+func (systemHost) checkPorts(web string) ([]int, error) { return checkInstallPorts(web) }
+func (systemHost) ensureUser() error                    { return ensureServiceUser() }
+func (systemHost) ensureData() error                    { return ensureDataDir(serviceData, serviceUser) }
+func (systemHost) writeUnit(text string) error          { return writeFileAtomic(unitPath, []byte(text), 0o644) }
+func (systemHost) journalTail()                         { journalTail() }
+func (systemHost) firewallHint(web string)              { firewallHint(web) }
+
+func (systemHost) waitServing(web string) error {
+	return waitServiceServing(web, serviceState, serviceStartWait)
+}
+
+func (h systemHost) copyRelease() error {
+	if filepath.Clean(h.src) == serviceDir {
+		return nil
+	}
+	fmt.Printf("Installing %s to %s…\n", h.src, serviceDir)
+	return replaceDir(h.src, serviceDir)
 }
 
 // foregroundHint follows a port that is taken when the service is about to be installed.

@@ -82,8 +82,8 @@ the service's dashboard, with the password from `sudo cat /var/lib/forge-solo/se
 
 - Logs: `journalctl -u forge-solo -f`, and `/var/lib/forge-solo/logs/`
 - Stop and start: `sudo systemctl stop forge-solo`, `sudo systemctl start forge-solo`
-- Upgrade: unpack the new release and run `sudo ./forge-solo install-service` from it. The data
-  and your settings are kept.
+- Upgrade: unpack the new release and run `sudo ./forge-solo install-service` from it. The data,
+  your settings and the dashboard address (`--web`) are kept.
 - Remove: `sudo /opt/forge-solo/forge-solo uninstall-service`. It stops and removes the service
   and says how to delete the program and the data if you want to.
 
@@ -114,6 +114,8 @@ To serve it to your network directly instead, give it an address:
 `./forge-solo --web 0.0.0.0:3080` (or `sudo ./forge-solo install-service --web 0.0.0.0:3080`).
 It then asks for a password: the user is `forge`, and the password is `DASHBOARD_PASSWORD` in
 `secrets.env` in the data directory. It is plain HTTP, so do this only on a network you trust.
+The service keeps that address when you run install-service again; `--web 127.0.0.1:3080` takes
+it back to this machine only.
 
 ## Ports
 
