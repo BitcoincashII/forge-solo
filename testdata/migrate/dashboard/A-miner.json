@@ -1,0 +1,2 @@
+HTTP 200
+{"address":"bitcoincashii:qzs6rgdp5xs6rgdp5xs6rgdp5xs6rgdp5yc72xjxq2","athDiff":0,"balance":16.66666667,"balanceKnown":true,"bestDiff":0,"currentHeight":0,"hashrate5m":0,"hashrate60m":0,"immatureBalance":16.66666667,"invalidShares":0,"lastShare":"0001-01-01T00:00:00Z","matureBalance":0,"onlineWorkers":0,"paid":0,"roundShares":0,"soloMining":true,"totalWork":0,"validShares":0,"workers":0}

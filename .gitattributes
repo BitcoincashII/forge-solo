@@ -1,0 +1,2 @@
+# Compared byte for byte on every platform, Windows too: never converted to CRLF on checkout.
+testdata/migrate/** -text

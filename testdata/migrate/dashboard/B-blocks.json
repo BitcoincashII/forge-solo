@@ -1,0 +1,2 @@
+HTTP 200
+{"blocks":[{"coin":"BCH2","height":99000,"is_paid":false,"reward":1e-8,"share_pct":2e-8,"time":1784556000}],"total":1}

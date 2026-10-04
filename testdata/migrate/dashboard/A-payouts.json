@@ -1,0 +1,2 @@
+HTTP 200
+{"address":"bitcoincashii:qzs6rgdp5xs6rgdp5xs6rgdp5xs6rgdp5yc72xjxq2","payouts":[{"amount":465.63104905,"blocks":149,"confirmed":true,"paidAt":"2026-09-16T17:20:00Z","status":"","txid":"coinbase-direct"},{"amount":6.25012345,"blocks":2,"confirmed":false,"paidAt":"2026-09-16T15:40:00Z","status":"","txid":"orphaned"}],"total":2,"totalPaid":465.63104905}

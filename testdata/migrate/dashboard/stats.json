@@ -1,0 +1,2 @@
+HTTP 200
+{"bestBlockHash":"","blocksFound":152,"blocksPending":0,"currentHeight":0,"hashrate":"0 H/s","hashrateRaw":0,"luck":1,"minPayout":0,"miners":0,"networkDifficulty":0,"networkHashrate":0,"poolFee":0,"rentals":{"mrr":0,"nicehash":0,"other":0,"total":0},"soloFee":0,"uptime":"18.839777757s","workers":0}
