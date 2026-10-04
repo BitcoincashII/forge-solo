@@ -170,6 +170,22 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 scripts/check-store-manifest.py
 
+  images-public:
+    name: Every pinned image pulls without a login
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # GitHub makes a package private when it is first published, and an Umbrel cannot log in to
+      # pull: every install of the release, and every update to it, would fail. The release's re-pin
+      # starts this run on main, which stays red here until each new package is public; the store is
+      # synced only after that (README, "Releasing"). A registry that cannot be reached fails it too.
+      - name: Fetch each pinned image's manifest without credentials
+        run: scripts/check-images-public.sh
+
   windows:
     name: Windows launcher and installer
     runs-on: ubuntu-latest
