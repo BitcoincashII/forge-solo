@@ -257,28 +257,32 @@ func TestProbeHost(t *testing.T) {
 }
 
 // Before installing, a port held by anything but the (stopped) service is named, with what to
-// do when it is a Forge Solo started by hand.
+// do when it is a Forge Solo started by hand: when it is one of the ports Forge Solo listens on.
 func TestCheckInstallPortsNamesAForegroundCopy(t *testing.T) {
+	usePublicPorts(t, -1) // the public ports free: only the dashboard address is taken
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer l.Close()
 	_, err = checkInstallPorts(l.Addr().String())
-	if err == nil {
-		t.Fatal("INSTALL-PORTS: no error with the dashboard address taken")
+	if err == nil || !strings.Contains(err.Error(), l.Addr().String()) {
+		t.Fatalf("INSTALL-PORTS: the error does not name the dashboard address: %v", err)
 	}
-	if !strings.Contains(err.Error(), "started yourself") || !strings.Contains(err.Error(), "not carried over") {
-		t.Errorf("INSTALL-FOREGROUND: the error does not say to stop a Forge Solo started by hand: %v", err)
-	}
-	saved := publicPorts
-	t.Cleanup(func() { publicPorts = saved })
-	publicPorts = publicPorts[:0:0] // the public ports free: only the dashboard address is taken
-	if _, err := checkInstallPorts(l.Addr().String()); err == nil || !strings.Contains(err.Error(), l.Addr().String()) {
-		t.Errorf("INSTALL-PORTS: the error does not name the dashboard address: %v", err)
+	if strings.Contains(err.Error(), "started yourself") || !strings.Contains(err.Error(), "--web") {
+		t.Errorf("INSTALL-HINT-OTHER: a port Forge Solo does not use was taken for a Forge Solo started by hand: %v", err)
 	}
 	if _, err := checkInstallPorts("127.0.0.1:0"); err != nil {
 		t.Errorf("INSTALL-PORTS: free ports refused: %v", err)
+	}
+
+	// The dashboard's own port: a Forge Solo started by hand may be holding it.
+	web := "127.0.0.1:" + portOf(defaultWeb)
+	if l, err := net.Listen("tcp", web); err == nil { // else something here holds it already
+		defer l.Close()
+	}
+	if err := checkDashboardAddr(web); err == nil || !strings.Contains(err.Error(), "started yourself") || !strings.Contains(err.Error(), "not carried over") {
+		t.Errorf("INSTALL-HINT-3080: with %s taken, the error does not say to stop a Forge Solo started by hand: %v", web, err)
 	}
 
 	// A public port taken, the dashboard address free.

@@ -74,7 +74,8 @@ sudo ./forge-solo install-service
 This copies the program to `/opt/forge-solo`, creates a `forge-solo` system user, keeps the data
 in `/var/lib/forge-solo`, and starts the `forge-solo` service now and at every boot. It finishes
 once the service is serving its dashboard; if the service cannot start, it shows the service's
-last log lines and exits with an error.
+last log lines and exits with an error. If something else stops it, such as another program on
+the dashboard's address, a service that was running is left running, or started again.
 
 The service has its own data directory: the payout address and settings you saved in a copy you
 started yourself (kept in `~/.local/share/forge-solo`) are not carried over. Save them again on

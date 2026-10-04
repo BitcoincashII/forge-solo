@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"io"
 	"strings"
 	"testing"
 )
@@ -35,6 +37,7 @@ func (h *fakeHost) systemctl(args ...string) error {
 	return err
 }
 func (h *fakeHost) checkPorts(web string) ([]int, error) { return nil, h.step("ports " + web) }
+func (h *fakeHost) checkWeb(web string) error            { return h.step("web " + web) }
 func (h *fakeHost) copyRelease() error                   { return h.step("copy") }
 func (h *fakeHost) ensureUser() error                    { return h.step("user") }
 func (h *fakeHost) ensureData() error                    { return h.step("data") }
@@ -109,6 +112,89 @@ func TestUnitWeb(t *testing.T) {
 	// One that is not an address gives way to the default, and is named.
 	if web, note := chooseWeb(defaultWeb, false, "nonsense"); web != defaultWeb || !strings.Contains(note, "nonsense") {
 		t.Errorf("UNIT-WEB-BAD: %q %q", web, note)
+	}
+}
+
+var errTest = errors.New("test failure")
+
+// What can fail is checked while the service still runs: install-service used to stop it first,
+// then fail on another program's port, and leave it stopped.
+func TestInstallChecksBeforeStopping(t *testing.T) {
+	// A new dashboard port another program holds.
+	h := &fakeHost{unitText: unitFile(defaultWeb), running: true, fail: map[string]error{"web 0.0.0.0:8080": errTest}}
+	var out strings.Builder
+	if err := install(h, &out, "0.0.0.0:8080", true); !errors.Is(err, errTest) {
+		t.Errorf("STOP-PRECHECK-ERR: %v", err)
+	}
+	if h.did("systemctl stop forge-solo") || !h.running {
+		t.Errorf("STOP-PRECHECK: the service was stopped before the dashboard address was checked: %q", h.calls)
+	}
+	if strings.Contains(out.String(), "changed") {
+		t.Errorf("STOP-PRECHECK-NOTE: a change that was refused was announced:\n%s", out.String())
+	}
+
+	// The same port as now: the running service's own, checked once it has stopped.
+	h = &fakeHost{unitText: unitFile(defaultWeb), running: true}
+	if err := install(h, io.Discard, "0.0.0.0:3080", true); err != nil || h.did("web 0.0.0.0:3080") {
+		t.Errorf("STOP-PRECHECK-OWN-PORT: the service's own port was checked while it held it: %v %q", err, h.calls)
+	}
+
+	// The service user cannot be made.
+	h = &fakeHost{unitText: unitFile(defaultWeb), running: true, fail: map[string]error{"user": errTest}}
+	if err := install(h, io.Discard, defaultWeb, false); !errors.Is(err, errTest) || h.did("systemctl stop forge-solo") {
+		t.Errorf("STOP-PRECHECK-USER: %v, calls %q", err, h.calls)
+	}
+
+	// A service that is not running holds no port: all of them are checked first.
+	h = &fakeHost{unitText: unitFile(defaultWeb), fail: map[string]error{"ports " + defaultWeb: errTest}}
+	if err := install(h, io.Discard, defaultWeb, false); !errors.Is(err, errTest) || h.did("systemctl stop forge-solo") {
+		t.Errorf("STOP-PRECHECK-STOPPED: %v, calls %q", err, h.calls)
+	}
+}
+
+// A failure after install-service stopped the service starts it again, at the address its unit
+// has, and says so; if it does not run again, the error says it is stopped and how to start it.
+func TestInstallStartsTheServiceAgainAfterAFailure(t *testing.T) {
+	for _, step := range []string{"ports 0.0.0.0:3080", "copy", "data", "unit", "systemctl daemon-reload", "systemctl enable forge-solo"} {
+		h := &fakeHost{unitText: unitFile("0.0.0.0:3080"), running: true, fail: map[string]error{step: errTest}}
+		err := install(h, io.Discard, defaultWeb, false)
+		if !errors.Is(err, errTest) {
+			t.Errorf("STOP-RESTORE-CAUSE: %s failed: %v", step, err)
+		}
+		if !h.did("systemctl start forge-solo") || !h.running || !h.did("serving 0.0.0.0:3080") {
+			t.Errorf("STOP-RESTORE: %s failed and the service was not started again: %q", step, h.calls)
+		}
+		if err == nil || !strings.Contains(err.Error(), "has been started again") {
+			t.Errorf("STOP-RESTORE-SAID: %s failed: %v", step, err)
+		}
+	}
+
+	// Where the unit serves: the old address until the new unit is written.
+	h := &fakeHost{unitText: unitFile("0.0.0.0:3080"), running: true, fail: map[string]error{"copy": errTest}}
+	_ = install(h, io.Discard, "127.0.0.1:8080", true)
+	if !h.did("serving 0.0.0.0:3080") {
+		t.Errorf("STOP-RESTORE-ADDR: the service started again was looked for elsewhere: %q", h.calls)
+	}
+
+	// It does not start, or does not serve.
+	for _, also := range []string{"systemctl start forge-solo", "serving 0.0.0.0:3080"} {
+		h := &fakeHost{unitText: unitFile("0.0.0.0:3080"), running: true, fail: map[string]error{"copy": errTest, also: errors.New("no")}}
+		err := install(h, io.Discard, defaultWeb, false)
+		if err == nil || !strings.Contains(err.Error(), "is stopped") || !strings.Contains(err.Error(), "sudo systemctl start forge-solo") {
+			t.Errorf("STOP-RESTORE-FAILED: %s also failed: %v", also, err)
+		}
+	}
+
+	// A service that was not running is left as it was.
+	h = &fakeHost{unitText: unitFile(defaultWeb), fail: map[string]error{"copy": errTest}}
+	if err := install(h, io.Discard, defaultWeb, false); !errors.Is(err, errTest) || h.did("systemctl start forge-solo") {
+		t.Errorf("STOP-NOT-RUNNING: %v, calls %q", err, h.calls)
+	}
+
+	// Once the new service is being started, what fails is its own: its log is shown.
+	h = &fakeHost{unitText: unitFile(defaultWeb), running: true, fail: map[string]error{"systemctl restart forge-solo": errTest}}
+	if err := install(h, io.Discard, defaultWeb, false); err == nil || h.did("systemctl start forge-solo") || !h.did("journal") {
+		t.Errorf("STOP-NEW-SERVICE: %v, calls %q", err, h.calls)
 	}
 }
 

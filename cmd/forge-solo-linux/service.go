@@ -134,6 +134,7 @@ type host interface {
 	active() bool                        // the service is running
 	systemctl(args ...string) error
 	checkPorts(web string) (left []int, err error) // checkInstallPorts
+	checkWeb(web string) error                     // checkDashboardAddr
 	copyRelease() error                            // the release to /opt/forge-solo
 	ensureUser() error
 	ensureData() error
@@ -145,25 +146,58 @@ type host interface {
 
 // install installs, or upgrades, the service on h, and reports to out. web is the dashboard
 // address; when --web did not give it, the installed service keeps its own.
-func install(h host, out io.Writer, web string, given bool) error {
+//
+// What can fail is checked while a running service still runs. If something fails after install
+// has stopped it, it is started again: install used to leave it stopped, and mining with it,
+// without a word.
+func install(h host, out io.Writer, web string, given bool) (err error) {
 	oldUnit, installed := h.unit()
 	old := ""
 	if installed {
 		old = unitWeb(oldUnit)
 	}
 	web, note := chooseWeb(web, given, old)
+	running := installed && h.active()
+	servedAt := old // where the installed unit serves its dashboard
+	if checkWebAddr(servedAt) != nil {
+		servedAt = defaultWeb
+	}
+
+	// A running service holds Forge Solo's ports and its dashboard's: only a new dashboard port
+	// can be checked before it stops. One that is not running holds none.
+	switch {
+	case !running:
+		if _, err := h.checkPorts(web); err != nil {
+			return err
+		}
+	case portOf(web) != portOf(servedAt):
+		if err := h.checkWeb(web); err != nil {
+			return err
+		}
+	}
+	if err := h.ensureUser(); err != nil {
+		return err
+	}
 	if note != "" {
 		fmt.Fprintln(out, note)
 	}
 
 	// Stop the service first: its files are about to be replaced, and it holds the ports. Also
 	// when it is not running: one waiting to be started again would start in the middle of this.
+	restarting := false // from then on a failure is the new service's own
 	if installed {
-		if h.active() {
+		if running {
 			fmt.Fprintln(out, "Stopping the running Forge Solo service…")
 		}
 		if err := h.systemctl("stop", serviceName); err != nil {
 			return err
+		}
+		if running {
+			defer func() {
+				if err != nil && !restarting {
+					err = startAgain(h, servedAt, err)
+				}
+			}()
 		}
 	}
 	// Whatever holds Forge Solo's ports now is not the service, and the service would fail to
@@ -178,20 +212,19 @@ func install(h host, out io.Writer, web string, given bool) error {
 	if err := h.copyRelease(); err != nil {
 		return err
 	}
-	if err := h.ensureUser(); err != nil {
-		return err
-	}
 	if err := h.ensureData(); err != nil {
 		return err
 	}
 	if err := h.writeUnit(unitFile(web)); err != nil {
 		return err
 	}
+	servedAt = web
 	for _, a := range [][]string{{"daemon-reload"}, {"enable", serviceName}} {
 		if err := h.systemctl(a...); err != nil {
 			return err
 		}
 	}
+	restarting = true
 	if err := h.systemctl("restart", serviceName); err != nil {
 		h.journalTail()
 		return fmt.Errorf("the %s service could not be started (%v). Its last log lines are above: fix what they say, then run install-service again", serviceName, err)
@@ -217,6 +250,22 @@ Forge Solo is installed and running as the %[1]s service.
 	}
 	h.firewallHint(web)
 	return nil
+}
+
+// startAgain starts the service install stopped before it failed with cause, and adds to cause
+// whether it runs again: web is where the installed unit serves its dashboard.
+func startAgain(h host, web string, cause error) error {
+	if h.systemctl("start", serviceName) == nil && h.waitServing(web) == nil {
+		return fmt.Errorf("%w\nThe %s service has been started again", cause, serviceName)
+	}
+	return fmt.Errorf("%w\nThe %s service is stopped, so Forge Solo is not mining. Start it again with: sudo systemctl start %s",
+		cause, serviceName, serviceName)
+}
+
+// portOf is the port of a host:port address.
+func portOf(addr string) string {
+	_, port, _ := net.SplitHostPort(addr)
+	return port
 }
 
 // unitWeb is the --web address in a unit file's ExecStart line: "" if it has none.
@@ -273,6 +322,7 @@ func (systemHost) active() bool {
 
 func (systemHost) systemctl(args ...string) error       { return runLoud("systemctl", args...) }
 func (systemHost) checkPorts(web string) ([]int, error) { return checkInstallPorts(web) }
+func (systemHost) checkWeb(web string) error            { return checkDashboardAddr(web) }
 func (systemHost) ensureUser() error                    { return ensureServiceUser() }
 func (systemHost) ensureData() error                    { return ensureDataDir(serviceData, serviceUser) }
 func (systemHost) writeUnit(text string) error          { return writeFileAtomic(unitPath, []byte(text), 0o644) }
@@ -291,7 +341,8 @@ func (h systemHost) copyRelease() error {
 	return replaceDir(h.src, serviceDir)
 }
 
-// foregroundHint follows a port that is taken when the service is about to be installed.
+// foregroundHint follows a port that is taken when the service is about to be installed, when it
+// is one a Forge Solo started by hand listens on.
 const foregroundHint = "If that is a Forge Solo you started yourself (./forge-solo in a terminal), stop it first (Ctrl-C), " +
 	"then run install-service again. The service keeps its own data in " + serviceData + ": the payout address and " +
 	"settings you saved in that copy are not carried over, so save them again on the service's dashboard."
@@ -304,12 +355,22 @@ func checkInstallPorts(web string) (left []int, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w\n%s", err, foregroundHint)
 	}
+	return left, checkDashboardAddr(web)
+}
+
+// checkDashboardAddr fails when another program listens on the dashboard's address. Only on the
+// dashboard's own port can that be a Forge Solo started by hand.
+func checkDashboardAddr(web string) error {
 	l, err := net.Listen("tcp", web)
 	if err != nil {
-		return nil, fmt.Errorf("the dashboard address %s is already in use by another program (%v).\n%s", web, err, foregroundHint)
+		if portOf(web) == portOf(defaultWeb) {
+			return fmt.Errorf("the dashboard address %s is already in use by another program (%v).\n%s", web, err, foregroundHint)
+		}
+		return fmt.Errorf("the dashboard address %s is already in use by another program (%v): stop that program, "+
+			"or give the dashboard another address with --web", web, err)
 	}
 	_ = l.Close()
-	return left, nil
+	return nil
 }
 
 // errServiceNotServing: after a (re)start, the service itself is not serving its dashboard.
