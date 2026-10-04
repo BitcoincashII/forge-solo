@@ -244,10 +244,13 @@ func startPostgres() bool {
 	return true
 }
 
+// dbEnv is how the API and the miner reach the database. Each keeps at most 10 connections, as on
+// Umbrel; uncapped, each could open 100, all the server allows.
 func dbEnv() []string {
 	return []string{
 		"DB_HOST=127.0.0.1", "DB_PORT=" + pgPort, "DB_USER=forge",
 		"DB_PASSWORD=" + sec.DBPass, "DB_NAME=forgesolo", "DB_SSLMODE=disable",
+		"DB_MAX_OPEN_CONNS=10", "DB_MAX_IDLE_CONNS=2",
 	}
 }
 
