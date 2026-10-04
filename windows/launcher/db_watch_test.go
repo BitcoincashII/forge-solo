@@ -23,18 +23,21 @@ func alive(pid int) bool {
 
 // dbWatchWorld boots with a stand-in database: pg_ctl starts a long-running "postmaster", writes
 // its process id to postmaster.pid and notes the start, as pg_ctl -w start does; it exits with the
-// code in $FS_PGCTL_EXIT when that file exists. installedPrograms finds the postmaster while it
-// runs.
+// code in $FS_PGCTL_EXIT when that file exists. When $FS_DIES exists, it is removed and the
+// postmaster has already gone when pg_ctl returns. installedPrograms finds the postmaster while it
+// runs. Every postmaster started is ended after the test.
 func dbWatchWorld(t *testing.T) (tp *tips, starts, exitFile string) {
 	t.Helper()
 	dir := t.TempDir()
-	starts, exitFile = dir+"/starts", dir+"/exit"
+	starts, exitFile, servers := dir+"/starts", dir+"/exit", dir+"/servers"
 	t.Setenv("FS_STARTS", starts)
 	t.Setenv("FS_PGCTL_EXIT", exitFile)
+	t.Setenv("FS_SERVERS", servers)
 	tp = startFailWorld(t, map[string]string{
 		"pgsql\\bin\\pg_ctl.exe": `echo start >> "$FS_STARTS"; [ -f "$FS_PGCTL_EXIT" ] && exit $(cat "$FS_PGCTL_EXIT")
+if [ -n "$FS_DIES" ] && [ -f "$FS_DIES" ]; then rm -f "$FS_DIES"; true & p=$!; wait $p; echo $p > "$FS_PIDFILE"; exit 0; fi
 sleep 60 > /dev/null 2>&1 &
-echo $! > "$FS_PIDFILE"; exit 0`,
+echo $! >> "$FS_SERVERS"; echo $! > "$FS_PIDFILE"; exit 0`,
 		"bitcoincashIId.exe": sleeper, "elevenseventyfived.exe": sleeper, "api.exe": sleeper, "stratum.exe": sleeper,
 	})
 	t.Setenv("FS_PIDFILE", dpath("pgdata", "postmaster.pid"))
@@ -60,10 +63,13 @@ echo $! > "$FS_PIDFILE"; exit 0`,
 		mu.Lock()
 		stopping = true
 		mu.Unlock()
-		if pid := postmasterPID(); pid != 0 && alive(pid) {
-			_ = syscall.Kill(pid, syscall.SIGKILL)
+		dbWatching.Wait() // it starts nothing more
+		b, _ := os.ReadFile(servers)
+		for _, s := range strings.Fields(string(b)) {
+			if pid, _ := strconv.Atoi(s); pid > 0 && alive(pid) {
+				_ = syscall.Kill(pid, syscall.SIGKILL)
+			}
 		}
-		dbWatching.Wait()
 		dbWatchPoll, processExit = savedPoll, savedExit
 	})
 	return tp, starts, exitFile
@@ -114,6 +120,46 @@ func TestTheDatabaseIsStartedAgain(t *testing.T) {
 	time.Sleep(time.Second)
 	if startsIn(starts) != n || strings.Count(launcherLog(), "the database stopped on its own") != 1 {
 		t.Errorf("DB-WATCH-NOT-DURING-STOP: the database was taken for stopped on its own, or started again, during the stop:\n%s", launcherLog())
+	}
+}
+
+// The server has already gone when the watch first looks for it (it crashed just after its start,
+// leaving postmaster.pid): it stopped on its own too, and is started again. The watch took it for
+// another program's and ended, leaving the database down for the rest of the run.
+func TestADatabaseGoneBeforeItIsWatchedIsStartedAgain(t *testing.T) {
+	dies := t.TempDir() + "/dies"
+	t.Setenv("FS_DIES", dies)
+	if err := os.WriteFile(dies, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tp, starts, _ := dbWatchWorld(t)
+	boot()
+	if !waitFor(5*time.Second, func() bool { return strings.Contains(launcherLog(), "the database started again") }) || startsIn(starts) != 2 {
+		t.Fatalf("DB-WATCH-GONE-FIRST: a server gone before the watch held it was not started again (%d starts):\n%s", startsIn(starts), launcherLog())
+	}
+	if !waitFor(5*time.Second, func() bool { return tp.last() == "Forge Solo: running" }) {
+		t.Errorf("DB-WATCH-GONE-FIRST-RUNNING: once the database was back the tray says %q", tp.last())
+	}
+	// The server started again is watched.
+	_ = syscall.Kill(postmasterPID(), syscall.SIGKILL)
+	if !waitFor(5*time.Second, func() bool { return startsIn(starts) == 3 }) {
+		t.Errorf("DB-WATCH-GONE-FIRST-HELD: the server started again was not watched (%d starts):\n%s", startsIn(starts), launcherLog())
+	}
+}
+
+// No postmaster.pid after a start that worked (it could not be read a moment): the server is not
+// taken for one that stopped. Started again beside the one running, it would fail at every try.
+func TestTheDatabaseWatchWithNoPostmasterPID(t *testing.T) {
+	_, starts, _ := dbWatchWorld(t)
+	t.Setenv("FS_PIDFILE", t.TempDir()+"/pid")
+	boot()
+	const notWatched = "server of this install's (0), so it is not watched"
+	if !waitFor(5*time.Second, func() bool { return strings.Contains(launcherLog(), notWatched) }) {
+		t.Fatalf("DB-WATCH-NO-PIDFILE: with no postmaster.pid the watch did not leave the database alone:\n%s", launcherLog())
+	}
+	time.Sleep(500 * time.Millisecond)
+	if startsIn(starts) != 1 {
+		t.Errorf("DB-WATCH-NO-PIDFILE: with no postmaster.pid the database was started again (%d starts)", startsIn(starts))
 	}
 }
 

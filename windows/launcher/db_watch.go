@@ -37,11 +37,15 @@ func watchDatabase() {
 			// database, so that its number cannot meanwhile go to another program.
 			pid := postmasterPID()
 			exited := processExit(pid)
-			if pid == 0 || !runs(installedPrograms(), pid, "postgres.exe") {
+			since := time.Now()
+			// A server already gone stopped on its own too, before it could be held: postmaster.pid
+			// outlives a server that crashed. A process that runs under its number is another
+			// program's.
+			ours := pid != 0 && runs(installedPrograms(), pid, "postgres.exe")
+			if !ours && (pid == 0 || !closedWithin(exited, dbWatchPoll)) {
 				logf("database: postmaster.pid names no server of this install's (%d), so it is not watched", pid)
 				return
 			}
-			since := time.Now()
 			for gone := false; !gone; {
 				select {
 				case <-exited:
@@ -83,4 +87,14 @@ func watchDatabase() {
 			showRunning()
 		}
 	}()
+}
+
+// closedWithin reports whether c is closed within d.
+func closedWithin(c <-chan struct{}, d time.Duration) bool {
+	select {
+	case <-c:
+		return true
+	case <-time.After(d):
+		return false
+	}
 }
