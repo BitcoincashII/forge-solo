@@ -21,6 +21,11 @@ DefaultDirName={localappdata}\Programs\ForgeSolo
 DisableProgramGroupPage=yes
 DisableDirPage=yes
 PrivilegesRequired=lowest
+; Every program it installs is 64-bit (x64). Setup, a 32-bit program, also installed on 32-bit
+; Windows and on Windows 10 on ARM, which run no x64 programs, and Forge Solo could not start there.
+; Windows 11 on ARM runs them. No 64-bit install mode: the elevated step keeps the 32-bit cmd, netsh
+; and PowerShell it has always used.
+ArchitecturesAllowed=x64compatible
 OutputDir=.
 OutputBaseFilename=ForgeSolo-Setup-{#MyAppVersion}
 Compression=lzma2/max
@@ -36,6 +41,10 @@ AppMutex=ForgeSoloRunning,Global\ForgeSoloRunning
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[Messages]
+; Shown instead of installing where Forge Solo cannot run (ArchitecturesAllowed).
+WindowsVersionNotSupported=Forge Solo needs 64-bit Windows: Windows 10 or 11 on an x64 PC, or Windows 11 on ARM.
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"

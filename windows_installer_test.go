@@ -8,6 +8,44 @@ import (
 	"testing"
 )
 
+// installerScript is windows/forge-solo.iss.
+func installerScript(t *testing.T) string {
+	t.Helper()
+	b, err := os.ReadFile("windows/forge-solo.iss")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// installerSection is the body of the installer script's [name] section, or "" if it has none.
+func installerSection(t *testing.T, name string) string {
+	t.Helper()
+	s := installerScript(t)
+	i := strings.Index(s, "\n["+name+"]")
+	if i < 0 {
+		return ""
+	}
+	s = s[i+len("\n["+name+"]"):]
+	if j := strings.Index(s, "\n["); j >= 0 {
+		s = s[:j]
+	}
+	return s
+}
+
+// Every program the installer puts in place is 64-bit (x64). It also installed on 32-bit Windows
+// and on Windows 10 on ARM, which run no x64 programs, and Forge Solo could not start there. There
+// it now refuses, and says why; Windows 11 on ARM, which runs x64 programs, is still allowed.
+func TestInstallerOnlyWhereForgeSoloRuns(t *testing.T) {
+	if !regexp.MustCompile(`(?m)^ArchitecturesAllowed=x64compatible\r?$`).MatchString(installerSection(t, "Setup")) {
+		t.Error("ARCH-ALLOWED: [Setup] does not keep the installer to Windows that runs x64 programs (ArchitecturesAllowed=x64compatible)")
+	}
+	m := regexp.MustCompile(`(?m)^WindowsVersionNotSupported=(.*?)\r?$`).FindStringSubmatch(installerSection(t, "Messages"))
+	if m == nil || !strings.Contains(m[1], "64-bit Windows") {
+		t.Errorf("ARCH-MESSAGE: the refusal does not say that Forge Solo needs 64-bit Windows: %q", m)
+	}
+}
+
 // The installer and the uninstaller ask for Forge Solo to be closed before touching its files
 // (AppMutex), by the name of the mutex the launcher holds while it runs. If the two names drift
 // apart, the installer no longer sees Forge Solo running, and its files are closed under it, the
