@@ -110,6 +110,7 @@ type Client struct {
 	workerNames           map[string]struct{} // the names this connection has authorized; see maxWorkerNamesPerConnection
 	logs                  logLimit            // this connection's log budget; see Server.clientLog
 	out                   chan []byte         // messages to send, in order; see Client.enqueue
+	progress              chan struct{}       // the writer took a message off out; see Client.waitForRoom
 	outMu                 sync.Mutex
 	outClosed             bool
 	closeReason           string // why the stratum closed this connection, the first reason given; see Client.closeFor

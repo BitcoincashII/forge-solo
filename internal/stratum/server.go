@@ -78,7 +78,8 @@ type Server struct {
 	ipConnsMu      sync.Mutex
 	ipConns        map[string]int // remote host -> live connections, for the per-IP cap
 	shutdownCh     chan struct{}
-	stopOnce       sync.Once // Stop may be called again; closing shutdownCh twice panics
+	writeWait      time.Duration // how long one write to a miner may take; 0 is writeTimeout. Set before Start.
+	stopOnce       sync.Once     // Stop may be called again; closing shutdownCh twice panics
 	stats          *serverCounters
 	// Duplicate share detection
 	submittedShares sync.Map // block header hash -> the tip (job PrevBlockHash) it was found on
@@ -1096,6 +1097,7 @@ func (s *Server) handleClient(conn net.Conn) {
 	}
 
 	client.out = make(chan []byte, clientQueue)
+	client.progress = make(chan struct{}, 1)
 	go s.writeLoop(client)
 	defer client.closeOut()
 
@@ -1143,6 +1145,7 @@ func (s *Server) handleClient(conn net.Conn) {
 		if len(line) == 0 {
 			continue
 		}
+		client.waitForRoom()
 		if !s.handleMessage(client, line) {
 			// A line that is not JSON: a few are tolerated from a subscribed miner (logged, as
 			// ever), but a connection that has not subscribed has shown it is not a stratum client.
@@ -2768,6 +2771,35 @@ func (s *Server) adjustVardiffAt(client *Client, now time.Time) {
 // when its queue is full, rather than holding up everyone else's messages.
 const clientQueue = 64
 
+// readerRoom is how many queue slots a connection's reader keeps free before it handles its next
+// line: room for the answers to that line (a login sends three) and for a job broadcast meanwhile.
+const readerRoom = 8
+
+// waitForRoom holds the connection's reader while its queue is nearly full, until the writer has
+// sent enough of it. A miner whose own requests came faster than the answers could be written (a
+// pipelined burst, or a backlog read after the stratum was held up) was dropped as if it had
+// stopped reading: on a 1-CPU host the writer gets no CPU while the reader works through lines it
+// already has. A peer that has stopped reading is still dropped: the write to it fails after
+// writeTimeout, the connection is closed, and the writer goes on taking messages off the queue.
+func (c *Client) waitForRoom() {
+	if c.out == nil {
+		return
+	}
+	for c.queued() > clientQueue-readerRoom {
+		<-c.progress
+	}
+}
+
+// queued is how many messages wait for the client's writer; 0 once its queue is closed.
+func (c *Client) queued() int {
+	c.outMu.Lock()
+	defer c.outMu.Unlock()
+	if c.outClosed {
+		return 0
+	}
+	return len(c.out)
+}
+
 // enqueue queues data for client's writer, and reports whether it was queued. A full queue means
 // the miner has stopped reading: it is disconnected.
 func (c *Client) enqueue(data []byte) bool {
@@ -2844,11 +2876,27 @@ func (c *Client) closeOut() {
 // clients ready to receive data".
 func (s *Server) writeLoop(client *Client) {
 	for data := range client.out {
-		client.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		client.Conn.SetWriteDeadline(s.writeDeadline())
 		if _, err := client.Conn.Write(data); err != nil {
 			client.closeFor("a write to it failed: " + err.Error()) // the rest fail at once, and the reader ends the connection
 		}
+		select {
+		case client.progress <- struct{}{}:
+		default:
+		}
 	}
+}
+
+// writeTimeout is how long one write to a miner may take.
+const writeTimeout = 10 * time.Second
+
+// writeDeadline is when a write to a miner started now must have finished.
+func (s *Server) writeDeadline() time.Time {
+	wait := s.writeWait
+	if wait <= 0 {
+		wait = writeTimeout
+	}
+	return time.Now().Add(wait)
 }
 
 // send sends data to client: through its queue where it has one (every real connection), or
@@ -2860,7 +2908,7 @@ func (s *Server) send(client *Client, data []byte) error {
 		}
 		return nil
 	}
-	client.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	client.Conn.SetWriteDeadline(s.writeDeadline())
 	_, err := client.Conn.Write(data)
 	if err != nil {
 		client.closeFor("a write to it failed: " + err.Error()) // Force disconnect on write error

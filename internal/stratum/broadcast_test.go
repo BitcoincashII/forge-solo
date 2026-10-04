@@ -83,6 +83,9 @@ func TestOneSilentMinerDoesNotHoldUpTheBroadcast(t *testing.T) {
 	for i := 1; i <= jobs; i++ {
 		s.BroadcastJob(&Job{ID: fmt.Sprintf("%x", i), PrevBlockHash: strings.Repeat("00", 32), CoinBase1: big, CoinBase2: "00",
 			Version: "20000000", NBits: "1d00ffff", NTime: "6aba7069"})
+		// Jobs go out one at a time, at least a second apart in service. With no pause at all, a
+		// run on one CPU gives the reading miner here, a goroutine of this test, no time to read.
+		time.Sleep(time.Millisecond)
 	}
 	if took := time.Since(start); took > 3*time.Second {
 		t.Fatalf("BCAST-NOT-HELD: %d broadcasts took %v with one miner not reading", jobs, took)
