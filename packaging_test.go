@@ -14,6 +14,7 @@ package forgesolo
 import (
 	"os"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -115,10 +116,40 @@ func TestComposeImagesAreDigestPinned(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read docker-compose.yml: %v", err)
 	}
-	// (?m) is load-bearing: without it `$` matches only end-of-text, so this pattern could
-	// never fire and the test passed unconditionally.
-	loose := regexp.MustCompile(`image:\s*ghcr\.io/bitcoincashii/forge-solo-[a-z0-9]+:[0-9.]+\s*$`)
-	if m := loose.FindAll(compose, -1); len(m) > 0 {
-		t.Errorf("%d forge-solo image(s) pinned by tag only, no @sha256 digest: %q", len(m), m)
+	if loose := imagesWithoutDigest(compose); len(loose) > 0 {
+		t.Errorf("DIGEST-PINNED: %d image(s) pinned by tag only, no @sha256 digest: %q", len(loose), loose)
+	}
+}
+
+var (
+	// (?m) is load-bearing: without it ^ matches only at the start of the file, and no image
+	// line is ever looked at.
+	composeImageLineRe = regexp.MustCompile(`(?m)^[ \t]*image:[ \t]*(\S+)`)
+	digestPinnedRe     = regexp.MustCompile(`@sha256:[0-9a-f]{64}$`)
+)
+
+// imagesWithoutDigest returns the image lines of a compose file that carry no @sha256 digest.
+func imagesWithoutDigest(compose []byte) []string {
+	var loose []string
+	for _, m := range composeImageLineRe.FindAllSubmatch(compose, -1) {
+		if !digestPinnedRe.Match(m[1]) {
+			loose = append(loose, string(m[0]))
+		}
+	}
+	return loose
+}
+
+// The check above finds an image without a digest wherever it is in the file. An earlier version
+// matched only the file's last line, so it passed whatever the compose pinned.
+func TestImagesWithoutDigestCanFail(t *testing.T) {
+	pinned := "@sha256:" + strings.Repeat("a", 64)
+	compose := "services:\n" +
+		"  api:\n    image: ghcr.io/bitcoincashii/forge-solo-api:1.0.13\n    restart: unless-stopped\n" +
+		"  web:\n    image: ghcr.io/bitcoincashii/forge-solo-web:1.0.13" + pinned + "\n" +
+		"  node:\n    image: ghcr.io/bitcoincashii/forge-solo-node:1.0.13  # a comment\n" +
+		"  stratum:\n    image: ghcr.io/bitcoincashii/forge-solo-stratum:1.0.13" + pinned + "\n"
+	got := imagesWithoutDigest([]byte(compose))
+	if len(got) != 2 || !strings.Contains(got[0], "forge-solo-api:1.0.13") || !strings.Contains(got[1], "forge-solo-node:1.0.13") {
+		t.Errorf("DIGEST-PINNED-CHECK: in a compose with two images pinned by tag only, the check found %q", got)
 	}
 }
