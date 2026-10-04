@@ -141,8 +141,7 @@ jobs:
       # The Inno Setup image runs as uid 1000 while the runner's workspace is owned by uid
       # 1001, so the container cannot write its output into windows/ and the compile dies with
       # "Access denied". Only that directory needs to be writable -- the inputs are
-      # world-readable already. The whole checkout is mounted: the script reads ../web/dist and
-      # ../init-db.sql.
+      # world-readable already. The whole checkout is mounted: the script reads ../web/dist.
       - name: Compile the installer
         run: |
           chmod a+w windows

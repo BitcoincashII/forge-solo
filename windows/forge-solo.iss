@@ -63,9 +63,21 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Files]
 Source: "bin\*"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\init-db.sql"; DestDir: "{app}"; Flags: ignoreversion
-Source: "pgsql\*"; DestDir: "{app}\pgsql"; Flags: ignoreversion recursesubdirs createallsubdirs
+; PostgreSQL only moves the data of Forge Solo 1.0.12 and before into forgesolo.db, once: it is
+; installed only for an account that has that data. Once the move is done and checked, the launcher
+; removes it again.
+Source: "pgsql\*"; DestDir: "{app}\pgsql"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: HasOldData
 Source: "..\web\dist\*"; DestDir: "{app}\web"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[InstallDelete]
+; What earlier versions installed and this one no longer uses: the PostgreSQL schema, and PostgreSQL
+; itself for an account with no data of an earlier version (a fresh install, or the old data deleted).
+Type: files; Name: "{app}\init-db.sql"
+Type: filesandordirs; Name: "{app}\pgsql"; Check: not HasOldData
+
+[UninstallDelete]
+; Installed by an earlier version, or by this one for a move.
+Type: filesandordirs; Name: "{app}\pgsql"
 
 [Icons]
 Name: "{userprograms}\Forge Solo"; Filename: "{app}\{#MyAppExe}"
@@ -82,11 +94,12 @@ Filename: "{app}\{#MyAppExe}"; Description: "Launch Forge Solo now"; Flags: nowa
 //                        as on Umbrel and Linux (private/domain only)
 //  - inbound TCP 8339  : the BCH2 node accepts incoming peers (any profile)
 //  - inbound TCP 25360 : the 1175 node accepts incoming peers (any profile)
-//  - Defender exclusions for the folders written constantly (both nodes' blocks and chainstate,
-//    and the database) so it stops rescanning them on every write, the main cause of disk thrash
-//    and freezes on a laptop. Not the whole data folder: a folder the user can write to and
-//    Defender never scans is a place any other program could hide files. An upgrade removes the
-//    whole-folder exclusion earlier versions added.
+//  - Defender exclusions for the folders written constantly (both nodes' blocks and chainstate)
+//    so it stops rescanning them on every write, the main cause of disk thrash and freezes on a
+//    laptop. Not the whole data folder: a folder the user can write to and Defender never scans is
+//    a place any other program could hide files. An upgrade removes the whole-folder exclusion
+//    earlier versions added, and the one for the database of 1.0.12 and before (pgdata), which
+//    nothing writes now.
 // Mining from THIS PC (127.0.0.1:3333) needs no rule at all.
 //
 // Windows' prompt for that step names Windows Command Processor, not Forge Solo, so the Ready page
@@ -220,7 +233,21 @@ function DefenderPaths(DataDir: String): String;
 begin
   Result := PSQuote(DataDir + '\bch2\blocks') + ', ' + PSQuote(DataDir + '\bch2\chainstate') + ', ' +
             PSQuote(DataDir + '\elevenseventyfive\blocks') + ', ' +
-            PSQuote(DataDir + '\elevenseventyfive\chainstate') + ', ' + PSQuote(DataDir + '\pgdata');
+            PSQuote(DataDir + '\elevenseventyfive\chainstate');
+end;
+
+// OldDefenderPaths lists, quoted for PowerShell, the folders earlier versions excluded and this
+// one does not: the whole data folder, and the database of 1.0.12 and before.
+function OldDefenderPaths(DataDir: String): String;
+begin
+  Result := PSQuote(DataDir) + ', ' + PSQuote(DataDir + '\pgdata');
+end;
+
+// HasOldData is whether this account has the data of Forge Solo 1.0.12 or before, which the
+// bundled PostgreSQL moves into forgesolo.db once.
+function HasOldData: Boolean;
+begin
+  Result := FileExists(ExpandConstant('{userappdata}\ForgeSolo\pgdata\PG_VERSION'));
 end;
 
 // Setup installs for the Windows account it runs as. Started with "Run as administrator", it can
@@ -265,7 +292,7 @@ begin
       Space + 'Windows will ask whether Windows Command Processor may make' + NewLine +
       Space + 'changes to your device. Choose Yes: Setup uses it to add the' + NewLine +
       Space + 'firewall rules that let miners on your network connect, and' + NewLine +
-      Space + 'Defender exclusions for the blockchains and the database.';
+      Space + 'Defender exclusions for the blockchains.';
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -284,7 +311,7 @@ begin
       'netsh advfirewall firewall delete rule name="Forge Solo BCH2 P2P (8333)" >nul 2>&1 & ' +
       FirewallRule('Forge Solo BCH2 P2P (8339)', 'bitcoincashIId.exe', '8339', 'any') +
       FirewallRule('Forge Solo 1175 P2P (25360)', 'elevenseventyfived.exe', '25360', 'any') +
-      'powershell -NoProfile -Command "Remove-MpPreference -ExclusionPath ' + PSQuote(DataDir) + ' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionPath ' + DefenderPaths(DataDir) + ' -ErrorAction SilentlyContinue"';
+      'powershell -NoProfile -Command "Remove-MpPreference -ExclusionPath ' + OldDefenderPaths(DataDir) + ' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionPath ' + DefenderPaths(DataDir) + ' -ErrorAction SilentlyContinue"';
     Ran := Elevated(Cmd);
     // The rules themselves say whether the step worked: cmd's exit code is only that of its last
     // command, and with UAC off a standard account's netsh fails without a prompt.
@@ -314,6 +341,68 @@ var
   // What the uninstaller could not remove, said once it has finished.
   LeftBehind: String;
 
+// RemoveLinks removes the junctions a move of the old data cut short can leave in
+// %ProgramData%\ForgeSolo\links (a folder per Windows account), and the folders that held them once
+// they are empty. RemoveDir removes a junction itself, never what it leads to (the data folder and
+// the install folder), and no other folder that is not empty: nothing here deletes a tree.
+procedure RemoveLinks;
+var Links: String; FindRec: TFindRec;
+begin
+  Links := ExpandConstant('{commonappdata}\ForgeSolo\links');
+  if FindFirst(Links + '\*', FindRec) then
+  begin
+    try
+      repeat
+        if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
+        begin
+          RemoveDir(Links + '\' + FindRec.Name + '\data');
+          RemoveDir(Links + '\' + FindRec.Name + '\app');
+          RemoveDir(Links + '\' + FindRec.Name);
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+  RemoveDir(Links);
+  RemoveDir(ExpandConstant('{commonappdata}\ForgeSolo'));
+end;
+
+// NewestBeforeMerge is the name of the newest copy of forgesolo.db a merge kept in DataDir
+// (forgesolo.db.before-merge-<UTC time>), or '' if there is none.
+function NewestBeforeMerge(DataDir: String): String;
+var FindRec: TFindRec;
+begin
+  Result := '';
+  if FindFirst(DataDir + '\forgesolo.db.before-merge-*', FindRec) then
+  begin
+    try
+      repeat
+        if FindRec.Name > Result then
+          Result := FindRec.Name;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
+// DataFolderContents says what the data folder holds, for the question whether to delete it.
+function DataFolderContents(DataDir: String): String;
+var Kept: String;
+begin
+  Result := 'It holds:' + #13#10 + '- the downloaded BCH2 and 1175 blockchains' + #13#10 +
+    '- forgesolo.db: your blocks, payouts and settings, your payout address among them' + #13#10;
+  Kept := NewestBeforeMerge(DataDir);
+  if Kept <> '' then
+    Result := Result + '- ' + Kept + ': the copy of forgesolo.db from before the data of ' +
+      '1.0.12 was last merged into it' + #13#10;
+  if DirExists(DataDir + '\pgdata') then
+    Result := Result + '- pgdata: the database of Forge Solo 1.0.12 and before, kept for going ' +
+      'back to 1.0.12' + #13#10;
+  Result := Result + '- secrets.env: this install''s passwords';
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var InPlace: Integer; DataDir, Cmd: String; Ran: Boolean;
 begin
@@ -330,7 +419,7 @@ begin
       FirewallRemove('Forge Solo BCH2 P2P (8339)') +
       'netsh advfirewall firewall delete rule name="Forge Solo BCH2 P2P (8333)" & ' +
       FirewallRemove('Forge Solo 1175 P2P (25360)') +
-      'powershell -NoProfile -Command "Remove-MpPreference -ExclusionPath ' + PSQuote(DataDir) + ', ' + DefenderPaths(DataDir) + ' -ErrorAction SilentlyContinue"';
+      'powershell -NoProfile -Command "Remove-MpPreference -ExclusionPath ' + OldDefenderPaths(DataDir) + ', ' + DefenderPaths(DataDir) + ' -ErrorAction SilentlyContinue"';
     Ran := Elevated(Cmd);
     InPlace := RulesInPlace;
     Log('Firewall rules left for ' + RulesAccount + ': ' + IntToStr(InPlace) + ' of ' + IntToStr(RuleCount));
@@ -352,13 +441,12 @@ begin
   end;
 
   // Uninstalling used to leave the data folder untouched, and that folder holds secrets.env
-  // -- both node RPC passwords, the database password and the internal API token -- as well
+  // (both node RPC passwords, the old database's password and the internal API token) as well
   // as the chain data and your payout address. Silently leaving credentials behind is not a
   // decision to make on someone's behalf, so ask.
   //
-  // All or nothing on purpose: deleting only secrets.env would regenerate a new database
-  // password against the existing pgdata on the next install, and the app could no longer
-  // open its own database.
+  // All or nothing on purpose: deleting only secrets.env would lose the old database's password,
+  // which moving its data or going back to 1.0.12 needs.
   if CurUninstallStep = usPostUninstall then
   begin
     // One button, so that an uninstall run with /SUPPRESSMSGBOXES goes on.
@@ -366,16 +454,14 @@ begin
       SuppressibleMsgBox(LeftBehind, mbError, MB_OK, IDOK);
     RegDeleteValue(HKCU, RulesKey, RulesValue);
     RegDeleteKeyIfEmpty(HKCU, RulesKey);
+    RemoveLinks;
     DataDir := ExpandConstant('{userappdata}\ForgeSolo');
     if DirExists(DataDir) then
     begin
       // No is the default: pressing Enter keeps the folder, and so does an uninstall run silently
       // (/SUPPRESSMSGBOXES), which a plain MsgBox would have stopped on, waiting for an answer.
       if SuppressibleMsgBox('Also delete Forge Solo''s data folder?' + #13#10#13#10 +
-                DataDir + #13#10#13#10 +
-                'It holds the downloaded BCH2 and 1175 blockchains, the database, your saved ' +
-                'payout address, and the file storing this install''s node and database ' +
-                'passwords.' + #13#10#13#10 +
+                DataDir + #13#10#13#10 + DataFolderContents(DataDir) + #13#10#13#10 +
                 'Choose No to keep it for a future reinstall.',
                 mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES then
         DelTree(DataDir, True, True, True);

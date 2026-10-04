@@ -525,6 +525,132 @@ func TestInstallerWaitsForTheRunningLauncher(t *testing.T) {
 	}
 }
 
+// Forge Solo 1.0.13 keeps its data in forgesolo.db, and PostgreSQL only moves the data of 1.0.12
+// and before into it, once. The installer puts PostgreSQL on disk only for an account that has that
+// data (pgdata\PG_VERSION in its data folder): a fresh install never has it, and an update for an
+// account without old data removes what an earlier version installed, with the PostgreSQL schema,
+// which nothing reads now. The migrator ships always, in bin. Going back to 1.0.12 and forward
+// again installs PostgreSQL again, since the old data is there, so the merge has it. The uninstaller
+// removes it, whoever installed it.
+func TestInstallerPostgreSQLOnlyForAMove(t *testing.T) {
+	files := installerSection(t, "Files")
+	if regexp.MustCompile(`(?mi)^Source: "[^"]*init-db\.sql"`).MatchString(files) {
+		t.Error("INST-NO-SCHEMA: the installer still installs init-db.sql")
+	}
+	if !regexp.MustCompile(`(?m)^Source: "bin\\\*"; DestDir: "\{app\}"; Flags: ignoreversion\r?$`).MatchString(files) {
+		t.Error("INST-BIN: bin, with forge-solo-migrate.exe in it, is not installed whole")
+	}
+	if !regexp.MustCompile(`(?m)^Source: "pgsql\\\*"; DestDir: "\{app\}\\pgsql"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: HasOldData\r?$`).MatchString(files) {
+		t.Error("INST-PGSQL-OLD-DATA: PostgreSQL is not installed, or not only, for an account with the data of 1.0.12 or before")
+	}
+	if !strings.Contains(installerFunc(t, "function HasOldData: Boolean;"),
+		"\n  Result := FileExists(ExpandConstant('{userappdata}\\ForgeSolo\\pgdata\\PG_VERSION'));\n") {
+		t.Errorf("INST-PGSQL-CHECK: HasOldData does not look for the old data where 1.0.12 kept it:\n%s", installerFunc(t, "function HasOldData: Boolean;"))
+	}
+	del := installerSection(t, "InstallDelete")
+	if !regexp.MustCompile(`(?m)^Type: files; Name: "\{app\}\\init-db\.sql"\r?$`).MatchString(del) {
+		t.Error("INST-DELETE-SCHEMA: an update leaves the init-db.sql an earlier version installed")
+	}
+	if !regexp.MustCompile(`(?m)^Type: filesandordirs; Name: "\{app\}\\pgsql"; Check: not HasOldData\r?$`).MatchString(del) {
+		t.Error("INST-DELETE-PGSQL: an update for an account with no old data leaves the PostgreSQL an earlier version installed")
+	}
+	if !regexp.MustCompile(`(?m)^Type: filesandordirs; Name: "\{app\}\\pgsql"\r?$`).MatchString(installerSection(t, "UninstallDelete")) {
+		t.Error("UNINST-PGSQL: the uninstaller leaves PostgreSQL")
+	}
+}
+
+// Defender no longer skips the database folder of 1.0.12 and before, which nothing writes now:
+// only the folders written constantly, both nodes' blocks and chainstate. The install and the
+// uninstall remove the exclusions earlier versions added, the old database folder's among them.
+func TestInstallerDefenderExclusions(t *testing.T) {
+	paths := installerFunc(t, "function DefenderPaths(DataDir: String): String;")
+	for _, f := range []string{`bch2\blocks`, `bch2\chainstate`, `elevenseventyfive\blocks`, `elevenseventyfive\chainstate`} {
+		if !strings.Contains(paths, "PSQuote(DataDir + '\\"+f+"')") {
+			t.Errorf("INST-DEFENDER-CHAINS: DefenderPaths lacks %s", f)
+		}
+	}
+	if strings.Contains(paths, "pgdata") || strings.Count(paths, "PSQuote(") != 4 {
+		t.Errorf("INST-DEFENDER-NO-PGDATA: DefenderPaths is not the four chain folders alone:\n%s", paths)
+	}
+	if !strings.Contains(installerFunc(t, "function OldDefenderPaths(DataDir: String): String;"),
+		"\n  Result := PSQuote(DataDir) + ', ' + PSQuote(DataDir + '\\pgdata');\n") {
+		t.Error("INST-DEFENDER-OLD: OldDefenderPaths is not the data folder and pgdata")
+	}
+	install := installerFunc(t, "procedure CurStepChanged(CurStep: TSetupStep);")
+	if !strings.Contains(install, `Remove-MpPreference -ExclusionPath ' + OldDefenderPaths(DataDir) + ' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionPath ' + DefenderPaths(DataDir) + ' -ErrorAction SilentlyContinue"';`) {
+		t.Error("INST-DEFENDER-REMOVE-OLD: the install does not remove the old exclusions before it adds the chain folders'")
+	}
+	if !strings.Contains(installerFunc(t, "procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);"),
+		`Remove-MpPreference -ExclusionPath ' + OldDefenderPaths(DataDir) + ', ' + DefenderPaths(DataDir) + ' -ErrorAction SilentlyContinue"';`) {
+		t.Error("UNINST-DEFENDER: the uninstall does not remove every exclusion this and earlier versions added")
+	}
+}
+
+// A move of the old data cut short can leave junctions in %ProgramData%\ForgeSolo\links, which lead
+// to the data folder and the install folder. The uninstaller removes them, and their folders once
+// empty, and never what they lead to: RemoveDir removes a junction itself, and nothing that is not
+// empty, and nothing there deletes a tree.
+func TestUninstallerRemovesLinksWithoutFollowingThem(t *testing.T) {
+	links := installerFunc(t, "procedure RemoveLinks;")
+	if !strings.Contains(links, "\n  Links := ExpandConstant('{commonappdata}\\ForgeSolo\\links');\n") {
+		t.Fatalf("UNINST-LINKS: RemoveLinks does not work on %%ProgramData%%\\ForgeSolo\\links:\n%s", links)
+	}
+	for _, want := range []string{
+		"RemoveDir(Links + '\\' + FindRec.Name + '\\data');",
+		"RemoveDir(Links + '\\' + FindRec.Name + '\\app');",
+		"RemoveDir(Links + '\\' + FindRec.Name);",
+		"RemoveDir(Links);",
+		"RemoveDir(ExpandConstant('{commonappdata}\\ForgeSolo'));",
+	} {
+		if !strings.Contains(links, want) {
+			t.Errorf("UNINST-LINKS: RemoveLinks lacks %s", want)
+		}
+	}
+	for _, follows := range []string{"DelTree", "DeleteFile", "rd /s", "rmdir /s", "Remove-Item", "Exec("} {
+		if strings.Contains(links, follows) {
+			t.Errorf("UNINST-LINKS-NO-FOLLOW: RemoveLinks uses %s, which can delete what a junction leads to", follows)
+		}
+	}
+	uninstall := installerFunc(t, "procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);")
+	if !regexp.MustCompile(`(?s)if CurUninstallStep = usPostUninstall then\n  begin\n.*\n    RemoveLinks;\n`).MatchString(uninstall) {
+		t.Error("UNINST-LINKS-CALLED: the uninstaller does not remove the links")
+	}
+	if regexp.MustCompile(`DelTree\([^)]*commonappdata`).MatchString(pascalCode(installerSection(t, "Code"))) {
+		t.Error("UNINST-LINKS-NO-FOLLOW: the installer deletes a tree under %ProgramData%")
+	}
+}
+
+// Asked whether to delete the data folder, the uninstaller says what is in it: forgesolo.db, the
+// copy a merge kept of it, if there is one, and the old database kept for going back to 1.0.12, if
+// it is there.
+func TestUninstallerSaysWhatTheDataFolderHolds(t *testing.T) {
+	contents := installerFunc(t, "function DataFolderContents(DataDir: String): String;")
+	text := pascalLiterals(contents)
+	for _, want := range []string{
+		"- forgesolo.db: your blocks, payouts and settings",
+		": the copy of forgesolo.db from before the data of 1.0.12 was last merged into it",
+		"- pgdata: the database of Forge Solo 1.0.12 and before, kept for going back to 1.0.12",
+		"- secrets.env: this install's passwords",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("UNINST-PROMPT: the data folder's contents do not say %q", want)
+		}
+	}
+	if !strings.Contains(contents, "\n  Kept := NewestBeforeMerge(DataDir);\n  if Kept <> '' then\n") ||
+		!strings.Contains(contents, "\n  if DirExists(DataDir + '\\pgdata') then\n") {
+		t.Errorf("UNINST-PROMPT-ONLY-THERE: the copy and the old database are not named only when they are there:\n%s", contents)
+	}
+	newest := installerFunc(t, "function NewestBeforeMerge(DataDir: String): String;")
+	if !strings.Contains(newest, "FindFirst(DataDir + '\\forgesolo.db.before-merge-*', FindRec)") ||
+		!strings.Contains(newest, "\n        if FindRec.Name > Result then\n          Result := FindRec.Name;\n") {
+		t.Errorf("UNINST-PROMPT-NEWEST: NewestBeforeMerge does not name the newest copy:\n%s", newest)
+	}
+	if !strings.Contains(installerFunc(t, "procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);"),
+		"DataDir + #13#10#13#10 + DataFolderContents(DataDir) + #13#10#13#10 +") {
+		t.Error("UNINST-PROMPT-SHOWN: the question does not say what the data folder holds")
+	}
+}
+
 // An update with "Start Forge Solo when I sign in" unticked removes the sign-in start; the
 // installer only ever added it, so unticking it changed nothing.
 func TestInstallerStartupCanBeTurnedOff(t *testing.T) {

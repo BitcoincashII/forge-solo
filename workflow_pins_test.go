@@ -266,6 +266,23 @@ func TestWindowsBuildRunsOnSQLite(t *testing.T) {
 	}
 }
 
+// The Windows job compiles the installer script and checks what it takes: the dashboard, the
+// migrator and PostgreSQL (which it installs only for an account with old data), and no longer
+// the PostgreSQL schema.
+func TestInstallerCompileCheck(t *testing.T) {
+	run := stepRun(t, loadWorkflow(t, ".github/workflows/test.yml"), "windows", "The installer script compiles")
+	for _, want := range []string{
+		": > windows/bin/forge-solo-migrate.exe",
+		`grep -q 'bin\\forge-solo-migrate.exe' /tmp/iscc.log || {`,
+		`grep -q 'pgsql\\bin\\placeholder.txt' /tmp/iscc.log || {`,
+		`if grep -q 'init-db.sql' /tmp/iscc.log; then echo "::error::the installer still installs the PostgreSQL schema"; exit 1; fi`,
+	} {
+		if !strings.Contains(run, want) {
+			t.Errorf("WIN-ISCC-CHECK: the installer check lacks %s", want)
+		}
+	}
+}
+
 // PostgreSQL's programs need Microsoft's Visual C++ runtime, which a fresh Windows does not have;
 // without it the database never starts. The release puts the runtime's DLLs beside them.
 func TestReleaseBundlesTheVCRuntime(t *testing.T) {
