@@ -86,12 +86,16 @@ jobs:
       # Forge Solo for Linux ships 32-bit builds (armv6l, armv7l, i686). On a 32-bit platform a
       # 64-bit atomic operation panics unless its word is 8-byte aligned, which only the
       # sync/atomic types guarantee; the 32-bit stratum crashed on its first miner that way.
-      # 386 runs natively on this runner, so the whole suite runs as 32-bit here.
-      - name: Test as 32-bit (386), both tags
+      # 386 runs natively on this runner, so the whole suite runs as 32-bit here. Each build is a
+      # step of its own, so the SQLite suite runs when the PostgreSQL one fails: a step stops at its
+      # first failing command, and on a release commit TestCompose fails by design.
+      - name: Test as 32-bit (386), postgres build
         if: ${{ !cancelled() && steps.go.outcome == 'success' }}
-        run: |
-          CGO_ENABLED=0 GOARCH=386 go test -count=1 ./...
-          CGO_ENABLED=0 GOARCH=386 go test -count=1 -tags sqlite ./...
+        run: CGO_ENABLED=0 GOARCH=386 go test -count=1 ./...
+
+      - name: Test as 32-bit (386), sqlite build
+        if: ${{ !cancelled() && steps.go.outcome == 'success' }}
+        run: CGO_ENABLED=0 GOARCH=386 go test -count=1 -tags sqlite ./...
 
       - name: Build Forge Solo for Linux for every architecture it ships
         if: ${{ !cancelled() && steps.go.outcome == 'success' }}

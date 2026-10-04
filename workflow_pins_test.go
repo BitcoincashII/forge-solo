@@ -215,6 +215,20 @@ func TestUnitJobRunsEveryCheck(t *testing.T) {
 	if !setUp {
 		t.Error("UNIT-RUNS-EVERY-CHECK: the unit job does not set up Go")
 	}
+	// A step stops at its first failing command, so each build's 32-bit suite is a step of its own:
+	// the SQLite one runs when the PostgreSQL one fails.
+	runs := map[string]int{}
+	for _, s := range w.Jobs["unit"].Steps {
+		runs[strings.TrimSpace(s.Run)]++
+	}
+	for code, cmd := range map[string]string{
+		"UNIT-386-PG-OWN-STEP":     "CGO_ENABLED=0 GOARCH=386 go test -count=1 ./...",
+		"UNIT-386-SQLITE-OWN-STEP": "CGO_ENABLED=0 GOARCH=386 go test -count=1 -tags sqlite ./...",
+	} {
+		if runs[cmd] != 1 {
+			t.Errorf("%s: no step of the unit job runs only %s", code, cmd)
+		}
+	}
 }
 
 // The Windows services keep their data in forgesolo.db, as on Umbrel and Linux, and
