@@ -122,6 +122,8 @@ type Client struct {
 	LastDifficultySentAt  time.Time // When difficulty notification was last sent (to avoid duplicates)
 	LastDifficultySent    float64   // The value last sent, so only an identical repeat is suppressed
 	FirstRampDone         bool      // Whether this connection has had its one unclamped escape from the floor
+	firstJobAt            time.Time // when the first job went out to this connection; see adjustVardiffAt
+	samplesDropped        bool      // ShareSamples no longer holds every share since the first job
 	LastShareTime         time.Time
 	ProvenDifficulty      float64   // credited difficulty of the last valid share (see Server.MaxDifficulty)
 	ProvenAt              time.Time // when that share arrived

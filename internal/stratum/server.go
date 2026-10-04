@@ -54,6 +54,9 @@ const (
 
 	// DifficultyReductionCooldown is how long to wait before increasing above the ceiling
 	DifficultyReductionCooldown = 2 * time.Minute
+
+	// firstRampMaxStep is the most firstRamp multiplies a connection's floor by in its one step.
+	firstRampMaxStep = 1000.0
 )
 
 type Server struct {
@@ -2472,6 +2475,7 @@ func (c *Client) addShareSample(at time.Time, diff float64) int {
 	c.ShareSamples = append(c.ShareSamples, shareSample{at: at, diff: diff})
 	if len(c.ShareSamples) > maxShareSamples {
 		c.ShareSamples = c.ShareSamples[1:]
+		c.samplesDropped = true
 	}
 	return len(c.ShareSamples)
 }
@@ -2510,6 +2514,26 @@ func measuredShareTime(samples []shareSample, current float64) float64 {
 		return 0
 	}
 	return span / shares
+}
+
+// shareTimeSince is the time per share over the whole time since `since`: from then to now, over
+// the work of every share in samples, counted in shares at current. 0 where since is not known.
+func shareTimeSince(samples []shareSample, current float64, since, now time.Time) float64 {
+	if since.IsZero() || current <= 0 || !now.After(since) {
+		return 0
+	}
+	work := 0.0
+	for _, sm := range samples {
+		diff := sm.diff
+		if diff <= 0 {
+			diff = current
+		}
+		work += diff / current
+	}
+	if work <= 0 {
+		return 0
+	}
+	return now.Sub(since).Seconds() / work
 }
 
 // adjustVardiff retargets client's difficulty from its latest shares.
@@ -2604,32 +2628,56 @@ func (s *Server) adjustVardiffAt(client *Client, now time.Time) {
 	// its reject rate; this reads as a broken pool.
 	//
 	// Deliberately bounded so it cannot become a yo-yo: once per connection, only from the
-	// floor, and only upward. Everything after it is the ordinary clamped ramp. Overshoot
-	// is the safe direction -- shareFloorFor() still judges every share at
-	// min(assigned, MinDiff), so a too-high assignment loses no work, it only slows
-	// submissions until the next adjustment corrects it. A small miner is untouched: at
-	// the floor its measured ratio sits inside the variance window and the function has
-	// already returned above.
+	// floor, and only upward. Everything after it is the ordinary clamped ramp. A small miner
+	// is untouched: at the floor its measured ratio sits inside the variance window and the
+	// function has already returned above.
+	//
+	// Overshoot is not harmless. The next adjustment needs accepted shares, and a miner set far
+	// above its level sends almost none, so it stays there for hours. The shares are timed as the
+	// stratum reads them, and ones that arrive together (the segment carrying the first ones lost
+	// and resent, the stratum held up for a moment) read as a rate hundreds of thousands of times
+	// the real one. So while the record holds every share since the connection's first job, the
+	// step is checked against the rate over that whole time:
+	//   - more than twice as slow: the shares arrived together, or the miner started hashing
+	//     after its first job (a reboot, an order filled later, an idle reset). Nothing changes
+	//     until more shares are in, at most until the record drops its first share; from then
+	//     the latest shares, read after any such bunch, measure the step alone.
+	//   - otherwise the step is the lower of the two.
+	// The step is capped, for a record that is all one bunch, and taken only where it goes further
+	// than the ordinary step.
 	firstRamp := !client.FirstRampDone && client.Difficulty <= minDiff && measuredRatio > 1.0
+	rampRatio := math.Min(measuredRatio, firstRampMaxStep)
+	if firstRamp && !client.samplesDropped {
+		since := client.firstJobAt
+		if since.IsZero() {
+			since = client.ConnectedAt
+		}
+		sinceJob := shareTimeSince(client.ShareSamples, client.Difficulty, since, now)
+		if sinceJob > 2*avgTime {
+			client.mu.Unlock()
+			return
+		}
+		if sinceJob > avgTime {
+			rampRatio = math.Min(rampRatio, targetTime/sinceJob)
+		}
+	}
 
 	// Calculate new difficulty
 	newDiff := client.Difficulty * ratio
-	if firstRamp {
-		newDiff = client.Difficulty * measuredRatio
+	// For rental services, apply gentler MaxDelta (max 25% change)
+	maxDelta := client.Difficulty * 0.5 // 50% max change for regular miners
+	if client.RentalService != RentalNone {
+		maxDelta = client.Difficulty * 0.25 // 25% max change for NiceHash/MRR
+	}
+	diffDelta := newDiff - client.Difficulty
+	if diffDelta > maxDelta {
+		newDiff = client.Difficulty + maxDelta
+	} else if diffDelta < -maxDelta {
+		newDiff = client.Difficulty - maxDelta
+	}
+	if firstRamp && client.Difficulty*rampRatio > newDiff {
+		newDiff = client.Difficulty * rampRatio
 		client.FirstRampDone = true
-	} else {
-		// For rental services, apply gentler MaxDelta (max 25% change)
-		maxDelta := client.Difficulty * 0.5 // 50% max change for regular miners
-		if client.RentalService != RentalNone {
-			maxDelta = client.Difficulty * 0.25 // 25% max change for NiceHash/MRR
-		}
-
-		diffDelta := newDiff - client.Difficulty
-		if diffDelta > maxDelta {
-			newDiff = client.Difficulty + maxDelta
-		} else if diffDelta < -maxDelta {
-			newDiff = client.Difficulty - maxDelta
-		}
 	}
 	if newDiff < minDiff {
 		newDiff = minDiff
@@ -2874,6 +2922,9 @@ func (s *Server) sendJob(client *Client, job *Job) {
 	defer client.sendMu.Unlock()
 	client.mu.Lock()
 	client.noteJobDifficulty(job.ID, client.LastDifficultySent)
+	if client.firstJobAt.IsZero() {
+		client.firstJobAt = time.Now()
+	}
 	client.mu.Unlock()
 
 	notif := &Notification{

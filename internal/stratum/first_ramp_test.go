@@ -45,6 +45,8 @@ func rampClient(t *testing.T, s *Server, startDiff, shareIntervalSec float64) (*
 		Difficulty:   startDiff,
 		ShareSamples: shareTimes,
 		ConnectedAt:  now.Add(-time.Minute),
+		// Its first job went out one share interval before its first share.
+		firstJobAt: shareTimes[0].at.Add(-time.Duration(shareIntervalSec * float64(time.Second))),
 		// DifficultyChangedAt is deliberately left zero: that is a real fresh connection,
 		// and it is why the first adjustment is not held off by RetargetTime.
 	}
@@ -82,9 +84,10 @@ func TestFirstRampEscapesTheFloorInOneAdjustment(t *testing.T) {
 		t.Fatalf("assigned %v after firstRamp; still within one clamped step of the floor %v",
 			assigned, s.config.MinDiff)
 	}
-	// The measured target: ~1024 * (10 / (1/227)) = ~2.32M.
+	// The measured target is ~1024 * (10 / (1/227)) = ~2.32M. One step goes at most
+	// firstRampMaxStep times the floor, ~1.02M; the clamped ramp does the rest.
 	if assigned < 1e6 || assigned > 4e6 {
-		t.Errorf("assigned %v, want roughly the 2.3M its measured rate warrants", assigned)
+		t.Errorf("assigned %v, want roughly the 1M-2.3M its measured rate warrants", assigned)
 	}
 	// The invariant the whole difficulty design rests on must survive the jump.
 	if floor := s.shareFloorFor(assigned); floor > assigned {
