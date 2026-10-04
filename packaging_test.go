@@ -38,8 +38,8 @@ func TestComposeImagesMatchManifestVersion(t *testing.T) {
 		t.Fatalf("read docker-compose.yml: %v", err)
 	}
 	found := composeImageRe.FindAllSubmatch(compose, -1)
-	if len(found) != 5 {
-		t.Fatalf("found %d pinned forge-solo images in docker-compose.yml, want 5 (node, node1175, api, stratum, web)", len(found))
+	if len(found) != 6 {
+		t.Fatalf("found %d pinned forge-solo images in docker-compose.yml, want 6 (node, node1175, api, stratum, web, postgres)", len(found))
 	}
 	for _, f := range found {
 		if got := string(f[2]); got != want {
@@ -65,6 +65,7 @@ var releaseDigests = map[string]string{
 	"forge-solo-api":      "82428bc4299a949c776c8cb7386cc5175f2aec0cdcca50bb927125224c5037f5",
 	"forge-solo-stratum":  "3b75a92739f41b0240a5c04457a23fe965bcd83e08ea5047fe41b944ffeb873c",
 	"forge-solo-web":      "e9787ad60148371f380cc7616d5586a090b5f9cca43326dcf76ddcf7e1db8333",
+	"forge-solo-postgres": "0000000000000000000000000000000000000000000000000000000000000000",
 }
 
 func TestComposeDigestsAreTheOnesThisReleasePublished(t *testing.T) {

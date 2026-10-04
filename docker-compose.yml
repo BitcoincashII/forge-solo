@@ -129,7 +129,7 @@ services:
       start_period: 180s
 
   postgres:
-    image: timescale/timescaledb:2.17.2-pg16@sha256:4e459e217f00cbb09920c34d245501e63427e6767a495de57ce76823ff280f12
+    image: ghcr.io/bitcoincashii/forge-solo-postgres:1.0.13@sha256:0000000000000000000000000000000000000000000000000000000000000000
     networks:
       - forge
     # Kept at most 30 MB: Docker keeps a container's log until the container is replaced,
