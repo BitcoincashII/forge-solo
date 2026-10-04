@@ -128,7 +128,8 @@ func ping(d *sql.DB) error {
 var inUse []*dblock.Lock
 
 // While the database is being moved, InitDB waits up to inUseWait, saying so every inUseLogEvery.
-const (
+// Variables so that a test need not wait 15 minutes.
+var (
 	inUseWait     = 15 * time.Minute
 	inUseLogEvery = 30 * time.Second
 )
@@ -179,9 +180,28 @@ func InitDB(connStr string) error {
 	dbMu.Lock()
 	defer dbMu.Unlock()
 
+	if err = openSQLite(dbPath); err != nil {
+		// The api and the stratum try again every few seconds while the database will not
+		// open. A lock kept from each failed try would stay until the program ends, and the
+		// move would find the database in use all that time.
+		lock.Release()
+		return err
+	}
+	inUse = append(inUse, lock)
+
+	// 1175 merge-mining ledger tables. Mirrors the postgres backend; without it a found
+	// aux block cannot be recorded (see Init1175Schema in dialect_sqlite.go).
+	Init1175Schema()
+
+	log.Printf("✅ Connected to SQLite database: %s", dbPath)
+	return nil
+}
+
+// openSQLite opens the database at dbPath as db and makes its tables. When it fails, db is nil.
+func openSQLite(dbPath string) error {
+	var err error
 	db, err = sql.Open("sqlite", SQLiteDSN(dbPath))
 	if err != nil {
-		lock.Release()
 		return err
 	}
 
@@ -193,7 +213,6 @@ func InitDB(connStr string) error {
 	if err = ping(db); err != nil {
 		db.Close()
 		db = nil
-		lock.Release()
 		return err
 	}
 
@@ -201,16 +220,8 @@ func InitDB(connStr string) error {
 	if err = createTables(); err != nil {
 		db.Close()
 		db = nil
-		lock.Release()
 		return fmt.Errorf("failed to create tables: %w", err)
 	}
-	inUse = append(inUse, lock)
-
-	// 1175 merge-mining ledger tables. Mirrors the postgres backend; without it a found
-	// aux block cannot be recorded (see Init1175Schema in dialect_sqlite.go).
-	Init1175Schema()
-
-	log.Printf("✅ Connected to SQLite database: %s", dbPath)
 	return nil
 }
 

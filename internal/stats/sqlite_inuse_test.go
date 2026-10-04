@@ -4,6 +4,7 @@ package stats
 
 import (
 	"bufio"
+	"bytes"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -22,6 +23,26 @@ func init() {
 	childParts["tryexclusive"] = tryExclusiveChild
 	childParts["move"] = moveChild
 	childParts["share"] = shareChild
+	childParts["hold"] = holdChild
+}
+
+// waitingLine is what a program logs while it waits for a move.
+const waitingLine = "waiting: Forge Solo is moving its database"
+
+// captureLog sends this program's log to a buffer until the test ends.
+func captureLog(t *testing.T) *lockedBuffer {
+	t.Helper()
+	b := &lockedBuffer{}
+	prev := log.Writer()
+	log.SetOutput(b)
+	t.Cleanup(func() { log.SetOutput(prev) })
+	return b
+}
+
+// logEnd is the last lines of a captured log, for a failure message.
+func logEnd(b *lockedBuffer) string {
+	lines := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
+	return strings.Join(lines[max(0, len(lines)-10):], "\n")
 }
 
 // tryExclusiveChild tries to take the in-use lock as forge-solo-migrate does before it replaces
@@ -67,6 +88,24 @@ func moveChild(path string) int {
 		return 1
 	}
 	fmt.Println("moved")
+	return 0
+}
+
+// holdChild plays a move that does not end: it takes the in-use lock exclusively and says
+// "locked"; when its stdin closes it lets the lock go and says "released".
+func holdChild(path string) int {
+	l, err := dblock.TryExclusive(dblock.Path(path))
+	if err != nil {
+		fmt.Println("error:", err)
+		return 1
+	}
+	fmt.Println("locked")
+	waitForStdin()
+	if err := l.Release(); err != nil {
+		fmt.Println("error:", err)
+		return 1
+	}
+	fmt.Println("released")
 	return 0
 }
 
@@ -166,6 +205,7 @@ func TestInitDBWaitsForMove(t *testing.T) {
 	mover.expect(t, "locked", 30*time.Second, "INUSE-WAIT-SETUP")
 	locked := time.Now()
 	time.Sleep(500 * time.Millisecond)
+	logged := captureLog(t)
 	if err := InitDB(path); err != nil {
 		t.Fatal(err)
 	}
@@ -174,6 +214,10 @@ func TestInitDBWaitsForMove(t *testing.T) {
 	mover.expect(t, "moved", 30*time.Second, "INUSE-WAIT-SETUP")
 	if waited < 1500*time.Millisecond {
 		t.Errorf("INUSE-WAIT-EARLY: the database was opened %v into a 2 s move", waited.Round(time.Millisecond))
+	}
+	if n := strings.Count(logged.String(), waitingLine); n != 1 {
+		t.Errorf("INUSE-WAIT-LOG: while it waited for a 2 s move the program logged %q %d times, want once; its log ends:\n%s",
+			waitingLine, n, logEnd(logged))
 	}
 	if got := markers(t); len(got) != 1 || got[0] != "NEW" {
 		t.Fatalf("INUSE-WAIT-OLD: the program opened the database the move replaced: it reads %q, want [NEW]", got)
@@ -187,6 +231,95 @@ func TestInitDBWaitsForMove(t *testing.T) {
 	}
 	if got := markers(t); len(got) != 2 || got[1] != "WRITTEN" {
 		t.Fatalf("INUSE-WAIT-LOST: a write made after the move is not in the database: %q", got)
+	}
+}
+
+// A move that does not end holds a program up for inUseWait, no longer: it says it is waiting
+// every inUseLogEvery, then fails like any failed start, and once the move is over its next try
+// opens the database.
+func TestInitDBGivesUpOnALongMove(t *testing.T) {
+	if inUseWait != 15*time.Minute || inUseLogEvery != 30*time.Second {
+		t.Fatalf("INUSE-WAIT-PIN: a program waits %v for a move and says so every %v, want 15m0s and 30s",
+			inUseWait, inUseLogEvery)
+	}
+	inUseWait, inUseLogEvery = 2*time.Second, 500*time.Millisecond
+	t.Cleanup(func() { inUseWait, inUseLogEvery = 15*time.Minute, 30*time.Second })
+
+	path := filepath.Join(t.TempDir(), "forgesolo.db")
+	mover := startChild(t, "hold", path)
+	mover.expect(t, "locked", 30*time.Second, "INUSE-GIVEUP-SETUP")
+	logged := captureLog(t)
+	start := time.Now()
+	done := make(chan error, 1)
+	go func() { done <- InitDB(path) }()
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("INUSE-GIVEUP: InitDB still waits for the move after 15 s, want it to give up after %v", inUseWait)
+	}
+	took := time.Since(start)
+	if err == nil {
+		t.Fatal("INUSE-GIVEUP: InitDB opened the database while the move held it")
+	}
+	if took < inUseWait-100*time.Millisecond {
+		t.Errorf("INUSE-GIVEUP-EARLY: InitDB gave up after %v, want %v", took.Round(time.Millisecond), inUseWait)
+	}
+	if n := strings.Count(logged.String(), waitingLine); n < 3 || n > 5 {
+		t.Errorf("INUSE-WAIT-REPEAT: in a %v wait the program logged %q %d times, want once every %v; its log ends:\n%s",
+			inUseWait, waitingLine, n, inUseLogEvery, logEnd(logged))
+	}
+	mover.release()
+	mover.expect(t, "released", 30*time.Second, "INUSE-GIVEUP-SETUP")
+	if err := InitDB(path); err != nil {
+		t.Fatalf("INUSE-GIVEUP-RETRY: once the move was over, the next start failed: %v", err)
+	}
+	t.Cleanup(CloseDB)
+}
+
+// A database that will not open fails InitDB, and the api and the stratum try again every few
+// seconds for as long as it does. A failed try keeps no in-use lock: otherwise the move would
+// find the database in use until the program ended, and each try would keep a file open.
+func TestFailedInitDBKeepsNoLock(t *testing.T) {
+	for _, c := range []struct {
+		name, code string
+		tables     bool // InitDB fails making the tables, not opening the file
+		prepare    func(t *testing.T, path string)
+	}{
+		{"not a database", "INUSE-FAIL-FREED", false, func(t *testing.T, path string) {
+			if err := os.WriteFile(path, bytes.Repeat([]byte("not a database\n"), 512), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"tables cannot be made", "INUSE-FAIL-FREED-TABLES", true, func(t *testing.T, path string) {
+			// The index on shares(miner_address) cannot be made on this shares table.
+			raw, err := sql.Open("sqlite", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer raw.Close()
+			if _, err := raw.Exec(`CREATE TABLE shares (x INTEGER)`); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "forgesolo.db")
+			c.prepare(t, path)
+			for i := 0; i < 5; i++ {
+				err := InitDB(path)
+				if err == nil {
+					CloseDB()
+					t.Fatal("INUSE-FAIL-SETUP: InitDB opened a database that cannot open")
+				}
+				if strings.Contains(err.Error(), "failed to create tables") != c.tables {
+					t.Fatalf("INUSE-FAIL-SETUP: InitDB failed at another step than this case tests: %v", err)
+				}
+			}
+			if got := startChild(t, "tryexclusive", path).next(t, 30*time.Second, c.code); got != "taken" {
+				t.Fatalf("%s: after 5 failed starts the move found the database in use: %q", c.code, got)
+			}
+		})
 	}
 }
 
