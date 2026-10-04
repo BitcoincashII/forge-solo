@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BitcoincashII/forge-solo/internal/dblock"
 	"github.com/BitcoincashII/forge-solo/internal/stats"
 )
 
@@ -32,8 +33,12 @@ func MigratingPath(db string) string { return db + ".migrating" }
 // PrepareOptions says what to prepare.
 type PrepareOptions struct {
 	DB      string // the database the copy is for: forgesolo.db
+	Merge   bool   // merge the database that is there into the copy
 	Version string // this migrator's version, for the record
 	Logf    func(format string, args ...any)
+	// InUse is the database's in-use lock when the caller (run) already holds it exclusively; a
+	// merge then does not take it again.
+	InUse *dblock.Lock
 }
 
 func (o PrepareOptions) logf(format string, args ...any) {
@@ -48,6 +53,7 @@ type Prepared struct {
 	Source   string           // postgres, or none when there was no old database
 	Counts   map[string]int64 // rows per table in the new database
 	Satoshis map[string]int64 // the old database's sums, per money column
+	Merge    *MergeReport     // what a merge took from forgesolo.db
 }
 
 // testAfterCopy, when a test sets it, runs inside the copy's transaction, after every row is in:
@@ -66,18 +72,27 @@ func stage(name string) error {
 }
 
 // Prepare copies the old database src into <db>.migrating and proves the copy complete:
-//  1. it removes what an earlier try left of <db>.migrating;
-//  2. it makes <db>.migrating with this build's stats.InitDB, the schema of a fresh install;
-//  3. it reads PostgreSQL in one read-only snapshot (no DDL, no write; shares and pool_stats are
+//  1. for a merge, it takes forgesolo.db so nothing else has it or can open it (merge.go), and
+//     refuses one a newer Forge Solo wrote;
+//  2. it removes what an earlier try left of <db>.migrating;
+//  3. it makes <db>.migrating with this build's stats.InitDB, the schema of a fresh install;
+//  4. it reads PostgreSQL in one read-only snapshot (no DDL, no write; shares and pool_stats are
 //     never read);
-//  4. it writes every table in one SQLite transaction, keeping the ids;
-//  5. it runs every check of the copy (verify.go) and records the move in migration_meta;
-//  6. it checks the file's integrity, folds the WAL in, closes it and syncs it to disk.
+//  5. it writes every table in one SQLite transaction, keeping the ids;
+//  6. it runs every check of the copy (verify.go), merges forgesolo.db in and checks the merge,
+//     and records the move in migration_meta;
+//  7. it checks the file's integrity, folds the WAL in, closes it and syncs it to disk.
 //
-// The database itself is not touched: commit puts the copy in its place. On a failure the copy is
+// forgesolo.db itself is not written: commit puts the copy in its place. On a failure the copy is
 // removed and the error carries the exit code.
 func Prepare(ctx context.Context, src Source, o PrepareOptions) (p *Prepared, err error) {
-	if _, serr := os.Lstat(o.DB); serr == nil {
+	var s *existing
+	if o.Merge {
+		if s, err = openExisting(ctx, o.DB, o.InUse); err != nil {
+			return nil, err
+		}
+		defer s.close()
+	} else if _, serr := os.Lstat(o.DB); serr == nil {
 		return nil, refused("forgesolo.db is already there, so the old data must be merged into it", nil)
 	}
 	tmp := MigratingPath(o.DB)
@@ -99,12 +114,37 @@ func Prepare(ctx context.Context, src Source, o PrepareOptions) (p *Prepared, er
 	}
 	defer tdb.Close()
 	tdb.SetMaxOpenConns(1)
+	if s != nil {
+		newer, err := SchemaNewerThanMine(ctx, s.conn, tdb)
+		if err != nil {
+			return nil, newErr(CodeOther, "forgesolo.db could not be read", err)
+		}
+		if len(newer) > 0 {
+			return nil, refused("this database was written by a newer Forge Solo", errors.New(strings.Join(newer, ", ")))
+		}
+	}
 
 	c := &copier{o: o, t: tdb, meta: map[string]string{}}
 	if err := c.copy(ctx, src); err != nil {
 		return nil, err
 	}
 	p = &Prepared{Mode: ModeMove, Source: c.source, Satoshis: c.satoshis}
+	if s != nil {
+		mp, err := merge(ctx, s.conn, tdb)
+		if err != nil {
+			return nil, err
+		}
+		if err := verifyMerge(ctx, tdb, mp); err != nil {
+			return nil, err
+		}
+		p.Mode, p.Merge = ModeMerge, &mp.report
+		c.meta["merge"] = jsonText(mp.report)
+		c.meta["existing"] = jsonText(s.id)
+		o.logf("merged forgesolo.db: %d heights added, %d replaced, pool settings from %s, TIDES key from %s",
+			len(mp.report.Added["blocks"])+len(mp.report.Added["blocks_1175"]),
+			len(mp.report.Replaced["blocks"])+len(mp.report.Replaced["blocks_1175"]),
+			mp.report.PoolConfig, mp.report.DatumIdentity)
+	}
 	if p.Counts, err = countRows(ctx, tdb); err != nil {
 		return nil, newErr(CodeWrite, "the new database could not be read back", err)
 	}

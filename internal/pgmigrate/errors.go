@@ -42,6 +42,10 @@ func newErr(code int, reason string, err error) *Error {
 
 func refused(reason string, err error) *Error { return newErr(CodeRefused, reason, err) }
 
+func deferred(err error) *Error {
+	return newErr(CodeDeferred, "the database is in use; the move finishes at the next start", err)
+}
+
 // CodeOf is the exit code for err: 0 for nil, 3 for a cancelled context, the code an *Error
 // carries, and 40 for anything else.
 func CodeOf(err error) int {

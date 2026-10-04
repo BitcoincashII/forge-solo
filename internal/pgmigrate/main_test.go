@@ -147,3 +147,16 @@ func (c *child) expect(t *testing.T, want string, d time.Duration, code string) 
 	}
 	return ""
 }
+
+func (c *child) say(t *testing.T, line string) {
+	t.Helper()
+	if _, err := io.WriteString(c.stdin, line+"\n"); err != nil {
+		t.Fatalf("telling the %s child %q: %v", c.name, line, err)
+	}
+}
+
+// release closes the child's stdin: the signal it waits for.
+func (c *child) release() { c.stdin.Close() }
+
+// waitForStdin returns once the test closes the child's stdin.
+func waitForStdin() { io.Copy(io.Discard, os.Stdin) }
