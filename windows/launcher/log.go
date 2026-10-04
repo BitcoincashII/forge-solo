@@ -9,15 +9,20 @@ import (
 
 var logMu sync.Mutex
 
+// launcherLogLimit is how big launcher.log may grow before it is moved aside to launcher.log.1.
+const launcherLogLimit = 1 << 20
+
 // logf adds a line to launcher.log in the data folder: what the launcher started and stopped, and
 // when, so that a stop cut short (by Windows ending the session, say) can be told from one that
-// finished. The services keep their own logs.
+// finished. The services keep their own logs. Past its limit the log is moved aside, while running
+// too: a program that keeps failing to start is logged each time.
 func logf(format string, args ...any) {
 	if dataDir == "" {
 		return
 	}
 	logMu.Lock()
 	defer logMu.Unlock()
+	rotateLog(dpath("launcher.log"), launcherLogLimit)
 	f, err := os.OpenFile(dpath("launcher.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return

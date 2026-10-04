@@ -329,7 +329,7 @@ func main() {
 	dataDir = filepath.Join(os.Getenv("APPDATA"), "ForgeSolo")
 	md(dataDir)
 	restrictDataDir(dataDir)
-	rotateLog(dpath("launcher.log"), 1<<20)
+	rotateLog(dpath("launcher.log"), launcherLogLimit)
 	// Read before the tray starts, so its menu never sees them half loaded. Then the loopback
 	// ports, collision-proof, before any service binds.
 	startErr := setupSecrets()
