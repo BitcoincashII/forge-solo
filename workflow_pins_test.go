@@ -55,6 +55,7 @@ type workflow struct {
 			Uses             string         `yaml:"uses"`
 			Run              string         `yaml:"run"`
 			Shell            string         `yaml:"shell"`
+			TimeoutMinutes   int            `yaml:"timeout-minutes"`
 			WorkingDirectory string         `yaml:"working-directory"`
 			Env              map[string]any `yaml:"env"`
 			With             map[string]any `yaml:"with"`
@@ -431,16 +432,27 @@ func TestSQLiteSwitchIsGuardedInCI(t *testing.T) {
 		"CI-WIN-SNAPSHOT-HERE-NODRIVE": `& $snap -Before nodrive:\before.json -After $kept` + "\n} catch {\n" +
 			`Write-Output "::error::-Before on a drive that is not there failed in the session: $_"; $failed = $true` + "\n}\n" +
 			`if ($LASTEXITCODE -ne 2) { Write-Output "::error::-Before on a drive that is not there gave $LASTEXITCODE in the session, not 2"; $failed = $true }`,
-		"CI-WIN-SNAPSHOT-HERE-FAILS": "$listener.Stop()\nif ($failed) { exit 1 }\nexit 0",
+		// The dashboard's thread keeps powershell.exe running until its listener stops: everything
+		// after it starts is in a try whose finally stops it, so an early exit or an error ends the
+		// step instead of hanging it.
+		"CI-WIN-SNAPSHOT-HERE-STOPS": "[void]$server.BeginInvoke()\ntry {",
+		"CI-WIN-SNAPSHOT-HERE-FAILS": "} finally {\n$listener.Stop()\n}\nif ($failed) { exit 1 }\nexit 0",
 	} {
 		if !strings.Contains(job, want) {
 			t.Errorf("%s: the windows-native job lacks:\n%s", code, want)
 		}
 	}
-	// In the session of Windows PowerShell 5.1, which every Windows 10 and 11 PC has.
+	// In the session of Windows PowerShell 5.1, which every Windows 10 and 11 PC has, and given
+	// minutes, not the job's whole time limit.
 	for _, s := range win.Steps {
-		if strings.Contains(s.Run, `& $snap -Base "http://127.0.0.1:$port" -Out before.json -Save answers`) && s.Shell != "powershell" {
+		if !strings.Contains(s.Run, `& $snap -Base "http://127.0.0.1:$port" -Out before.json -Save answers`) {
+			continue
+		}
+		if s.Shell != "powershell" {
 			t.Errorf("CI-WIN-SNAPSHOT-HERE-SHELL: the run in the session has shell %q, not powershell", s.Shell)
+		}
+		if s.TimeoutMinutes < 1 || s.TimeoutMinutes > 10 {
+			t.Errorf("CI-WIN-SNAPSHOT-HERE-TIMEOUT: the run in the session has a time limit of %d minutes, not 1 to 10", s.TimeoutMinutes)
 		}
 	}
 	for _, s := range win.Steps {

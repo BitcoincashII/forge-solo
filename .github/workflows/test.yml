@@ -400,9 +400,11 @@ jobs:
       # Run from a prompt, as its usage lines are, the .ps1 runs in that PowerShell session, where
       # Set-Location moves PowerShell's location but not the process's directory. Here it runs that
       # way, with every path relative to a location that is not the process's directory: what it
-      # saves and writes must be there, and read back the same.
+      # saves and writes must be there, and read back the same. It takes seconds: one that hangs is
+      # stopped long before the job's time limit.
       - name: The dashboard snapshot, run in the session, takes relative paths from its location
         shell: powershell
+        timeout-minutes: 5
         run: |
           $m = "$PWD\testdata\migrate"
           $snap = "$PWD\scripts\windows\dashboard-snapshot.ps1"
@@ -436,38 +438,44 @@ jobs:
             }
           }).AddArgument($listener).AddArgument("$m\dashboard")
           [void]$server.BeginInvoke()
-          $env:MINERS = 'A=A B=B C=C'
-          function Same($got) {
-            (Test-Path -LiteralPath $got) -and [Convert]::ToBase64String([IO.File]::ReadAllBytes($got)) -ceq [Convert]::ToBase64String([IO.File]::ReadAllBytes($kept))
-          }
-          $here = "$env:RUNNER_TEMP\here"
-          New-Item -ItemType Directory -Force $here | Out-Null
-          Set-Location $here
-          if ([Environment]::CurrentDirectory -eq $here) { Write-Output "::error::the process's directory is $here too: this proves nothing"; exit 1 }
+          # The server's thread keeps powershell.exe from exiting until the listener stops. It is
+          # stopped however the step ends, an early exit or an error included: otherwise the step
+          # hangs instead of failing.
           try {
-            & $snap -Base "http://127.0.0.1:$port" -Out before.json -Save answers
-          } catch {
-            Write-Output "::error::-Base with -Out before.json -Save answers failed in the session: $_"; $failed = $true
+            $env:MINERS = 'A=A B=B C=C'
+            function Same($got) {
+              (Test-Path -LiteralPath $got) -and [Convert]::ToBase64String([IO.File]::ReadAllBytes($got)) -ceq [Convert]::ToBase64String([IO.File]::ReadAllBytes($kept))
+            }
+            $here = "$env:RUNNER_TEMP\here"
+            New-Item -ItemType Directory -Force $here | Out-Null
+            Set-Location $here
+            if ([Environment]::CurrentDirectory -eq $here) { Write-Output "::error::the process's directory is $here too: this proves nothing"; exit 1 }
+            try {
+              & $snap -Base "http://127.0.0.1:$port" -Out before.json -Save answers
+            } catch {
+              Write-Output "::error::-Base with -Out before.json -Save answers failed in the session: $_"; $failed = $true
+            }
+            if (-not (Same "$here\before.json")) { Write-Output "::error::-Out before.json wrote no snapshot of the kept answers in the location"; $failed = $true }
+            if (-not (Test-Path -LiteralPath "$here\answers\health.json")) { Write-Output "::error::-Save answers kept no answers in the location"; $failed = $true }
+            try {
+              & $snap -From answers -Out again.json
+            } catch {
+              Write-Output "::error::-From answers -Out again.json failed in the session: $_"; $failed = $true
+            }
+            if (-not (Same "$here\again.json")) { Write-Output "::error::-From answers did not read the saved answers as the kept snapshot"; $failed = $true }
+            & $snap -Before before.json -After $kept
+            if ($LASTEXITCODE -ne 0) { Write-Output "::error::-Before before.json gave $LASTEXITCODE in the session, not 0"; $failed = $true }
+            & $snap -Before $kept -After again.json
+            if ($LASTEXITCODE -ne 0) { Write-Output "::error::-After again.json gave $LASTEXITCODE in the session, not 0"; $failed = $true }
+            # A path on a drive that is not there is a file that cannot be read.
+            try {
+              & $snap -Before nodrive:\before.json -After $kept
+            } catch {
+              Write-Output "::error::-Before on a drive that is not there failed in the session: $_"; $failed = $true
+            }
+            if ($LASTEXITCODE -ne 2) { Write-Output "::error::-Before on a drive that is not there gave $LASTEXITCODE in the session, not 2"; $failed = $true }
+          } finally {
+            $listener.Stop()
           }
-          if (-not (Same "$here\before.json")) { Write-Output "::error::-Out before.json wrote no snapshot of the kept answers in the location"; $failed = $true }
-          if (-not (Test-Path -LiteralPath "$here\answers\health.json")) { Write-Output "::error::-Save answers kept no answers in the location"; $failed = $true }
-          try {
-            & $snap -From answers -Out again.json
-          } catch {
-            Write-Output "::error::-From answers -Out again.json failed in the session: $_"; $failed = $true
-          }
-          if (-not (Same "$here\again.json")) { Write-Output "::error::-From answers did not read the saved answers as the kept snapshot"; $failed = $true }
-          & $snap -Before before.json -After $kept
-          if ($LASTEXITCODE -ne 0) { Write-Output "::error::-Before before.json gave $LASTEXITCODE in the session, not 0"; $failed = $true }
-          & $snap -Before $kept -After again.json
-          if ($LASTEXITCODE -ne 0) { Write-Output "::error::-After again.json gave $LASTEXITCODE in the session, not 0"; $failed = $true }
-          # A path on a drive that is not there is a file that cannot be read.
-          try {
-            & $snap -Before nodrive:\before.json -After $kept
-          } catch {
-            Write-Output "::error::-Before on a drive that is not there failed in the session: $_"; $failed = $true
-          }
-          if ($LASTEXITCODE -ne 2) { Write-Output "::error::-Before on a drive that is not there gave $LASTEXITCODE in the session, not 2"; $failed = $true }
-          $listener.Stop()
           if ($failed) { exit 1 }
           exit 0
