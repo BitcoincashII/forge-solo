@@ -16,8 +16,9 @@ Windows version have it.
 ## What it runs on
 
 The programs are fully static: they need no libraries and no packages, so they run on any Linux
-distribution with kernel 3.2 or newer, glibc or musl, old or new. Pick the download that matches
-what `uname -m` prints:
+distribution with kernel 3.17 or newer, glibc or musl, old or new. On an older kernel the node
+cannot run, and Forge Solo says so and does not start. Pick the download that matches what
+`uname -m` prints:
 
 | `uname -m` | Download | Hardware |
 |---|---|---|

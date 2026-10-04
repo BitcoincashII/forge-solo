@@ -100,6 +100,9 @@ func installService(args []string) error {
 	if err := checkWebAddr(*web); err != nil {
 		return err
 	}
+	if err := checkKernel(getrandom(), kernelRelease()); err != nil {
+		return err
+	}
 	if os.Geteuid() != 0 {
 		return errors.New("install-service needs root: run it with sudo")
 	}

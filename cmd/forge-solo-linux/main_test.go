@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestLockDataDirIsExclusive(t *testing.T) {
@@ -99,6 +101,41 @@ func TestRootIsRefusedAnotherAccountsDataDir(t *testing.T) {
 	}
 	if left, _ := os.ReadDir(dir); len(left) != 0 {
 		t.Errorf("ROOT-WIRING: the refused run wrote %v", left)
+	}
+}
+
+// The BCH2 node aborts at every start on a kernel without getrandom (before Linux 3.17), before it
+// has written a line. Forge Solo says so and starts nothing.
+func TestKernelWithoutGetrandomIsRefused(t *testing.T) {
+	err := checkKernel(unix.ENOSYS, "3.16.0-6-amd64")
+	if err == nil || !strings.Contains(err.Error(), "3.17 or newer") || !strings.Contains(err.Error(), "3.16.0-6-amd64") {
+		t.Errorf("KERNEL-OLD: a kernel without getrandom: %v", err)
+	}
+	for _, ok := range []error{nil, unix.EAGAIN, unix.EINTR} {
+		if err := checkKernel(ok, "6.1.0"); err != nil {
+			t.Errorf("KERNEL-OK: getrandom gave %v and the kernel was refused: %v", ok, err)
+		}
+	}
+	if err := checkKernel(unix.EPERM, "6.1.0"); err == nil || !strings.Contains(err.Error(), "getrandom") {
+		t.Errorf("KERNEL-BLOCKED: getrandom blocked by a sandbox: %v", err)
+	}
+	if err := checkKernel(getrandom(), kernelRelease()); err != nil {
+		t.Errorf("KERNEL-THIS: this machine was refused: %v", err)
+	}
+
+	// run and install-service refuse before they do anything.
+	old := getrandom
+	getrandom = func() error { return unix.ENOSYS }
+	defer func() { getrandom = old }()
+	dir := filepath.Join(t.TempDir(), "data")
+	if err := runCmd([]string{"--data-dir", dir}); err == nil || !strings.Contains(err.Error(), "3.17 or newer") {
+		t.Errorf("KERNEL-RUN: forge-solo run on a kernel without getrandom: %v", err)
+	}
+	if _, err := os.Stat(dir); err == nil {
+		t.Errorf("KERNEL-RUN: the refused run created %s", dir)
+	}
+	if err := installService(nil); err == nil || !strings.Contains(err.Error(), "3.17 or newer") {
+		t.Errorf("KERNEL-INSTALL: install-service on a kernel without getrandom: %v", err)
 	}
 }
 

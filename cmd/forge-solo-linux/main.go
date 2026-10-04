@@ -23,6 +23,8 @@ import (
 	"strconv"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // version is set at build time: -ldflags "-X main.version=1.0.12".
@@ -112,6 +114,39 @@ func checkRelease(dir string) error {
 		}
 	}
 	return nil
+}
+
+// getrandom asks the kernel for random bytes the way the BCH2 node does at every start (a test
+// stands in another kernel).
+var getrandom = func() error {
+	_, err := unix.Getrandom(make([]byte, 1), unix.GRND_NONBLOCK)
+	return err
+}
+
+// kernelRelease is what uname -r prints.
+func kernelRelease() string {
+	var u unix.Utsname
+	if err := unix.Uname(&u); err != nil {
+		return "unknown"
+	}
+	return unix.ByteSliceToString(u.Release[:])
+}
+
+// checkKernel refuses a system the BCH2 node cannot start on: given what getrandom returned, and
+// the kernel's release. The node takes its randomness from getrandom, which came in Linux 3.17,
+// and without it aborts at every start, before it has written a line: Forge Solo started it again
+// and again while the dashboard waited for it.
+func checkKernel(err error, release string) error {
+	switch {
+	case err == nil, errors.Is(err, unix.EAGAIN), errors.Is(err, unix.EINTR):
+		return nil // EAGAIN: the kernel has it, but it is not ready yet (early at boot); the node waits
+	case errors.Is(err, unix.ENOSYS):
+		return fmt.Errorf("this kernel is Linux %s, and Forge Solo needs Linux 3.17 or newer: the BCH2 node stops "+
+			"at once on an older one (it needs the getrandom system call). Run it on a newer kernel", release)
+	default:
+		return fmt.Errorf("this system does not let programs use the getrandom system call (%v), and the BCH2 node "+
+			"stops at once without it. A container or sandbox that blocks it is the usual cause", err)
+	}
 }
 
 func checkWebAddr(web string) error {
@@ -288,6 +323,9 @@ func runCmd(args []string) error {
 		return err
 	}
 	dataDir, web := opts.dataDir, opts.web
+	if err := checkKernel(getrandom(), kernelRelease()); err != nil {
+		return err
+	}
 	if err := checkRootDataDir(geteuid(), dataDir); err != nil {
 		return err
 	}
