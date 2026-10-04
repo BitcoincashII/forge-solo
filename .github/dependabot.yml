@@ -5,9 +5,12 @@ updates:
     schedule:
       interval: "weekly"
   # The Go modules and the images the app is built on: fasthttp sat at a version two years and
-  # one advisory old with nothing proposing the update.
+  # one advisory old with nothing proposing the update. The Windows launcher is a module of its
+  # own, and Dependabot reads only the directories listed here.
   - package-ecosystem: "gomod"
-    directory: "/"
+    directories:
+      - "/"
+      - "/windows/launcher"
     schedule:
       interval: "weekly"
   - package-ecosystem: "docker"
