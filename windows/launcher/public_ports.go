@@ -17,8 +17,14 @@ var publicPorts = []struct {
 }{{minerPort, "the miner port", true}, {bch2P2P, "the BCH2 node's peer port", true},
 	{rentalPort, "the port for rented hashpower", false}, {aux1175P2P, "the 1175 node's peer port", false}}
 
-// checkPublicPorts fails when a required public port cannot be had; one holding an optional port
-// is only logged (rentals, or merge-mining's node, are left out).
+// auxNoPeers is set when another program holds the 1175 node's peer port: the node then runs
+// without taking incoming peers (listen=0). It still syncs over the peers it reaches, and merge
+// mining goes on. With listen=1 it exits at once against a program that does not share the port,
+// and beside another 1175 node or wallet, which does, the two share the incoming peers.
+var auxNoPeers bool
+
+// checkPublicPorts fails when a required public port cannot be had; an optional one is only logged
+// (rentals are left out, and the 1175 node takes no incoming peers).
 //
 // It never listens on a public address itself: Windows Firewall asks the person at the screen to
 // let through a program that does, and forge-solo.exe has no rule (the miner and the nodes do). It
@@ -27,15 +33,19 @@ var publicPorts = []struct {
 // and IPv4) succeed beside another program's IPv4-only one, and then gives every IPv4 connection to
 // the other program.
 func checkPublicPorts() *portError {
+	auxNoPeers = false
 	for _, p := range publicPorts {
 		err := portTaken(p.port, p.what)
-		if err == nil {
-			continue
-		}
-		if p.required {
+		switch {
+		case err == nil:
+		case p.required:
 			return err
+		case p.port == aux1175P2P:
+			auxNoPeers = true
+			logf("%s: the 1175 node runs without incoming peers, and merge mining goes on (%v)", err.why(), err.cause)
+		default:
+			logf("%s: that part is left out (%v)", err.why(), err.cause)
 		}
-		logf("%s: that part is left out (%v)", err.why(), err.cause)
 	}
 	return nil
 }

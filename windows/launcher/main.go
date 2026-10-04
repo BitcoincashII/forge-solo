@@ -33,11 +33,14 @@ var trayIcon []byte
 
 // Fixed, user-facing / internet-facing ports (matched by the installer's firewall rules).
 const (
-	minerPort  = "3333"  // documented miner endpoint, fixed so users always point miners here
-	rentalPort = "3335"  // NiceHash / MiningRigRentals: one connection per order, high difficulty floor
-	bch2P2P    = "8339"  // BCH2 P2P (incoming peers), fixed so the installer firewall rule matches
-	aux1175P2P = "25360" // 1175 P2P (incoming peers), likewise fixed; listen=1 needs a reachable port
+	minerPort  = "3333" // documented miner endpoint, fixed so users always point miners here
+	rentalPort = "3335" // NiceHash / MiningRigRentals: one connection per order, high difficulty floor
+	bch2P2P    = "8339" // BCH2 P2P (incoming peers), fixed so the installer firewall rule matches
 )
+
+// aux1175P2P is the 1175 node's P2P port (incoming peers), likewise fixed (a variable only so the
+// tests can use a free one).
+var aux1175P2P = "25360"
 
 // webPort is the dashboard's port, fixed so its address stays the same across launches (a
 // variable only so the tests can use a free one).
