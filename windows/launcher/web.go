@@ -37,7 +37,9 @@ func securityHeaders(h http.Handler) http.Handler {
 	})
 }
 
-// dashboardMux serves the dashboard's pages from webRoot and proxies /api/ to the API at apiAddr.
+// dashboardMux serves the dashboard's pages from webRoot and proxies /api/ to the API at apiAddr,
+// routed as on Linux and by Umbrel's nginx: /solo/<address> is the solo page, which reads the
+// address from its path, and no folder is listed.
 func dashboardMux(webRoot, apiAddr string) http.Handler {
 	proxy := apiProxy(apiAddr)
 	fs := http.FileServer(http.Dir(webRoot))
@@ -50,7 +52,7 @@ func dashboardMux(webRoot, apiAddr string) http.Handler {
 			proxy.ServeHTTP(w, r)
 		case p == "/":
 			http.Redirect(w, r, "/solo", http.StatusFound)
-		case p == "/solo":
+		case p == "/solo" || strings.HasPrefix(p, "/solo/"):
 			page(w, r, filepath.Join(webRoot, "solo.html"))
 		case p == "/settings":
 			page(w, r, filepath.Join(webRoot, "settings.html"))
@@ -58,6 +60,8 @@ func dashboardMux(webRoot, apiAddr string) http.Handler {
 			page(w, r, filepath.Join(webRoot, "tides.html"))
 		case p == "/index.html":
 			http.Redirect(w, r, "/solo", http.StatusFound)
+		case strings.HasSuffix(p, "/"):
+			http.NotFound(w, r)
 		default:
 			if strings.HasSuffix(p, ".html") {
 				w.Header().Set("Cache-Control", "no-cache")

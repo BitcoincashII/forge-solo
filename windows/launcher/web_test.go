@@ -69,6 +69,41 @@ func TestDashboardSecurityHeaders(t *testing.T) {
 	}
 }
 
+// The dashboard routes paths as on Linux and Umbrel: /solo/<address> is the solo page, which reads
+// the address from its path, and a folder is never listed.
+func TestDashboardRoutesLikeLinux(t *testing.T) {
+	root := t.TempDir()
+	for f, body := range map[string]string{"solo.html": "solo page", "js/app.js": "js", "css/app.css": "css"} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, f)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, f), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := dashboardHandler(root, "127.0.0.1:1")
+	get := func(path string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", path, nil)
+		r.Host = "127.0.0.1:3080"
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	for _, path := range []string{"/solo/bitcoincashii:qtestaddr", "/solo/bitcoincashii%3Aqtestaddr", "/solo/"} {
+		if w := get(path); w.Code != 200 || w.Body.String() != "solo page" || w.Header().Get("Cache-Control") != "no-cache" {
+			t.Errorf("WEB-SOLO-ADDRESS: %s: status %d, Cache-Control %q, body %.40q; want the solo page, not cached", path, w.Code, w.Header().Get("Cache-Control"), w.Body.String())
+		}
+	}
+	for _, path := range []string{"/js/", "/css/"} {
+		if w := get(path); w.Code != http.StatusNotFound {
+			t.Errorf("WEB-NO-LISTING: %s: status %d, body %.60q; want 404, no folder listing", path, w.Code, w.Body.String())
+		}
+	}
+	if w := get("/js/app.js"); w.Code != 200 || w.Body.String() != "js" {
+		t.Errorf("WEB-FILES: /js/app.js: status %d", w.Code)
+	}
+}
+
 // The pages are checked with the server each time they are shown: a browser keeping an old page
 // across an update kept the Settings page from before the password, where no save could succeed.
 func TestDashboardPagesAreNotCached(t *testing.T) {
