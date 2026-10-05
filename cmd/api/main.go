@@ -1467,6 +1467,8 @@ func getMiner(c *fiber.Ctx) error {
 		}
 	}
 
+	// The API's times are in UTC on every platform. The stratum stamps a worker's in its own zone
+	// and keeps them so, for the clock reading its online checks rely on: they are converted here.
 	return c.JSON(fiber.Map{
 		"address":         address,
 		"hashrate5m":      totalHashrate5m,
@@ -1479,7 +1481,7 @@ func getMiner(c *fiber.Ctx) error {
 		"bestDiff":        bestDiff,
 		"athDiff":         athDiff,
 		"totalWork":       totalWork,
-		"lastShare":       lastShare,
+		"lastShare":       lastShare.UTC(),
 		"soloMining":      hasSettings && settings.SoloMining,
 		"balance":         matureBalance + immatureBalance,
 		"matureBalance":   matureBalance,
@@ -1539,8 +1541,8 @@ func getMinerWorkers(c *fiber.Ctx) error {
 			"roundBestDiff": w.RoundBestDiff,
 			"athDiff":       w.ATHDiff,
 			"blocksFound":   w.BlocksFound,
-			"lastShare":     w.LastShareAt,
-			"connectedAt":   w.ConnectedAt,
+			"lastShare":     w.LastShareAt.UTC(), // in UTC, as in getMiner
+			"connectedAt":   w.ConnectedAt.UTC(),
 		})
 	}
 
