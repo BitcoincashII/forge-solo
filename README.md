@@ -84,7 +84,9 @@ Up to 1.0.12, Forge Solo on Umbrel and Windows kept its data in PostgreSQL. The 
 
 The old database stays where it was, so you can go back to 1.0.12: `postgres/` in the app's data
 on Umbrel, `pgdata` in `%APPDATA%\ForgeSolo` on Windows. It also holds the shares 1.0.12 stored.
-Going back to 1.0.12 and forward again keeps what both versions recorded.
+Going back to 1.0.12 and forward again keeps what both versions recorded. On Windows, right-click
+the Forge Solo icon and choose **Quit Forge Solo** before you run 1.0.12's installer: it cannot
+close Forge Solo itself.
 
 Once 1.0.13 shows your blocks and settings, you can delete the old database to free its space:
 deleting it, even half way, never stops Forge Solo, but 1.0.12 then no longer has your data. On

@@ -525,6 +525,112 @@ func TestInstallerWaitsForTheRunningLauncher(t *testing.T) {
 	}
 }
 
+// Forge Solo 1.0.12 holds no mutex, so the installer did not see it run and left it to Windows'
+// Restart Manager, which gave up after about 4.5 s while 1.0.12 was still stopping its nodes and
+// its database: Setup stopped with "Setup was unable to automatically close all applications", and
+// a silent install rolled back (exit code 5). Before Restart Manager looks (PrepareToInstall), and
+// before the uninstaller removes anything, a Forge Solo running from this install's folder is now
+// closed as its tray's Quit does (WM_CLOSE to its tray window, which fyne's systray turns into the
+// stop), and every program in that folder is waited for, two minutes at a time, never ended by
+// force. A silent run that waited in vain changes nothing.
+func TestInstallerClosesForgeSoloCleanly(t *testing.T) {
+	code := pascalCode(installerSection(t, "Code"))
+	prepare := installerFunc(t, "function PrepareToInstall(var NeedsRestart: Boolean): String;")
+	if !strings.Contains(prepare, "\n  Result := '';\n  if not StopForgeSolo then\n    Result := '") ||
+		!strings.Contains(pascalLiterals(prepare), "Forge Solo did not stop, so Setup changed nothing.") {
+		t.Errorf("CLOSE-SETUP: Setup does not close Forge Solo before Restart Manager looks, or goes on when it did not stop:\n%s", prepare)
+	}
+	uninstall := installerFunc(t, "procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);")
+	if !strings.Contains(uninstall, "\n  if CurUninstallStep = usUninstall then\n  begin\n    if not StopForgeSolo then\n    begin\n") ||
+		!regexp.MustCompile(`\n    if not StopForgeSolo then\n    begin\n      Log\('[^']*'\);\n      Abort;\n    end;\n`).MatchString(uninstall) {
+		t.Errorf("CLOSE-UNINSTALL: the uninstaller does not close Forge Solo before it removes anything, or goes on when it did not stop:\n%s", uninstall)
+	}
+
+	ask := installerFunc(t, "function AskForgeSoloToQuit: Integer;")
+	if !strings.Contains(ask, "FindWindowEx(0, 0, 'SystrayClass', 0)") || !strings.Contains(ask, "FindWindowEx(0, Wnd, 'SystrayClass', 0)") ||
+		!strings.Contains(ask, "PostMessage(Wnd, WM_CLOSE, 0, 0);") || !regexp.MustCompile(`(?m)^  WM_CLOSE = \$0010;$`).MatchString(code) {
+		t.Errorf("CLOSE-AS-QUIT: Forge Solo is not asked to quit as its tray's Quit does (WM_CLOSE to each SystrayClass window):\n%s", ask)
+	}
+	if mod, err := os.ReadFile("windows/launcher/go.mod"); err != nil || !regexp.MustCompile(`(?m)^\s*fyne\.io/systray v`).Match(mod) {
+		t.Error("CLOSE-TRAY-LIB: the launcher's tray is no longer fyne's systray, whose window class (SystrayClass) the installer closes")
+	}
+	if !strings.Contains(ask, "\n  Launcher := InstallFolder + AnsiLowercase('{#MyAppExe}');\n") ||
+		!strings.Contains(ask, "\n    if ProgramPath(ProcessID) = Launcher then\n    begin\n      PostMessage(") ||
+		!strings.Contains(installerFunc(t, "function InstallFolder: String;"), "Result := AddBackslash(LongPath(ExpandConstant('{app}')));") {
+		t.Errorf("CLOSE-OWN-ONLY: a tray window is closed without checking that its program is this install's launcher:\n%s", ask)
+	}
+
+	running := installerFunc(t, "function ProgramsRunning: String;")
+	if !strings.Contains(running, "\n  Folder := InstallFolder;\n") || !strings.Contains(running, "(Copy(Path, 1, Length(Folder)) = Folder)") ||
+		!strings.Contains(running, "Path := ProgramPath(Entry.ProcessID);") {
+		t.Errorf("CLOSE-ALL-PROGRAMS: what is waited for is not every program in this install's folder (the nodes and PostgreSQL too):\n%s", running)
+	}
+	if !strings.Contains(running, "if Entry.ProcessID <> GetCurrentProcessId then") || !strings.Contains(running, "(Copy(ExtractFileName(Path), 1, 5) <> 'unins')") {
+		t.Errorf("CLOSE-NOT-ITSELF: the uninstaller would wait for itself:\n%s", running)
+	}
+	long := installerFunc(t, "function LongPath(Path: String): String;")
+	if !strings.Contains(long, "GetLongPathName(Path, Long, 1024)") || !strings.Contains(long, "Result := AnsiLowercase(Path);") ||
+		!strings.Contains(installerFunc(t, "function ProgramPath(ProcessID: Cardinal): String;"), "Result := LongPath(Copy(Name, 1, Size));") {
+		t.Errorf("CLOSE-LONG-PATH: a program started by its short path, as PostgreSQL can be, is not seen as this install's:\n%s", long)
+	}
+
+	stop := installerFunc(t, "function StopForgeSolo: Boolean;")
+	if !strings.Contains(stop, "\n      while (Running <> '') and (Seconds < StopWait) do\n      begin\n        Waiting;\n        Seconds := Seconds + 1;\n        Running := ProgramsRunning;\n      end;\n") ||
+		!strings.Contains(stop, "\n  Result := Running = '';\nend;") || !strings.Contains(stop, "Asked := AskForgeSoloToQuit;") {
+		t.Errorf("CLOSE-WAIT: Setup does not wait until no program of this install runs:\n%s", stop)
+	}
+	wait := regexp.MustCompile(`(?m)^  StopWait = (\d+);$`).FindStringSubmatch(code)
+	if wait == nil {
+		t.Error("CLOSE-BOUNDED: the wait has no limit (StopWait)")
+	} else if n, _ := strconv.Atoi(wait[1]); n < 60 || n > 300 {
+		t.Errorf("CLOSE-BOUNDED: Forge Solo gets %d s to stop: too short for its nodes and database, or too long to wait without a word", n)
+	}
+	if !strings.Contains(stop, "mbError, MB_RETRYCANCEL, IDCANCEL) = IDRETRY;") || !strings.Contains(stop, "until not Again;") ||
+		!strings.Contains(pascalLiterals(stop), "Retry waits for it again. Cancel changes nothing.") {
+		t.Errorf("CLOSE-RETRY: when Forge Solo has not stopped in time, the user is not offered Retry or Cancel, with Cancel for a silent run:\n%s", stop)
+	}
+	if m := regexp.MustCompile(`(?i)TerminateProcess|taskkill|Stop-Process|\bkill\b`).FindString(code); m != "" {
+		t.Errorf("CLOSE-NO-FORCE: the installer ends a program by force (%s); a node ended while it writes has to sync again", m)
+	}
+
+	if !strings.Contains(installerFunc(t, "procedure InitializeWizard;"), "\n  ClosingPage := CreateOutputMarqueeProgressPage('Closing Forge Solo',") {
+		t.Error("CLOSE-STATUS: the wizard has no page saying it is closing Forge Solo")
+	}
+	show := installerFunc(t, "procedure ShowClosing(Show: Boolean);")
+	if !strings.Contains(show, "ClosingPage.SetText('Closing Forge Solo...',") || !strings.Contains(show, "      ClosingPage.Show;\n") ||
+		!strings.Contains(show, "UninstallProgressForm.StatusLabel.Caption := 'Closing Forge Solo...';") ||
+		!strings.Contains(stop, "\n  ShowClosing(True);\n  try\n") || !strings.Contains(stop, "\n  finally\n    ShowClosing(False);\n  end;\n") {
+		t.Errorf("CLOSE-STATUS: Setup or the uninstaller does not say it is closing Forge Solo while it waits:\n%s", show)
+	}
+
+	// TProcessEntry is PROCESSENTRY32W: Process32FirstW writes ProcessEntrySize bytes into it.
+	rec := regexp.MustCompile(`(?s)\n  TProcessEntry = record\n(.*?)\n  end;`).FindStringSubmatch(code)
+	size := regexp.MustCompile(`(?m)^  ProcessEntrySize = (\d+);$`).FindStringSubmatch(code)
+	if rec == nil || size == nil {
+		t.Fatal("CLOSE-ENTRY-SIZE: no TProcessEntry record, or no ProcessEntrySize")
+	}
+	got := 0
+	for _, l := range strings.Split(rec[1], "\n") {
+		names, typ, _ := strings.Cut(strings.TrimSpace(l), ":")
+		typ = strings.TrimSuffix(strings.TrimSpace(typ), ";")
+		switch {
+		case typ == "Cardinal" || typ == "Longint":
+			got += 4 * len(strings.Split(names, ","))
+		case typ == "array[0..259] of Char":
+			got += 260 * 2
+		default:
+			t.Errorf("CLOSE-ENTRY-SIZE: TProcessEntry has a field this test cannot size: %q", l)
+		}
+	}
+	if want, _ := strconv.Atoi(size[1]); got != 556 || want != got {
+		t.Errorf("CLOSE-ENTRY-SIZE: TProcessEntry is %d bytes and ProcessEntrySize %s; PROCESSENTRY32W is 556 in a 32-bit program", got, size[1])
+	}
+
+	if win := flat(string(mustRead(t, "windows/README.md"))); !strings.Contains(win, "To go back to 1.0.12, quit Forge Solo first: 1.0.12's installer cannot close it") {
+		t.Error("CLOSE-DOCS-ROLLBACK: windows/README.md does not say that going back to 1.0.12 needs Forge Solo quit first")
+	}
+}
+
 // Forge Solo 1.0.13 keeps its data in forgesolo.db, and PostgreSQL only moves the data of 1.0.12
 // and before into it, once. The installer puts PostgreSQL on disk only for an account that has that
 // data (pgdata\PG_VERSION in its data folder): a fresh install never has it, and an update for an

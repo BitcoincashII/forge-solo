@@ -244,10 +244,19 @@ The installer is written to `windows/ForgeSolo-Setup-<version>.exe`. CI stamps t
   program holds 25360, the 1175 node runs without incoming peers (`listen=0`), merge mining goes
   on, and `launcher.log` says so.
 - **One at a time:** a second launch opens the running copy's dashboard. Forge Solo running for
-  another Windows account counts too: it holds the same ports. The installer and the
-  uninstaller ask for Forge Solo to be closed before they touch its files (`AppMutex`). If the tray
-  icon cannot be added (Windows still setting up the taskbar at sign-in), Forge Solo starts again
-  once after 90 seconds.
+  another Windows account counts too: it holds the same ports. If the tray icon cannot be added
+  (Windows still setting up the taskbar at sign-in), Forge Solo starts again once after 90 seconds.
+- **Updating or uninstalling while Forge Solo runs:** Forge Solo 1.0.13 and later hold a mutex,
+  so the installer and the uninstaller ask, when they start, for Forge Solo to be closed
+  (`AppMutex`). 1.0.12 and earlier hold none: Windows' Restart Manager was left to close them, gave
+  up after a few seconds while they were still stopping their nodes and database, and the installer
+  stopped with an error (a silent install undid itself). So before the installer replaces a file,
+  or the uninstaller removes one, it closes a Forge Solo running from its folder for this account
+  the way the tray's Quit does (its tray window gets `WM_CLOSE`), says "Closing Forge Solo...", and
+  waits until no program in that folder runs, both nodes and PostgreSQL included. It never ends one
+  by force. After two minutes it names those still running and offers Retry or Cancel; Cancel
+  changes nothing, nor does a silent run that waited in vain. To go back to 1.0.12, quit Forge Solo
+  first: 1.0.12's installer cannot close it, and stops with that error.
 - **Tray texts:** the Windows 11 taskbar shows only the first 64 characters of a tray tooltip, so
   every text the tray shows is made in `tips.go`, at most 63 characters, the point first: what is
   wrong or under way, then where to look. A program's own reason for not starting is cut to fit.

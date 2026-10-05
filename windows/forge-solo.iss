@@ -35,9 +35,10 @@ WizardStyle=modern
 SetupIconFile=forge-solo.ico
 UninstallDisplayIcon={app}\{#MyAppExe}
 UninstallDisplayName={#MyAppName}
-; Held by the launcher while it runs (runningMutex in launcher/instance_windows.go). Setup and the
-; uninstaller ask for Forge Solo to be closed first, so that it stops both nodes cleanly, rather
-; than have its files closed under it. Test builds of 1.0.13 held the unprefixed name.
+; Held by the launcher of 1.0.13 and later while it runs (runningMutex in
+; launcher/instance_windows.go). Setup and the uninstaller ask for Forge Solo to be closed first, so
+; that it stops both nodes cleanly, rather than have its files closed under it. 1.0.12 and earlier
+; hold none: StopForgeSolo, in [Code], closes them. Test builds of 1.0.13 held the unprefixed name.
 AppMutex=ForgeSoloRunning,Global\ForgeSoloRunning
 
 [Languages]
@@ -251,6 +252,296 @@ begin
   Result := FileExists(ExpandConstant('{userappdata}\ForgeSolo\pgdata\PG_VERSION'));
 end;
 
+// Forge Solo running while it is updated or removed.
+//
+// Forge Solo 1.0.12 and earlier hold no mutex (AppMutex), so Setup did not see them run, and left
+// them to Windows' Restart Manager. It gave up after a few seconds, while Forge Solo was still
+// stopping its nodes and its database, and Setup stopped with an error (a silent install rolled
+// back). Before Setup or the uninstaller touches a file, it now closes a Forge Solo running from
+// this install's folder for this account the way its tray's Quit does, and waits for every program
+// in that folder to stop. Restart Manager then finds nothing to close. Nothing is ever ended by
+// force: a node ended while it writes has to sync again.
+
+const
+  WM_CLOSE = $0010;
+  WM_QUIT = $0012;
+  PM_REMOVE = 1;
+  TH32CS_SNAPPROCESS = $2;
+  PROCESS_QUERY_LIMITED_INFORMATION = $1000;
+  INVALID_HANDLE = $FFFFFFFF;
+  // The size of TProcessEntry, PROCESSENTRY32W as a 32-bit program has it (Setup is one): nine
+  // fields of 4 bytes and 260 characters of 2.
+  ProcessEntrySize = 556;
+  // How long Forge Solo gets to stop, in seconds, before the user is asked whether to wait again.
+  // It stops the miner first, then both nodes and its database, and each has a time of its own to
+  // finish writing. Usually it is done in a few seconds.
+  StopWait = 120;
+
+type
+  TProcessEntry = record
+    Size, Usage, ProcessID, DefaultHeapID, ModuleID, Threads, ParentProcessID: Cardinal;
+    PriClassBase: Longint;
+    Flags: Cardinal;
+    ExeFile: array[0..259] of Char;
+  end;
+  // MSG, for the uninstaller's window while it waits.
+  TWindowMessage = record
+    Window: HWND;
+    MessageID: Cardinal;
+    WParam, LParam: Longint;
+    Time: Cardinal;
+    X, Y: Longint;
+    Spare: Cardinal;
+  end;
+
+function CreateToolhelp32Snapshot(Flags, ProcessID: Cardinal): Cardinal;
+  external 'CreateToolhelp32Snapshot@kernel32.dll stdcall';
+function Process32First(Snapshot: Cardinal; var Entry: TProcessEntry): Bool;
+  external 'Process32FirstW@kernel32.dll stdcall';
+function Process32Next(Snapshot: Cardinal; var Entry: TProcessEntry): Bool;
+  external 'Process32NextW@kernel32.dll stdcall';
+function OpenProcess(Access: Cardinal; Inherit: Bool; ProcessID: Cardinal): Cardinal;
+  external 'OpenProcess@kernel32.dll stdcall';
+function QueryFullProcessImageName(Process, Flags: Cardinal; Name: String; var Size: Cardinal): Bool;
+  external 'QueryFullProcessImageNameW@kernel32.dll stdcall';
+function GetLongPathName(Path, LongPath: String; Size: Cardinal): Cardinal;
+  external 'GetLongPathNameW@kernel32.dll stdcall';
+function CloseHandle(Handle: Cardinal): Bool;
+  external 'CloseHandle@kernel32.dll stdcall';
+function GetCurrentProcessId: Cardinal;
+  external 'GetCurrentProcessId@kernel32.dll stdcall';
+function FindWindowEx(Parent, After: HWND; ClassName: String; WindowName: Cardinal): HWND;
+  external 'FindWindowExW@user32.dll stdcall';
+function GetWindowThreadProcessId(Wnd: HWND; var ProcessID: Cardinal): Cardinal;
+  external 'GetWindowThreadProcessId@user32.dll stdcall';
+function PeekMessage(var Msg: TWindowMessage; Wnd: HWND; First, Last, Remove: Cardinal): Bool;
+  external 'PeekMessageW@user32.dll stdcall';
+function TranslateMessage(var Msg: TWindowMessage): Bool;
+  external 'TranslateMessage@user32.dll stdcall';
+function DispatchMessage(var Msg: TWindowMessage): Longint;
+  external 'DispatchMessageW@user32.dll stdcall';
+procedure PostQuitMessage(ExitCode: Longint);
+  external 'PostQuitMessage@user32.dll stdcall';
+
+// LongPath is Path with any short (8.3) names in their long form, in lower case. The launcher starts
+// PostgreSQL by its short path where the long one has characters PostgreSQL cannot take.
+function LongPath(Path: String): String;
+var Long: String; N: Cardinal;
+begin
+  Long := StringOfChar(' ', 1024);
+  N := GetLongPathName(Path, Long, 1024);
+  if (N > 0) and (N < 1024) then
+    Path := Copy(Long, 1, N);
+  Result := AnsiLowercase(Path);
+end;
+
+// ProgramPath is the program the process ProcessID runs, as LongPath gives it, or '' if it cannot be
+// read: the process has exited, or it is another account's.
+function ProgramPath(ProcessID: Cardinal): String;
+var Process, Size: Cardinal; Name: String;
+begin
+  Result := '';
+  Process := OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, ProcessID);
+  if Process = 0 then
+    exit;
+  Name := StringOfChar(' ', 1024);
+  Size := 1024;
+  if QueryFullProcessImageName(Process, 0, Name, Size) then
+    Result := LongPath(Copy(Name, 1, Size));
+  CloseHandle(Process);
+end;
+
+// InstallFolder is this install's folder as LongPath gives it, with a backslash at the end. It is
+// in this account's profile: a program running from it is this account's.
+function InstallFolder: String;
+begin
+  Result := AddBackslash(LongPath(ExpandConstant('{app}')));
+end;
+
+// ExeName is the file name of the program in Entry, as Windows gives it.
+function ExeName(Entry: TProcessEntry): String;
+var I: Integer;
+begin
+  Result := '';
+  I := 0;
+  while (I <= 259) and (Entry.ExeFile[I] <> #0) do
+  begin
+    Result := Result + Entry.ExeFile[I];
+    I := I + 1;
+  end;
+end;
+
+// ProgramsRunning names the programs running from this install's folder, each once: the launcher,
+// the miner, the API, both nodes, and PostgreSQL in pgsql. The uninstaller itself is not one.
+function ProgramsRunning: String;
+var Snapshot: Cardinal; Entry: TProcessEntry; Folder, Path, Name: String;
+begin
+  Result := '';
+  Folder := InstallFolder;
+  Snapshot := CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+  if Snapshot = INVALID_HANDLE then
+  begin
+    Log('Cannot list the running programs: Forge Solo is not looked for');
+    exit;
+  end;
+  try
+    Entry.Size := ProcessEntrySize;
+    if Process32First(Snapshot, Entry) then
+      repeat
+        if Entry.ProcessID <> GetCurrentProcessId then
+        begin
+          Path := ProgramPath(Entry.ProcessID);
+          Name := ExeName(Entry);
+          if (Copy(Path, 1, Length(Folder)) = Folder) and (Copy(ExtractFileName(Path), 1, 5) <> 'unins') and
+             (Pos(', ' + AnsiLowercase(Name) + ',', ', ' + AnsiLowercase(Result) + ',') = 0) then
+          begin
+            if Result <> '' then
+              Result := Result + ', ';
+            Result := Result + Name;
+          end;
+        end;
+      until not Process32Next(Snapshot, Entry);
+  finally
+    CloseHandle(Snapshot);
+  end;
+end;
+
+// AskForgeSoloToQuit asks each Forge Solo running from this install's folder to quit as its tray's
+// Quit does, and returns how many it asked: its tray window (SystrayClass) gets WM_CLOSE. On it,
+// 1.0.12 and earlier stop the miner, both nodes and the database, and exit; 1.0.13 and later do the
+// same. (Their Quit menu items have a different number in each version.)
+function AskForgeSoloToQuit: Integer;
+var Wnd: HWND; ProcessID: Cardinal; Launcher: String;
+begin
+  Result := 0;
+  Launcher := InstallFolder + AnsiLowercase('{#MyAppExe}');
+  Wnd := FindWindowEx(0, 0, 'SystrayClass', 0);
+  while Wnd <> 0 do
+  begin
+    ProcessID := 0;
+    GetWindowThreadProcessId(Wnd, ProcessID);
+    if ProgramPath(ProcessID) = Launcher then
+    begin
+      PostMessage(Wnd, WM_CLOSE, 0, 0);
+      Result := Result + 1;
+    end;
+    Wnd := FindWindowEx(0, Wnd, 'SystrayClass', 0);
+  end;
+end;
+
+var
+  // The wizard's page while Setup waits for Forge Solo to stop.
+  ClosingPage: TOutputMarqueeProgressWizardPage;
+  // What the uninstaller's window said before it said it was closing Forge Solo.
+  UninstallStatus: String;
+  // Set once the uninstaller's wait has passed on a request to end it: it handles no more messages.
+  QuitSeen: Boolean;
+
+// ShowClosing says, while Show is True, that Forge Solo is being closed: on the wizard's page, or in
+// the uninstaller's window. Nothing is shown when either runs silently.
+procedure ShowClosing(Show: Boolean);
+begin
+  if IsUninstaller then
+  begin
+    if UninstallSilent then
+      exit;
+    if Show then
+    begin
+      UninstallStatus := UninstallProgressForm.StatusLabel.Caption;
+      UninstallProgressForm.StatusLabel.Caption := 'Closing Forge Solo...';
+    end else
+      UninstallProgressForm.StatusLabel.Caption := UninstallStatus;
+  end else if not WizardSilent then
+  begin
+    if Show then
+    begin
+      ClosingPage.SetText('Closing Forge Solo...', 'It stops its nodes and its database cleanly ' +
+        'first. That can take up to two minutes.');
+      ClosingPage.Show;
+    end else
+      ClosingPage.Hide;
+  end;
+end;
+
+// Waiting waits about a second, while the window Setup or the uninstaller shows goes on answering.
+procedure Waiting;
+var I: Integer; Msg: TWindowMessage;
+begin
+  for I := 1 to 20 do
+  begin
+    if IsUninstaller then
+    begin
+      if not QuitSeen then
+        while PeekMessage(Msg, 0, 0, 0, PM_REMOVE) do
+        begin
+          if Msg.MessageID = WM_QUIT then
+          begin
+            // Passed on, for the uninstaller's own loop.
+            QuitSeen := True;
+            PostQuitMessage(Msg.WParam);
+            break;
+          end;
+          TranslateMessage(Msg);
+          DispatchMessage(Msg);
+        end;
+    end else if not WizardSilent then
+      ClosingPage.Animate;
+    Sleep(50);
+  end;
+end;
+
+// StopForgeSolo closes Forge Solo if it runs from this install's folder, and waits for every program
+// there to stop: StopWait seconds, then as often again as the user chooses Retry. It reports whether
+// none runs any more. It never ends one by force.
+function StopForgeSolo: Boolean;
+var Running: String; Seconds, Asked: Integer; Again: Boolean;
+begin
+  Running := ProgramsRunning;
+  Result := Running = '';
+  if Result then
+    exit;
+  ShowClosing(True);
+  try
+    repeat
+      Asked := AskForgeSoloToQuit;
+      Log('Forge Solo runs from ' + ExpandConstant('{app}') + ' (' + Running + '): ' + IntToStr(Asked) +
+        ' asked to quit, as its tray''s Quit does');
+      Seconds := 0;
+      while (Running <> '') and (Seconds < StopWait) do
+      begin
+        Waiting;
+        Seconds := Seconds + 1;
+        Running := ProgramsRunning;
+      end;
+      Again := False;
+      if Running = '' then
+        Log('Forge Solo stopped within ' + IntToStr(Seconds) + ' s')
+      else
+      begin
+        Log('Forge Solo still runs after ' + IntToStr(Seconds) + ' s: ' + Running);
+        // Cancel when suppressed: a silent install or uninstall then ends, having changed nothing.
+        Again := SuppressibleMsgBox('Forge Solo has not stopped yet. Still running from ' +
+          ExpandConstant('{app}') + ': ' + Running + '.' + #13#10#13#10 +
+          'Forge Solo stops its nodes and its database cleanly, which can take a few minutes on a ' +
+          'slow PC. Retry waits for it again. Cancel changes nothing.',
+          mbError, MB_RETRYCANCEL, IDCANCEL) = IDRETRY;
+      end;
+    until not Again;
+  finally
+    ShowClosing(False);
+  end;
+  Result := Running = '';
+end;
+
+// Forge Solo is closed before Windows' Restart Manager looks for programs that use the files Setup
+// replaces: Inno Setup calls PrepareToInstall first.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  if not StopForgeSolo then
+    Result := 'Forge Solo did not stop, so Setup changed nothing. Run Setup again once it has stopped.';
+end;
+
 // Setup installs for the Windows account it runs as. Started with "Run as administrator", it can
 // run as another account than the one signed in: an administrator's, over the shoulder, or the
 // separate account Administrator Protection elevates to. Forge Solo then goes to that account's
@@ -259,6 +550,8 @@ end;
 procedure InitializeWizard;
 var Account: String;
 begin
+  ClosingPage := CreateOutputMarqueeProgressPage('Closing Forge Solo',
+    'Setup closes Forge Solo before it replaces its files.');
   if IsAdmin() then
   begin
     Account := ExpandConstant('{username}') + ' (' + ExpandConstant('{%USERPROFILE}') + ')';
@@ -409,6 +702,12 @@ var InPlace: Integer; DataDir, Cmd: String; Ran: Boolean;
 begin
   if CurUninstallStep = usUninstall then
   begin
+    // Its files are removed next: Forge Solo is closed first, cleanly.
+    if not StopForgeSolo then
+    begin
+      Log('Forge Solo did not stop: the uninstall ends, and nothing is removed');
+      Abort;
+    end;
     DataDir := ExpandConstant('{userappdata}\ForgeSolo');
     // The rules carry the account's name as it was when they were put in place.
     RulesAccount := KeptRulesAccount;
