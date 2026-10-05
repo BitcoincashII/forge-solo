@@ -195,12 +195,16 @@ The installer is written to `windows/ForgeSolo-Setup-<version>.exe`. CI stamps t
 - **Dashboard port:** the dashboard is always at http://127.0.0.1:3080. If another program holds
   that port, the tray says so and the browser is not sent to that program; mining goes on, and the
   tray's **Try Again** opens the dashboard once the port is free. Its pages are served with
-  `no-cache`, and after an update the launcher opens the dashboard at an address the browser has
-  not kept from the version before, so the new page shows, not the old one.
+  `no-cache`. 1.0.12 sent them with none, and a browser showed its copy of 1.0.12's page for hours
+  after an update, so Forge Solo opens the dashboard at `/solo?v=<version>` (after the start, from
+  **Open Dashboard**, at a second launch and from Try Again), an address the browser has kept
+  nothing for. A page asked for with this version's `v` is sent with `Clear-Site-Data: "cache"`:
+  the browser drops what it kept of the dashboard, so the pages its links lead to, the scripts and
+  the styles are this version's too.
 - **A start that fails** (another program on 3333 or 8339, a port Windows reserves, `secrets.env`
   unreadable) leaves Forge Solo in the tray, which says why and offers **Try Again**: it starts
-  Forge Solo again in place. A second launch only opens http://127.0.0.1:3080, which nothing serves
-  then, so use Try Again (or Quit and start again).
+  Forge Solo again in place. A second launch only opens the dashboard's address, which nothing
+  serves then, so use Try Again (or Quit and start again).
 - **A program that cannot start** (an antivirus holding or removing it, Smart App Control, a file
   in use) is named in the tray and in `launcher.log` with the reason, and tried again after
   2 seconds, the wait doubling up to a minute. The tray says "running" only once both nodes, the
@@ -210,10 +214,11 @@ The installer is written to `windows/ForgeSolo-Setup-<version>.exe`. CI stamps t
   `launcher.log` say so. Programs Forge Solo stops itself (Quit, Restart Mining) are left stopped.
   A node that stops saying "Error opening block database" or "Corrupted block database detected"
   (after a power cut, say) is started once with `-reindex`, which rebuilds its chain state from the
-  blocks on disk; if that does not help, the tray says which folders to delete. This works for the
-  BCH2 node. The 1175 node (29.1.0) cannot rebuild a mainnet chain with `-reindex`: for it, delete
-  `elevenseventyfive\blocks` and `elevenseventyfive\chainstate` in the data folder and start Forge
-  Solo, and the node downloads its chain again.
+  blocks on disk; if that does not help, the tray says its chain is damaged, and `launcher.log`
+  says which folders to delete. This works for the BCH2 node. The 1175 node (29.1.0) cannot
+  rebuild a mainnet chain with `-reindex`: for it, delete `elevenseventyfive\blocks` and
+  `elevenseventyfive\chainstate` in the data folder and start Forge Solo, and the node downloads
+  its chain again.
 - **Firewall rules per Windows account:** the rules are named for the account that installed them
   ("Forge Solo Miner (3333) for <account>"), so two accounts on one PC each keep their own; the
   unsuffixed rules of earlier releases are removed. Once the rules are in place, the installer
@@ -234,15 +239,19 @@ The installer is written to `windows/ForgeSolo-Setup-<version>.exe`. CI stamps t
   reported as such; `netsh int ipv4 show excludedportrange protocol=tcp` (or `ipv6`) lists those
   ranges. If another program uses port 3335, the rental port, Forge Solo starts without it, and the
   tray, `launcher.log` and the dashboard say so: rentals have no port of their own until you stop
-  that program, then restart Forge Solo. If one holds 25360, the 1175 node runs without incoming
-  peers (`listen=0`), merge mining goes on, and `launcher.log` says so.
+  that program, then restart Forge Solo. If Windows keeps 3335 for itself, they say that instead:
+  rentals have no port of their own until Windows lets it go and you restart Forge Solo. If another
+  program holds 25360, the 1175 node runs without incoming peers (`listen=0`), merge mining goes
+  on, and `launcher.log` says so.
 - **One at a time:** a second launch opens the running copy's dashboard. Forge Solo running for
   another Windows account counts too: it holds the same ports. The installer and the
   uninstaller ask for Forge Solo to be closed before they touch its files (`AppMutex`). If the tray
   icon cannot be added (Windows still setting up the taskbar at sign-in), Forge Solo starts again
   once after 90 seconds.
 - **Tray texts:** the Windows 11 taskbar shows only the first 64 characters of a tray tooltip, so
-  the tray's messages are kept that short; `launcher.log` has the whole story.
+  every text the tray shows is made in `tips.go`, at most 63 characters, the point first: what is
+  wrong or under way, then where to look. A program's own reason for not starting is cut to fit.
+  `launcher.log` has the rest: which program holds a port and what to do, which folders to delete.
 - **Signing:** CI signs the installer on the runner, with a timestamp, and publishes the
   certificate's SHA-256 fingerprint on the release page.
 - **Installer:** 64-bit Windows only (Windows 10 or 11 on x64, Windows 11 on ARM); it refuses

@@ -176,8 +176,10 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
   miners.
 - **Windows:** if another program uses port 3335, the rental port, Forge Solo starts without it, and
   the tray, `launcher.log` and the dashboard say so: rentals have no port of their own until you stop
-  that program, then restart Forge Solo. If one uses 25360, the 1175 node runs without incoming peers
-  and merge mining goes on; the node could stop at every start.
+  that program, then restart Forge Solo. If Windows keeps 3335 for itself (a range reserved for
+  Hyper-V, WSL or Docker), they say so: rentals have no port of their own until Windows lets it go
+  and you restart Forge Solo. If another program uses 25360, the 1175 node runs without incoming
+  peers and merge mining goes on; the node could stop at every start.
 - **Windows:** a program Forge Solo cannot start (an antivirus holding or removing it, Smart App
   Control, a file in use) is named in the tray and in `launcher.log` with the reason, and started as
   soon as it can be. One that stops on its own (the miner, the API or a node crashing) is started

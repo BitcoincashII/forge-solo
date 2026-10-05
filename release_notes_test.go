@@ -182,6 +182,23 @@ func TestRentalPortTakenIsToldOneWay(t *testing.T) {
 	}
 }
 
+// On Windows the rental port can also be one Windows keeps for itself (a range reserved for
+// Hyper-V, WSL or Docker), which a restart alone does not bring back. The dashboard, the stratum
+// and the launcher say so in one sentence, and so do the texts that cover Windows.
+func TestRentalPortWindowsKeepsIsTold(t *testing.T) {
+	want := "rentals have no port of their own until Windows lets it go and you restart Forge Solo"
+	for _, d := range []struct{ code, name, text string }{
+		{"DOCS-3335-RESERVED-RELEASE", "RELEASE_NOTES.md ## 1.0.13", releaseSection(t, "1.0.13")},
+		{"DOCS-3335-RESERVED-README", "README.md", string(mustRead(t, "README.md"))},
+		{"DOCS-3335-RESERVED-WIN", "windows/README.md", string(mustRead(t, "windows/README.md"))},
+		{"DOCS-3335-RESERVED-CODE", "web/dist/js/common.js", string(mustRead(t, "web/dist/js/common.js"))},
+	} {
+		if !strings.Contains(flat(d.text), want) {
+			t.Errorf("%s: %s does not say %q", d.code, d.name, want)
+		}
+	}
+}
+
 // The store's description and update notes keep their lists one item to a line. In a folded
 // block, lines at the block's own indentation are joined into one: the store showed "Includes: - A
 // built-in BCH2 full node ... - A built-in 1175 (ESF) node ...". The update screen is short.

@@ -37,7 +37,7 @@ func sentences(s string) []string {
 // a node's chain data is damaged, and marks what is Umbrel's alone. Before, its setup sections
 // were Umbrel's, it listed a postgres container, it never named the password Settings asks for,
 // and only Umbrel users were told what to do about a damaged chain: on Windows the 1175 node's
-// automatic -reindex cannot rebuild a mainnet chain, and the tray does not always name the folders.
+// automatic -reindex cannot rebuild a mainnet chain, and the tray does not name the folders.
 func TestReadmeCoversEveryPlatform(t *testing.T) {
 	readme := string(mustRead(t, "README.md"))
 	text := flat(readme)
@@ -82,6 +82,61 @@ func TestReadmeCoversEveryPlatform(t *testing.T) {
 		if !ok || !strings.Contains(chain, want) {
 			t.Errorf("DOCS-README-CHAIN: README.md's section \"If a node's chain data is damaged\" does not say %q", want)
 		}
+	}
+}
+
+// The tray shows at most tipMax characters (windows/launcher/tips.go): it says what is wrong and
+// where to look, and launcher.log says what to do, which folders to delete for a damaged chain
+// among it. The docs said the tray named them. The launcher opens the dashboard at
+// /solo?v=<version>, which its server answers with Clear-Site-Data, so that the browser drops the
+// pages it kept from the version before; the Windows README said only that the address was new.
+func TestWindowsDocsSayWhatTheLauncherDoes(t *testing.T) {
+	folders := regexp.MustCompile(`(?i)folders to delete|which folders`)
+	for _, d := range allDocs(t) {
+		for _, s := range sentences(d.text) {
+			if strings.Contains(s, "tray") && folders.MatchString(s) && !strings.Contains(s, "launcher.log") {
+				t.Errorf("DOCS-WIN-CHAIN-TRAY: %s says the tray names the folders to delete; launcher.log does: %q", d.name, s)
+			}
+		}
+	}
+	tips := string(mustRead(t, "windows/launcher/tips.go"))
+	if !strings.Contains(tips, `"'s chain is damaged: see launcher.log"`) {
+		t.Error("DOCS-WIN-CHAIN-TRAY-CODE: tips.go no longer says a node's chain is damaged, see launcher.log")
+	}
+	_, chain, _ := strings.Cut(string(mustRead(t, "README.md")), "\n## If a node's chain data is damaged\n")
+	chain, _, _ = strings.Cut(chain, "\n## ")
+	if !strings.Contains(flat(chain), "Windows: the tray says the node's chain is damaged") {
+		t.Error("DOCS-README-CHAIN-TRAY: README.md does not say what the tray shows when a node's chain data is damaged on Windows")
+	}
+
+	win := flat(string(mustRead(t, "windows/README.md")))
+	for _, want := range []string{"Forge Solo opens the dashboard at /solo?v=<version>", `Clear-Site-Data: "cache"`} {
+		if !strings.Contains(win, want) {
+			t.Errorf("DOCS-WIN-DASH-VERSION: windows/README.md does not say %q", want)
+		}
+	}
+	if !strings.Contains(string(mustRead(t, "windows/launcher/main.go")), `"/solo?v=" + url.QueryEscape(version)`) ||
+		!strings.Contains(string(mustRead(t, "windows/launcher/web.go")), "w.Header().Set(\"Clear-Site-Data\", `\"cache\"`)") {
+		t.Error("DOCS-WIN-DASH-CODE: the launcher no longer opens /solo?v=<version>, or its server no longer clears the cache for it")
+	}
+	// Every place the launcher opens the browser opens dashboardURL(), never the bare address.
+	bare := regexp.MustCompile(`(?i)\bopens (the dashboard at )?http://127\.0\.0\.1:3080([^/]|$)`)
+	for _, d := range []docText{
+		{"README.md", string(mustRead(t, "README.md"))},
+		{"windows/README.md", string(mustRead(t, "windows/README.md"))},
+		{"RELEASE_NOTES.md ## 1.0.13", releaseSection(t, "1.0.13")},
+	} {
+		if m := bare.FindString(flat(d.text)); m != "" {
+			t.Errorf("DOCS-WIN-OPENS-BARE: %s says Forge Solo %q; it opens /solo?v=<version>", d.name, m)
+		}
+	}
+
+	m := regexp.MustCompile(`(?m)^const tipMax = (\d+)$`).FindStringSubmatch(tips)
+	if m == nil {
+		t.Fatal("DOCS-WIN-TRAY-MAX: tips.go has no tipMax")
+	}
+	if want := "at most " + m[1] + " characters"; !strings.Contains(win, want) {
+		t.Errorf("DOCS-WIN-TRAY-MAX: windows/README.md does not say the tray's texts are %s, as tips.go makes them", want)
 	}
 }
 

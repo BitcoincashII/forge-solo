@@ -145,7 +145,9 @@ that resolves to it.
 
 **If another program uses port 3335, the rental port** (Windows and Linux), Forge Solo starts
 without it and says so, and rentals have no port of their own. Stop that program, then restart
-Forge Solo. On Umbrel the install stops instead (see **Umbrel: ports other apps use**).
+Forge Solo. On Umbrel the install stops instead (see **Umbrel: ports other apps use**). Windows
+can also keep 3335 for itself (a range reserved for Hyper-V, WSL or Docker): Forge Solo then says
+so, and rentals have no port of their own until Windows lets it go and you restart Forge Solo.
 
 The nodes' **RPC ports are never reachable from your network**: on Umbrel they stay on the app's
 private network, and on Windows and Linux they listen on 127.0.0.1 only. Never forward them:
@@ -214,10 +216,11 @@ chain again, and your settings and block history stay.
 - **Umbrel:** from the umbrelOS terminal or over SSH, for the BCH2 node:
   `sudo rm -rf ~/umbrel/app-data/bch2-apps-forge-solo/node/{blocks,chainstate}`; for the 1175 node,
   the same in `node1175`.
-- **Windows:** the tray keeps saying the node stopped and is started again, and `launcher.log` says
-  its chain data is damaged. Right-click the Forge Solo icon and choose **Quit**. Then, in
-  `%APPDATA%\ForgeSolo`, delete `elevenseventyfive\blocks` and `elevenseventyfive\chainstate` for
-  the 1175 node, or `bch2\blocks` and `bch2\chainstate` for the BCH2 node.
+- **Windows:** the tray says the node's chain is damaged, or keeps saying the node stopped and is
+  started again, and `launcher.log` says its chain data is damaged. Right-click the Forge Solo icon
+  and choose **Quit**. Then, in `%APPDATA%\ForgeSolo`, delete `elevenseventyfive\blocks` and
+  `elevenseventyfive\chainstate` for the 1175 node, or `bch2\blocks` and `bch2\chainstate` for the
+  BCH2 node.
 - **Linux:** it has the BCH2 node only. Stop Forge Solo (Ctrl-C, or for the service
   `sudo systemctl stop forge-solo`) and delete `bch2/blocks` and `bch2/chainstate` in the data
   directory. See [If something goes wrong](packaging/linux/README.md#if-something-goes-wrong).
