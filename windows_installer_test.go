@@ -532,7 +532,9 @@ func TestInstallerWaitsForTheRunningLauncher(t *testing.T) {
 // before the uninstaller removes anything, a Forge Solo running from this install's folder is now
 // closed as its tray's Quit does (WM_CLOSE to its tray window, which fyne's systray turns into the
 // stop), and every program in that folder is waited for, two minutes at a time, never ended by
-// force. A silent run that waited in vain changes nothing.
+// force. A silent run that waited in vain changes nothing. Pascal Script cannot run here, so the
+// code that finds the programs and waits for them is pinned statement by statement: a slip in it
+// finds nothing, or waits a tenth as long, and the update fails as before.
 func TestInstallerClosesForgeSoloCleanly(t *testing.T) {
 	code := pascalCode(installerSection(t, "Code"))
 	prepare := installerFunc(t, "function PrepareToInstall(var NeedsRestart: Boolean): String;")
@@ -546,8 +548,38 @@ func TestInstallerClosesForgeSoloCleanly(t *testing.T) {
 		t.Errorf("CLOSE-UNINSTALL: the uninstaller does not close Forge Solo before it removes anything, or goes on when it did not stop:\n%s", uninstall)
 	}
 
+	// Each Windows call is declared as Windows has it, the Unicode one where there are two: with a
+	// wrong one nothing is found, and Restart Manager fails the update as before.
+	var imports []string
+	for _, decl := range []string{
+		"function CreateToolhelp32Snapshot(Flags, ProcessID: Cardinal): Cardinal;\n  external 'CreateToolhelp32Snapshot@kernel32.dll stdcall';",
+		"function Process32First(Snapshot: Cardinal; var Entry: TProcessEntry): Bool;\n  external 'Process32FirstW@kernel32.dll stdcall';",
+		"function Process32Next(Snapshot: Cardinal; var Entry: TProcessEntry): Bool;\n  external 'Process32NextW@kernel32.dll stdcall';",
+		"function OpenProcess(Access: Cardinal; Inherit: Bool; ProcessID: Cardinal): Cardinal;\n  external 'OpenProcess@kernel32.dll stdcall';",
+		"function QueryFullProcessImageName(Process, Flags: Cardinal; Name: String; var Size: Cardinal): Bool;\n  external 'QueryFullProcessImageNameW@kernel32.dll stdcall';",
+		"function GetLongPathName(Path, LongPath: String; Size: Cardinal): Cardinal;\n  external 'GetLongPathNameW@kernel32.dll stdcall';",
+		"function CloseHandle(Handle: Cardinal): Bool;\n  external 'CloseHandle@kernel32.dll stdcall';",
+		"function GetCurrentProcessId: Cardinal;\n  external 'GetCurrentProcessId@kernel32.dll stdcall';",
+		"function FindWindowEx(Parent, After: HWND; ClassName: String; WindowName: Cardinal): HWND;\n  external 'FindWindowExW@user32.dll stdcall';",
+		"function GetWindowThreadProcessId(Wnd: HWND; var ProcessID: Cardinal): Cardinal;\n  external 'GetWindowThreadProcessId@user32.dll stdcall';",
+		"function PeekMessage(var Msg: TWindowMessage; Wnd: HWND; First, Last, Remove: Cardinal): Bool;\n  external 'PeekMessageW@user32.dll stdcall';",
+		"function TranslateMessage(var Msg: TWindowMessage): Bool;\n  external 'TranslateMessage@user32.dll stdcall';",
+		"function DispatchMessage(var Msg: TWindowMessage): Longint;\n  external 'DispatchMessageW@user32.dll stdcall';",
+		"procedure PostQuitMessage(ExitCode: Longint);\n  external 'PostQuitMessage@user32.dll stdcall';",
+		"\n  TH32CS_SNAPPROCESS = $2;\n", "\n  PROCESS_QUERY_LIMITED_INFORMATION = $1000;\n", "\n  INVALID_HANDLE = $FFFFFFFF;\n",
+		"\n  WM_QUIT = $0012;\n", "\n  PM_REMOVE = 1;\n",
+	} {
+		if !strings.Contains(code, decl) {
+			imports = append(imports, decl)
+		}
+	}
+	if len(imports) > 0 {
+		t.Errorf("CLOSE-IMPORTS: these are not in [Code] as Windows declares them:\n%s", strings.Join(imports, "\n"))
+	}
+
 	ask := installerFunc(t, "function AskForgeSoloToQuit: Integer;")
-	if !strings.Contains(ask, "FindWindowEx(0, 0, 'SystrayClass', 0)") || !strings.Contains(ask, "FindWindowEx(0, Wnd, 'SystrayClass', 0)") ||
+	if !strings.Contains(ask, "\n  Wnd := FindWindowEx(0, 0, 'SystrayClass', 0);\n  while Wnd <> 0 do\n  begin\n") ||
+		!strings.Contains(ask, "\n    Wnd := FindWindowEx(0, Wnd, 'SystrayClass', 0);\n  end;\nend;") ||
 		!strings.Contains(ask, "PostMessage(Wnd, WM_CLOSE, 0, 0);") || !regexp.MustCompile(`(?m)^  WM_CLOSE = \$0010;$`).MatchString(code) {
 		t.Errorf("CLOSE-AS-QUIT: Forge Solo is not asked to quit as its tray's Quit does (WM_CLOSE to each SystrayClass window):\n%s", ask)
 	}
@@ -555,35 +587,119 @@ func TestInstallerClosesForgeSoloCleanly(t *testing.T) {
 		t.Error("CLOSE-TRAY-LIB: the launcher's tray is no longer fyne's systray, whose window class (SystrayClass) the installer closes")
 	}
 	if !strings.Contains(ask, "\n  Launcher := InstallFolder + AnsiLowercase('{#MyAppExe}');\n") ||
-		!strings.Contains(ask, "\n    if ProgramPath(ProcessID) = Launcher then\n    begin\n      PostMessage(") ||
-		!strings.Contains(installerFunc(t, "function InstallFolder: String;"), "Result := AddBackslash(LongPath(ExpandConstant('{app}')));") {
+		!strings.Contains(ask, "\n    ProcessID := 0;\n    GetWindowThreadProcessId(Wnd, ProcessID);\n    if ProgramPath(ProcessID) = Launcher then\n    begin\n      PostMessage(") ||
+		!strings.Contains(installerFunc(t, "function InstallFolder: String;"), "\nbegin\n  Result := AddBackslash(LongPath(ExpandConstant('{app}')));\nend;") {
 		t.Errorf("CLOSE-OWN-ONLY: a tray window is closed without checking that its program is this install's launcher:\n%s", ask)
 	}
 
 	running := installerFunc(t, "function ProgramsRunning: String;")
-	if !strings.Contains(running, "\n  Folder := InstallFolder;\n") || !strings.Contains(running, "(Copy(Path, 1, Length(Folder)) = Folder)") ||
-		!strings.Contains(running, "Path := ProgramPath(Entry.ProcessID);") {
-		t.Errorf("CLOSE-ALL-PROGRAMS: what is waited for is not every program in this install's folder (the nodes and PostgreSQL too):\n%s", running)
+	if !strings.Contains(running, "\n  Folder := InstallFolder;\n  Snapshot := CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);\n  if Snapshot = INVALID_HANDLE then\n") ||
+		!strings.Contains(running, `
+      repeat
+        if Entry.ProcessID <> GetCurrentProcessId then
+        begin
+          Path := ProgramPath(Entry.ProcessID);
+          Name := ExeName(Entry);
+          if (Copy(Path, 1, Length(Folder)) = Folder) and (Copy(ExtractFileName(Path), 1, 5) <> 'unins') and
+             (Pos(', ' + AnsiLowercase(Name) + ',', ', ' + AnsiLowercase(Result) + ',') = 0) then
+          begin
+            if Result <> '' then
+              Result := Result + ', ';
+            Result := Result + Name;
+          end;
+        end;
+      until not Process32Next(Snapshot, Entry);
+  finally
+    CloseHandle(Snapshot);
+  end;
+end;`) ||
+		!strings.Contains(installerFunc(t, "function ExeName(Entry: TProcessEntry): String;"),
+			"\n  while (I <= 259) and (Entry.ExeFile[I] <> #0) do\n  begin\n    Result := Result + Entry.ExeFile[I];\n    I := I + 1;\n  end;\nend;") {
+		t.Errorf("CLOSE-ALL-PROGRAMS: what is waited for is not every program in this install's folder (the nodes and PostgreSQL too), each named:\n%s", running)
 	}
 	if !strings.Contains(running, "if Entry.ProcessID <> GetCurrentProcessId then") || !strings.Contains(running, "(Copy(ExtractFileName(Path), 1, 5) <> 'unins')") {
 		t.Errorf("CLOSE-NOT-ITSELF: the uninstaller would wait for itself:\n%s", running)
 	}
+	path := installerFunc(t, "function ProgramPath(ProcessID: Cardinal): String;")
+	if !strings.Contains(path, `
+begin
+  Result := '';
+  Process := OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, ProcessID);
+  if Process = 0 then
+    exit;
+  Name := StringOfChar(' ', 1024);
+  Size := 1024;
+  if QueryFullProcessImageName(Process, 0, Name, Size) then
+    Result := LongPath(Copy(Name, 1, Size));
+  CloseHandle(Process);
+end;`) {
+		t.Errorf("CLOSE-PROGRAM-PATH: a process's program is not read as its full Windows path:\n%s", path)
+	}
 	long := installerFunc(t, "function LongPath(Path: String): String;")
-	if !strings.Contains(long, "GetLongPathName(Path, Long, 1024)") || !strings.Contains(long, "Result := AnsiLowercase(Path);") ||
-		!strings.Contains(installerFunc(t, "function ProgramPath(ProcessID: Cardinal): String;"), "Result := LongPath(Copy(Name, 1, Size));") {
+	if !strings.Contains(long, `
+begin
+  Long := StringOfChar(' ', 1024);
+  N := GetLongPathName(Path, Long, 1024);
+  if (N > 0) and (N < 1024) then
+    Path := Copy(Long, 1, N);
+  Result := AnsiLowercase(Path);
+end;`) || !strings.Contains(path, "Result := LongPath(Copy(Name, 1, Size));") {
 		t.Errorf("CLOSE-LONG-PATH: a program started by its short path, as PostgreSQL can be, is not seen as this install's:\n%s", long)
 	}
 
 	stop := installerFunc(t, "function StopForgeSolo: Boolean;")
+	if !strings.Contains(stop, "\nbegin\n  Running := ProgramsRunning;\n  Result := Running = '';\n  if Result then\n    exit;\n  ShowClosing(True);\n") {
+		t.Errorf("CLOSE-ONLY-WHEN-RUNNING: Setup goes on without closing Forge Solo, or waits when none of its programs runs:\n%s", stop)
+	}
 	if !strings.Contains(stop, "\n      while (Running <> '') and (Seconds < StopWait) do\n      begin\n        Waiting;\n        Seconds := Seconds + 1;\n        Running := ProgramsRunning;\n      end;\n") ||
 		!strings.Contains(stop, "\n  Result := Running = '';\nend;") || !strings.Contains(stop, "Asked := AskForgeSoloToQuit;") {
 		t.Errorf("CLOSE-WAIT: Setup does not wait until no program of this install runs:\n%s", stop)
 	}
+	// StopWait counts calls of Waiting, each a second: the closing page and windows/README.md say
+	// Forge Solo gets two minutes.
 	wait := regexp.MustCompile(`(?m)^  StopWait = (\d+);$`).FindStringSubmatch(code)
-	if wait == nil {
-		t.Error("CLOSE-BOUNDED: the wait has no limit (StopWait)")
-	} else if n, _ := strconv.Atoi(wait[1]); n < 60 || n > 300 {
-		t.Errorf("CLOSE-BOUNDED: Forge Solo gets %d s to stop: too short for its nodes and database, or too long to wait without a word", n)
+	if wait == nil || wait[1] != "120" || !strings.Contains(pascalLiterals(installerFunc(t, "procedure ShowClosing(Show: Boolean);")), "That can take up to two minutes.") ||
+		!strings.Contains(flat(string(mustRead(t, "windows/README.md"))), "After two minutes it names those still running and offers Retry or Cancel") {
+		t.Errorf("CLOSE-BOUNDED: the wait (StopWait %v) is not the two minutes the closing page and windows/README.md say", wait)
+	}
+	// Waiting is a second: turns that each answer the window, then sleep.
+	answer := `
+    if IsUninstaller then
+    begin
+      if not QuitSeen then
+        while PeekMessage(Msg, 0, 0, 0, PM_REMOVE) do
+        begin
+          if Msg.MessageID = WM_QUIT then
+          begin
+            QuitSeen := True;
+            PostQuitMessage(Msg.WParam);
+            break;
+          end;
+          TranslateMessage(Msg);
+          DispatchMessage(Msg);
+        end;
+    end else if not WizardSilent then
+      ClosingPage.Animate;
+`
+	waiting := installerFunc(t, "procedure Waiting;")
+	turns := regexp.MustCompile(`(?s)\n  for I := 1 to (\d+) do\n  begin(\n.*\n)    Sleep\((\d+)\);\n  end;\nend;$`).FindStringSubmatch(waiting)
+	sleep := 0
+	if turns == nil || turns[2] != answer || strings.Count(waiting, "Sleep(") != 1 {
+		t.Errorf("CLOSE-BOUNDED: Waiting is not one loop that answers the window, then sleeps, on each turn:\n%s", waiting)
+	} else {
+		n, _ := strconv.Atoi(turns[1])
+		sleep, _ = strconv.Atoi(turns[3])
+		if n*sleep != 1000 {
+			t.Errorf("CLOSE-BOUNDED: Waiting waits %d turns of %d ms, not a second: StopWait counts seconds", n, sleep)
+		}
+	}
+
+	// While it waits, the uninstaller's window goes on answering (its messages are handled between
+	// turns, and a request to end it is passed on), and so does the wizard's page.
+	msg := regexp.MustCompile(`(?s)\n  TWindowMessage = record\n(.*?)\n  end;`).FindStringSubmatch(code)
+	if msg == nil || msg[1] != "    Window: HWND;\n    MessageID: Cardinal;\n    WParam, LParam: Longint;\n    Time: Cardinal;\n    X, Y: Longint;\n    Spare: Cardinal;" ||
+		sleep > 100 || !strings.Contains(waiting, answer) {
+		t.Errorf("CLOSE-ANSWERS: while Setup or the uninstaller waits, its window stops answering:\n%s", waiting)
 	}
 	if !strings.Contains(stop, "mbError, MB_RETRYCANCEL, IDCANCEL) = IDRETRY;") || !strings.Contains(stop, "until not Again;") ||
 		!strings.Contains(pascalLiterals(stop), "Retry waits for it again. Cancel changes nothing.") {
@@ -624,6 +740,12 @@ func TestInstallerClosesForgeSoloCleanly(t *testing.T) {
 	}
 	if want, _ := strconv.Atoi(size[1]); got != 556 || want != got {
 		t.Errorf("CLOSE-ENTRY-SIZE: TProcessEntry is %d bytes and ProcessEntrySize %s; PROCESSENTRY32W is 556 in a 32-bit program", got, size[1])
+	}
+	// Its fields in PROCESSENTRY32W's order, and its size set before the first call, which fails
+	// on any other.
+	if rec[1] != "    Size, Usage, ProcessID, DefaultHeapID, ModuleID, Threads, ParentProcessID: Cardinal;\n    PriClassBase: Longint;\n    Flags: Cardinal;\n    ExeFile: array[0..259] of Char;" ||
+		!strings.Contains(running, "\n  try\n    Entry.Size := ProcessEntrySize;\n    if Process32First(Snapshot, Entry) then\n      repeat\n") {
+		t.Errorf("CLOSE-ENTRY-SIZE: TProcessEntry's fields are not PROCESSENTRY32W's, or its size is not set before Process32First:\n%s", rec[1])
 	}
 
 	if win := flat(string(mustRead(t, "windows/README.md"))); !strings.Contains(win, "To go back to 1.0.12, quit Forge Solo first: 1.0.12's installer cannot close it") {
