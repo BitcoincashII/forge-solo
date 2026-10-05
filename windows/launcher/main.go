@@ -373,7 +373,8 @@ func main() {
 	go watchTray(exe)
 	// No exit callback: the tray calls it as it removes its icon, and the stop is shutdown's.
 	systray.Run(onReady, nil)
-	// The tray's loop ended without Quit (Windows closed its window): stop everything and exit.
+	// The tray's loop ended without Quit: its window was closed (WM_CLOSE), by Windows or by the
+	// installer or the uninstaller. Stop everything as Quit does, and exit.
 	shutdown()
 }
 

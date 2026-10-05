@@ -35,11 +35,9 @@ WizardStyle=modern
 SetupIconFile=forge-solo.ico
 UninstallDisplayIcon={app}\{#MyAppExe}
 UninstallDisplayName={#MyAppName}
-; Held by the launcher of 1.0.13 and later while it runs (runningMutex in
-; launcher/instance_windows.go). Setup and the uninstaller ask for Forge Solo to be closed first, so
-; that it stops both nodes cleanly, rather than have its files closed under it. 1.0.12 and earlier
-; hold none: StopForgeSolo, in [Code], closes them. Test builds of 1.0.13 held the unprefixed name.
-AppMutex=ForgeSoloRunning,Global\ForgeSoloRunning
+; No AppMutex: Setup and the uninstaller would check it at start, before [Code] closes a running
+; Forge Solo, and a silent update or uninstall would end there. [Code] closes it first, then checks
+; the mutex (NoOtherForgeSolo).
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -254,13 +252,17 @@ end;
 
 // Forge Solo running while it is updated or removed.
 //
-// Forge Solo 1.0.12 and earlier hold no mutex (AppMutex), so Setup did not see them run, and left
-// them to Windows' Restart Manager. It gave up after a few seconds, while Forge Solo was still
-// stopping its nodes and its database, and Setup stopped with an error (a silent install rolled
-// back). Before Setup or the uninstaller touches a file, it now closes a Forge Solo running from
-// this install's folder for this account the way its tray's Quit does, and waits for every program
-// in that folder to stop. Restart Manager then finds nothing to close. Nothing is ever ended by
-// force: a node ended while it writes has to sync again.
+// Before Setup or the uninstaller touches a file, it closes a Forge Solo running from this
+// install's folder for this account the way its tray's Quit does, and waits for every program in
+// that folder to stop. Restart Manager then finds nothing to close. Nothing is ever ended by force:
+// a node ended while it writes has to sync again. Restart Manager was left to close 1.0.12, which
+// holds no mutex: it gave up after a few seconds, while Forge Solo was still stopping its nodes and
+// its database, and Setup stopped with an error (a silent install rolled back).
+//
+// Forge Solo 1.0.13 and later also hold a mutex while they run. It is checked only once this
+// account's Forge Solo has stopped (NoOtherForgeSolo): one still holding it runs for another
+// Windows account, and only that account may close it. Checked at start (AppMutex), it stopped a
+// silent update or uninstall of this account's own Forge Solo before anything here ran.
 
 const
   WM_CLOSE = $0010;
@@ -276,6 +278,10 @@ const
   // It stops the miner first, then both nodes and its database, and each has a time of its own to
   // finish writing. Usually it is done in a few seconds.
   StopWait = 120;
+  // The mutex the launcher of 1.0.13 and later holds while it runs (runningMutex in
+  // launcher/instance_windows.go), and the name test builds of 1.0.13 held. There is one for the
+  // whole PC: Forge Solo running for another Windows account holds it too.
+  RunningMutexes = 'ForgeSoloRunning,Global\ForgeSoloRunning';
 
 type
   TProcessEntry = record
@@ -407,9 +413,10 @@ begin
 end;
 
 // AskForgeSoloToQuit asks each Forge Solo running from this install's folder to quit as its tray's
-// Quit does, and returns how many it asked: its tray window (SystrayClass) gets WM_CLOSE. On it,
-// 1.0.12 and earlier stop the miner, both nodes and the database, and exit; 1.0.13 and later do the
-// same. (Their Quit menu items have a different number in each version.)
+// Quit does, and returns how many it asked: its tray window (SystrayClass) gets WM_CLOSE. fyne's
+// tray then ends its loop, and the launcher stops the miner, both nodes and the database, and exits:
+// 1.0.12 and earlier in the tray's exit function, 1.0.13 and later once systray.Run returns. Their
+// Quit menu items have a different number in each version.
 function AskForgeSoloToQuit: Integer;
 var Wnd: HWND; ProcessID: Cardinal; Launcher: String;
 begin
@@ -533,13 +540,42 @@ begin
   Result := Running = '';
 end;
 
+// NoOtherForgeSolo reports, once this account's Forge Solo has stopped (StopForgeSolo), whether no
+// Forge Solo runs on this PC any more. One that still holds RunningMutexes runs for another Windows
+// account: this installer does not close it. The mutex is looked at again for a few seconds, as a
+// launcher that has just exited can hold it a moment longer, then as often as the user chooses
+// Retry. Cancel, the answer of a silent run, changes nothing.
+function NoOtherForgeSolo: Boolean;
+var Seconds: Integer;
+begin
+  repeat
+    Result := not CheckForMutexes(RunningMutexes);
+    Seconds := 0;
+    while not Result and (Seconds < 3) do
+    begin
+      Waiting;
+      Seconds := Seconds + 1;
+      Result := not CheckForMutexes(RunningMutexes);
+    end;
+    if Result then
+      exit;
+    Log('Forge Solo runs on this PC for another Windows account: it is not closed');
+  until SuppressibleMsgBox('Forge Solo is running for another Windows account on this PC, and only ' +
+    'that account can close it.' + #13#10#13#10 +
+    'Quit it there (right-click its tray icon, then Quit Forge Solo) and choose Retry. Cancel ' +
+    'changes nothing.', mbError, MB_RETRYCANCEL, IDCANCEL) <> IDRETRY;
+end;
+
 // Forge Solo is closed before Windows' Restart Manager looks for programs that use the files Setup
 // replaces: Inno Setup calls PrepareToInstall first.
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
   if not StopForgeSolo then
-    Result := 'Forge Solo did not stop, so Setup changed nothing. Run Setup again once it has stopped.';
+    Result := 'Forge Solo did not stop, so Setup changed nothing. Run Setup again once it has stopped.'
+  else if not NoOtherForgeSolo then
+    Result := 'Forge Solo runs for another Windows account on this PC, so Setup changed nothing. ' +
+      'Run Setup again once it has been quit there.';
 end;
 
 // Setup installs for the Windows account it runs as. Started with "Run as administrator", it can
@@ -706,6 +742,11 @@ begin
     if not StopForgeSolo then
     begin
       Log('Forge Solo did not stop: the uninstall ends, and nothing is removed');
+      Abort;
+    end;
+    if not NoOtherForgeSolo then
+    begin
+      Log('Forge Solo runs for another Windows account: the uninstall ends, and nothing is removed');
       Abort;
     end;
     DataDir := ExpandConstant('{userappdata}\ForgeSolo');

@@ -493,11 +493,11 @@ func TestInstallerOnlyWhereForgeSoloRuns(t *testing.T) {
 	}
 }
 
-// The installer and the uninstaller ask for Forge Solo to be closed before touching its files
-// (AppMutex), by the name of the mutex the launcher holds while it runs. If the two names drift
-// apart, the installer no longer sees Forge Solo running, and its files are closed under it, the
-// nodes with them.
-func TestInstallerWaitsForTheRunningLauncher(t *testing.T) {
+// Once this account's Forge Solo has stopped, the installer and the uninstaller check the mutex the
+// launcher holds while it runs (RunningMutexes): one still held is Forge Solo running for another
+// Windows account, and they stop rather than replace or remove anything. If the two names drift
+// apart, that check finds nothing.
+func TestInstallerKnowsTheLaunchersMutex(t *testing.T) {
 	src, err := os.ReadFile("windows/launcher/instance_windows.go")
 	if err != nil {
 		t.Fatal(err)
@@ -506,22 +506,94 @@ func TestInstallerWaitsForTheRunningLauncher(t *testing.T) {
 	if m == nil {
 		t.Fatal("windows/launcher/instance_windows.go has no const runningMutex")
 	}
-	iss, err := os.ReadFile("windows/forge-solo.iss")
-	if err != nil {
-		t.Fatal(err)
-	}
-	setup := string(iss)
-	if i := strings.Index(setup, "\n[Setup]"); i >= 0 {
-		setup = setup[i+len("\n[Setup]"):]
-	} else {
-		t.Fatal("forge-solo.iss has no [Setup] section")
-	}
-	if i := strings.Index(setup, "\n["); i >= 0 {
-		setup = setup[:i]
-	}
-	names := regexp.MustCompile(`(?m)^AppMutex=(.+?)\r?$`).FindStringSubmatch(setup)
+	names := regexp.MustCompile(`(?m)^  RunningMutexes = '([^']*)';$`).FindStringSubmatch(pascalCode(installerSection(t, "Code")))
 	if names == nil || !slices.Contains(strings.Split(names[1], ","), string(m[1])) {
-		t.Fatalf("APPMUTEX: the installer's [Setup] AppMutex (%v) does not name %s, the mutex the launcher holds", names, m[1])
+		t.Fatalf("RUNNING-MUTEX: the installer's RunningMutexes (%v) does not name %s, the mutex the launcher holds", names, m[1])
+	}
+}
+
+// Inno Setup's own check of the launcher's mutex (AppMutex) came at start, before anything in
+// [Code]. With Forge Solo 1.0.13 running, Setup and the uninstaller asked for it to be closed, and a
+// silent update or uninstall ended at once with exit code 1, having changed nothing. Forge Solo
+// running for this account is now closed first, as 1.0.12 is: in PrepareToInstall, and before the
+// uninstaller removes anything. Only then is the mutex checked: one still held is Forge Solo running
+// for another Windows account, which they must not close, and they stop, with Retry or Cancel, and
+// Cancel in a silent run.
+func TestInstallerClosesForgeSoloBeforeItChecksTheMutex(t *testing.T) {
+	if regexp.MustCompile(`(?mi)^\s*AppMutex\s*=`).MatchString(installerSection(t, "Setup")) {
+		t.Error("CLOSE-FIRST-NO-APPMUTEX: [Setup] has AppMutex: Setup checks it at start, before Forge Solo is closed, and a silent update or uninstall of a running Forge Solo ends there")
+	}
+	code := pascalCode(installerSection(t, "Code"))
+	other := installerFunc(t, "function NoOtherForgeSolo: Boolean;")
+	if strings.Count(code, "CheckForMutexes(") != 2 || strings.Count(other, "CheckForMutexes(RunningMutexes)") != 2 ||
+		strings.Count(code, "NoOtherForgeSolo") != 3 || regexp.MustCompile(`(?i)\b(function InitializeSetup|function InitializeUninstall)\b`).MatchString(code) {
+		t.Errorf("CLOSE-FIRST-NO-EARLY-CHECK: the mutex is checked elsewhere than in NoOtherForgeSolo, or NoOtherForgeSolo is called elsewhere than after StopForgeSolo, or Setup or the uninstaller can refuse at start")
+	}
+
+	prepare := installerFunc(t, "function PrepareToInstall(var NeedsRestart: Boolean): String;")
+	if !strings.Contains(prepare, "\n  if not StopForgeSolo then\n    Result := 'Forge Solo did not stop, so Setup changed nothing. Run Setup again once it has stopped.'\n  else if not NoOtherForgeSolo then\n    Result := '") ||
+		!strings.Contains(pascalLiterals(prepare), "Forge Solo runs for another Windows account on this PC, so Setup changed nothing.") {
+		t.Errorf("CLOSE-FIRST-SETUP: Setup does not close this account's Forge Solo first, then stop for one running for another account:\n%s", prepare)
+	}
+	uninstall := installerFunc(t, "procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);")
+	if !strings.Contains(uninstall, `
+  if CurUninstallStep = usUninstall then
+  begin
+    if not StopForgeSolo then
+    begin
+      Log('Forge Solo did not stop: the uninstall ends, and nothing is removed');
+      Abort;
+    end;
+    if not NoOtherForgeSolo then
+    begin
+      Log('Forge Solo runs for another Windows account: the uninstall ends, and nothing is removed');
+      Abort;
+    end;
+    DataDir := ExpandConstant('{userappdata}\ForgeSolo');
+`) {
+		t.Errorf("CLOSE-FIRST-UNINSTALL: the uninstaller does not close this account's Forge Solo first, then stop for one running for another account, before it removes anything:\n%s", uninstall)
+	}
+
+	// The mutex is looked at again for a few seconds, then the user is told, with Retry and Cancel.
+	if !strings.Contains(other, `
+begin
+  repeat
+    Result := not CheckForMutexes(RunningMutexes);
+    Seconds := 0;
+    while not Result and (Seconds < 3) do
+    begin
+      Waiting;
+      Seconds := Seconds + 1;
+      Result := not CheckForMutexes(RunningMutexes);
+    end;
+    if Result then
+      exit;
+    Log('Forge Solo runs on this PC for another Windows account: it is not closed');
+  until SuppressibleMsgBox('Forge Solo is running for another Windows account on this PC, and only ' +
+    'that account can close it.' + #13#10#13#10 +
+    'Quit it there (right-click its tray icon, then Quit Forge Solo) and choose Retry. Cancel ' +
+    'changes nothing.', mbError, MB_RETRYCANCEL, IDCANCEL) <> IDRETRY;
+end;`) {
+		t.Errorf("CLOSE-OTHER-ACCOUNT: NoOtherForgeSolo does not wait a few seconds for the mutex to go, then say Forge Solo runs for another account, with Retry and Cancel:\n%s", other)
+	}
+
+	// A run with message boxes suppressed (/SUPPRESSMSGBOXES) takes each question's default: Cancel,
+	// so that it ends rather than asks again for ever. A MsgBox would wait for an answer even then.
+	for _, m := range regexp.MustCompile(`(?s)\bSuppressibleMsgBox\(.*?\b(MB_[A-Z]+(?: or MB_[A-Z0-9]+)?), (ID[A-Z]+)\)`).FindAllStringSubmatch(code, -1) {
+		if strings.HasPrefix(m[1], "MB_RETRYCANCEL") && m[2] != "IDCANCEL" {
+			t.Errorf("CLOSE-SILENT-CANCELS: a Retry/Cancel question answers %s when message boxes are suppressed, not Cancel", m[2])
+		}
+	}
+	if regexp.MustCompile(`(^|[^A-Za-z])MsgBox\(`).MatchString(code) {
+		t.Error("CLOSE-SILENT-CANCELS: [Code] has a MsgBox, which waits for an answer also when message boxes are suppressed")
+	}
+
+	win, notes := flat(string(mustRead(t, "windows/README.md"))), flat(releaseSection(t, "1.0.13"))
+	if strings.Contains(win, "ask, when they start, for Forge Solo to be closed") || strings.Contains(notes, "ask you to close Forge Solo when they start") ||
+		!strings.Contains(win, "Only then does it check the mutex Forge Solo 1.0.13 and later hold while they run: one still held is Forge Solo running for another Windows account") ||
+		!strings.Contains(notes, "updating or uninstalling while Forge Solo runs closes it first, as its Quit does") ||
+		!strings.Contains(notes, "If Forge Solo runs for another Windows account on the PC, the installer and the uninstaller say so and change nothing.") {
+		t.Error("CLOSE-FIRST-DOCS: windows/README.md or RELEASE_NOTES.md ## 1.0.13 does not say that a running Forge Solo is closed first, and only one running for another account stops the installer")
 	}
 }
 
