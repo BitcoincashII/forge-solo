@@ -4,7 +4,7 @@ import "golang.org/x/sys/windows"
 
 // runningMutex is held for as long as Forge Solo runs. A second launch finds it and only opens the
 // dashboard. The installer and the uninstaller close this account's Forge Solo first, then look for
-// it (RunningMutexes in forge-solo.iss): still held, it is Forge Solo running for another Windows
+// it (RunningMutex in forge-solo.iss): still held, it is Forge Solo running for another Windows
 // account, and they change nothing. It is global, not one per sign-in session: Forge Solo running
 // for another Windows account holds the same fixed ports, and a second copy could only fail on them.
 const runningMutex = `Global\ForgeSoloRunning`

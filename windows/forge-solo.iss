@@ -281,7 +281,10 @@ const
   // The mutex the launcher of 1.0.13 and later holds while it runs (runningMutex in
   // launcher/instance_windows.go), and the name test builds of 1.0.13 held. There is one for the
   // whole PC: Forge Solo running for another Windows account holds it too.
-  RunningMutexes = 'ForgeSoloRunning,Global\ForgeSoloRunning';
+  RunningMutex = 'Global\ForgeSoloRunning';
+  TestBuildMutex = 'ForgeSoloRunning';
+  SYNCHRONIZE_ACCESS = $00100000;
+  ERROR_ACCESS_DENIED = 5;
 
 type
   TProcessEntry = record
@@ -314,6 +317,8 @@ function GetLongPathName(Path, LongPath: String; Size: Cardinal): Cardinal;
   external 'GetLongPathNameW@kernel32.dll stdcall';
 function CloseHandle(Handle: Cardinal): Bool;
   external 'CloseHandle@kernel32.dll stdcall';
+function OpenMutex(Access: Cardinal; Inherit: Bool; Name: String): Cardinal;
+  external 'OpenMutexW@kernel32.dll stdcall';
 function GetCurrentProcessId: Cardinal;
   external 'GetCurrentProcessId@kernel32.dll stdcall';
 function FindWindowEx(Parent, After: HWND; ClassName: String; WindowName: Cardinal): HWND;
@@ -540,8 +545,29 @@ begin
   Result := Running = '';
 end;
 
+// MutexHeld reports whether the mutex Name exists. Forge Solo running for another Windows account
+// holds it with that account's security, which does not let this account open it: Windows refuses
+// access, and that refusal means it is held. Inno Setup's CheckForMutexes, and AppMutex, take it for
+// no mutex at all.
+function MutexHeld(Name: String): Boolean;
+var Mutex: Cardinal;
+begin
+  Mutex := OpenMutex(SYNCHRONIZE_ACCESS, False, Name);
+  Result := Mutex <> 0;
+  if Result then
+    CloseHandle(Mutex)
+  else
+    Result := DLLGetLastError = ERROR_ACCESS_DENIED;
+end;
+
+// ForgeSoloRuns reports whether Forge Solo 1.0.13 or later runs on this PC, for any Windows account.
+function ForgeSoloRuns: Boolean;
+begin
+  Result := MutexHeld(RunningMutex) or MutexHeld(TestBuildMutex);
+end;
+
 // NoOtherForgeSolo reports, once this account's Forge Solo has stopped (StopForgeSolo), whether no
-// Forge Solo runs on this PC any more. One that still holds RunningMutexes runs for another Windows
+// Forge Solo runs on this PC any more. One that still holds the mutex runs for another Windows
 // account: this installer does not close it. The mutex is looked at again for a few seconds, as a
 // launcher that has just exited can hold it a moment longer, then as often as the user chooses
 // Retry. Cancel, the answer of a silent run, changes nothing.
@@ -549,13 +575,13 @@ function NoOtherForgeSolo: Boolean;
 var Seconds: Integer;
 begin
   repeat
-    Result := not CheckForMutexes(RunningMutexes);
+    Result := not ForgeSoloRuns;
     Seconds := 0;
     while not Result and (Seconds < 3) do
     begin
       Waiting;
       Seconds := Seconds + 1;
-      Result := not CheckForMutexes(RunningMutexes);
+      Result := not ForgeSoloRuns;
     end;
     if Result then
       exit;

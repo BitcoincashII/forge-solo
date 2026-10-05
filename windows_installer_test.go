@@ -494,7 +494,7 @@ func TestInstallerOnlyWhereForgeSoloRuns(t *testing.T) {
 }
 
 // Once this account's Forge Solo has stopped, the installer and the uninstaller check the mutex the
-// launcher holds while it runs (RunningMutexes): one still held is Forge Solo running for another
+// launcher holds while it runs (RunningMutex): one still held is Forge Solo running for another
 // Windows account, and they stop rather than replace or remove anything. If the two names drift
 // apart, that check finds nothing.
 func TestInstallerKnowsTheLaunchersMutex(t *testing.T) {
@@ -506,9 +506,33 @@ func TestInstallerKnowsTheLaunchersMutex(t *testing.T) {
 	if m == nil {
 		t.Fatal("windows/launcher/instance_windows.go has no const runningMutex")
 	}
-	names := regexp.MustCompile(`(?m)^  RunningMutexes = '([^']*)';$`).FindStringSubmatch(pascalCode(installerSection(t, "Code")))
-	if names == nil || !slices.Contains(strings.Split(names[1], ","), string(m[1])) {
-		t.Fatalf("RUNNING-MUTEX: the installer's RunningMutexes (%v) does not name %s, the mutex the launcher holds", names, m[1])
+	name := regexp.MustCompile(`(?m)^  RunningMutex = '([^']*)';$`).FindStringSubmatch(pascalCode(installerSection(t, "Code")))
+	if name == nil || name[1] != string(m[1]) {
+		t.Fatalf("RUNNING-MUTEX: the installer's RunningMutex (%v) is not %s, the mutex the launcher holds", name, m[1])
+	}
+}
+
+// Forge Solo running for another Windows account holds its mutex with that account's security,
+// which does not let this account open it, and Inno Setup's CheckForMutexes (as AppMutex) takes a
+// mutex it cannot open for none: the installer and the uninstaller went on. The mutex is now opened
+// with OpenMutexW, and Windows refusing access counts as held.
+func TestInstallerSeesAnotherAccountsMutex(t *testing.T) {
+	code := pascalCode(installerSection(t, "Code"))
+	held := installerFunc(t, "function MutexHeld(Name: String): Boolean;")
+	runs := installerFunc(t, "function ForgeSoloRuns: Boolean;")
+	if !strings.Contains(code, "function OpenMutex(Access: Cardinal; Inherit: Bool; Name: String): Cardinal;\n  external 'OpenMutexW@kernel32.dll stdcall';") ||
+		!strings.Contains(code, "\n  SYNCHRONIZE_ACCESS = $00100000;\n") || !strings.Contains(code, "\n  ERROR_ACCESS_DENIED = 5;\n") ||
+		!strings.Contains(code, "\n  TestBuildMutex = 'ForgeSoloRunning';\n") ||
+		!strings.Contains(held, `
+begin
+  Mutex := OpenMutex(SYNCHRONIZE_ACCESS, False, Name);
+  Result := Mutex <> 0;
+  if Result then
+    CloseHandle(Mutex)
+  else
+    Result := DLLGetLastError = ERROR_ACCESS_DENIED;
+end;`) || !strings.Contains(runs, "\nbegin\n  Result := MutexHeld(RunningMutex) or MutexHeld(TestBuildMutex);\nend;") {
+		t.Errorf("CLOSE-OTHER-DENIED: a mutex this account may not open (another account's) is not taken for one that is held:\n%s\n%s", held, runs)
 	}
 }
 
@@ -525,7 +549,7 @@ func TestInstallerClosesForgeSoloBeforeItChecksTheMutex(t *testing.T) {
 	}
 	code := pascalCode(installerSection(t, "Code"))
 	other := installerFunc(t, "function NoOtherForgeSolo: Boolean;")
-	if strings.Count(code, "CheckForMutexes(") != 2 || strings.Count(other, "CheckForMutexes(RunningMutexes)") != 2 ||
+	if strings.Contains(code, "CheckForMutexes(") || strings.Count(code, "ForgeSoloRuns") != 3 || strings.Count(other, "Result := not ForgeSoloRuns;") != 2 ||
 		strings.Count(code, "NoOtherForgeSolo") != 3 || regexp.MustCompile(`(?i)\b(function InitializeSetup|function InitializeUninstall)\b`).MatchString(code) {
 		t.Errorf("CLOSE-FIRST-NO-EARLY-CHECK: the mutex is checked elsewhere than in NoOtherForgeSolo, or NoOtherForgeSolo is called elsewhere than after StopForgeSolo, or Setup or the uninstaller can refuse at start")
 	}
@@ -558,13 +582,13 @@ func TestInstallerClosesForgeSoloBeforeItChecksTheMutex(t *testing.T) {
 	if !strings.Contains(other, `
 begin
   repeat
-    Result := not CheckForMutexes(RunningMutexes);
+    Result := not ForgeSoloRuns;
     Seconds := 0;
     while not Result and (Seconds < 3) do
     begin
       Waiting;
       Seconds := Seconds + 1;
-      Result := not CheckForMutexes(RunningMutexes);
+      Result := not ForgeSoloRuns;
     end;
     if Result then
       exit;
