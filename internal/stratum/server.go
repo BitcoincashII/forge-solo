@@ -78,7 +78,7 @@ type Server struct {
 	ipConnsMu      sync.Mutex
 	ipConns        map[string]int // remote host -> live connections, for the per-IP cap
 	logs           logLimit       // lines clients cause, besides minerLogs'; see serverLogBudget
-	minerLogs      logBucket      // miners' logins, refused shares and disconnects; see minerLogBurst
+	minerLogs      logBucket      // a miner's own lines; see minerLogBurst
 	leftOut        leftOutLines   // lines the budgets left out, summed up by logLeftOut
 	shutdownCh     chan struct{}
 	writeWait      time.Duration // how long one write to a miner may take; 0 is writeTimeout. Set before Start.
@@ -604,7 +604,7 @@ func (s *Server) resetIdleDifficulties(now time.Time) {
 		if stuck {
 			s.rememberDifficulty(minerID, workerName, hostOf(c.IP), floor) // don't re-hand the too-high level next time
 			s.sendCurrentDifficulty(c)
-			s.logger.Info("Idle difficulty reset",
+			s.limitedLog(minersBudget, false, "Idle difficulty reset", 0,
 				zap.String("miner", minerID),
 				zap.Float64("from_diff", prevDiff),
 				zap.Float64("to_diff", floor),
@@ -1335,7 +1335,7 @@ func (s *Server) handleMessage(client *Client, data []byte) bool {
 	minerID := client.MinerID
 	client.mu.RUnlock()
 	if rental == RentalNiceHash && req.Method != "" {
-		s.logger.Info("NiceHash message received",
+		s.clientLog(client, false, "NiceHash message received",
 			zap.String("miner", minerID),
 			zap.String("method", req.Method))
 	}
@@ -1443,7 +1443,7 @@ func (s *Server) handleMessage(client *Client, data []byte) bool {
 		client.mu.Unlock()
 
 		if rental != RentalNone {
-			s.logger.Info("Rental service subscribed to extranonce updates",
+			s.clientLog(client, false, "Rental service subscribed to extranonce updates",
 				zap.String("ip", client.IP),
 				zap.String("rental_service", rental.String()))
 		}
@@ -2162,7 +2162,7 @@ func (s *Server) authorize(client *Client, req *Request) (*Response, authorized)
 			zap.String("worker", workerName),
 			zap.Float64("difficulty", difficulty))
 	case rental != RentalNone:
-		s.logger.Info("Rental miner authorized",
+		s.minerLog(client, false, "Rental miner authorized",
 			zap.String("ip", client.IP),
 			zap.String("user_agent", userAgent),
 			zap.Int64("valid_shares", client.ValidShares.Load()),
@@ -2289,7 +2289,7 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 		if settings, err := s.minerSettings.GetMinerSettings(minerID); err == nil && settings != nil {
 			client.mu.Lock()
 			if client.SoloMining != settings.SoloMining {
-				s.logger.Info("Miner mode changed on-the-fly",
+				s.minerLog(client, false, "Miner mode changed on-the-fly",
 					zap.String("miner", minerID),
 					zap.Bool("old_solo", client.SoloMining),
 					zap.Bool("new_solo", settings.SoloMining))
@@ -2525,7 +2525,8 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 				client.RecentSubmissions = client.RecentSubmissions[:0] // Reset after adjustment
 				client.mu.Unlock()
 
-				s.logger.Info("High rejection rate, reducing difficulty",
+				// In the miners' budget, not the connection's: the shares refused before it have spent that.
+				s.limitedLog(minersBudget, false, "High rejection rate, reducing difficulty", 0,
 					zap.String("miner", minerID),
 					zap.Float64("rejection_rate", rejectionRate),
 					zap.Float64("old_diff", oldDiff),
@@ -3009,7 +3010,7 @@ func (s *Server) adjustVardiffAt(client *Client, now time.Time) {
 		// Send difficulty synchronously to ensure miner receives it
 		s.sendDifficulty(client, newDiff)
 
-		s.logger.Info("Vardiff adjusted",
+		s.limitedLog(minersBudget, false, "Vardiff adjusted", 0,
 			zap.String("miner", minerID),
 			zap.Float64("avg_time", avgTime),
 			zap.Float64("old_diff", oldDiff),
@@ -3187,7 +3188,7 @@ func (s *Server) sendNotification(client *Client, notif *Notification) {
 		minerID := client.MinerID
 		client.mu.RUnlock()
 		if rental == RentalNiceHash {
-			s.logger.Warn("Write error to NiceHash client",
+			s.clientLog(client, true, "Write error to NiceHash client",
 				zap.String("miner", minerID),
 				zap.String("method", notif.Method),
 				zap.Error(err))
@@ -3276,7 +3277,7 @@ func (s *Server) sendJob(client *Client, job *Job) {
 	client.mu.RUnlock()
 
 	if rental == RentalNiceHash {
-		s.logger.Info("Sending job to NiceHash client",
+		s.clientLog(client, false, "Sending job to NiceHash client",
 			zap.String("miner", minerID),
 			zap.String("job_id", job.ID),
 			zap.String("prevhash", job.PrevBlockHash[:16]+"..."),
@@ -3642,19 +3643,20 @@ var authorizedIdleTimeout = 30 * time.Minute
 const clientLogBudget = 20
 
 // serverLogBudget is how many log lines a minute clients may cause on one port, besides a miner's
-// login, refused shares and disconnect (minerLogBurst): the lines about connections opening, closing
-// and being refused, and about what they send. A budget per connection alone did not bound them:
-// every new connection came with a fresh one, and opening and closing connections in a loop rotated
-// the whole log away within minutes.
+// own lines (minerLogBurst): the lines about connections opening, closing and being refused, and
+// about what they send. A budget per connection alone did not bound them: every new connection came
+// with a fresh one, and opening and closing connections in a loop rotated the whole log away within
+// minutes.
 const serverLogBudget = 120
 
-// minerLogBurst and minerLogRate are the budget on one port for a miner's login, the shares refused
-// to it and its disconnect. A rental's start brings its rigs at once, all through the marketplace's
-// one address and each logging in a few times in its first minute. While one budget held every
-// line, their logins used it up and the refused shares and disconnects after them were left out.
-// These lines have a budget of their own, which connections that never log in cannot use up, and
-// it holds a burst: minerLogBurst lines at once, refilled at minerLogRate a minute. Logging in
-// costs nothing, so a flood of logins is held to minerLogRate once the burst is spent.
+// minerLogBurst and minerLogRate are the budget on one port for a miner's own lines: its login, the
+// shares refused to it, the changes to its difficulty and its disconnect. A rental's start brings
+// its rigs at once, all through the marketplace's one address and each logging in a few times in
+// its first minute. While one budget held every line, their logins used it up and the refused
+// shares and disconnects after them were left out. These lines have a budget of their own, which
+// connections that never log in cannot use up, and it holds a burst: minerLogBurst lines at once,
+// refilled at minerLogRate a minute. Logging in costs nothing, so a flood of logins is held to
+// minerLogRate once the burst is spent.
 const (
 	minerLogBurst = 480
 	minerLogRate  = 120
@@ -3666,7 +3668,7 @@ type logBudget int
 const (
 	ownBudget    logBudget = iota // the connection's own: clientLogBudget
 	portBudget                    // the port's: serverLogBudget
-	minersBudget                  // the port's for miners' logins, refused shares and disconnects: minerLogBurst
+	minersBudget                  // the port's for a miner's own lines: minerLogBurst
 )
 
 // why says why the lines a budget left out were left out.
@@ -3675,10 +3677,10 @@ func (b logBudget) why() string {
 	case ownBudget:
 		return fmt.Sprintf("one connection's own messages caused more than %d lines a minute", clientLogBudget)
 	case portBudget:
-		return fmt.Sprintf("lines about connections, besides miners' logins, refused shares and disconnects, came to more than %d a minute on this port",
+		return fmt.Sprintf("lines about connections, besides miners' logins, refused shares, difficulty changes and disconnects, came to more than %d a minute on this port",
 			serverLogBudget)
 	default:
-		return fmt.Sprintf("miners' logins, refused shares and disconnects came to more than %d lines at once, or %d a minute after that, on this port",
+		return fmt.Sprintf("miners' logins, refused shares, difficulty changes and disconnects came to more than %d lines at once, or %d a minute after that, on this port",
 			minerLogBurst, minerLogRate)
 	}
 }
@@ -3831,9 +3833,11 @@ func (s *Server) ownLog(client *Client, b logBudget, warn bool, msg string, fiel
 	}
 }
 
-// limitedLog writes a line a client caused within the port's budget b. own is how many of the
-// connection's lines its own budget left out since its last one, said with this line. It reports
-// whether the line was written; one left out is counted for logLeftOut.
+// limitedLog writes a line a client caused within the port's budget b. Every line a client can cause
+// goes through here, but the lines about a block it solves and the counts written on a timer (see
+// TestEveryLineAClientCausesIsBudgeted). own is how many of the connection's lines its own budget
+// left out since its last one, said with this line. It reports whether the line was written; one
+// left out is counted for logLeftOut.
 func (s *Server) limitedLog(b logBudget, warn bool, msg string, own int64, fields ...zap.Field) bool {
 	now := time.Now()
 	var ok bool
@@ -4042,7 +4046,7 @@ func (s *Server) handleConfigure(client *Client, req *Request) *Response {
 	client.mu.RUnlock()
 
 	if rental != RentalNone {
-		s.logger.Info("Rental service configured",
+		s.clientLog(client, false, "Rental service configured",
 			zap.String("ip", client.IP),
 			zap.String("rental_service", rental.String()),
 			zap.String("version_rolling_mask", mask))

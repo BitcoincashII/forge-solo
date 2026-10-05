@@ -114,6 +114,36 @@ var minerLines = []minerLine{
 		s.currentJob = atomic.Value{} // before the first job
 		loggingIn(s, c, testPayout)
 	}},
+	{"RENTAL", "Rental miner authorized", func(t *testing.T, s *Server, c *Client) {
+		c.RentalService = RentalMRR // a pool's stratum only: a solo one never sets it
+		loggingIn(s, c, testPayout)
+	}},
+	// The lines about a miner's difficulty are not held by the connection's own budget: the shares
+	// refused before a cut can have spent it.
+	{"HIGH-REJECT", "High rejection rate, reducing difficulty", func(t *testing.T, s *Server, c *Client) {
+		c.Difficulty = 1
+		job := soloTestJob("a")
+		nonce, _ := mineShare(t, s, job, "0000000000000001", 0, 1e-3)
+		for i := 0; i < 20; i++ { // 20 refused, all below the floor: the difficulty is halved
+			submitting(s, c, c.WorkerName, "a", "0000000000000001", job.NTime, nonce)
+		}
+	}},
+	{"IDLE", "Idle difficulty reset", func(t *testing.T, s *Server, c *Client) {
+		c.Difficulty, c.ConnectedAt = 1, time.Now().Add(-idleResetAfter-time.Minute)
+		s.clients.Store(c.ID, c)
+		s.resetIdleDifficulties(time.Now())
+	}},
+	{"VARDIFF", "Vardiff adjusted", func(t *testing.T, s *Server, c *Client) {
+		job := soloTestJob("v")
+		job.NBits = "1903444b" // the network's difficulty above the miner's
+		s.currentJob.Store(job)
+		now := time.Now()
+		c.Difficulty, c.FirstRampDone = 100000, true
+		for i := 0; i < VardiffMinShares; i++ { // twice as fast as the target
+			c.ShareSamples = append(c.ShareSamples, shareSample{at: now.Add(time.Duration(i-VardiffMinShares) * 5 * time.Second)})
+		}
+		s.adjustVardiffAt(c, now)
+	}},
 }
 
 // A miner's login and the shares refused to it were left out of the log at a rental's start: lines

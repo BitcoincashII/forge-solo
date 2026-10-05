@@ -242,7 +242,7 @@ func TestAFloodThatNeverLogsInLeavesTheMinersLines(t *testing.T) {
 const (
 	overOwn    = "one connection's own messages"
 	overPort   = "lines about connections, besides"
-	overMiners = "miners' logins, refused shares and disconnects came"
+	overMiners = "miners' logins, refused shares, difficulty changes and disconnects came"
 )
 
 // summedUp adds up the lines that sum up lines left out for the reason that starts with reason: how
