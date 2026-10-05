@@ -164,8 +164,8 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
 - **Windows:** if Forge Solo is ended from Task Manager, or crashes, the next start stops what it
   left running and then starts as usual.
 - **Windows:** opening Forge Solo while it runs opens its dashboard instead of starting a second
-  copy, also when it runs for another Windows account. If the tray icon cannot be added at sign-in,
-  Forge Solo starts again once.
+  copy, also when Forge Solo 1.0.13 or later runs for another Windows account. If the tray icon
+  cannot be added at sign-in, Forge Solo starts again once.
 - **Windows:** updating or uninstalling while Forge Solo runs closes it first, as its Quit does, and
   waits until its nodes and its database have stopped, also in a silent run. The installer used to
   stop with "Setup was unable to automatically close all applications", and a silent update undid
