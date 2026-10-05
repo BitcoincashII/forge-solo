@@ -141,11 +141,17 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
   MiningRigRentals shows each rig an "optimal difficulty" range, one share every 10 to 60 seconds at
   the rig's advertised hashrate, and warns below it: a rental's difficulty now stays inside that
   range for a rig that delivers about 60% to 135% of what it advertises. A 4.5 PH/s rental sits near
-  26 million instead of 5 to 6 million, and its difficulty changes about 3 times an hour; your own
-  miners on 3333 are unchanged. A rig under about 36 TH/s stays above the range at the 500,000
-  floor, as before, and a few listings give a range that does not follow the advertised hashrate, so
-  the warning can still show for those. Following a fall in hashrate takes longer (a fall to a
-  fifth: about half an hour); the shares meanwhile come slower and are credited in full.
+  26 million instead of 5 to 6 million, and its difficulty changes about 3 times an hour; the
+  difficulty of your own miners on 3333 is unchanged. A rig under about 36 TH/s stays above the
+  range at the 500,000 floor, as before, and a few listings give a range that does not follow the
+  advertised hashrate, so the warning can still show for those. Following a fall in hashrate takes
+  longer (a fall to a fifth: about half an hour); the shares meanwhile come slower and are credited
+  in full. With about 2 shares a minute instead of 11, a rental's 5-minute hashrate, on the
+  dashboard and in MiningRigRentals' own figure, varies by about 30% either way instead of 13%, and
+  its 60-minute figure by about 9%. In TIDES mode a job commits to the highest difficulty its miners
+  work at, so while a rental hashes it commits to the rental's level (2^26 to 2^27 instead of 2^24
+  for 4.5 PH/s): every miner's shares, your own on 3333 included, are forwarded 4 to 8 times less
+  often, for the same expected credit, which varies more from one window to the next.
 - **Every platform:** a rental's level is remembered for as long as its shares confirm it, so a rig
   that reconnects, and MiningRigRentals' health checks, which log in under the order's name every few
   seconds, open at that level. It was remembered for 30 minutes after it last changed, which with so

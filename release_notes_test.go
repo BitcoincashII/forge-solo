@@ -412,3 +412,31 @@ func TestReleaseNotesSayRateLimitedSharesAreNotLogged(t *testing.T) {
 		t.Error("DOCS-REJECT-RATE: RELEASE_NOTES.md ## 1.0.13 no longer tells of shares refused over the rate limit")
 	}
 }
+
+// At one share every 25 s a rental sends about 2 shares a minute instead of 11, so its 5-minute
+// hashrate, on the dashboard and on MiningRigRentals, swings about 30% either way instead of 13%.
+// In TIDES mode a job commits to the highest difficulty its miners work at, on either port, so
+// while a rental hashes every miner's shares, those on 3333 too, are forwarded 4 to 8 times less
+// often. Only the difficulty of the miners on 3333 is unchanged, and the notes say that of their
+// difficulty alone.
+func TestReleaseNotesTellTheRentalPortsSideEffects(t *testing.T) {
+	port3333 := regexp.MustCompile(`\b3333\b`)
+	unchanged := regexp.MustCompile(`(?i)\bunchanged\b`)
+	for _, d := range releaseTexts(t) {
+		for _, s := range sentences(d.text) {
+			if port3333.MatchString(s) && unchanged.MatchString(s) && !strings.Contains(strings.ToLower(s), "difficulty") {
+				t.Errorf("DOCS-RENTAL-3333-SCOPE: %s says the miners on 3333 are unchanged; in TIDES mode a rental changes how often their shares are forwarded: %q", d.name, s)
+			}
+		}
+	}
+	sec := flat(releaseSection(t, "1.0.13"))
+	for _, c := range []struct{ code, want string }{
+		{"DOCS-RENTAL-NOISE", "a rental's 5-minute hashrate, on the dashboard and in MiningRigRentals' own figure, varies by about 30% either way instead of 13%"},
+		{"DOCS-RENTAL-TIDES-COMMIT", "while a rental hashes it commits to the rental's level (2^26 to 2^27 instead of 2^24 for 4.5 PH/s)"},
+		{"DOCS-RENTAL-TIDES-COMMIT", "your own on 3333 included, are forwarded 4 to 8 times less often"},
+	} {
+		if !strings.Contains(sec, c.want) {
+			t.Errorf("%s: RELEASE_NOTES.md ## 1.0.13 does not say %q", c.code, c.want)
+		}
+	}
+}
