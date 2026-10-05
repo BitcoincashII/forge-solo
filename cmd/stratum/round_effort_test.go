@@ -17,8 +17,12 @@ import (
 // two blocks 11 s apart, while about 1% more work was done. Each share now counts against the
 // difficulty of the job it was mined on, and against the newest template's when that job is gone.
 func TestRoundEffortCountsEachShareAgainstItsJob(t *testing.T) {
-	// Its own entry in the process-wide stats manager, and two jobs at difficulty 256 and 65,536.
+	// Its own entry in the stats manager, which every test in this binary shares: its round starts
+	// empty whatever ran before, a run of this same test included, and none is left behind.
 	const miner = "round-effort-test-miner"
+	stats.GetManager().ResetWorkerRoundStats(miner)
+	t.Cleanup(func() { stats.GetManager().ResetWorkerRoundStats(miner) })
+	// Two jobs at difficulty 256 and 65,536.
 	jobs := map[string]string{"effort-a": "1c00ffff", "effort-b": "1b00ffff"}
 	jobHistoryMu.Lock()
 	for id, bits := range jobs {
