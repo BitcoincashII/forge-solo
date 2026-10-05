@@ -192,14 +192,15 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
   `sudo cat /var/lib/forge-solo/secrets.env` for the service.
 
 **The mining service's log.**
-- **Every platform:** every kind of refused share now leaves a line: a share that arrives just after
-  a new block as information (expected now and then), and an ntime its job does not allow or a
-  malformed submit as a warning. Shares refused over the rate limit are now counted in the reject
-  figures, so the dashboard no longer reads 0 rejects while the miner is told it had some. The line
-  for a duplicate share gives the miner's address, its user agent and the whole share, and those for
-  a job not found and a share below its difficulty the address, user agent and extranonce1. "Client
-  disconnected" says how many shares the connection sent and how long before it ended the last one
-  came.
+- **Every platform:** shares refused as stale, for their ntime or as malformed now leave a line: a
+  share that arrives just after a new block as information (expected now and then), and an ntime its
+  job does not allow or a malformed submit as a warning. Shares refused over the rate limit are
+  still not logged, as a miner over the limit sends a hundred a second, but they are now counted in
+  the reject figures, so the dashboard no longer reads 0 rejects while the miner is told it had
+  some. The line for a duplicate share gives the miner's address, its user agent and the whole
+  share, and those for a job not found and a share below its difficulty the address, user agent and
+  extranonce1. "Client disconnected" says how many shares the connection sent and how long before it
+  ended the last one came.
 - **Every platform:** MiningRigRentals' health checks no longer write five lines each. During a
   rental they were 85% of the log, and the 20 MB kept on Windows and Linux (30 MB on Umbrel) held
   under three days. The first is logged, and the rest are counted and logged together every 10

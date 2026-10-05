@@ -384,3 +384,31 @@ func TestReleaseNotesGiveTheConnectCreditOfRentals(t *testing.T) {
 		}
 	}
 }
+
+// A share refused over the rate limit is counted but not logged: a miner over the limit sends a
+// hundred a second. The notes said every kind of refused share now leaves a line, and then that
+// those over the limit are counted, which reads as logged too.
+func TestReleaseNotesSayRateLimitedSharesAreNotLogged(t *testing.T) {
+	every := regexp.MustCompile(`(?i)\b(every|all|each)( kind of)? refused shares?\b`)
+	logged := regexp.MustCompile(`(?i)\b(line|logged)\b`)
+	for _, d := range releaseTexts(t) {
+		for _, s := range sentences(d.text) {
+			if every.MatchString(s) && logged.MatchString(s) {
+				t.Errorf("DOCS-REJECT-EVERY: %s says every refused share leaves a line; one over the rate limit does not: %q", d.name, s)
+			}
+		}
+	}
+	told := false
+	for _, s := range sentences(releaseSection(t, "1.0.13")) {
+		if !strings.Contains(s, "refused over the rate limit") {
+			continue
+		}
+		told = true
+		if !strings.Contains(s, "not logged") {
+			t.Errorf("DOCS-REJECT-RATE: RELEASE_NOTES.md ## 1.0.13 tells of shares refused over the rate limit without saying they are not logged: %q", s)
+		}
+	}
+	if !told {
+		t.Error("DOCS-REJECT-RATE: RELEASE_NOTES.md ## 1.0.13 no longer tells of shares refused over the rate limit")
+	}
+}
