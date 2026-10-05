@@ -409,10 +409,14 @@ func openDashboard() {
 // payoutAddressUnset reports whether no payout address is set (a stand-in in the tests).
 var payoutAddressUnset = askPayoutAddressUnset
 
+// payoutAskTimeout is how long the tray waits for the API to say whether a payout address is set.
+// The start waits with it, and the miner starts after it.
+var payoutAskTimeout = 3 * time.Second
+
 // askPayoutAddressUnset reports whether the dashboard's API says no payout address is set. When it
 // cannot tell (no answer, or the database cannot be read), the tray does not ask for one.
 func askPayoutAddressUnset() bool {
-	c := &http.Client{Timeout: 3 * time.Second}
+	c := &http.Client{Timeout: payoutAskTimeout}
 	resp, err := c.Get("http://127.0.0.1:" + apiPort + "/api/v1/pool/config")
 	if err != nil {
 		return false

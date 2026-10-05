@@ -7,14 +7,16 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"time"
 )
 
 // The tray said "set your payout address in the dashboard" at every start, for about a second
 // until the miner ran, also with an address set. It asks only when the dashboard's API says none is
 // set, and not when it cannot tell: no answer, an answer that is not one (the database cannot be
-// read), or one without the field.
+// read), or one without the field. The start waits for that answer before it starts the miner, so
+// an API that never answers holds it a few seconds at most.
 func TestTheTrayAsksForAPayoutAddressOnlyWhenNoneIsSet(t *testing.T) {
-	savedData, savedWeb, savedAPI, savedBrowser, savedTip, savedUnset := dataDir, webPort, apiPort, openBrowser, setTooltip, payoutAddressUnset
+	savedData, savedWeb, savedAPI, savedBrowser, savedTip, savedUnset, savedWait := dataDir, webPort, apiPort, openBrowser, setTooltip, payoutAddressUnset, payoutAskTimeout
 	var mu sync.Mutex
 	var shown []string
 	dataDir = t.TempDir()
@@ -28,7 +30,7 @@ func TestTheTrayAsksForAPayoutAddressOnlyWhenNoneIsSet(t *testing.T) {
 	clear(trouble)
 	troubleMu.Unlock()
 	t.Cleanup(func() {
-		dataDir, webPort, apiPort, openBrowser, setTooltip, payoutAddressUnset = savedData, savedWeb, savedAPI, savedBrowser, savedTip, savedUnset
+		dataDir, webPort, apiPort, openBrowser, setTooltip, payoutAddressUnset, payoutAskTimeout = savedData, savedWeb, savedAPI, savedBrowser, savedTip, savedUnset, savedWait
 		tipMu.Lock()
 		stopShown = savedStop
 		tipMu.Unlock()
@@ -72,6 +74,33 @@ func TestTheTrayAsksForAPayoutAddressOnlyWhenNoneIsSet(t *testing.T) {
 	if askPayoutAddressUnset() {
 		t.Error("TIP-ADDRESS-NO-API: with no API answering, the tray asks for a payout address")
 	}
+
+	// An API that takes the request and never answers holds the start, and the miner with it, only
+	// as long as payoutAskTimeout, and the tray does not ask then either.
+	if payoutAskTimeout <= 0 || payoutAskTimeout > 5*time.Second {
+		t.Errorf("TIP-ADDRESS-WAIT: the tray waits %v for the API's answer; the miner starts only after it", payoutAskTimeout)
+	}
+	release := make(chan struct{})
+	slow := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
+	_, apiPort, _ = net.SplitHostPort(slow.Listener.Addr().String())
+	payoutAskTimeout = 200 * time.Millisecond
+	answer := make(chan bool, 1)
+	go func() { answer <- askPayoutAddressUnset() }()
+	waited := false
+	select {
+	case unset := <-answer:
+		if unset {
+			t.Error("TIP-ADDRESS-SLOW-API: with an API that does not answer, the tray asks for a payout address")
+		}
+	case <-time.After(5 * time.Second):
+		waited = true
+		t.Error("TIP-ADDRESS-SLOW-API: with an API that takes the request and never answers, the tray still waits after 5 s, and the miner with it")
+	}
+	close(release)
+	if waited {
+		<-answer
+	}
+	slow.Close()
 
 	// What the tray says when the dashboard opens.
 	for _, c := range []struct {
