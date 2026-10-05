@@ -99,7 +99,8 @@ func TestRefusedLoginsWriteABudgetedClippedLog(t *testing.T) {
 
 // Every connection came with a fresh budget, and the lines about it opening and closing were
 // outside any: opening and closing connections in a loop rotated the whole log away in minutes.
-// All the lines clients cause on a port share its budget.
+// The lines they cause share the port's budget, but for a miner's login and disconnect, which
+// count in the miners' (TestAFloodOfLoginsIsBounded).
 func TestConnectionChurnWritesABudgetedLog(t *testing.T) {
 	s, rl, logs := observedServer(t, &ServerConfig{MaxConnections: 64, ExtraNonce1Size: 4, ExtraNonce2Size: 8, SoloOnly: true})
 	addr := rl.Addr().String()
@@ -128,8 +129,16 @@ func TestConnectionChurnWritesABudgetedLog(t *testing.T) {
 		c.Close()
 	}
 	settled(t, s, rl, 5*each, 0)
-	if n := logs.Len(); n > serverLogBudget {
+	logins := 0
+	for _, msg := range []string{"Solo miner authorized by worker label", "Miner authorized", "Client disconnected",
+		"No job yet for a miner that just logged in: it gets the first one when it is made"} {
+		logins += logs.FilterMessage(msg).Len()
+	}
+	if n := logs.Len() - logins; n > serverLogBudget {
 		t.Fatalf("LOG-CHURN: %d connections opened and closed wrote %d lines, budget %d", 5*each, n, serverLogBudget)
+	}
+	if logins > minerLogBurst {
+		t.Fatalf("LOG-CHURN-LOGINS: %d logins wrote %d lines, budget %d", each, logins, minerLogBurst)
 	}
 }
 

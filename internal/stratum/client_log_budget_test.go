@@ -18,35 +18,63 @@ func TestLogLimit(t *testing.T) {
 	var l logLimit
 	now := time.Unix(1_000_000, 0)
 	for i := 0; i < clientLogBudget; i++ {
-		if ok, _ := l.take(now, clientLogBudget, 0); !ok {
+		if ok, _ := l.take(now, clientLogBudget); !ok {
 			t.Fatalf("LOG-BUDGET: line %d of %d refused", i+1, clientLogBudget)
 		}
 	}
 	for i := 0; i < 10; i++ {
-		if ok, _ := l.take(now.Add(time.Second), clientLogBudget, 0); ok {
+		if ok, _ := l.take(now.Add(time.Second), clientLogBudget); ok {
 			t.Fatalf("LOG-BUDGET: line %d past the budget was allowed", clientLogBudget+i+1)
 		}
 	}
-	if ok, skipped := l.take(now.Add(61*time.Second), clientLogBudget, 0); !ok || skipped != 10 {
+	if ok, skipped := l.take(now.Add(61*time.Second), clientLogBudget); !ok || skipped != 10 {
 		t.Fatalf("LOG-SUPPRESSED-COUNT: after the minute got (%v, %d), want (true, 10)", ok, skipped)
 	}
 }
 
-// The port's budget counts what a connection's budget left out, and reports it with the next line
-// it writes, or, if it leaves that line out too, with the one after.
-func TestLogLimitCountsWhatAnotherBudgetLeftOut(t *testing.T) {
+// A count given back, because the line that was to say it was left out, is said with the next line.
+func TestLogLimitSaysACountGivenBack(t *testing.T) {
 	var l logLimit
 	now := time.Unix(1_000_000, 0)
-	for i := 0; i < serverLogBudget; i++ {
-		if ok, _ := l.take(now, serverLogBudget, 0); !ok {
-			t.Fatalf("LOG-SERVER-BUDGET: line %d of %d refused", i+1, serverLogBudget)
+	for i := 0; i < clientLogBudget+3; i++ {
+		l.take(now, clientLogBudget)
+	}
+	_, skipped := l.take(now.Add(61*time.Second), clientLogBudget)
+	l.giveBack(skipped)
+	if ok, skipped := l.take(now.Add(62*time.Second), clientLogBudget); !ok || skipped != 3 {
+		t.Fatalf("LOGB-GIVE-BACK: got (%v, %d), want (true, 3)", ok, skipped)
+	}
+}
+
+// The miners' budget holds a burst, then refills at its rate, never past the burst.
+func TestLogBucketHoldsABurst(t *testing.T) {
+	var b logBucket
+	now := time.Unix(1_000_000, 0)
+	for i := 0; i < minerLogBurst; i++ {
+		if !b.take(now, minerLogBurst, minerLogRate) {
+			t.Fatalf("LOGB-BUCKET-BURST: line %d of a burst of %d refused", i+1, minerLogBurst)
 		}
 	}
-	if ok, _ := l.take(now, serverLogBudget, 7); ok {
-		t.Fatal("LOG-SERVER-BUDGET: a line past the port's budget was allowed")
+	if b.take(now, minerLogBurst, minerLogRate) {
+		t.Fatal("LOGB-BUCKET-PAST: a line past the burst was allowed")
 	}
-	if ok, skipped := l.take(now.Add(61*time.Second), serverLogBudget, 2); !ok || skipped != 10 {
-		t.Fatalf("LOG-SERVER-COUNT: got (%v, %d), want (true, 10): 7 and 2 left out by a connection's budget, 1 by the port's", ok, skipped)
+	taken := func(at time.Time) int {
+		n := 0
+		for n <= 2*minerLogBurst && b.take(at, minerLogBurst, minerLogRate) {
+			n++
+		}
+		return n
+	}
+	if n := taken(now.Add(30 * time.Second)); n != minerLogRate/2 {
+		t.Fatalf("LOGB-BUCKET-RATE: half a minute on, %d lines allowed, want %d", n, minerLogRate/2)
+	}
+	// A caller that read the clock before the last one adds nothing, now or later.
+	taken(now.Add(29 * time.Second))
+	if n := taken(now.Add(60 * time.Second)); n != minerLogRate/2 {
+		t.Fatalf("LOGB-BUCKET-CLOCK: after a line at an earlier time, half a minute on %d lines allowed, want %d", n, minerLogRate/2)
+	}
+	if n := taken(now.Add(time.Hour)); n != minerLogBurst {
+		t.Fatalf("LOGB-BUCKET-FULL: an hour on, %d lines allowed, want the burst, %d", n, minerLogBurst)
 	}
 }
 
