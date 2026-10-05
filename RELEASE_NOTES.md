@@ -151,17 +151,17 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
   seconds, open at that level. It was remembered for 30 minutes after it last changed, which with so
   few changes would have sent them back to 500,000 a quarter of the time. After the mining service
   restarts they open at 500,000 until the rig's first shares set its level again.
-- **Every platform, TIDES:** a rental that connects or reconnects, and any miner after the mining
-  service restarts, is no longer credited 0.2% of its work on its first jobs (the pool's 1,024 a
-  share). A TIDES job commits to the difficulty its miners work at, and only miners with a share in
-  the last five minutes counted, so the job in flight when a rental logged in committed to nothing.
-  Now a miner counts from its login, at the difficulty it was given (a `d=` it only claims counts at
-  the port's floor), and for five minutes after its last share once it disconnects; one that logs in
-  on a job committed below its difficulty gets a new job at once, and a new rental's first raise
-  counts as soon as it is made. A new rental is credited about 99% of its work in its first two
-  minutes; the rest is the second or so before its first new job. While anything is logged in on
-  3335, TIDES jobs commit to at least 2^20, so small miners on 3333 see fewer of their shares
-  forwarded, for the same expected credit.
+- **Every platform, TIDES:** a rental that connects or reconnects, also after the mining service
+  restarts, is no longer credited 0.2% of its work on its first jobs (the pool's 1,024 a share). A
+  TIDES job commits to the difficulty its miners work at, and only miners with a share in the last
+  five minutes counted, so the job in flight when a rental logged in committed to nothing. Now a
+  miner counts from its login, at the difficulty it was given (a `d=` it only claims counts at the
+  port's floor), and for five minutes after its last share once it disconnects; one that logs in on
+  a job committed below its difficulty gets a new job at once, and a new rental's first raise counts
+  as soon as it is made. A new rental is credited about 99% of its work in its first two minutes;
+  the rest is the second or so before its first new job. While anything is logged in on 3335, TIDES
+  jobs commit to at least 2^20, so small miners on 3333 see fewer of their shares forwarded, for the
+  same expected credit.
 - **Every platform:** MiningRigRentals' health checks, about 550 logins an hour during a rental, are
   no longer counted as miners or rentals. Workers, the mining banner and the public rental stats
   count one rented rig as one, and with only health checks connected the dashboard says no miner is

@@ -369,3 +369,18 @@ func TestReleaseNotesTellWindowsUsersHowToInstall(t *testing.T) {
 		}
 	}
 }
+
+// A TIDES job that committed to nothing was credited at the pool's 1,024 a share: 0.2% of the work
+// of a rental's 500,000 shares. A miner at or near the 1024 floor was credited in full on such a
+// job, and a big miner after a restart lost part of its first jobs at a rate of its own, so the
+// 0.2% is told of rentals alone.
+func TestReleaseNotesGiveTheConnectCreditOfRentals(t *testing.T) {
+	anyMiner := regexp.MustCompile(`(?i)\b(any|every|all|each) miners?\b`)
+	for _, d := range releaseTexts(t) {
+		for _, s := range sentences(d.text) {
+			if strings.Contains(s, "0.2%") && anyMiner.MatchString(s) {
+				t.Errorf("DOCS-TIDES-ANY-MINER: %s says more than a rental was credited 0.2%% of its first jobs: %q", d.name, s)
+			}
+		}
+	}
+}
