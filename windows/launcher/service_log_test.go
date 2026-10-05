@@ -12,6 +12,12 @@ import (
 func TestServiceLogRotates(t *testing.T) {
 	dir := t.TempDir()
 	l := &cappedLog{path: filepath.Join(dir, "stratum.log"), limit: 100}
+	// Windows cannot remove the test's folder while the log is open in it.
+	t.Cleanup(func() {
+		if l.f != nil {
+			_ = l.f.Close()
+		}
+	})
 	line := []byte(strings.Repeat("x", 39) + "\n") // 40 bytes
 	for i := 0; i < 2; i++ {
 		_, _ = l.Write(line)
