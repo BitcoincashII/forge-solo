@@ -36,11 +36,13 @@ func TestCurrentEffortIsCountedShareByShare(t *testing.T) {
 	}
 }
 
-// In TIDES mode the balance card, the Blocks table and Payout History count solo blocks only: a
-// TIDES block pays the TIDES window, and what it paid is in the TIDES card. The card read "Your
-// Blocks Found 9, Includes 9 TIDES blocks, Total: 0 BCH2" and the tables "No blocks found yet" while
-// the TIDES card showed the same address paid. In TIDES mode each figure is said to be solo and the
-// empty tables point to the TIDES card; Solo mode reads as before.
+// In TIDES mode the balance card's amounts, the Blocks table and Payout History count solo blocks
+// only: a TIDES block pays the TIDES window, and what it paid is in the TIDES card. The card read
+// "Your Blocks Found 9, Includes 9 TIDES blocks, Total: 0 BCH2" and the tables "No blocks found yet"
+// while the TIDES card showed the same address paid. In TIDES mode each of these is said to be solo
+// and the empty tables point to the TIDES card. Your Blocks Found counts TIDES blocks, so the table
+// below it is headed Your Solo Blocks, and the help page says that the count includes them. Solo
+// mode reads as before.
 func TestTidesModeSaysTheBalanceIsSolo(t *testing.T) {
 	js := readWebFile(t, "js/pool-solo-inline.js")
 	if !strings.Contains(textBetween(js, "function soloFiguresOnly() {", "\n        }\n"), "return tidesInEffect(lastMiningStatus);") {
@@ -57,6 +59,9 @@ func TestTidesModeSaysTheBalanceIsSolo(t *testing.T) {
 		if !strings.Contains(labels, want) {
 			t.Errorf("BAL-SOLO-LABELS: renderBalanceLabels() lacks %q", want)
 		}
+	}
+	if !strings.Contains(labels, "label('blocksTitle', tides ? 'Your Solo Blocks' : 'Your Blocks Found');") {
+		t.Error("BAL-SOLO-BLOCKS-TITLE: in TIDES mode the Blocks table is not headed Your Solo Blocks")
 	}
 	// The labels follow the mode as the status banner learns it.
 	if !strings.Contains(js, "updateModeBadge(lastMiningStatus);\n            renderBalanceLabels();\n") {
@@ -77,9 +82,17 @@ func TestTidesModeSaysTheBalanceIsSolo(t *testing.T) {
 		t.Error("BAL-EMPTY-PAYOUTS: in TIDES mode the empty Payout History does not point to the TIDES card")
 	}
 	page := readWebFile(t, "solo.html")
-	if !strings.Contains(readWebFile(t, "tides.html"), "In TIDES mode the balance card at the top of the dashboard, and the Blocks and "+
-		"Payout History tables, count only the blocks that paid your address in full") {
-		t.Error("BAL-HELP: the TIDES help page does not say what the balance card counts in TIDES mode")
+	help := readWebFile(t, "tides.html")
+	if !strings.Contains(help, "In TIDES mode the amounts in the balance card at the top of the dashboard (matured, still maturing and "+
+		"the total), the Your Solo Blocks table and Payout History are solo, and say so: they count only the blocks that paid "+
+		"your address in full") {
+		t.Error("BAL-HELP: the TIDES help page does not say which of the dashboard's figures are solo in TIDES mode")
+	}
+	if !strings.Contains(help, "Your Blocks Found counts your TIDES blocks too.") {
+		t.Error("BAL-HELP-FOUND: the TIDES help page does not say that Your Blocks Found counts TIDES blocks")
+	}
+	if !strings.Contains(page, `<h2 id="blocksTitle" data-i18n="p_solo_your_blocks">Your Blocks Found</h2>`) {
+		t.Error("BAL-SOLO-BLOCKS-TITLE-ID: the Blocks table's heading has no id for renderBalanceLabels() to set")
 	}
 	for _, want := range []string{`<h2 id="matureLabel"`, `<span id="immatureLabel">Still maturing</span>:`,
 		`<span id="totalPaidLabel">Total Paid</span>:`,

@@ -89,10 +89,11 @@
                 : '';
         }
 
-        // In TIDES mode the balance card, the Blocks table and Payout History count solo blocks only
-        // (found in Solo mode, or while TIDES was paused): a TIDES block pays the TIDES window, and what
-        // it paid you is in the TIDES card. Each figure says so: "Your Blocks Found" with its TIDES
-        // blocks sat over "Total: 0 BCH2" while the TIDES card showed the same address being paid.
+        // In TIDES mode the balance card's amounts, the Blocks table and Payout History count solo
+        // blocks only (found in Solo mode, or while TIDES was paused): a TIDES block pays the TIDES
+        // window, and what it paid you is in the TIDES card. Each says so. "Your Blocks Found" counts
+        // TIDES blocks too: it sat over "Total: 0 BCH2", and the table below had the same heading,
+        // while the TIDES card showed the same address being paid.
         function soloFiguresOnly() {
             return tidesInEffect(lastMiningStatus);
         }
@@ -105,6 +106,7 @@
             label('matureLabel', tides ? 'Solo: matured (spendable)' : 'Matured (spendable)');
             label('immatureLabel', tides ? 'Solo, still maturing' : 'Still maturing');
             label('totalPaidLabel', tides ? 'Total Paid (solo)' : 'Total Paid');
+            label('blocksTitle', tides ? 'Your Solo Blocks' : 'Your Blocks Found');
             const note = document.getElementById('balanceTidesNote');
             if (note) note.hidden = !tides;
         }
