@@ -91,6 +91,7 @@
         .tides-grid>div{background:var(--bg-primary);border-radius:10px;padding:14px;text-align:center;min-width:0}
         .tides-grid .tv{font-size:18px;font-weight:700;font-family:'JetBrains Mono',monospace;color:#38bdf8;word-break:break-word}
         .tides-grid .tl{font-size:11px;color:var(--text-secondary);margin-top:4px}
+        .tides-grid .ts{font-size:10px;color:var(--text-secondary);opacity:0.8;margin-top:2px}
         .tides-note{font-size:13px;color:var(--text-secondary);line-height:1.55}
         .tides-gw{font-size:12px;color:var(--text-secondary);font-family:'JetBrains Mono',monospace;margin:8px 0 12px;word-break:break-word}
         .tides-you{color:var(--bch-green);font-weight:700}
@@ -167,8 +168,8 @@
                 <div class="tides-grid">
                     <div><div class="tv" id="tidesShare">--</div><div class="tl">Your share of the window</div></div>
                     <div><div class="tv" id="tidesNext">--</div><div class="tl">The next pool block pays you</div></div>
-                    <div><div class="tv" id="tidesPending">--</div><div class="tl">Pending (not yet confirmed)</div></div>
-                    <div><div class="tv" id="tidesPaid">--</div><div class="tl">Paid to you (confirmed)</div></div>
+                    <div><div class="tv" id="tidesPending">--</div><div class="tl">Pending (under 2 confirmations)</div></div>
+                    <div><div class="tv" id="tidesPaid">--</div><div class="tl">Paid to you (2+ confirmations)</div><div class="ts">each spendable 100 blocks after its block</div></div>
                     <div><div class="tv" id="tidesMiners">--</div><div class="tl">Miners in the window</div></div>
                     <div><div class="tv" id="tidesFill">--</div><div class="tl">Window filled</div></div>
                 </div>

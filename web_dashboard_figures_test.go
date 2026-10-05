@@ -77,11 +77,53 @@ func TestTidesModeSaysTheBalanceIsSolo(t *testing.T) {
 		t.Error("BAL-EMPTY-PAYOUTS: in TIDES mode the empty Payout History does not point to the TIDES card")
 	}
 	page := readWebFile(t, "solo.html")
+	if !strings.Contains(readWebFile(t, "tides.html"), "In TIDES mode the balance card at the top of the dashboard, and the Blocks and "+
+		"Payout History tables, count only the blocks that paid your address in full") {
+		t.Error("BAL-HELP: the TIDES help page does not say what the balance card counts in TIDES mode")
+	}
 	for _, want := range []string{`<h2 id="matureLabel"`, `<span id="immatureLabel">Still maturing</span>:`,
 		`<span id="totalPaidLabel">Total Paid</span>:`,
 		`id="balanceTidesNote" hidden>Your TIDES payouts are not counted here: they are in the TIDES card below.</div>`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("BAL-SOLO-MARKUP: solo.html lacks %s", want)
 		}
+	}
+}
+
+// The TIDES card's "Paid to you (confirmed)" counts payouts in blocks 2 deep, which is when the pool
+// settles them. A coinbase output can be spent only 100 blocks after its block, and the same page
+// calls a solo block "Confirmed" once it is 100 deep, so most of what the tile called confirmed was
+// still maturing in the wallet. The tiles say how many confirmations they mean and when each payout
+// is spendable, and the help page names them with the same words.
+func TestTidesPaidTileSaysTwoConfirmations(t *testing.T) {
+	page := readWebFile(t, "solo.html")
+	grid := textBetween(page, `<div class="tides-grid">`, `<div class="tides-gw"`)
+	tiles := map[string]string{
+		"tidesPending": `<div class="tl">Pending (under 2 confirmations)</div></div>`,
+		"tidesPaid":    `<div class="tl">Paid to you (2+ confirmations)</div><div class="ts">each spendable 100 blocks after its block</div></div>`,
+	}
+	for id, want := range tiles {
+		if !strings.Contains(grid, `<div class="tv" id="`+id+`">--</div>`+want) {
+			t.Errorf("TIDES-PAID-TILE: #%s is not labelled %s", id, want)
+		}
+	}
+	if strings.Contains(grid, "(confirmed)") || strings.Contains(grid, "not yet confirmed") {
+		t.Error("TIDES-PAID-OLD: a TIDES tile still says confirmed without saying how many confirmations")
+	}
+	if !regexp.MustCompile(`\.tides-grid \.ts\{[^}]*font-size:10px`).MatchString(page) {
+		t.Error("TIDES-PAID-STYLE: the line under the Paid tile has no style of its own")
+	}
+	help := readWebFile(t, "tides.html")
+	for _, label := range []string{"Pending (under 2 confirmations)", "Paid to you (2+ confirmations)"} {
+		if !strings.Contains(help, "<dt>"+label+"</dt>") {
+			t.Errorf("TIDES-HELP-LABELS: the help page does not name the tile %q", label)
+		}
+	}
+	if strings.Contains(help, "(confirmed)") || strings.Contains(help, "not yet confirmed") {
+		t.Error("TIDES-HELP-OLD: the help page still names the tiles by their old labels")
+	}
+	paid := textBetween(help, "<dt>Paid to you (2+ confirmations)</dt>", "</dd>")
+	if !strings.Contains(paid, "2 or more confirmations") || !strings.Contains(paid, "can be spent 100 blocks after the block that paid it") {
+		t.Errorf("TIDES-HELP-SPENDABLE: the help page's Paid entry does not say 2+ confirmations and spendable after 100 blocks: %s", paid)
 	}
 }
