@@ -58,8 +58,8 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
   again: it installs PostgreSQL when the old data is there.
 
 **Much smaller.**
-- **Umbrel:** installing downloads about 220 MB instead of 900 MB, and the app's images take about
-  0.5 GB of disk instead of 2.3 GB. umbrelOS removes the images of 1.0.12 after the update.
+- **Umbrel:** installing the app downloads about 240 MB instead of 930 MB; its images take about
+  0.6 GB of disk instead of 2.3 GB. umbrelOS removes the images of 1.0.12 after the update.
 - **Windows:** Forge Solo takes about 110 MB less disk: a fresh install puts no PostgreSQL on disk,
   and an update removes it once your data is moved.
 - **Every platform:** every share your miners found was written to the database and never read, and
