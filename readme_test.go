@@ -328,3 +328,23 @@ func TestDocsLinksLeadToHeadings(t *testing.T) {
 		}
 	}
 }
+
+// While a viewer holds stratum.log or api.log, a move aside that failed is tried again only once
+// the log has grown by another twentieth of its 20 MB limit (windows/launcher/log.go). The Windows
+// README said the log was moved soon after the viewer was closed, which at the rate stratum.log
+// grows outside a rental is days.
+func TestWindowsReadmeSaysWhenAHeldLogIsMoved(t *testing.T) {
+	win := flat(string(mustRead(t, "windows/README.md")))
+	if m := regexp.MustCompile(`(?i)\bsoon after the viewer\b`).FindString(win); m != "" {
+		t.Errorf("DOCS-WIN-LOG-SOON: windows/README.md says a held log is moved %q; it is moved at the next 1 MB after", m)
+	}
+	if want := "The move is tried again each time the log has grown by another 1 MB"; !strings.Contains(win, want) {
+		t.Errorf("DOCS-WIN-LOG-RETRY: windows/README.md does not say %q", want)
+	}
+	code := string(mustRead(t, "windows/launcher/log.go"))
+	for _, want := range []string{"const serviceLogLimit = 20 << 20", "l.retryAt = l.size + l.limit/20"} {
+		if !strings.Contains(code, want) {
+			t.Errorf("DOCS-WIN-LOG-CODE: windows/launcher/log.go no longer has %q, which windows/README.md's 20 MB and 1 MB follow", want)
+		}
+	}
+}

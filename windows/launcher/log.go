@@ -63,7 +63,8 @@ func (l *cappedLog) Write(p []byte) (int, error) {
 		}
 		// A viewer can hold the log for hours, and each try closes and reopens it. So a move
 		// that failed is tried again once the log has grown by another twentieth of its limit
-		// (1 MB for a service's log): not at every line, and soon after the viewer lets go.
+		// (1 MB for a service's log), not at every line: after the viewer lets go, the log is
+		// moved at the next of those tries, hours or days later.
 		l.retryAt = 0
 		if !moved {
 			l.retryAt = l.size + l.limit/20

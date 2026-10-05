@@ -305,8 +305,9 @@ The installer is written to `windows/ForgeSolo-Setup-<version>.exe`. CI stamps t
 - **launcher.log** in the data folder records what Forge Solo started and stopped, and is kept
   under 1 MB while Forge Solo runs. The miner's and the API's logs are beside it, `stratum.log` and
   `api.log`, each moved to `.1` at 20 MB, replacing the one before. While a log viewer holds a log
-  open without letting it be renamed, the log grows past 20 MB and keeps its `.1`; it is moved soon
-  after the viewer is closed.
+  open without letting it be renamed, the log grows past 20 MB and keeps its `.1`. The move is
+  tried again each time the log has grown by another 1 MB, so it is moved at the first of those
+  after the viewer is closed: hours later during a rental, days later on a quiet log.
 
 ## Smart App Control and SmartScreen
 The installer is signed with a self-signed certificate (CN=BCH2 Software), and Forge Solo's own
