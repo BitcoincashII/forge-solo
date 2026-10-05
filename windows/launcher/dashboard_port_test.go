@@ -16,6 +16,7 @@ func TestDashboardPortTaken(t *testing.T) {
 	var opened []string
 	openBrowser = func(u string) { opened = append(opened, u) }
 	t.Cleanup(func() {
+		endPayoutWatch()
 		dataDir, webPort, openBrowser = savedData, savedWeb, savedBrowser
 		dashboardOpen.Store(false)
 		if dashboard != nil {

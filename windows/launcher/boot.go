@@ -396,39 +396,75 @@ func openDashboard() {
 	dashboardOpen.Store(true)
 	go serveDashboard(l)
 	openBrowser(dashboardURL())
-	if !showTrouble() {
-		// Only when none is set: the tray asked for one at every start, with an address set too,
-		// until the miner ran.
-		if payoutAddressUnset() {
-			status(tipSetAddress)
-		}
-		showRunning() // opened by Try Again, with everything else running already
-	}
+	watchPayoutAddress()
+	showRunning() // opened by Try Again, with everything else running already
 }
 
-// payoutAddressUnset reports whether no payout address is set (a stand-in in the tests).
-var payoutAddressUnset = askPayoutAddressUnset
+// noPayoutAddress is set while the dashboard's API last said no payout address is set: the miner
+// then mines nothing, and the tray asks for one instead of saying "running" (showRunning).
+var noPayoutAddress atomic.Bool
 
-// payoutAskTimeout is how long the tray waits for the API to say whether a payout address is set.
-// The start waits with it, and the miner starts after it.
+// payoutPollEvery is how often the tray asks the dashboard's API whether a payout address is set,
+// so that it says "running" soon after one is saved (shorter in the tests).
+var payoutPollEvery = 10 * time.Second
+
+// payoutAddressSaid is what the dashboard's API says of the payout address (a stand-in in the
+// tests).
+var payoutAddressSaid = askPayoutAddress
+
+// payoutWatching is set while the watch of the payout address runs, which payoutWatch waits for.
+var (
+	payoutWatching atomic.Bool
+	payoutWatch    sync.WaitGroup
+)
+
+// watchPayoutAddress starts, once, the watch of the payout address: the dashboard's API is asked at
+// once, and then every payoutPollEvery until the stop begins, whether one is set, and the tray says
+// so when that changes. It runs on its own, so that neither the start nor the tray menu waits on the
+// API. An answer the API could not give changes nothing.
+func watchPayoutAddress() {
+	if !payoutWatching.CompareAndSwap(false, true) {
+		return
+	}
+	payoutWatch.Add(1)
+	go func() {
+		defer payoutWatch.Done()
+		defer payoutWatching.Store(false)
+		for {
+			if unset, known := payoutAddressSaid(); known && noPayoutAddress.Swap(unset) != unset {
+				if unset {
+					logf("no payout address is set: the tray asks for one")
+				} else {
+					logf("a payout address is set")
+				}
+				showRunning()
+			}
+			if pause(payoutPollEvery) {
+				return
+			}
+		}
+	}()
+}
+
+// payoutAskTimeout is how long one question to the API may take; the watch asks again later.
 var payoutAskTimeout = 3 * time.Second
 
-// askPayoutAddressUnset reports whether the dashboard's API says no payout address is set. When it
-// cannot tell (no answer, or the database cannot be read), the tray does not ask for one.
-func askPayoutAddressUnset() bool {
+// askPayoutAddress asks the dashboard's API whether a payout address is set. unset is whether none
+// is, and known whether the API could say: it answered, and could read the database.
+func askPayoutAddress() (unset, known bool) {
 	c := &http.Client{Timeout: payoutAskTimeout}
 	resp, err := c.Get("http://127.0.0.1:" + apiPort + "/api/v1/pool/config")
 	if err != nil {
-		return false
+		return false, false
 	}
 	defer resp.Body.Close()
 	var cfg struct {
 		Configured *bool `json:"configured"`
 	}
 	if resp.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&cfg) != nil || cfg.Configured == nil {
-		return false
+		return false, false
 	}
-	return !*cfg.Configured
+	return !*cfg.Configured, true
 }
 
 // rpcStop asks a node to shut down via its RPC `stop` method so it FLUSHES the chainstate to

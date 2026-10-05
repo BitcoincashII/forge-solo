@@ -35,6 +35,7 @@ func startFailWorld(t *testing.T, scripts map[string]string) *tips {
 	savedTip := setTooltip
 	setTooltip = tp.add
 	t.Cleanup(func() {
+		endPayoutWatch()
 		mu.Lock()
 		stopping = true // nothing more is started
 		mu.Unlock()
@@ -60,6 +61,7 @@ func startFailWorld(t *testing.T, scripts map[string]string) *tips {
 // about programs that could not start.
 func resetStartState() {
 	minerDue.Store(false)
+	noPayoutAddress.Store(false)
 	troubleMu.Lock()
 	clear(trouble)
 	clear(retrying)

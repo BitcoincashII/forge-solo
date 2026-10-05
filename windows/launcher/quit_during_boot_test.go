@@ -31,6 +31,7 @@ func bootWorld(t *testing.T, scripts map[string]string) {
 	webPort = freePort(t)
 	openBrowser = func(string) {}
 	t.Cleanup(func() {
+		endPayoutWatch()
 		for _, k := range []string{"stratum", "api", "bch2", "aux1175", "migrate"} {
 			stop(k)
 		}

@@ -176,10 +176,15 @@ func showTrouble() bool {
 }
 
 // showRunning says "running" in the tray once the dashboard is open and both nodes, the API and the
-// miner run; while one could not start, the tray says that instead. A program still being started
-// again leaves the tray as it is.
+// miner run; while one could not start, the tray says that instead. While no payout address is set,
+// the miner mines nothing, and the tray asks for one. A program still being started again leaves
+// the tray as it is.
 func showRunning() {
 	if showTrouble() || !dashboardOpen.Load() {
+		return
+	}
+	if noPayoutAddress.Load() {
+		status(tipSetAddress)
 		return
 	}
 	for _, k := range runningKeys {

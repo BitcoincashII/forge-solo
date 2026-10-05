@@ -28,6 +28,7 @@ func tryWorld(t *testing.T) (tp, shown *tips, boots func() int) {
 	setTooltip = tp.add
 	showTryAgain = func(show bool) { shown.add(strconv.FormatBool(show)) }
 	t.Cleanup(func() {
+		endPayoutWatch()
 		mu.Lock()
 		stopping = true // nothing more is started
 		mu.Unlock()
