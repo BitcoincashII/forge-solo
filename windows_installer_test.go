@@ -616,8 +616,8 @@ end;`) {
 	if strings.Contains(win, "ask, when they start, for Forge Solo to be closed") || strings.Contains(notes, "ask you to close Forge Solo when they start") ||
 		!strings.Contains(win, "Only then does it check the mutex Forge Solo 1.0.13 and later hold while they run: one still held is Forge Solo running for another Windows account") ||
 		!strings.Contains(notes, "updating or uninstalling while Forge Solo runs closes it first, as its Quit does") ||
-		!strings.Contains(notes, "If Forge Solo runs for another Windows account on the PC, the installer and the uninstaller say so and change nothing.") {
-		t.Error("CLOSE-FIRST-DOCS: windows/README.md or RELEASE_NOTES.md ## 1.0.13 does not say that a running Forge Solo is closed first, and only one running for another account stops the installer")
+		!strings.Contains(notes, "If Forge Solo 1.0.13 or later runs for another Windows account on the PC, the installer and the uninstaller say so and change nothing.") {
+		t.Error("CLOSE-FIRST-DOCS: windows/README.md or RELEASE_NOTES.md ## 1.0.13 does not say that a running Forge Solo is closed first, and that only Forge Solo 1.0.13 or later running for another account stops the installer")
 	}
 }
 

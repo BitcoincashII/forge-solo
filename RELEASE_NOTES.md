@@ -169,9 +169,9 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
 - **Windows:** updating or uninstalling while Forge Solo runs closes it first, as its Quit does, and
   waits until its nodes and its database have stopped, also in a silent run. The installer used to
   stop with "Setup was unable to automatically close all applications", and a silent update undid
-  itself. If Forge Solo runs for another Windows account on the PC, the installer and the
-  uninstaller say so and change nothing. To go back to 1.0.12, quit Forge Solo first: 1.0.12's
-  installer cannot close it.
+  itself. If Forge Solo 1.0.13 or later runs for another Windows account on the PC, the installer
+  and the uninstaller say so and change nothing. To go back to 1.0.12, quit Forge Solo
+  first: 1.0.12's installer cannot close it.
 - **Windows:** if another program uses port 3080, the tray says the dashboard cannot open, instead of
   opening that program in the browser. Mining goes on. If one uses 3333 or 8339, which Forge Solo
   cannot mine without, it starts nothing and the tray names the port; it used to say "running".
