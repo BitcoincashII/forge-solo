@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -49,6 +50,13 @@ func TestTheRentalPortIsAdvertisedOnlyWhileItListens(t *testing.T) {
 	if got := buildMiningStatus().RentalTaken; got != heldPort {
 		t.Fatalf("RENTAL-PORT-TAKEN-SAID: another program holds the rental port %d, the dashboard is told %d", heldPort, got)
 	}
+	j := miningStatusJSON(t)
+	if got := string(j["rental_port"]); got != "0" {
+		t.Errorf("RENTAL-PORT-JSON-PORT: with the rental port taken, the dashboard reads rental_port as %q, not 0", got)
+	}
+	if got, want := string(j["rental_port_taken"]), strconv.Itoa(heldPort); got != want {
+		t.Errorf("RENTAL-PORT-JSON-TAKEN: another program holds the rental port %s, the dashboard reads rental_port_taken as %q", want, got)
+	}
 
 	up := rentalServerOn(0)
 	if err := up.Start(); err != nil {
@@ -63,6 +71,9 @@ func TestTheRentalPortIsAdvertisedOnlyWhileItListens(t *testing.T) {
 	}
 	if got := buildMiningStatus().RentalTaken; got != 0 {
 		t.Fatalf("RENTAL-PORT-UP-NOT-TAKEN: the rental listener is up, the dashboard is told port %d is taken", got)
+	}
+	if got := string(miningStatusJSON(t)["rental_port"]); got != port {
+		t.Errorf("RENTAL-PORT-JSON-PORT: the rental listener is up on %s, the dashboard reads rental_port as %q", port, got)
 	}
 
 	stratumRentalServer = nil
@@ -81,6 +92,23 @@ func TestTheRentalPortIsAdvertisedOnlyWhileItListens(t *testing.T) {
 	if got := buildMiningStatus().RentalReserved; got != 0 {
 		t.Fatalf("RENTAL-PORT-OTHER-NOT-RESERVED: a listener that could not have its address is said to be on a port Windows keeps, %d", got)
 	}
+}
+
+// miningStatusJSON is the mining status as the dashboard gets it: the API passes the stratum's
+// answer on as it is, and the page reads rental_port, rental_port_taken and rental_port_reserved
+// (noRentalPort in web/dist/js/common.js). Renamed here, the page would read nothing, and offer
+// 3335 again, or the wrong words.
+func miningStatusJSON(t *testing.T) map[string]json.RawMessage {
+	t.Helper()
+	b, err := json.Marshal(buildMiningStatus())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	return m
 }
 
 // listenError is a listen that failed with errno, as the stratum server returns it.
@@ -106,6 +134,13 @@ func TestARentalPortWindowsKeepsIsSaidSo(t *testing.T) {
 	}
 	if st.RentalTaken != 0 {
 		t.Errorf("RENTAL-PORT-RESERVED-NOT-TAKEN: a port Windows keeps is said to be another program's (%d)", st.RentalTaken)
+	}
+	j := miningStatusJSON(t)
+	if got := string(j["rental_port_reserved"]); got != "3335" {
+		t.Errorf("RENTAL-PORT-JSON-RESERVED: with Windows keeping the rental port, the dashboard reads rental_port_reserved as %q, not 3335", got)
+	}
+	if got := string(j["rental_port"]); got != "0" {
+		t.Errorf("RENTAL-PORT-JSON-PORT: with Windows keeping the rental port, the dashboard reads rental_port as %q, not 0", got)
 	}
 	want := "Windows keeps port 3335, the rental port, for itself: rentals have no port of their own until Windows lets it go and you restart Forge Solo"
 	if logs.FilterMessage(want).Len() != 1 {
