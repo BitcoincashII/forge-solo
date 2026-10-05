@@ -1655,10 +1655,13 @@ func main() {
 			startMode = m
 		}
 	}
-	if config.GetBool("mergemining.enabled") && effective1175Payout != "" && startMode == stats.PayoutModeTides {
-		logger.Info("💠 1175 merge-mining stays OFF — this install is in TIDES mode, which mines BCH2 only")
+	// In TIDES mode the 1175 address changes nothing, so the warning that it is missing is for solo
+	// only. TIDES said "set it in the dashboard", which would not turn 1175 on.
+	if config.GetBool("mergemining.enabled") && startMode == stats.PayoutModeTides {
+		logger.Info("💠 1175 merge-mining stays OFF while TIDES mode is on: TIDES mines BCH2 only. " +
+			"In solo it needs your 1175 (esf1…) address, set in the dashboard")
 	}
-	if config.GetBool("mergemining.enabled") && effective1175Payout == "" {
+	if config.GetBool("mergemining.enabled") && effective1175Payout == "" && startMode != stats.PayoutModeTides {
 		logger.Warn("⚠️  Merge mining is enabled but PAYOUT_ADDRESS_1175 (your esf1… address) is not set — 1175 merge-mining is OFF until you set it in the dashboard. BCH2 mining continues normally.")
 	}
 	if config.GetBool("mergemining.enabled") && effective1175Payout != "" && startMode != stats.PayoutModeTides {
