@@ -271,6 +271,7 @@ type WorkerStats struct {
 	RoundBestDiff float64   `json:"round_best_diff"`
 	ATHDiff       float64   `json:"ath_diff"`
 	TotalWork     float64   `json:"total_work"`
+	RoundEffort   float64   `json:"round_effort"`
 	BlocksFound   int64     `json:"blocks_found"`
 	LastShareAt   time.Time `json:"last_share_at"`
 	ConnectedAt   time.Time `json:"connected_at"`
@@ -1386,6 +1387,7 @@ func getMiner(c *fiber.Ctx) error {
 	var bestDiff float64
 	var athDiff float64
 	var totalWork float64
+	var roundEffort float64 // this round in blocks, share by share (1 = 100%)
 	var lastShare time.Time
 	var workerCount int
 	var onlineWorkers int
@@ -1397,6 +1399,7 @@ func getMiner(c *fiber.Ctx) error {
 			totalRoundShares += w.RoundShares
 			totalRejected += w.InvalidShares
 			totalWork += w.TotalWork
+			roundEffort += w.RoundEffort
 			if w.BestDiff > bestDiff {
 				bestDiff = w.BestDiff
 			}
@@ -1481,6 +1484,7 @@ func getMiner(c *fiber.Ctx) error {
 		"bestDiff":        bestDiff,
 		"athDiff":         athDiff,
 		"totalWork":       totalWork,
+		"roundEffort":     roundEffort,
 		"lastShare":       lastShare.UTC(),
 		"soloMining":      hasSettings && settings.SoloMining,
 		"balance":         matureBalance + immatureBalance,

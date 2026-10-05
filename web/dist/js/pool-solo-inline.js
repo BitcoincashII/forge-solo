@@ -178,6 +178,15 @@
             return Number((data && data.onlineWorkers) || 0);
         }
 
+        // The difficulty of the block being mined now: the newest job's, from the mining status.
+        // The Network Diff tile is the node's getdifficulty, the tip's, one block behind it.
+        function difficultyNow() {
+            const fresh = lastMiningStatus
+                && (Date.now() - lastMiningStatusAt) < MINING_STATUS_MAX_AGE_MS;
+            const d = fresh ? Number(lastMiningStatus.network_difficulty) : 0;
+            return d > 0 ? d : networkDiff;
+        }
+
         function escapeHtml(v) {
             return String(v == null ? '' : v).replace(/[&<>"']/g, function (ch) {
                 return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
@@ -511,8 +520,13 @@
                 const rejectRate = data.invalidShares > 0 ?
                     ((data.invalidShares / (data.validShares + data.invalidShares)) * 100).toFixed(2) : '0.00';
                 document.getElementById('rejectRate').textContent = rejectRate + '%';
+                // The mining service counts the round share by share, each against the difficulty of
+                // the block it was mined for. The round's work over today's difficulty rescaled the
+                // whole round at every retarget, and BCH2 retargets at every block.
                 const workDone = data.totalWork || 0;
-                const effort = networkDiff > 0 ? (workDone / networkDiff * 100) : 0;
+                const effort = typeof data.roundEffort === 'number'
+                    ? data.roundEffort * 100
+                    : (networkDiff > 0 ? (workDone / networkDiff * 100) : 0);
                 document.getElementById('currentEffort').textContent = effort.toFixed(1) + '%';
                 const barWidth = Math.min(effort / 2, 100);
                 const effortBar = document.getElementById('effortBar');
@@ -535,9 +549,10 @@
                 // this branch is only ever REACHED when nothing is connected, so it could
                 // never once describe a live miner correctly.
                 minerHashing = hashrate > 0 || (data.onlineWorkers || 0) > 0;
-                if (hashrate > 0 && networkDiff > 0) {
+                const diffNow = difficultyNow();
+                if (hashrate > 0 && diffNow > 0) {
                     const hashesPerSecond = hashrate * 1e12;
-                    const hashesNeeded = networkDiff * 4294967296;
+                    const hashesNeeded = diffNow * 4294967296;
                     const secondsToBlock = hashesNeeded / hashesPerSecond;
                     if (secondsToBlock < 60) {
                         document.getElementById('timeToBlock').textContent = Math.round(secondsToBlock) + ' sec';

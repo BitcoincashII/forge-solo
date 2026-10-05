@@ -90,6 +90,7 @@ type WorkerStats struct {
 	RoundBestDiff float64              `json:"round_best_diff"` // Alias for best_diff for UI compatibility
 	ATHDiff       float64              `json:"ath_diff"`        // All-time high share difficulty
 	TotalWork     float64              `json:"total_work"`      // Cumulative share difficulty for round effort
+	RoundEffort   float64              `json:"round_effort"`    // This round in blocks: each share over its job's network difficulty
 	BlocksFound   int64                `json:"blocks_found"`    // Number of blocks found by this worker
 	LastShareAt   time.Time            `json:"last_share_at"`
 	ConnectedAt   time.Time            `json:"connected_at"`
@@ -128,7 +129,16 @@ func GetManager() *StatsManager {
 	return manager
 }
 
+// UpdateWorker counts a share without the network difficulty of its job, so it adds nothing to
+// the round's effort.
 func (m *StatsManager) UpdateWorker(minerID, workerName string, valid bool, targetDiff, actualDiff float64) {
+	m.UpdateWorkerForJob(minerID, workerName, valid, targetDiff, actualDiff, 0)
+}
+
+// UpdateWorkerForJob counts a share mined on a job at network difficulty jobNetDiff. The round's
+// effort adds each share against the difficulty of the block it was mined for: BCH2 retargets at
+// every block, and the round's work over the newest difficulty rescaled the whole round each time.
+func (m *StatsManager) UpdateWorkerForJob(minerID, workerName string, valid bool, targetDiff, actualDiff, jobNetDiff float64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -159,6 +169,9 @@ func (m *StatsManager) UpdateWorker(minerID, workerName string, valid bool, targ
 		w.RoundShares++
 		w.TotalWork += targetDiff   // Accumulate work for round effort calculation
 		m.roundEffort += targetDiff // Track pool-wide round effort for luck calculation
+		if jobNetDiff > 0 {
+			w.RoundEffort += targetDiff / jobNetDiff
+		}
 		// Use ACTUAL share difficulty for best share tracking
 		if actualDiff > w.BestDiff {
 			w.BestDiff = actualDiff
@@ -313,6 +326,7 @@ func (m *StatsManager) ResetWorkerRoundStats(minerID string) {
 			m.workers[key].BestDiff = 0
 			m.workers[key].RoundBestDiff = 0
 			m.workers[key].TotalWork = 0 // Reset round effort tracking
+			m.workers[key].RoundEffort = 0
 			m.workers[key].RoundShares = 0
 		}
 	}
@@ -327,6 +341,7 @@ func (m *StatsManager) ResetAllWorkerRoundStats() {
 		m.workers[key].BestDiff = 0
 		m.workers[key].RoundBestDiff = 0
 		m.workers[key].TotalWork = 0
+		m.workers[key].RoundEffort = 0
 		m.workers[key].RoundShares = 0
 	}
 }

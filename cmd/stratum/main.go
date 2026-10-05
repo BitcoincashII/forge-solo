@@ -251,6 +251,10 @@ type miningStatusSnapshot struct {
 
 	PayoutMode string          `json:"payout_mode"`     // solo | tides (the mode in effect)
 	Tides      *tidesgw.Status `json:"tides,omitempty"` // the TIDES gateway, when one has started
+
+	// NetworkDifficulty is the difficulty of the block being mined now (the newest job's), 0 before
+	// the first job. The node's getdifficulty is the tip's, one block behind it.
+	NetworkDifficulty float64 `json:"network_difficulty"`
 }
 
 // buildMiningStatus gathers the live inputs and hands them to the reason ladder.
@@ -305,6 +309,9 @@ func buildMiningStatus() miningStatusSnapshot {
 	}
 	st.MergeMining, st.AuxError, st.AuxLastOKAge = auxStatusFrom(aux, time.Now())
 	st.PayoutMode = currentPayoutMode()
+	if j := getCurrentJob(); j != nil {
+		st.NetworkDifficulty = bitsToDifficulty(j.NBits)
+	}
 	if g := tidesGateway(); g != nil {
 		ts := g.Status()
 		st.Tides = &ts
@@ -2210,7 +2217,13 @@ func (p *BlockFindingShareProcessor) ProcessShare(ctx context.Context, share *st
 		zap.String("miner", share.MinerID),
 		zap.Float64("target_diff", share.Difficulty),
 		zap.Float64("actual_diff", share.ActualDiff))
-	stats.GetManager().UpdateWorker(share.MinerID, share.WorkerName, true, share.Difficulty, share.ActualDiff)
+	// The round's effort counts the share against the difficulty of the block it was mined for, or
+	// the newest template's when its job is gone.
+	effortDiff := jobDifficultyFor(share.JobID)
+	if effortDiff <= 0 {
+		effortDiff = networkDiff
+	}
+	stats.GetManager().UpdateWorkerForJob(share.MinerID, share.WorkerName, true, share.Difficulty, share.ActualDiff, effortDiff)
 	noteShareAccepted()
 
 	// Save share to database for PPLNS distribution
