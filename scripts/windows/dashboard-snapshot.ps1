@@ -148,7 +148,7 @@ $volatile = @{
         'uptime', 'rentals\..*')
     'mining-status' = @('(?!payout_mode$|tides\.gateway$).*')
     'miner'         = @('hashrate5m|hashrate60m|workers|onlineWorkers|validShares|roundShares|invalidShares',
-        'bestDiff|athDiff|totalWork|lastShare', 'currentHeight|balance|matureBalance|immatureBalance|balanceKnown')
+        'bestDiff|athDiff|totalWork|roundEffort|lastShare', 'currentHeight|balance|matureBalance|immatureBalance|balanceKnown')
     'solo-blocks'   = @('blocks\.\d+\.(confirmations|matures_in|mature)')
 }
 $emptyObject = New-Object object

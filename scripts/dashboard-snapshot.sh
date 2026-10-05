@@ -52,7 +52,7 @@ VOLATILE = {
               r"uptime", r"rentals\..*"],
     "mining-status": [r"(?!payout_mode$|tides\.gateway$).*"],  # live state: all but the mode and the Gateway ID
     "miner": [r"hashrate5m|hashrate60m|workers|onlineWorkers|validShares|roundShares|invalidShares",
-              r"bestDiff|athDiff|totalWork|lastShare",         # live mining
+              r"bestDiff|athDiff|totalWork|roundEffort|lastShare",  # live mining
               r"currentHeight|balance|matureBalance|immatureBalance|balanceKnown"],  # the node's height
     "solo-blocks": [r"blocks\.\d+\.(confirmations|matures_in|mature)"],  # the node's height
 }
