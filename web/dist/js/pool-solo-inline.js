@@ -88,6 +88,26 @@
                 ? 'Includes ' + formatNumber(tidesBlocksFound) + ' TIDES block' + (tidesBlocksFound === 1 ? '' : 's') + ' (payouts below)'
                 : '';
         }
+
+        // In TIDES mode the balance card, the Blocks table and Payout History count solo blocks only
+        // (found in Solo mode, or while TIDES was paused): a TIDES block pays the TIDES window, and what
+        // it paid you is in the TIDES card. Each figure says so: "Your Blocks Found" with its TIDES
+        // blocks sat over "Total: 0 BCH2" while the TIDES card showed the same address being paid.
+        function soloFiguresOnly() {
+            return tidesInEffect(lastMiningStatus);
+        }
+        function totalLabel() {
+            return soloFiguresOnly() ? 'Solo total' : 'Total';
+        }
+        function renderBalanceLabels() {
+            const tides = soloFiguresOnly();
+            const label = (id, text) => { const e = document.getElementById(id); if (e) e.textContent = text; };
+            label('matureLabel', tides ? 'Solo: matured (spendable)' : 'Matured (spendable)');
+            label('immatureLabel', tides ? 'Solo, still maturing' : 'Still maturing');
+            label('totalPaidLabel', tides ? 'Total Paid (solo)' : 'Total Paid');
+            const note = document.getElementById('balanceTidesNote');
+            if (note) note.hidden = !tides;
+        }
         let currentHashrateTH = 0;   // latest 5m hashrate (TH/s), for the stable avg-effort estimate
 
         // Stable per-miner average effort: your ACTUAL block cadence vs the cadence
@@ -312,6 +332,7 @@
                 if (tl.warn) tone = 'gold';
             }
             updateModeBadge(lastMiningStatus);
+            renderBalanceLabels();
             if (!msg) { el.style.display = 'none'; return; }
             var c = (tone === 'green')
                 ? ['rgba(10,193,142,0.12)', '#0ac18e', 'rgba(10,193,142,0.35)']
@@ -779,11 +800,14 @@
             try {
                 const data = await apiFetch('/api/v1/miners/' + encodeURIComponent(minerAddress) + '/solo-blocks');
                 if (!data.blocks || data.blocks.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state" data-i18n="p_solo_no_blocks">' + (typeof PT !== 'undefined' && PT.p_solo_no_blocks ? PT.p_solo_no_blocks : 'No blocks found yet. Keep mining!') + '</div></td></tr>';
+                    const none = soloFiguresOnly()
+                        ? 'No solo blocks yet. Your TIDES blocks, and what each paid you, are in the TIDES card above.'
+                        : (typeof PT !== 'undefined' && PT.p_solo_no_blocks ? PT.p_solo_no_blocks : 'No blocks found yet. Keep mining!');
+                    tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state" data-i18n="p_solo_no_blocks">' + none + '</div></td></tr>';
                     minerBlocksCount = 0;
                     soloBlocksKnown = true;
                     renderBlocksFound();
-                    document.getElementById('totalEarned').textContent = 'Total: 0 BCH2';
+                    document.getElementById('totalEarned').textContent = totalLabel() + ': 0 BCH2';
                 } else {
                     const sorted = data.blocks.slice().sort((a, b) => (b.time || 0) - (a.time || 0));
                     // data.total is the BCH2 count the API already computed. sorted.length
@@ -861,7 +885,7 @@
                     `}).join("");
                     soloBlocksKnown = true;
                     renderBlocksFound();
-                    let totalStr = 'Total: ' + formatBCH2(bch2Reward, 8) + ' BCH2';
+                    let totalStr = totalLabel() + ': ' + formatBCH2(bch2Reward, 8) + ' BCH2';
                     if (esfCount > 0) totalStr += ' + ' + formatBCH2(esfReward, 8) + ' ESF';
                     if (sorted.length > shownLimit) totalStr += ' (latest ' + shownLimit + ' shown)';
                     document.getElementById('totalEarned').textContent = totalStr;
@@ -872,7 +896,7 @@
                 // Not known right now: not zero.
                 soloBlocksKnown = false;
                 renderBlocksFound();
-                document.getElementById('totalEarned').textContent = 'Total: --';
+                document.getElementById('totalEarned').textContent = totalLabel() + ': --';
                 // The API's reason when it gave one ("the database is not answering").
                 const why = (e && e.apiError) ? escapeHtml(e.apiError) : (typeof PT !== 'undefined' && PT.p_error_load_blocks ? PT.p_error_load_blocks : 'Failed to load blocks');
                 tbody.innerHTML = '<tr><td colspan="7"><div class="error-state"><span class="error-icon">!</span><span>' + why + '</span></div></td></tr>';
@@ -891,7 +915,10 @@
                 // decimals -- and it is the one number a user checks against their wallet.
                 document.getElementById("totalPaidAmount").textContent = formatBCH2(data.totalPaid || 0, 8);
                 if (!data.payouts || data.payouts.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state" data-i18n="p_solo_no_payouts">' + (typeof PT !== 'undefined' && PT.p_solo_no_payouts ? PT.p_solo_no_payouts : 'No payouts yet') + '</div></td></tr>';
+                    const none = soloFiguresOnly()
+                        ? 'No solo payouts yet. Your TIDES payouts are in the TIDES card above.'
+                        : (typeof PT !== 'undefined' && PT.p_solo_no_payouts ? PT.p_solo_no_payouts : 'No payouts yet');
+                    tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state" data-i18n="p_solo_no_payouts">' + none + '</div></td></tr>';
                     return;
                 }
                 tbody.innerHTML = data.payouts.slice(0, 20).map(p => {

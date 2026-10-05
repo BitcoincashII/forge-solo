@@ -146,10 +146,11 @@
 
             <div class="balance-card" role="region" aria-label="Balance information">
                 <div class="balance-info">
-                    <h2 data-i18n="p_solo_mature_balance">Matured (spendable)</h2>
+                    <h2 id="matureLabel" data-i18n="p_solo_mature_balance">Matured (spendable)</h2>
                     <div class="balance-amount"><span id="matureBalance">--</span> <small>BCH2</small></div>
-                    <div class="balance-sub">Still maturing: <span id="immatureBalance">--</span> BCH2 (spendable 100 blocks after the one that paid it)</div>
+                    <div class="balance-sub"><span id="immatureLabel">Still maturing</span>: <span id="immatureBalance">--</span> BCH2 (spendable 100 blocks after the one that paid it)</div>
                     <div class="balance-sub" style="opacity:0.75">Already paid to your address by each block's coinbase. This app holds nothing.</div>
+                    <div class="balance-sub" style="opacity:0.75" id="balanceTidesNote" hidden>Your TIDES payouts are not counted here: they are in the TIDES card below.</div>
                 </div>
                 <div class="balance-right">
                     <div class="blocks-found" id="blocksFound">--</div>
@@ -348,7 +349,7 @@
 
             <div class="card">
                 <h2><span data-i18n="p_solo_payout_history">Payout History</span> <span id="payoutCount" style="font-size:14px;color:var(--text-secondary)">(--)</span></h2>
-                <div style="margin-bottom:15px;color:var(--bch-green);font-size:18px">Total Paid: <span id="totalPaidAmount">--</span> BCH2</div>
+                <div style="margin-bottom:15px;color:var(--bch-green);font-size:18px"><span id="totalPaidLabel">Total Paid</span>: <span id="totalPaidAmount">--</span> BCH2</div>
                 <div class="table-scroll" id="payoutsContainer">
                     <table class="blocks-table">
                         <thead>
@@ -376,6 +377,6 @@
     </footer>
 
     <script src="/js/common.js?v=20261004b"></script>
-    <script src="/js/pool-solo-inline.js?v=20261005a"></script>
+    <script src="/js/pool-solo-inline.js?v=20261005b"></script>
 </body>
 </html>
