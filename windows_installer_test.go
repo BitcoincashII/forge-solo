@@ -727,6 +727,38 @@ end;`) || !strings.Contains(path, "Result := LongPath(Copy(Name, 1, Size));") {
 		!strings.Contains(stop, "\n  Result := Running = '';\nend;") || !strings.Contains(stop, "Asked := AskForgeSoloToQuit;") {
 		t.Errorf("CLOSE-WAIT: Setup does not wait until no program of this install runs:\n%s", stop)
 	}
+	// Each turn asks Forge Solo to quit, then waits StopWait seconds from 0 while any program runs,
+	// and Retry starts a turn again: the whole turn, as one text.
+	if !strings.Contains(stop, `
+  try
+    repeat
+      Asked := AskForgeSoloToQuit;
+      Log('Forge Solo runs from ' + ExpandConstant('{app}') + ' (' + Running + '): ' + IntToStr(Asked) +
+        ' asked to quit, as its tray''s Quit does');
+      Seconds := 0;
+      while (Running <> '') and (Seconds < StopWait) do
+      begin
+        Waiting;
+        Seconds := Seconds + 1;
+        Running := ProgramsRunning;
+      end;
+      Again := False;
+      if Running = '' then
+        Log('Forge Solo stopped within ' + IntToStr(Seconds) + ' s')
+      else
+      begin
+        Log('Forge Solo still runs after ' + IntToStr(Seconds) + ' s: ' + Running);
+        Again := SuppressibleMsgBox('Forge Solo has not stopped yet. Still running from ' +
+          ExpandConstant('{app}') + ': ' + Running + '.' + #13#10#13#10 +
+          'Forge Solo stops its nodes and its database cleanly, which can take a few minutes on a ' +
+          'slow PC. Retry waits for it again. Cancel changes nothing.',
+          mbError, MB_RETRYCANCEL, IDCANCEL) = IDRETRY;
+      end;
+    until not Again;
+  finally
+`) {
+		t.Errorf("CLOSE-RETRY-WAITS: a turn of the wait does not ask Forge Solo to quit, then wait StopWait seconds from 0, with Retry for another turn:\n%s", stop)
+	}
 	// StopWait counts calls of Waiting, each a second: the closing page and windows/README.md say
 	// Forge Solo gets two minutes.
 	wait := regexp.MustCompile(`(?m)^  StopWait = (\d+);$`).FindStringSubmatch(code)
