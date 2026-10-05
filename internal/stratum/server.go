@@ -89,6 +89,8 @@ type Server struct {
 	departedMu sync.Mutex
 	departed   map[string]departedProof // client ID -> the level it had proven; see departedProof
 
+	probes healthChecks // marketplace health checks counted instead of logged; see noteHealthCheck
+
 	// auxMu guards auxClient + onAuxBlock, which the pool_config watcher sets at runtime
 	// (EnableMergeMining / SetAuxBlockHandler) while connection goroutines read them.
 	// soloPayout is the BCH2 address the coinbase actually pays in a solo deployment.
@@ -333,7 +335,7 @@ func NewServer(config *ServerConfig, logger *zap.Logger, sp ShareProcessor, ms M
 	}
 
 	// Start periodic share cleanup
-	go s.shareCleanupLoop()
+	go s.shareCleanupLoop(shareCleanupEvery)
 	// Self-correct any connection stuck at a too-high (e.g. resumed) difficulty.
 	go s.idleDifficultyLoop()
 
@@ -610,9 +612,13 @@ func (s *Server) resetIdleDifficulties(now time.Time) {
 	})
 }
 
-// shareCleanupLoop periodically removes old share entries
-func (s *Server) shareCleanupLoop() {
-	ticker := time.NewTicker(30 * time.Second)
+// shareCleanupEvery is how often shareCleanupLoop runs. A test shortens it.
+var shareCleanupEvery = 30 * time.Second
+
+// shareCleanupLoop periodically removes old share entries, and logs the health checks counted once
+// their line is due.
+func (s *Server) shareCleanupLoop(every time.Duration) {
+	ticker := time.NewTicker(every)
 	defer ticker.Stop()
 
 	for {
@@ -623,6 +629,7 @@ func (s *Server) shareCleanupLoop() {
 			s.cleanupOldShares()
 			s.cleanupDiffMemory()
 			s.pruneDeparted(time.Now())
+			s.flushHealthChecks(time.Now(), false)
 		}
 	}
 }
@@ -991,6 +998,7 @@ func (s *Server) stop() {
 	if n := s.inflight.Load(); n > 0 {
 		s.logger.Warn("Shares still being processed at shutdown", zap.Int64("shares", n))
 	}
+	s.flushHealthChecks(time.Now(), true)
 
 	s.logger.Info("Graceful shutdown complete")
 }
@@ -1131,13 +1139,10 @@ func (s *Server) handleClient(conn net.Conn) {
 	s.clients.Store(client.ID, client)
 	defer s.clients.Delete(client.ID)
 
-	// Log external connections at Info level for debugging. Loopback either way: the compose
-	// healthcheck's probe arrives from ::1 on some hosts, and was logged as external every 30 s.
-	if !isLoopback(client.IP) {
-		s.limitedLog(false, "External client connected", 0, zap.String("ip", client.IP))
-	} else {
-		s.logger.Debug("Client connected", zap.String("ip", client.IP))
-	}
+	// At debug: MiningRigRentals' health checks connect about 550 times an hour during a rental, and
+	// the line said nothing the next one does not. A miner names itself and its address when it
+	// subscribes; a connection that never does is logged when it ends.
+	s.logger.Debug("Client connected", zap.String("ip", client.IP))
 
 	// A stratum client speaks first, and every stratum message is a JSON object. Anything else is
 	// closed at once instead of being held until the read deadline: a TLS handshake (MiningRigRentals'
@@ -1200,6 +1205,7 @@ func (s *Server) handleClient(conn net.Conn) {
 	subscribed := client.Subscribed
 	difficulty := client.Difficulty
 	lastShare := client.ProvenAt // when its last accepted share came
+	userAgent := client.UserAgent
 	client.mu.RUnlock()
 
 	duration := time.Since(client.ConnectedAt)
@@ -1237,10 +1243,19 @@ func (s *Server) handleClient(conn net.Conn) {
 			zap.Duration("connected_duration", duration))
 	}
 
-	if authorized && minerID != "" {
+	// A marketplace's health check that logged in, sent no share and closed the connection itself,
+	// as each of MiningRigRentals' does about 550 times an hour, is counted, not logged one by one.
+	// Closed for any other reason it is logged in full, as a miner is.
+	healthCheckDone := isHealthCheck(userAgent) && client.ValidShares.Load() == 0 &&
+		reason == minerClosedIt && left == 0
+	if authorized && minerID != "" && healthCheckDone {
+		s.noteHealthCheck(userAgent, client.IP, time.Now())
+	} else if authorized && minerID != "" {
 		// How long it had been silent says whether a miner that left had stopped sending shares
 		// before it went, as a rental's rig does when its own side stalls.
 		fields := []zap.Field{
+			zap.String("ip", client.IP),
+			zap.String("user_agent", userAgent),
 			zap.String("miner", minerID),
 			zap.String("worker", workerName),
 			zap.String("rental_service", rental.String()),
@@ -1372,9 +1387,9 @@ func (s *Server) handleMessage(client *Client, data []byte) bool {
 			s.noteLogin()
 		}
 	case MethodConfigure:
-		s.clientLog(client, false, "mining.configure received",
-			zap.String("ip", client.IP),
-			zap.String("user_agent", client.UserAgent))
+		// At debug: it comes before mining.subscribe, so it has no user agent to give, and the
+		// subscribe line says the rest.
+		s.logger.Debug("mining.configure received", zap.String("ip", client.IP))
 		resp := s.handleConfigure(client, &req)
 		s.sendResponse(client, resp)
 	case MethodSubmit:
@@ -1506,8 +1521,13 @@ func (s *Server) handleSubscribe(client *Client, req *Request) *Response {
 		client.ExtraNonce2Size,
 	}
 
-	// Log with rental service detection
-	if client.RentalService != RentalNone {
+	// Log with rental service detection. A marketplace's health check, which logs in and closes
+	// again hundreds of times an hour, is logged at debug; noteHealthCheck counts it.
+	if isHealthCheck(client.UserAgent) {
+		s.logger.Debug("Marketplace health check subscribed",
+			zap.String("ip", client.IP),
+			zap.String("user_agent", client.UserAgent))
+	} else if client.RentalService != RentalNone {
 		s.clientLog(client, false, "Rental service client subscribed",
 			zap.String("ip", client.IP),
 			zap.String("extranonce", client.ExtraNonce1),
@@ -2081,6 +2101,7 @@ func (s *Server) authorize(client *Client, req *Request) (*Response, authorized)
 	}
 	client.Difficulty = belowNetwork(client.Difficulty, netDiff, s.vardiffFloor(rental != RentalNone))
 	difficulty := client.Difficulty
+	userAgent := client.UserAgent
 	client.mu.Unlock()
 
 	if soloMode {
@@ -2094,15 +2115,31 @@ func (s *Server) authorize(client *Client, req *Request) (*Response, authorized)
 		modeStr = "SOLO"
 	}
 
-	if rental != RentalNone {
+	// The address and user agent tell a rented rig from the marketplace's health checks, which log
+	// in under the order's own name.
+	switch {
+	case isHealthCheck(userAgent):
+		s.logger.Debug("Marketplace health check authorized",
+			zap.String("ip", client.IP),
+			zap.String("user_agent", userAgent),
+			zap.String("miner", minerID),
+			zap.String("worker", workerName),
+			zap.Float64("difficulty", difficulty))
+	case rental != RentalNone:
 		s.logger.Info("Rental miner authorized",
+			zap.String("ip", client.IP),
+			zap.String("user_agent", userAgent),
+			zap.Int64("valid_shares", client.ValidShares.Load()),
 			zap.String("miner", minerID),
 			zap.String("worker", workerName),
 			zap.String("accounting", modeStr), // how this miner's shares are counted, not the payout mode
 			zap.String("rental_service", rental.String()),
 			zap.Float64("difficulty", difficulty))
-	} else {
+	default:
 		s.clientLog(client, false, "Miner authorized",
+			zap.String("ip", client.IP),
+			zap.String("user_agent", userAgent),
+			zap.Int64("valid_shares", client.ValidShares.Load()),
 			zap.String("miner", minerID),
 			zap.String("worker", workerName),
 			zap.String("accounting", modeStr), // how this miner's shares are counted, not the payout mode
@@ -3013,6 +3050,9 @@ func (c *Client) closeFor(reason string) {
 	c.Conn.Close()
 }
 
+// minerClosedIt is why a connection ended that the far end closed cleanly.
+const minerClosedIt = "the miner closed the connection"
+
 // whyClosed is why a connection ended: the reason the stratum gave when it closed it, or else
 // what the read that ended it says (readErr is the line reader's error, nil at end of input).
 func (c *Client) whyClosed(readErr error, authorized bool) string {
@@ -3025,7 +3065,7 @@ func (c *Client) whyClosed(readErr error, authorized bool) string {
 	var ne net.Error
 	switch {
 	case readErr == nil:
-		return "the miner closed the connection"
+		return minerClosedIt
 	case errors.Is(readErr, bufio.ErrTooLong):
 		return "it sent a message over 64 KB"
 	case errors.As(readErr, &ne) && ne.Timeout():
@@ -3636,6 +3676,68 @@ func (s *Server) limitedLog(warn bool, msg string, carried int64, fields ...zap.
 		s.logger.Warn(msg, fields...)
 	} else {
 		s.logger.Info(msg, fields...)
+	}
+}
+
+// isHealthCheck reports whether a user agent is a marketplace's check that the pool works, not a
+// miner: MiningRigRentals' "infinite-hash-proxy/probe", which logs in under the order's own name
+// about 550 times an hour during a rental, holds the connection about 10 s and sends no share, and
+// its pool test "MiningRigRentals/Test/1.0".
+func isHealthCheck(userAgent string) bool {
+	ua := strings.ToLower(userAgent)
+	return strings.HasSuffix(ua, "/probe") || strings.HasPrefix(ua, "miningrigrentals/test")
+}
+
+// healthChecks counts the marketplace health checks that logged in and closed again.
+type healthChecks struct {
+	mu    sync.Mutex
+	n     int64     // counted since the last line
+	since time.Time // the last line
+	said  bool      // the first one has been logged
+	ua    string    // the latest one's user agent and address
+	ip    string
+}
+
+// healthCheckSummaryEvery is how often the health checks counted are logged while they come: the
+// count still shows, to within minutes, that the marketplace could reach the pool, as the lines of
+// each one did.
+const healthCheckSummaryEvery = 10 * time.Minute
+
+// noteHealthCheck counts a health check that logged in and closed the connection itself. The first
+// is logged at once, the rest together every healthCheckSummaryEvery (flushHealthChecks).
+func (s *Server) noteHealthCheck(ua, ip string, now time.Time) {
+	s.probes.mu.Lock()
+	first := !s.probes.said
+	if first {
+		s.probes.said, s.probes.since = true, now
+	} else {
+		s.probes.n++
+	}
+	s.probes.ua, s.probes.ip = ua, ip
+	s.probes.mu.Unlock()
+	if first {
+		s.logger.Info("Marketplace health check logged in and closed again: the next ones are counted and logged together every 10 minutes",
+			zap.String("user_agent", ua),
+			zap.String("ip", ip))
+	}
+}
+
+// flushHealthChecks logs how many health checks came since the last line, once
+// healthCheckSummaryEvery has passed since it, or at once when final (the stratum is stopping).
+func (s *Server) flushHealthChecks(now time.Time, final bool) {
+	s.probes.mu.Lock()
+	n, since, ua, ip := s.probes.n, s.probes.since, s.probes.ua, s.probes.ip
+	due := n > 0 && (final || now.Sub(since) >= healthCheckSummaryEvery)
+	if due {
+		s.probes.n, s.probes.since = 0, now
+	}
+	s.probes.mu.Unlock()
+	if due {
+		s.logger.Info("Marketplace health checks logged in and closed again",
+			zap.Int64("count", n),
+			zap.Duration("over", now.Sub(since)),
+			zap.String("user_agent", ua),
+			zap.String("ip", ip))
 	}
 }
 
