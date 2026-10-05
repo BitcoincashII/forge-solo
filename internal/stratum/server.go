@@ -1199,6 +1199,7 @@ func (s *Server) handleClient(conn net.Conn) {
 	authorized := client.Authorized
 	subscribed := client.Subscribed
 	difficulty := client.Difficulty
+	lastShare := client.ProvenAt // when its last accepted share came
 	client.mu.RUnlock()
 
 	duration := time.Since(client.ConnectedAt)
@@ -1237,14 +1238,21 @@ func (s *Server) handleClient(conn net.Conn) {
 	}
 
 	if authorized && minerID != "" {
-		endLog(false, "Client disconnected",
+		// How long it had been silent says whether a miner that left had stopped sending shares
+		// before it went, as a rental's rig does when its own side stalls.
+		fields := []zap.Field{
 			zap.String("miner", minerID),
 			zap.String("worker", workerName),
 			zap.String("rental_service", rental.String()),
 			zap.String("reason", reason),
 			zap.Float64("difficulty", difficulty),
 			zap.Duration("connected_duration", duration),
-			zap.Error(scanErr))
+			zap.Int64("valid_shares", client.ValidShares.Load()),
+		}
+		if !lastShare.IsZero() {
+			fields = append(fields, zap.Duration("last_share_age", time.Since(lastShare)))
+		}
+		endLog(false, "Client disconnected", append(fields, zap.Error(scanErr))...)
 	}
 }
 
@@ -2199,6 +2207,7 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	extranonce1 := client.ExtraNonce1
 	extranonce2Size := client.ExtraNonce2Size
 	lastSettingsRefresh := client.LastSettingsRefresh
+	userAgent := client.UserAgent
 	client.mu.RUnlock()
 
 	// Refresh settings every 15 seconds to allow on-the-fly mode changes.
@@ -2284,10 +2293,18 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	if len(params) > 5 {
 		versionBits = normalizeVersionBits(params[5])
 	}
-	// Every field has a fixed, short form. Anything else is refused before it is looked up,
-	// logged or remembered: a submit could carry tens of kilobytes in one field, and the
+	// Every field has a fixed, short form. Anything else is refused before it is looked up or
+	// remembered, and logged clipped: a submit could carry tens of kilobytes in one field, and the
 	// duplicate record used to keep each one for minutes.
 	if !wellFormedSubmit(jobID, extranonce2, ntime, nonce, versionBits, extranonce2Size) {
+		s.clientLog(client, true, "Malformed share refused",
+			zap.String("miner", minerID),
+			zap.String("ip", client.IP),
+			zap.String("user_agent", userAgent),
+			zap.String("job", clip(jobID, 16)),
+			zap.String("extranonce2", clip(extranonce2, 32)),
+			zap.String("ntime", clip(ntime, 16)),
+			zap.String("nonce", clip(nonce, 16)))
 		s.noteInvalidShare(client, "malformed_params")
 		return &Response{ID: req.ID, Result: false, Error: ErrMalformedShare}
 	}
@@ -2306,8 +2323,11 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	if !exists {
 		s.clientLog(client, true, "Job not found",
 			zap.String("miner", minerID),
-			zap.String("job", jobID))
-		s.noteInvalidShare(client, "stale_job")
+			zap.String("job", jobID),
+			zap.String("ip", client.IP),
+			zap.String("user_agent", userAgent),
+			zap.String("extranonce1", extranonce1))
+		s.noteInvalidShare(client, "job_not_found")
 		return &Response{ID: req.ID, Result: false, Error: ErrJobNotFound}
 	}
 	job := jobInterface.(*Job)
@@ -2323,12 +2343,26 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 				s.submitRefusedShareAux(job, staleHash, extranonce1, extranonce2, ntime, nonce, versionBits, minerID, soloMining)
 			}
 		}
-		s.noteInvalidShare(client, "stale_job")
+		// Expected now and then: a share found just before a new block reaches the stratum just
+		// after it. Information, not a warning; its own label tells it from a job not found.
+		s.clientLog(client, false, "Share on a job from before the last block refused as stale (expected now and then, just after a new block)",
+			zap.String("miner", minerID),
+			zap.String("job", jobID),
+			zap.String("ip", client.IP),
+			zap.String("user_agent", userAgent))
+		s.noteInvalidShare(client, "stale_tip")
 		return &Response{ID: req.ID, Result: false, Error: ErrJobNotFound}
 	}
 	// ckpool: "Ntime cannot be less, but allow forward ntime rolling up to max" -- not before the
 	// job's time, nor more than 7000 seconds after it.
 	if !ntimeInRange(ntime, job.NTime) {
+		s.clientLog(client, true, "Share refused: its ntime is outside its job's time range",
+			zap.String("miner", minerID),
+			zap.String("job", jobID),
+			zap.String("ntime", ntime),
+			zap.String("job_ntime", job.NTime),
+			zap.String("ip", client.IP),
+			zap.String("user_agent", userAgent))
 		s.noteInvalidShare(client, "invalid_ntime")
 		return &Response{ID: req.ID, Result: false, Error: ErrInvalidNTime}
 	}
@@ -2352,6 +2386,9 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 			if err == nil {
 				s.submitRefusedShareAux(job, blockHash, extranonce1, extranonce2, ntime, nonce, versionBits, minerID, soloMining)
 			}
+			// Counted, so the dashboard's reject figure matches what the miner was told. Not
+			// logged: a miner over the limit sends a hundred a second.
+			s.noteInvalidShare(client, "rate_limited")
 			return &Response{ID: req.ID, Result: false, Error: ErrRateLimited}
 		}
 		s.logger.Warn("submit exceeded the intake rate limit but SOLVES A BLOCK — accepting it",
@@ -2376,7 +2413,10 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 			zap.Float64("required", shareFloor),
 			zap.Float64("assigned", difficulty),
 			zap.Float64("job_diff", jobDiff),
-			zap.Float64("actual", actualDiff))
+			zap.Float64("actual", actualDiff),
+			zap.String("ip", client.IP),
+			zap.String("user_agent", userAgent),
+			zap.String("extranonce1", extranonce1))
 		s.noteInvalidShare(client, "low_difficulty")
 
 		// Track rejection for vardiff adjustment
@@ -2432,9 +2472,18 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	// under: two jobs on one block can carry identical work, since the coinbase holds nothing per
 	// job, and several spellings of a version build the same header.
 	if s.isDuplicateShare(blockHash, job.PrevBlockHash) {
+		// The whole share, so a miner or a marketplace's proxy sending one result twice can be told
+		// from two results that build the same header.
 		s.clientLog(client, true, "Duplicate share rejected",
 			zap.String("miner", minerID),
-			zap.String("job", jobID))
+			zap.String("job", jobID),
+			zap.String("ip", client.IP),
+			zap.String("user_agent", userAgent),
+			zap.String("extranonce1", extranonce1),
+			zap.String("extranonce2", extranonce2),
+			zap.String("ntime", ntime),
+			zap.String("nonce", nonce),
+			zap.String("version", versionBits))
 		s.noteInvalidShare(client, "duplicate")
 		return &Response{ID: req.ID, Result: false, Error: ErrDuplicateShare}
 	}

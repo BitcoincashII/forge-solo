@@ -1454,7 +1454,9 @@ func buildLogger(configPath string) (*zap.Logger, error) {
 // stratum servers share the one stats manager, so both feed the same counters.
 func recordInvalidShare(minerID, workerName, reason string) {
 	stats.GetManager().RecordInvalidShare(minerID, workerName)
-	_ = reason // reason rides along for future per-cause reporting; the log already carries it
+	// Not kept: the stats count every kind of reject together. The stratum logs each kind where it
+	// refuses it (within the log budgets), except a share over the rate limit, which is only counted.
+	_ = reason
 }
 
 // sumRentalStats totals the rented-hashpower counters across every stratum server that
