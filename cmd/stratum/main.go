@@ -1685,6 +1685,7 @@ func main() {
 	}
 	stratumServer = stratum.NewServer(serverConfig, logger, shareProcessor, minerSettings)
 	stratumServer.SetInvalidShareHandler(recordInvalidShare)
+	stratumServer.SetLoginHandler(tidesLoginCheck)
 
 	// Logged AFTER NewServer so it reports the RESOLVED values: NewServer fills in the
 	// defaults and clamps absolute_min_diff down to min_diff. min_diff is the floor a
@@ -1740,6 +1741,7 @@ func main() {
 		}
 		stratumRentalServer = stratum.NewServer(rentalConfig, logger, shareProcessor, minerSettings)
 		stratumRentalServer.SetInvalidShareHandler(recordInvalidShare)
+		stratumRentalServer.SetLoginHandler(tidesLoginCheck)
 		if auxClient != nil {
 			stratumRentalServer.EnableMergeMining(auxClient)
 			stratumRentalServer.SetAuxBlockHandler(aux1175BlockHandler)
@@ -1901,7 +1903,7 @@ func main() {
 
 			curJob := getCurrentJob()
 			isNewBlock := template.Height != lastHeight || template.PreviousBlockHash != lastPrevHash || curJob == nil
-			needPeriodicUpdate := time.Since(lastJobTime) >= 15*time.Second // Faster updates for NiceHash
+			needPeriodicUpdate := periodicJobDue(lastJobTime, time.Now())
 
 			// TIDES: jobs come from the gateway, which falls back to solo when the pool will not
 			// take them. A change of payout mode moves miners at once -- leaving TIDES, or a

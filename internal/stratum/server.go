@@ -86,6 +86,9 @@ type Server struct {
 	submittedShares sync.Map // block header hash -> the tip (job PrevBlockHash) it was found on
 	shareCleanupMu  sync.Mutex
 
+	departedMu sync.Mutex
+	departed   map[string]departedProof // client ID -> the level it had proven; see departedProof
+
 	// auxMu guards auxClient + onAuxBlock, which the pool_config watcher sets at runtime
 	// (EnableMergeMining / SetAuxBlockHandler) while connection goroutines read them.
 	// soloPayout is the BCH2 address the coinbase actually pays in a solo deployment.
@@ -111,6 +114,9 @@ type Server struct {
 	// duplicates -- the two things an overclocked miner actually produces --
 	// were reported to the user as a flat 0.00%.
 	onInvalidShare func(minerID, workerName, reason string)
+
+	// onLogin, if set, runs after a miner logs in and has been sent its difficulty and the job.
+	onLogin func()
 }
 
 // EnableMergeMining lets this server submit solved aux-chain (1175) blocks. Any
@@ -158,6 +164,25 @@ func (s *Server) SetInvalidShareHandler(fn func(minerID, workerName, reason stri
 	s.auxMu.Lock()
 	s.onInvalidShare = fn
 	s.auxMu.Unlock()
+}
+
+// SetLoginHandler registers a callback run each time a miner logs in and is sent work: its first
+// login on a connection, or one that changed its difficulty. It runs on the miner's connection,
+// so it must not block.
+func (s *Server) SetLoginHandler(fn func()) {
+	s.auxMu.Lock()
+	s.onLogin = fn
+	s.auxMu.Unlock()
+}
+
+// noteLogin runs the login callback, if one is set.
+func (s *Server) noteLogin() {
+	s.auxMu.RLock()
+	fn := s.onLogin
+	s.auxMu.RUnlock()
+	if fn != nil {
+		fn()
+	}
 }
 
 // noteInvalidShare records a rejected share everywhere it has to be counted: the
@@ -597,6 +622,7 @@ func (s *Server) shareCleanupLoop() {
 		case <-ticker.C:
 			s.cleanupOldShares()
 			s.cleanupDiffMemory()
+			s.pruneDeparted(time.Now())
 		}
 	}
 }
@@ -1162,6 +1188,9 @@ func (s *Server) handleClient(conn net.Conn) {
 		}
 	}
 
+	// A miner that proved its level counts in MaxDifficulty for a while longer (departedProof).
+	s.keepDeparted(client, time.Now())
+
 	// Log disconnection with details
 	client.mu.RLock()
 	minerID := client.MinerID
@@ -1332,6 +1361,7 @@ func (s *Server) handleMessage(client *Client, data []byte) bool {
 				s.clientLog(client, false, "No job yet for a miner that just logged in: it gets the first one when it is made",
 					zap.String("miner", auth.minerID))
 			}
+			s.noteLogin()
 		}
 	case MethodConfigure:
 		s.clientLog(client, false, "mining.configure received",
@@ -1534,41 +1564,122 @@ func detectRentalService(userAgent string) RentalService {
 	return RentalNone
 }
 
-// provenFor and provenAhead bound what a miner counts for in MaxDifficulty: only a miner with a
-// valid share in the last provenFor, and up to provenAhead times that share's credited difficulty.
-// Vardiff raises a working miner by at most that much between shares; a connection that only
-// claims a difficulty (d= in its password, mining.suggest_difficulty) proves nothing.
+// provenFor and provenAhead bound what a miner's shares let it count for in MaxDifficulty: a valid
+// share in the last provenFor, and up to provenAhead times that share's credited difficulty, or
+// the level firstRamp set, if higher. Vardiff raises a working miner by at most provenAhead
+// between shares, but for firstRamp's one step from the floor, which the floor shares that measured
+// it prove; a connection that only claims a difficulty (d= in its password,
+// mining.suggest_difficulty) proves nothing.
 const (
 	provenFor   = 5 * time.Minute
 	provenAhead = 4.0
 )
 
-// MaxDifficulty is the highest share difficulty a working miner is on: the one it was last sent,
-// or the one vardiff has set for it if that is higher, as far as its shares have proven it (see
+// MaxDifficulty is the highest share difficulty a miner is on: the one it was last sent, or the
+// one vardiff has set for it if that is higher, as far as its shares have proven it (see
 // provenFor). A TIDES job commits to at least this (see tidesgw.Config.MaxDifficulty), so the pool
 // credits every share in full. Counting claims as well let one connection with
 // d=1000000000000 make every job commit 2^41, so no other miner's share ever qualified. 0 with
-// no proven miner.
-func (s *Server) MaxDifficulty() float64 {
+// no miner.
+//
+// A miner with no share in the last provenFor counts at the difficulty it was given, up to its
+// port's floor or, where higher, the level remembered for it, which only its shares set. Counting
+// proven miners alone, a job registered while a rental had logged in but sent no share yet, or
+// while only a marketplace's health checks were logged in, committed to nothing, and the pool
+// credited each of the rental's shares on it at its own 1024: 0.2% of the work. A claim still
+// counts at the floor only. A miner that has disconnected counts until provenFor after its last
+// share (see departedProof).
+func (s *Server) MaxDifficulty() float64 { return s.maxDifficultyAt(time.Now()) }
+
+// maxDifficultyAt is MaxDifficulty at time now.
+func (s *Server) maxDifficultyAt(now time.Time) float64 {
 	var max float64
-	now := time.Now()
 	s.clients.Range(func(_, v interface{}) bool {
 		c, ok := v.(*Client)
 		if !ok {
 			return true
 		}
 		c.mu.RLock()
-		if c.Authorized && c.ProvenDifficulty > 0 && now.Sub(c.ProvenAt) < provenFor {
-			d := math.Max(c.Difficulty, c.LastDifficultySent)
-			if limit := provenAhead * c.ProvenDifficulty; d > limit {
-				d = limit
-			}
-			max = math.Max(max, d)
+		if c.Authorized {
+			max = math.Max(max, s.countedDifficulty(c, now))
 		}
 		c.mu.RUnlock()
 		return true
 	})
+	s.departedMu.Lock()
+	s.pruneDepartedLocked(now)
+	for _, p := range s.departed {
+		max = math.Max(max, p.diff)
+	}
+	s.departedMu.Unlock()
 	return max
+}
+
+// countedDifficulty is what an authorized client counts for in MaxDifficulty at now. c.mu is held.
+func (s *Server) countedDifficulty(c *Client, now time.Time) float64 {
+	d := math.Max(c.Difficulty, c.LastDifficultySent)
+	if c.ProvenDifficulty > 0 && now.Sub(c.ProvenAt) < provenFor {
+		// Until the first share at the level firstRamp set, the last share is at the floor. Counted
+		// at provenAhead times that alone, each job registered before that share committed to a
+		// fraction of the level, and the pool credited each of the miner's shares on it at that.
+		return math.Min(d, math.Max(provenAhead*c.ProvenDifficulty, c.firstRampLevel))
+	}
+	level := s.vardiffFloor(c.RentalService != RentalNone)
+	if r, ok := s.recallDifficulty(c.MinerID, c.WorkerName, hostOf(c.IP)); ok && r > level {
+		level = r
+	}
+	return math.Min(d, level)
+}
+
+// departedProof is the level a disconnected miner had proven, and when its last share came. It
+// counts in MaxDifficulty until provenFor after that share, as it would connected: the job
+// registered while a rental reconnected, its old connection gone and the new one without a share
+// yet, committed to nothing.
+type departedProof struct {
+	diff float64
+	at   time.Time
+}
+
+// maxDeparted bounds the record of departed miners. Each entry costs a valid share.
+const maxDeparted = 1024
+
+// keepDeparted records c's proven level as it disconnects, if its last share is recent.
+func (s *Server) keepDeparted(c *Client, now time.Time) {
+	c.mu.RLock()
+	proven := c.Authorized && c.ProvenDifficulty > 0 && now.Sub(c.ProvenAt) < provenFor
+	p := departedProof{at: c.ProvenAt}
+	if proven {
+		p.diff = s.countedDifficulty(c, now)
+	}
+	c.mu.RUnlock()
+	if !proven {
+		return
+	}
+	s.departedMu.Lock()
+	defer s.departedMu.Unlock()
+	s.pruneDepartedLocked(now)
+	if len(s.departed) >= maxDeparted {
+		return
+	}
+	if s.departed == nil {
+		s.departed = make(map[string]departedProof)
+	}
+	s.departed[c.ID] = p
+}
+
+// pruneDeparted forgets departed miners whose last share is provenFor old.
+func (s *Server) pruneDeparted(now time.Time) {
+	s.departedMu.Lock()
+	defer s.departedMu.Unlock()
+	s.pruneDepartedLocked(now)
+}
+
+func (s *Server) pruneDepartedLocked(now time.Time) {
+	for id, p := range s.departed {
+		if now.Sub(p.at) >= provenFor {
+			delete(s.departed, id)
+		}
+	}
 }
 
 // WorkerRef names a worker: the miner it is credited to and its label.
@@ -2716,9 +2827,10 @@ func (s *Server) adjustVardiffAt(client *Client, now time.Time) {
 	} else if diffDelta < -maxDelta {
 		newDiff = client.Difficulty - maxDelta
 	}
+	ramped := false
 	if firstRamp && client.Difficulty*rampRatio > newDiff {
 		newDiff = client.Difficulty * rampRatio
-		client.FirstRampDone = true
+		client.FirstRampDone, ramped = true, true
 	}
 	if newDiff < minDiff {
 		newDiff = minDiff
@@ -2762,6 +2874,9 @@ func (s *Server) adjustVardiffAt(client *Client, now time.Time) {
 		client.PreviousDifficulty = oldDiff
 		client.DifficultyChangedAt = now
 		client.Difficulty = newDiff
+		if ramped {
+			client.firstRampLevel = newDiff
+		}
 		minerID := client.MinerID
 		workerName := client.WorkerName
 		client.mu.Unlock()

@@ -58,6 +58,8 @@ type Registration struct {
 	Outputs      int
 	Snapshot     int64
 	At           time.Time
+	Bits         string  // the block's target (compact), which caps the share difficulty committed to
+	Committed    float64 // the share difficulty the coinbase commits to, 0 when it commits to none
 }
 
 // Config tunes a Gateway. Zero values take the defaults.
@@ -409,18 +411,9 @@ func (g *Gateway) register(ctx context.Context, t *mining.BlockTemplate, finder 
 		gt.Txs = append(gt.Txs, gateway.TemplateTx{TxID: tx.TxID, Data: tx.Data})
 	}
 	var exp *int
-	if g.cfg.MaxDifficulty != nil {
-		if e, ok := gateway.ShareDiffExp(g.cfg.MaxDifficulty()); ok {
-			// Never above the network difficulty. The pool refuses a share below the job's
-			// difficulty before it looks for a block, so a block whose difficulty fell between
-			// the network's and 2^e would have been refused there and never recorded.
-			if nd := stratum.BitsToDifficulty(t.Bits); nd > 0 {
-				if top := int(math.Floor(math.Log2(nd))); e > top {
-					e = top
-				}
-			}
-			exp, tag = &e, wire.CommitShareDiff(tag, e)
-		}
+	var committed float64
+	if e, ok := g.commitExp(t.Bits); ok {
+		exp, tag, committed = &e, wire.CommitShareDiff(tag, e), math.Ldexp(1, e)
 	}
 	req, err := gateway.BuildJob(snap, gt, finder, tag)
 	if err != nil {
@@ -471,7 +464,52 @@ func (g *Gateway) register(ctx context.Context, t *mining.BlockTemplate, finder 
 	}
 	return &Registration{PoolJobID: resp.JobID, ShareDiff: resp.ShareDifficulty, Height: t.Height,
 		PrevHash: t.PreviousBlockHash, Coinb1: req.Coinb1, Coinb2: req.Coinb2, Txs: txs, CoinbaseSats: value,
-		FinderSats: mine, Outputs: len(outs), Snapshot: snap.Version, At: g.cfg.Now()}, nil
+		FinderSats: mine, Outputs: len(outs), Snapshot: snap.Version, At: g.cfg.Now(), Bits: t.Bits,
+		Committed: committed}, nil
+}
+
+// commitExp is the share difficulty exponent a job on a block of target bits commits to now: the
+// power of two at or above twice the highest difficulty a miner works at (Config.MaxDifficulty),
+// never above the network difficulty's. The pool refuses a share below the job's difficulty before
+// it looks for a block, so a block whose difficulty fell between the network's and 2^e would have
+// been refused there and never recorded. ok is false when there is nothing to commit to.
+func (g *Gateway) commitExp(bits string) (int, bool) {
+	if g.cfg.MaxDifficulty == nil {
+		return 0, false
+	}
+	e, ok := gateway.ShareDiffExp(g.cfg.MaxDifficulty())
+	if !ok {
+		return 0, false
+	}
+	if nd := stratum.BitsToDifficulty(bits); nd > 0 {
+		if top := int(math.Floor(math.Log2(nd))); e > top {
+			e = top
+		}
+	}
+	return e, true
+}
+
+// Undercommitted reports whether local job localID credits its shares at less than its miners now
+// work at: the share difficulty a job registered now would commit to is above both the one this
+// job commits to and the pool's for it. A miner that logs in after a job was registered, above the
+// miners it was registered for, is credited the pool's own difficulty for each share on it until
+// the next job: a rental connecting at 500000 was credited 1024 a share, 0.2% of its work. Both
+// sides are capped at the network difficulty, as Register caps them, so a job already committed as
+// high as the network allows is never undercommitted, and a miner given more than that does not
+// ask for a new job each time it logs in.
+func (g *Gateway) Undercommitted(localID string) bool {
+	g.mu.Lock()
+	t := g.jobs[localID]
+	g.mu.Unlock()
+	if t == nil {
+		return false
+	}
+	e, ok := g.commitExp(t.reg.Bits)
+	if !ok {
+		return false
+	}
+	want := math.Ldexp(1, e)
+	return t.reg.Committed < want && t.reg.ShareDiff < want
 }
 
 // Track records that the stratum handed out reg as local job localID: miners are on TIDES work.

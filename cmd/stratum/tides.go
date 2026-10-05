@@ -79,6 +79,36 @@ func tidesMaxDifficulty() float64 {
 	return m
 }
 
+// tidesRefreshWanted asks the job loop for a new job at once (periodicJobDue), registered at the
+// share difficulty the miners now work at.
+var tidesRefreshWanted atomic.Bool
+
+// tidesLoginCheck runs when a miner logs in on either port. The TIDES job in flight was registered
+// for the miners already there, and the pool credits each share of one that logs in above them at
+// its own difficulty until the next job, up to 15 s of its work: a rental connecting at 500000 was
+// credited 1024 a share. Such a login asks the job loop for a new job at once. Undercommitted caps
+// the comparison at the network difficulty, as a registration does, so it asks once, not again.
+func tidesLoginCheck() {
+	g := tidesGateway()
+	if g == nil || currentPayoutMode() != stats.PayoutModeTides {
+		return
+	}
+	if cur := getCurrentJob(); cur != nil && cur.Tides && g.Undercommitted(cur.ID) {
+		tidesRefreshWanted.Store(true)
+	}
+}
+
+// periodicJobEvery is how often the job loop sends a new job on the same block: rentals such as
+// NiceHash expect one at least this often.
+const periodicJobEvery = 15 * time.Second
+
+// periodicJobDue says whether the job loop's periodic job is due: periodicJobEvery after the last
+// one, or at once when tidesLoginCheck asked for it.
+func periodicJobDue(last, now time.Time) bool {
+	asked := tidesRefreshWanted.Swap(false)
+	return asked || now.Sub(last) >= periodicJobEvery
+}
+
 // tidesPayoutAddress is the address TIDES credits: the one the coinbase would pay in solo. The
 // gateway credits every share this install sends to it (Config.CreditTo), whatever address a
 // miner logged in with.
