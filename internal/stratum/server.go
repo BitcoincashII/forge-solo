@@ -2440,9 +2440,9 @@ type diffMem struct {
 	at   time.Time
 }
 
-// rememberDifficulty records a miner's current vardiff level. Called only after a real
-// vardiff adjustment (which is share-driven), so the remembered value reflects hashrate
-// the miner actually proved — a share-less connection cannot inflate it.
+// rememberDifficulty records a miner's current vardiff level. Called when vardiff changes it and
+// when the miner's shares confirm it, both share-driven, so the remembered value reflects hashrate
+// the miner actually proved: a share-less connection cannot inflate it.
 // diffMemoryKey identifies ONE piece of hardware.
 //
 // Keying on minerID alone is wrong wherever several miners share a payout identity, and in
@@ -2633,7 +2633,13 @@ func (s *Server) adjustVardiffAt(client *Client, now time.Time) {
 	varianceLow := 1.0 - variance
 	varianceHigh := 1.0 + variance
 	if ratio >= varianceLow && ratio <= varianceHigh {
+		// The shares confirm the level, so it is remembered again: a reconnect, or a marketplace's
+		// health check under the same name, resumes it. It used to be remembered only when it
+		// changed, so a steady rental's level aged out after diffMemoryTTL (at target_time 25, a
+		// quarter of the time) and those opened at the floor.
+		minerID, workerName, level := client.MinerID, client.WorkerName, client.Difficulty
 		client.mu.Unlock()
+		s.rememberDifficulty(minerID, workerName, hostOf(client.IP), level)
 		return
 	}
 

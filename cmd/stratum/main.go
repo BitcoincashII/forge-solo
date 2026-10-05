@@ -2146,6 +2146,12 @@ func loadConfig(path string) (*viper.Viper, error) {
 	v.SetDefault("stratum.ban_duration", "10m")
 	v.SetDefault("stratum.max_shares_per_second", 100)
 	v.SetDefault("stratum_rental.max_shares_per_second", 100)
+	// The rental port's vardiff as every platform ships it (docker/stratum/config.template.yaml).
+	// Without these a config lacking the keys read target_time 0, so every share looked slow and
+	// vardiff walked each rental down to its floor, and the floor fell to 32768, below the 500000
+	// NiceHash and MiningRigRentals require.
+	v.SetDefault("stratum_rental.vardiff.target_time", 25)
+	v.SetDefault("stratum_rental.vardiff.min_diff", 500000)
 	v.SetDefault("stratum.vardiff.enabled", true)
 	v.SetDefault("stratum.vardiff.min_diff", 32768)
 	v.SetDefault("stratum.vardiff.rental_min_diff", 500000)   // NiceHash/MRR require 500k+

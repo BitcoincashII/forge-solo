@@ -177,14 +177,17 @@ func TestVardiffClimbsBackFromTheFloor(t *testing.T) {
 	}
 	for _, k := range cases {
 		s := k.s()
+		// Long enough to walk down at any target_time: vardiff steps once per few shares, and the
+		// dip's shares come slower the longer the target.
+		dipEnd := 1200 + 360*float64(s.config.TargetShareTime)
 		m := newRampMiner(t, s, 1)
 		m.resume(level(s, k.before))
 		m.mine(k.before, 1200)
-		m.mine(k.dip, 3000)
+		m.mine(k.dip, dipEnd)
 		if d := m.difficulty(); d != s.config.AbsoluteMinDiff {
 			t.Fatalf("RAMP-DIP-SETUP: %s: the dip left the miner at %.4g, not at its floor", k.name, d)
 		}
-		m.mine(k.after, 4200)
+		m.mine(k.after, dipEnd+1200)
 		if got, want := m.difficulty(), level(s, k.after); got < want/3 || got > 3*want {
 			t.Errorf("RAMP-CLIMBS-BACK: %s: twenty minutes after its hashrate came back the miner is at %.4g, its level is %.4g",
 				k.name, got, want)

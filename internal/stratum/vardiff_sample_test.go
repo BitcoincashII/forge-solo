@@ -5,11 +5,13 @@ import (
 	"math"
 	"math/rand"
 	"net"
+	"os"
 	"sort"
 	"testing"
 	"time"
 
 	"go.uber.org/zap"
+	"gopkg.in/yaml.v3"
 )
 
 // measuredShareTime counts each share as the work it was found against, in shares at the current
@@ -151,11 +153,43 @@ func diffAt(changes []diffChange, sec float64) float64 {
 	return d
 }
 
-// rentalPortServer has the rental port's shipped vardiff (docker/stratum/config.template.yaml).
+// rentalPortServer has the rental port's shipped vardiff, read from docker/stratum/config.template.yaml
+// (which the Windows and Linux configs are tested to match), so every rental simulation runs at what
+// ships.
 func rentalPortServer() *Server {
+	v := shippedRentalVardiff()
 	return NewServer(&ServerConfig{
-		MinDiff: 500000, MaxDiff: 1e12, VardiffEnabled: true, TargetShareTime: 5, RetargetTime: 10,
+		MinDiff: v.MinDiff, MaxDiff: v.MaxDiff, VardiffEnabled: v.Enabled, TargetShareTime: v.TargetTime,
+		RetargetTime: v.RetargetTime,
 	}, zap.NewNop(), nil, nil)
+}
+
+type rentalVardiff struct {
+	Enabled      bool    `yaml:"enabled"`
+	MinDiff      float64 `yaml:"min_diff"`
+	MaxDiff      float64 `yaml:"max_diff"`
+	TargetTime   int     `yaml:"target_time"`
+	RetargetTime int     `yaml:"retarget_time"`
+}
+
+// shippedRentalVardiff is stratum_rental.vardiff in the shipped template.
+func shippedRentalVardiff() rentalVardiff {
+	b, err := os.ReadFile("../../docker/stratum/config.template.yaml")
+	if err != nil {
+		panic(err)
+	}
+	var cfg struct {
+		Rental struct {
+			Vardiff rentalVardiff `yaml:"vardiff"`
+		} `yaml:"stratum_rental"`
+	}
+	if err := yaml.Unmarshal(b, &cfg); err != nil {
+		panic(err)
+	}
+	if cfg.Rental.Vardiff.TargetTime <= 0 || cfg.Rental.Vardiff.MinDiff <= 0 {
+		panic("stratum_rental.vardiff in the template has no target_time or min_diff")
+	}
+	return cfg.Rental.Vardiff
 }
 
 func median(xs []float64) float64 {
@@ -199,11 +233,16 @@ func TestVardiffHoldsASteadyMinerNearItsLevel(t *testing.T) {
 	}
 }
 
-// A longer sample is slower to follow a real change: it must still follow one within minutes.
+// A longer sample is slower to follow a real change: it must still follow one within a bounded
+// number of target share times. Vardiff counts shares, so the time it takes grows with target_time:
+// at the rental port's 25 s a fall to a fifth typically takes about half an hour (at 5 s, about 6
+// minutes). The difficulty meanwhile stays inside MiningRigRentals' range, which is set by the rig's
+// advertised hashrate, and the slower shares are credited in full.
 func TestVardiffFollowsAHashrateDrop(t *testing.T) {
 	s := rentalPortServer()
 	before, after := 5e15, 1e15
 	level := func(h float64) float64 { return h * float64(s.config.TargetShareTime) / (1 << 32) }
+	tt := float64(s.config.TargetShareTime)
 	var took []float64
 	for seed := int64(1); seed <= 20; seed++ {
 		changes := simulateVardiff(t, s, seed, level(before), func(sec float64) float64 {
@@ -211,7 +250,7 @@ func TestVardiffFollowsAHashrateDrop(t *testing.T) {
 				return before
 			}
 			return after
-		}, 2400)
+		}, 600+360*tt)
 		settled := math.Inf(1)
 		for _, ch := range changes {
 			if ch.sec >= 600 && ch.diff <= 1.43*level(after) {
@@ -220,12 +259,12 @@ func TestVardiffFollowsAHashrateDrop(t *testing.T) {
 			}
 		}
 		took = append(took, settled)
-		if settled > 900 {
+		if settled > 180*tt {
 			t.Errorf("DROP-SETTLES: seed %d: %.0f s after the miner fell to a fifth, its difficulty was not yet near its new level", seed, settled)
 		}
 	}
 	t.Logf("a fall to a fifth of the hashrate: typically near the new level in %.0f s", median(took))
-	if median(took) > 600 {
+	if median(took) > 120*tt {
 		t.Errorf("DROP-TYPICAL: typically %.0f s to follow a fall to a fifth of the hashrate", median(took))
 	}
 }

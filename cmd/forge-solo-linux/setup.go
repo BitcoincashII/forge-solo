@@ -232,7 +232,9 @@ stratum_rental:
     enabled: true
     min_diff: 500000
     max_diff: 1000000000000
-    target_time: 5
+    # MiningRigRentals wants a share every 10 to 60 s at the rig's advertised hashrate (its
+    # "optimal difficulty"); 25 s keeps vardiff's spread inside that.
+    target_time: 25
     retarget_time: 10
 node:
   host: "127.0.0.1"
