@@ -105,17 +105,28 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
   the BCH2 node" for hours. When the node or the database cannot be read, the figures show "--"
   instead of 0.00 and "No blocks found yet", and catch up by themselves.
 - **Every platform, TIDES:** Your Blocks Found counts the TIDES blocks your install found. It counted
-  solo blocks only, so it read 0 in TIDES mode while the TIDES card listed blocks found by "You".
+  solo blocks only, so it read 0 in TIDES mode while the TIDES card listed blocks found by "You". The
+  balance card's amounts (matured, still maturing and the total), the Blocks table and Payout History
+  still count only the blocks that paid your address in full (found in Solo mode or while TIDES was
+  paused), so in TIDES mode they now say they are solo, and the table is headed "Your Solo Blocks".
+  Your TIDES payouts are in the TIDES card, which the balance card and the empty tables point to.
+- **Every platform, TIDES:** the TIDES card's payouts read "Pending (under 2 confirmations)" and "Paid
+  to you (2+ confirmations)", each spendable 100 blocks after its block. "Confirmed" there meant 2
+  confirmations, while the same page calls a solo block confirmed after 100.
 - **Every platform:** a miner's payout list in the API (`/api/v1/miners/<address>/payouts`) works:
   it failed on Umbrel and Windows and was always empty on Linux. Times in the API are in UTC on every
-  platform.
+  platform, a miner's last share and connection times included (`/api/v1/miners/<address>` and its
+  workers list): on Windows and Linux those were in the computer's time zone. The miner's answer
+  gives `roundEffort` (this round so far, share by share; 1 is 100%), and the mining status gives
+  `network_difficulty` (the difficulty of the block being mined).
 
 **Steadier difficulty.**
 - **Every platform:** the difficulty each miner is given now stays near the level its hashrate calls
   for. Each change was measured partly from shares found before the last one, so it kept
   overshooting: a steady 5 PH/s rental swung between half and 3.4 times its level, a dozen changes in
-  7 minutes. Shares were always credited at the difficulty they were found at; now they also arrive
-  at a steady pace.
+  7 minutes. Now a steady miner's difficulty stays between about 0.7 and 1.8 times its level, and
+  changes about 20 times an hour on 3333 and about 3 times an hour on 3335. Shares were always
+  credited at the difficulty they were found at; now they also arrive at a steady pace.
 - **Every platform:** no miner is given a share difficulty above the network's, whether it comes
   from `d=` in the password, from the miner, from a remembered level or from vardiff, and when a new
   block lowers the network difficulty, miners above it are brought down to it. A miner set above it
@@ -125,7 +136,43 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
   remembered across reconnects is kept per device, so a small rig with the same username as a big
   one no longer opens at the big one's level.
 
+**Rented hashpower.**
+- **Every platform:** the rental port, 3335, now aims for one share every 25 seconds, not every 5.
+  MiningRigRentals shows each rig an "optimal difficulty" range, one share every 10 to 60 seconds at
+  the rig's advertised hashrate, and warns below it: a rental's difficulty now stays inside that
+  range for a rig that delivers about 60% to 135% of what it advertises. A 4.5 PH/s rental sits near
+  26 million instead of 5 to 6 million, and its difficulty changes about 3 times an hour; your own
+  miners on 3333 are unchanged. A rig under about 36 TH/s stays above the range at the 500,000
+  floor, as before, and a few listings give a range that does not follow the advertised hashrate, so
+  the warning can still show for those. Following a fall in hashrate takes longer (a fall to a
+  fifth: about half an hour); the shares meanwhile come slower and are credited in full.
+- **Every platform:** a rental's level is remembered for as long as its shares confirm it, so a rig
+  that reconnects, and MiningRigRentals' health checks, which log in under the order's name every few
+  seconds, open at that level. It was remembered for 30 minutes after it last changed, which with so
+  few changes would have sent them back to 500,000 a quarter of the time. After the mining service
+  restarts they open at 500,000 until the rig's first shares set its level again.
+- **Every platform, TIDES:** a rental that connects or reconnects, and any miner after the mining
+  service restarts, is no longer credited 0.2% of its work on its first jobs (the pool's 1,024 a
+  share). A TIDES job commits to the difficulty its miners work at, and only miners with a share in
+  the last five minutes counted, so the job in flight when a rental logged in committed to nothing.
+  Now a miner counts from its login, at the difficulty it was given (a `d=` it only claims counts at
+  the port's floor), and for five minutes after its last share once it disconnects; one that logs in
+  on a job committed below its difficulty gets a new job at once, and a new rental's first raise
+  counts as soon as it is made. A new rental is credited about 99% of its work in its first two
+  minutes; the rest is the second or so before its first new job. While anything is logged in on
+  3335, TIDES jobs commit to at least 2^20, so small miners on 3333 see fewer of their shares
+  forwarded, for the same expected credit.
+- **Every platform:** MiningRigRentals' health checks, about 550 logins an hour during a rental, are
+  no longer counted as miners or rentals. Workers, the mining banner and the public rental stats
+  count one rented rig as one, and with only health checks connected the dashboard says no miner is
+  connected. A health check that sends shares counts as a miner.
+
 **The dashboard.**
+- **Every platform:** Current Effort counts each share against the difficulty of the block it was
+  mined for. BCH2's difficulty changes at every block, and the tile divided the whole round by the
+  newest block's difficulty, so it jumped by tens of points with no change in mining (on a 4.7 PH/s
+  rental: 236%, then 211%, then 316% within a minute, while the round really went from 214% to
+  217%). Estimated Time to Block uses the difficulty of the block being mined, not the last block's.
 - **Every platform:** on phones, tablets and narrow windows the header keeps its Dashboard and
   Settings links and the SOLO / TIDES badge, and the cards keep a margin from the window's edges.
   The hashrate chart shows its units, and Settings shows the network difficulty in the dashboard's
@@ -143,6 +190,24 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
   version before, which knew nothing of the move.
 - **Linux:** Settings names the `secrets.env` that holds its password, such as
   `sudo cat /var/lib/forge-solo/secrets.env` for the service.
+
+**The mining service's log.**
+- **Every platform:** every kind of refused share now leaves a line: a share that arrives just after
+  a new block as information (expected now and then), and an ntime its job does not allow or a
+  malformed submit as a warning. Shares refused over the rate limit are now counted in the reject
+  figures, so the dashboard no longer reads 0 rejects while the miner is told it had some. The line
+  for a duplicate share gives the miner's address, its user agent and the whole share, and those for
+  a job not found and a share below its difficulty the address, user agent and extranonce1. "Client
+  disconnected" says how many shares the connection sent and how long before it ended the last one
+  came.
+- **Every platform:** MiningRigRentals' health checks no longer write five lines each. During a
+  rental they were 85% of the log, and the 20 MB kept on Windows and Linux (30 MB on Umbrel) held
+  under three days. The first is logged, and the rest are counted and logged together every 10
+  minutes. The line for each new connection and the mining.configure line are now at debug level;
+  login and disconnect lines give the miner's address, user agent and valid shares.
+- **Umbrel and Windows, TIDES:** the start no longer warns that 1175 merge-mining is off until you set
+  a 1175 address in the dashboard, which would not turn it on in TIDES mode. It says that 1175
+  merge-mining stays off while TIDES mode is on.
 
 **Windows: starts on every PC, and stops cleanly.**
 - **Windows:** Forge Solo now works on a PC that has never had Microsoft's Visual C++ runtime, a
@@ -199,7 +264,8 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
   which moving your data and going back to 1.0.12 need.
 - **Windows:** rented hashpower gets its own port, 3335, with the same difficulty settings as on
   Umbrel and Linux. If your NiceHash or MiningRigRentals order points at 3333, move it to 3335 and
-  forward TCP 3335 to this PC. The miner's and the API's logs are kept in the data folder.
+  forward TCP 3335 to this PC. The miner's and the API's logs are kept in the data folder,
+  `stratum.log` and `api.log`, each moved to `.1` at 20 MB.
 - **Windows:** miners on your network, and rentals, reach the PC only while Windows treats your
   network as **Private**; Windows 11 makes new networks Public. The dashboard's connect card and
   Settings now say so.
@@ -238,11 +304,13 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
     pool refused the second copy as a duplicate).
 
   Rented hashpower is no longer disconnected for waiting quietly between jobs.
-- **Every platform, TIDES:** a slow or misbehaving pool can no longer hold up new work for your miners
-  (registration has one deadline, fallbacks included). What the pool sends is limited in size and
-  its split in outputs, and a block that would not fit leaves out its transactions instead of being
-  invalid. The dashboard warns if the pool's window leaves out your address while it credits your
-  shares. In solo mode the app asks Forge Pool nothing.
+- **Every platform, TIDES:** a slow or misbehaving pool holds up a new block's work for your miners
+  by seconds, not up to 40 as before: each registration with the pool has one deadline of 6 seconds,
+  fallbacks included, so the work waits up to about 12 seconds when another registration is already
+  under way. What the pool sends is limited in size and its split in outputs, and a block that would
+  not fit leaves out its transactions instead of being invalid. The dashboard warns if the pool's
+  window leaves out your address while it credits your shares. In solo mode the app asks Forge Pool
+  nothing.
 - **Windows and Linux:** Settings now asks for a password before it saves a change, as on Umbrel:
   other accounts on the computer could change your payout address. On Windows, right-click the
   Forge Solo tray icon and choose **Copy Settings Password**; on Linux it is `DASHBOARD_PASSWORD` in

@@ -131,7 +131,7 @@ it back to this machine only.
 | Port | For | Listens on |
 |---|---|---|
 | 3333 | your miners, and Braiins rentals | all interfaces |
-| 3335 | NiceHash and MiningRigRentals orders | all interfaces |
+| 3335 | NiceHash and MiningRigRentals orders: from 500,000, then about one share every 25 s | all interfaces |
 | 8339 | BCH2 peers | all interfaces |
 | 3080 | the dashboard | 127.0.0.1 (see above) |
 

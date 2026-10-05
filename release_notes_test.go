@@ -2,6 +2,7 @@ package forgesolo
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -195,6 +196,107 @@ func TestRentalPortWindowsKeepsIsTold(t *testing.T) {
 	} {
 		if !strings.Contains(flat(d.text), want) {
 			t.Errorf("%s: %s does not say %q", d.code, d.name, want)
+		}
+	}
+}
+
+// The rental port aims for one share every target_time seconds of the shipped template (which the
+// Windows and Linux configs are held to), where MiningRigRentals asks for one every 10 to 60
+// seconds at the rig's advertised hashrate. Every text that gives the rental port's share time
+// gives that one, and the READMEs and the release page give it. The README said a large connection
+// opened at the 1024 floor, the miners' port's; the rental port opens at 500,000. MiningRigRentals'
+// range does not follow every listing's advertised hashrate, and a rig under about 36 TH/s sits
+// above it at the floor, so no text says its warning goes away, and the release page says when it
+// can stay.
+func TestRentalPortDocsGiveTheShippedShareTime(t *testing.T) {
+	var cfg struct {
+		Rental struct {
+			Vardiff struct {
+				MinDiff    float64 `yaml:"min_diff"`
+				TargetTime int     `yaml:"target_time"`
+			} `yaml:"vardiff"`
+		} `yaml:"stratum_rental"`
+	}
+	if err := yaml.Unmarshal(mustRead(t, "docker/stratum/config.template.yaml"), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	target := strconv.Itoa(cfg.Rental.Vardiff.TargetTime)
+	if cfg.Rental.Vardiff.TargetTime <= 0 || cfg.Rental.Vardiff.MinDiff != 500000 {
+		t.Fatalf("DOCS-RENTAL-CONFIG: the template's rental port has target_time %s and min_diff %g", target, cfg.Rental.Vardiff.MinDiff)
+	}
+	shareTime := regexp.MustCompile(`(?i)\bone share every (\d+) (?:s|seconds)\b`)
+	marketplace := regexp.MustCompile(`(?i)NiceHash|MiningRigRentals|\bMRR\b`)
+	rental := regexp.MustCompile(`(?i)\b3335\b|\brental|NiceHash|MiningRigRentals|\bMRR\b`)
+	promise := regexp.MustCompile(`(?i)\bno longer (warns|flags)|\bnever warns|\bwarning\b[^.;]*\b(goes away|go away|is gone|disappears)`)
+	largeAtFloor := regexp.MustCompile(`(?i)\b(large|rental|rented|3335)\b[^.;]*\bopens? at the 1,?024\b`)
+	for _, d := range allDocs(t) {
+		said := false
+		for _, s := range sentences(d.text) {
+			if rental.MatchString(s) {
+				for _, m := range shareTime.FindAllStringSubmatch(s, -1) {
+					if m[1] == target {
+						said = true
+					} else {
+						t.Errorf("DOCS-RENTAL-TIME-WRONG: %s gives the rental port one share every %s s; it ships %s s: %q", d.name, m[1], target, s)
+					}
+				}
+			}
+			if marketplace.MatchString(s) && promise.MatchString(s) {
+				t.Errorf("DOCS-RENTAL-PROMISE: %s says a marketplace's warning goes away, which a few listings and small rigs still get: %q", d.name, s)
+			}
+			if largeAtFloor.MatchString(s) {
+				t.Errorf("DOCS-RENTAL-FLOOR: %s says a large or rented connection opens at 1024; the rental port opens at 500,000: %q", d.name, s)
+			}
+		}
+		if !said && !strings.HasPrefix(d.name, "umbrel-app.yml") {
+			t.Errorf("DOCS-RENTAL-TIME: %s does not say the rental port aims for one share every %s s", d.name, target)
+		}
+	}
+	if !strings.Contains(flat(string(mustRead(t, "README.md"))), "1024 on 3333 and 500,000 on 3335") {
+		t.Error("DOCS-RENTAL-FLOOR-README: README.md's Difficulty does not say where each port opens: 1024 on 3333 and 500,000 on 3335")
+	}
+	sec := flat(releaseSection(t, "1.0.13"))
+	for _, want := range []string{"A rig under about 36 TH/s stays above the range at the 500,000 floor",
+		"a few listings give a range that does not follow the advertised hashrate"} {
+		if !strings.Contains(sec, want) {
+			t.Errorf("DOCS-RENTAL-CAVEAT: RELEASE_NOTES.md ## 1.0.13 does not say when MiningRigRentals' warning can stay: %q", want)
+		}
+	}
+}
+
+// The release page names the dashboard's texts as the dashboard shows them: the TIDES card's tiles,
+// which count a payout at 2 confirmations, and the heading of the Blocks table in TIDES mode. "Paid
+// to you (confirmed)" was the card's name, while the same page calls a solo block confirmed after
+// 100. The page says which API times are in UTC now. A slow pool still holds up a new block's work
+// for seconds, so no text says it no longer can.
+func TestReleaseNotesNameTheDashboardAsItShows(t *testing.T) {
+	sec := flat(releaseSection(t, "1.0.13"))
+	solo := string(mustRead(t, "web/dist/solo.html"))
+	js := string(mustRead(t, "web/dist/js/pool-solo-inline.js"))
+	for _, c := range []struct{ code, label, file, src string }{
+		{"DOCS-TIDES-PENDING", "Pending (under 2 confirmations)", "web/dist/solo.html", solo},
+		{"DOCS-TIDES-PAID", "Paid to you (2+ confirmations)", "web/dist/solo.html", solo},
+		{"DOCS-SOLO-BLOCKS", "Your Solo Blocks", "web/dist/js/pool-solo-inline.js", js},
+	} {
+		if !strings.Contains(sec, `"`+c.label+`"`) {
+			t.Errorf("%s: RELEASE_NOTES.md ## 1.0.13 does not name %q", c.code, c.label)
+		}
+		if !strings.Contains(c.src, c.label) {
+			t.Errorf("%s-PAGE: %s no longer shows %q, which the release notes name", c.code, c.file, c.label)
+		}
+	}
+	for _, d := range allDocs(t) {
+		if strings.Contains(flat(d.text), "Paid to you (confirmed)") {
+			t.Errorf("DOCS-TIDES-PAID-OLD: %s names the TIDES card's old tile, Paid to you (confirmed)", d.name)
+		}
+	}
+	if !strings.Contains(sec, "Times in the API are in UTC on every platform, a miner's last share and connection times included") {
+		t.Error("DOCS-API-UTC: RELEASE_NOTES.md ## 1.0.13 does not say that a miner's last share and connection times are in UTC too")
+	}
+	holdUp := regexp.MustCompile(`(?i)no longer hold(s)? up new work`)
+	for _, d := range releaseTexts(t) {
+		if m := holdUp.FindString(flat(d.text)); m != "" {
+			t.Errorf("DOCS-POOL-HOLDUP: %s says a slow pool %q; a new block's work can still wait for it for seconds", d.name, m)
 		}
 	}
 }

@@ -161,10 +161,10 @@ costs you nothing, but keep it closed if you have no reason to open it.
 
 There are two stratum ports, and which one you use depends on how the marketplace connects:
 
-| Port | For | Starting difficulty |
-|------|-----|--------------------|
-| **3333** | Your own hardware, **and Braiins** | 1024, vardiffs up per miner |
-| **3335** | **NiceHash / MiningRigRentals** | 500,000 |
+| Port | For | Difficulty |
+|------|-----|-----------|
+| **3333** | Your own hardware, **and Braiins** | 1024, then about one share every 5 s per miner |
+| **3335** | **NiceHash / MiningRigRentals** | 500,000, then about one share every 25 s (MiningRigRentals asks for 10-60 s at the rig's advertised hashrate) |
 
 Braiins belongs on 3333 because it connects **each miner individually** rather than proxying
 them onto one connection, so every connection is one miner's hashrate and needs to find its
@@ -181,14 +181,17 @@ Both ports use the 8-byte extranonce2 every marketplace requires.
 Point the order at a host the marketplace can actually reach: a machine on your home network is
 not reachable from the internet without a port forward or a tunnel.
 
-**Difficulty.** The stratum sizes each connection to its own hashrate. A large connection
-opens at the 1024 floor, and the first vardiff adjustment (within its first ten shares,
-typically well under a second) moves it straight to the difficulty its
-measured rate warrants rather than climbing in +50% steps. Setting `d=<difficulty>` in the
-password skips even that: the connection opens exactly there. The hint is a starting
-point, not a lock: vardiff still tracks the connection afterwards, so a hint that turns
-out to be wrong corrects itself. It is clamped to the same floor and maximum as every
-other path, so `d=1` cannot flood the miner and an absurd value cannot park a connection
+**Difficulty.** The stratum sizes each connection to its own hashrate. A connection opens at
+its port's floor, 1024 on 3333 and 500,000 on 3335, unless it resumes the level remembered from
+before a reconnect. At its tenth share, a connection whose rate is far above the floor moves
+straight to the difficulty that rate warrants rather than climbing in +50% steps: well under a
+second for a large miner on 3333, and seconds for a rental on 3335 (about 20 at 1 PH/s, 5 at 4.5
+PH/s). From then on vardiff aims for one share every 5 seconds on 3333; on 3335, one share every
+25 seconds, inside the 10 to 60 seconds MiningRigRentals asks for at the rig's advertised
+hashrate. Setting `d=<difficulty>` in the password skips the climb: the connection opens exactly
+there. The hint is a starting point, not a lock: vardiff still tracks the connection afterwards,
+so a hint that turns out to be wrong corrects itself. It is clamped to the same floor and maximum
+as every other path, so `d=1` cannot flood the miner and an absurd value cannot park a connection
 where it never submits. No connection is given a difficulty above the network's.
 
 **Payout.** Rented hashpower mines **solo to your address**, exactly like your own

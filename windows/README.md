@@ -31,7 +31,7 @@ Fixed, because the installer's firewall rules and the miner URL you type must ma
 | Port | Purpose | Firewall rule |
 |---|---|---|
 | 3333 | stratum: point your ASIC/Bitaxe here | inbound, private+domain |
-| 3335 | stratum for NiceHash / MiningRigRentals (a whole order on one connection, difficulty from 500,000), as on Umbrel and Linux | inbound, private+domain |
+| 3335 | stratum for NiceHash / MiningRigRentals, as on Umbrel and Linux: a whole order on one connection, from 500,000, then about one share every 25 s (MiningRigRentals asks for 10-60 s at the rig's advertised hashrate) | inbound, private+domain |
 | 3080 | dashboard (`http://127.0.0.1:3080`) | none (loopback only) |
 | 8339 | BCH2 P2P (incoming peers) | inbound, any profile |
 | 25360 | 1175 P2P (incoming peers) | inbound, any profile |
@@ -303,7 +303,10 @@ The installer is written to `windows/ForgeSolo-Setup-<version>.exe`. CI stamps t
 - **Payout addresses** are stored in the database and set from the dashboard's Settings page,
   never in a config file in the repo.
 - **launcher.log** in the data folder records what Forge Solo started and stopped, and is kept
-  under 1 MB while Forge Solo runs.
+  under 1 MB while Forge Solo runs. The miner's and the API's logs are beside it, `stratum.log` and
+  `api.log`, each moved to `.1` at 20 MB, replacing the one before. While a log viewer holds a log
+  open without letting it be renamed, the log grows past 20 MB and keeps its `.1`; it is moved soon
+  after the viewer is closed.
 
 ## Smart App Control and SmartScreen
 The installer is signed with a self-signed certificate (CN=BCH2 Software), and Forge Solo's own

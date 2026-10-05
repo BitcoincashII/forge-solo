@@ -51,17 +51,18 @@ support: https://github.com/BitcoincashII/forge-solo/issues
 # app page reads gallery.length.
 gallery: []
 releaseNotes: >-
-  Forge Solo now keeps its data in one file, is much smaller, and records the blocks you find more reliably.
+  Forge Solo keeps its data in one file, is much smaller, and records your blocks more reliably.
 
 
   Highlights:
     - At the first start your settings, blocks and payouts move into db/forgesolo.db, once.
     - The old database stays in postgres/ for going back to 1.0.12. Once 1.0.13 shows your data, you can delete it. If the move fails, nothing is lost: the dashboard says why and offers to start without the old data.
-    - Installing downloads about 240 MB instead of 930 MB; its images take about 0.6 GB of disk instead of 2.3 GB. Logs take at most 30 MB per service.
-    - Settings asks for Forge Solo's password, which umbrelOS shows when you open the app and when you right-click its icon. Other apps reach only the dashboard.
+    - Installing downloads about 240 MB instead of 930 MB; its images take about 0.6 GB of disk instead of 2.3 GB.
+    - Settings asks for Forge Solo's password, shown when you open the app or right-click its icon. Other apps reach only the dashboard.
     - A found block is retried for 30 minutes while the node is busy, and recorded once it can be. A new payout address applies at once.
     - The dashboard's totals stay right past 100 blocks, and the pages work on phones.
-    - Each miner's difficulty stays near the right level, never above the network's.
+    - Each miner's difficulty stays near its level, never above the network's.
+    - Rentals get a difficulty inside MiningRigRentals' optimal range for most rigs; TIDES no longer under-credits their first jobs.
     - The BCH2 node rebuilds chain data a power cut damaged, once, instead of restarting for ever.
     - The mining ports and TIDES mode hold up against bad shares, idle connections and a slow pool.
 
