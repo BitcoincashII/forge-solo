@@ -231,8 +231,8 @@ type miningStatusSnapshot struct {
 	Mining        bool   `json:"mining"`              // a job was broadcast recently
 	Configured    bool   `json:"configured"`          // payout address resolved; jobs may be built
 	DBConnected   bool   `json:"db_connected"`        // dashboard settings are readable
-	Connections   int64  `json:"connections"`         // TCP connections; a refused miner reconnecting inflates this
-	Authorized    int64  `json:"authorized"`          // miners that completed mining.authorize
+	Connections   int64  `json:"connections"`         // miners' connections; a refused miner reconnecting inflates this
+	Authorized    int64  `json:"authorized"`          // miners that completed mining.authorize (health checks left out)
 	LastShareAge  int64  `json:"last_share_age_sec"`  // -1 if no share has ever been accepted
 	MergeMining   string `json:"merge_mining"`        // off | ok | failing | never_worked
 	AuxError      string `json:"aux_error"`           // last aux fetch failure, "" when healthy
@@ -273,13 +273,17 @@ func buildMiningStatus() miningStatusSnapshot {
 	// This is the same mistake as /internal/rental-stats, which asked only stratumServer
 	// and missed the 3335 listener. That one was found and fixed; nobody then checked
 	// whether the pattern existed elsewhere. It did, here.
+	//
+	// Marketplaces' health checks are not miners (CountMiners), and each server's two counts come
+	// from one pass: read apart, a connection that logged in between them made the counts disagree.
 	var connections, authorized int64
 	for _, srv := range []*stratum.Server{stratumServer, stratumRentalServer} {
 		if srv == nil {
 			continue
 		}
-		connections += srv.GetStats().ActiveConnections
-		authorized += srv.CountAuthorized()
+		c, a := srv.CountMiners()
+		connections += c
+		authorized += a
 	}
 	miningStatusMu.RLock()
 	shareAt := lastShareAt

@@ -1715,8 +1715,39 @@ type WorkerRef struct {
 	MinerID, WorkerName string
 }
 
+// isProbe reports whether c is a marketplace's health check (isHealthCheck) that has sent no share:
+// not a miner, though it logs in as one. One that sends shares is a miner like any other. c.mu is
+// held.
+func (c *Client) isProbe() bool {
+	return isHealthCheck(c.UserAgent) && c.ValidShares.Load() == 0
+}
+
+// CountMiners is how many connections are miners, and how many of those have logged in, counted
+// in one pass. A marketplace's health checks are left out: MiningRigRentals' log in under the
+// order's own name all through a rental, two at a time, and the dashboard showed 2 or 3 workers
+// for one rented rig, "3 miner(s) authorized and submitting shares", and, before the rig arrived,
+// a miner connected that should be checked for hashing.
+func (s *Server) CountMiners() (connected, authorized int64) {
+	s.clients.Range(func(_, v interface{}) bool {
+		c, ok := v.(*Client)
+		if !ok {
+			return true
+		}
+		c.mu.RLock()
+		if !c.isProbe() {
+			connected++
+			if c.Authorized {
+				authorized++
+			}
+		}
+		c.mu.RUnlock()
+		return true
+	})
+	return connected, authorized
+}
+
 // AuthorizedWorkers names the workers of the clients connected and authorized now (Braiins'
-// probes left out).
+// probes and marketplaces' health checks left out).
 func (s *Server) AuthorizedWorkers() []WorkerRef {
 	var out []WorkerRef
 	s.clients.Range(func(_, v interface{}) bool {
@@ -1725,7 +1756,7 @@ func (s *Server) AuthorizedWorkers() []WorkerRef {
 			return true
 		}
 		c.mu.RLock()
-		if c.Authorized && c.MinerID != "" && c.MinerID != "probe" {
+		if c.Authorized && c.MinerID != "" && c.MinerID != "probe" && !c.isProbe() {
 			out = append(out, WorkerRef{MinerID: c.MinerID, WorkerName: c.WorkerName})
 		}
 		c.mu.RUnlock()
@@ -3372,7 +3403,10 @@ func (s *Server) GetRentalStats() *RentalStats {
 		// that is deliberately never set in solo, which is why this endpoint reported
 		// {0,0,0,0} to external aggregators while a rental order was actively mining.
 		rental := client.DetectedMarketplace
-		authorized := client.Authorized
+		// A marketplace's health check is not an order: MiningRigRentals' were counted as two more
+		// rentals ("other", for the "proxy" in their user agent), and alone they had the dashboard
+		// say rented hashrate was reaching the pool.
+		authorized := client.Authorized && !client.isProbe()
 		client.mu.RUnlock()
 
 		if !authorized {
