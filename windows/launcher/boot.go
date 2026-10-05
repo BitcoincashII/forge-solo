@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"net/http"
@@ -393,11 +395,36 @@ func openDashboard() {
 	dashboard = l
 	dashboardOpen.Store(true)
 	go serveDashboard(l)
+	openBrowser(dashboardURL())
 	if !showTrouble() {
-		status(tipSetAddress)
+		// Only when none is set: the tray asked for one at every start, with an address set too,
+		// until the miner ran.
+		if payoutAddressUnset() {
+			status(tipSetAddress)
+		}
 		showRunning() // opened by Try Again, with everything else running already
 	}
-	openBrowser(dashboardURL())
+}
+
+// payoutAddressUnset reports whether no payout address is set (a stand-in in the tests).
+var payoutAddressUnset = askPayoutAddressUnset
+
+// askPayoutAddressUnset reports whether the dashboard's API says no payout address is set. When it
+// cannot tell (no answer, or the database cannot be read), the tray does not ask for one.
+func askPayoutAddressUnset() bool {
+	c := &http.Client{Timeout: 3 * time.Second}
+	resp, err := c.Get("http://127.0.0.1:" + apiPort + "/api/v1/pool/config")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	var cfg struct {
+		Configured *bool `json:"configured"`
+	}
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&cfg) != nil || cfg.Configured == nil {
+		return false
+	}
+	return !*cfg.Configured
 }
 
 // rpcStop asks a node to shut down via its RPC `stop` method so it FLUSHES the chainstate to
