@@ -44,35 +44,72 @@ type cappedLog struct {
 	limit int64
 	f     *os.File
 	size  int64
+	// retryAt is the size at which a move aside that failed is tried again.
+	retryAt int64
 }
 
 func (l *cappedLog) Write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.f == nil {
-		f, err := os.OpenFile(l.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-		if err != nil {
-			return len(p), nil
-		}
-		l.f, l.size = f, 0
-		if st, err := f.Stat(); err == nil {
-			l.size = st.Size()
-		}
+	if l.f == nil && !l.open() {
+		return len(p), nil
 	}
-	if l.size > 0 && l.size+int64(len(p)) > l.limit {
+	if l.size > 0 && l.size+int64(len(p)) > l.limit && l.size >= l.retryAt {
 		_ = l.f.Close()
 		l.f = nil
-		_ = os.Remove(l.path + ".1")
-		_ = os.Rename(l.path, l.path+".1")
-		f, err := os.OpenFile(l.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-		if err != nil {
+		moved := moveAside(l.path)
+		if !l.open() {
 			return len(p), nil
 		}
-		l.f, l.size = f, 0
+		// A viewer can hold the log for hours, and each try closes and reopens it. So a move
+		// that failed is tried again once the log has grown by another twentieth of its limit
+		// (1 MB for a service's log): not at every line, and soon after the viewer lets go.
+		l.retryAt = 0
+		if !moved {
+			l.retryAt = l.size + l.limit/20
+		}
 	}
 	n, _ := l.f.Write(p)
 	l.size += int64(n)
 	return len(p), nil
+}
+
+// open opens the log to add to it, and notes how big it is.
+func (l *cappedLog) open() bool {
+	f, err := os.OpenFile(l.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return false
+	}
+	l.f, l.size = f, 0
+	if st, err := f.Stat(); err == nil {
+		l.size = st.Size()
+	}
+	return true
+}
+
+// renameFile and removeFile are the file operations a move aside makes (stand-ins in the tests:
+// Linux lets a program rename and delete a file that another program has open).
+var (
+	renameFile = os.Rename
+	removeFile = os.Remove
+)
+
+// moveAside moves the log at path to path.1, replacing the one before, and says whether it did.
+// Windows refuses to rename or delete a file that a program, a log viewer say, has open without
+// sharing delete access. So the log is renamed to path.rotating first: if that fails, nothing has
+// changed and the log before is still in .1. Only then is .1 deleted (a rename does not replace a
+// file that is read-only or open in a viewer) and replaced. If it cannot be, the log is put back.
+func moveAside(path string) bool {
+	rotating := path + ".rotating"
+	if renameFile(path, rotating) != nil {
+		return false
+	}
+	_ = removeFile(path + ".1")
+	if renameFile(rotating, path+".1") == nil {
+		return true
+	}
+	_ = renameFile(rotating, path)
+	return false
 }
 
 var (
