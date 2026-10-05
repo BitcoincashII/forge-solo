@@ -18,10 +18,14 @@ func TestSnapshotKitSaysWhatTheMinerChangesAfterTheMove(t *testing.T) {
 	if len(rows) == 0 {
 		t.Fatal("SNAPSHOT-1175-SEED: seed-1012.sql has no 1175 block left to distribute, or not in the form this test reads")
 	}
-	_, proc, _ := strings.Cut(string(mustRead(t, "cmd/stratum/main.go")), "\nfunc start1175PayoutProcessor() {\n")
+	stratum := string(mustRead(t, "cmd/stratum/main.go"))
+	_, proc, _ := strings.Cut(stratum, "\nfunc start1175PayoutProcessor() {\n")
 	proc, _, _ = strings.Cut(proc, "\n}\n")
-	if !strings.HasPrefix(proc, "\tticker := time.NewTicker(120 * time.Second)\n") || !strings.Contains(proc, "\t\trun1175PayoutCycle()\n") {
-		t.Error("SNAPSHOT-1175-TICK: the miner's 1175 payout round no longer comes every two minutes, as the kit says")
+	// The only round is the one on each tick: none comes at the start.
+	tick, round := strings.Index(proc, "\t\tcase <-ticker.C:\n"), strings.Index(proc, "\t\t\trun1175PayoutCycle()\n")
+	if !strings.HasPrefix(proc, "\tticker := time.NewTicker(120 * time.Second)\n") || strings.Count(proc, "run1175PayoutCycle(") != 1 ||
+		tick < 0 || round < tick || !strings.Contains(stratum, "\nvar run1175Processor = start1175PayoutProcessor\n") {
+		t.Error("SNAPSHOT-1175-TICK: the miner's first 1175 payout round no longer comes two minutes after it starts, as the kit says")
 	}
 	for _, f := range []struct{ code, path string }{
 		{"SNAPSHOT-1175-SH", "scripts/dashboard-snapshot.sh"},
