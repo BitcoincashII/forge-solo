@@ -16,6 +16,12 @@
 # read. When one of the two was taken on 1.0.12 (only 1.0.13 answers password_required), what 1.0.13
 # shows differently of the same data by design is left out.
 #
+# With testdata/migrate/seed-1012.sql, take the snapshot after an update within two minutes of the
+# first start of 1.0.13. The seed has 1175 block 5002 found and not yet distributed, and 1.0.13's
+# miner distributes it in its first round of 1175 payouts, two minutes after it starts; from then
+# on miner A's solo blocks list block 5002 and its 1175 totals count it. A later snapshot differs
+# from 1.0.12's in those lines by design: that is not the move.
+#
 # The miners are those of testdata/migrate/seed-1012.sql unless MINERS names others, as
 # "label=address" pairs separated by spaces; a label is letters, digits and _.
 set -euo pipefail
