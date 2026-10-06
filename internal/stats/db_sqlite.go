@@ -334,6 +334,17 @@ func createTables() error {
 		key_seed TEXT NOT NULL,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
+
+	-- Each worker's all-time best share, so that a restart or an update does not reset it. seen_at
+	-- is the worker's last share when the row was written. The stratum keeps it bounded
+	-- (MaxKeptWorkers, MaxKeptMiners in best_shares.go).
+	CREATE TABLE IF NOT EXISTS best_shares (
+		miner_address TEXT NOT NULL,
+		worker_name TEXT NOT NULL,
+		difficulty REAL NOT NULL,
+		seen_at DATETIME,
+		PRIMARY KEY (miner_address, worker_name)
+	);
 	`
 
 	if _, err := db.Exec(schema); err != nil {
@@ -927,6 +938,71 @@ func ClearSoloShares() (int64, error) {
 			return total, nil
 		}
 	}
+}
+
+// bestShareWriteTimeout bounds a write of the best shares, the last one at shutdown included.
+const bestShareWriteTimeout = 10 * time.Second
+
+// LoadBestSharesDB is every worker's all-time best share the database keeps. A difficulty that is
+// not a number reads as 0, which the stratum drops: one damaged row must not stop the others.
+func LoadBestSharesDB() ([]BestShare, error) {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return nil, ErrDatabaseNotInitialized
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), DBTimeout)
+	defer cancel()
+	rows, err := db.QueryContext(ctx, `SELECT miner_address, worker_name, CAST(difficulty AS REAL), COALESCE(CAST(seen_at AS TEXT), '') FROM best_shares`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []BestShare
+	for rows.Next() {
+		var b BestShare
+		var seen string
+		if err := rows.Scan(&b.Miner, &b.Worker, &b.Difficulty, &seen); err != nil {
+			return nil, err
+		}
+		b.Seen, _ = parseSQLiteTime(seen)
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+// SaveBestSharesDB removes the gone rows and writes the raised ones, in one transaction. A stored
+// best is never lowered, nor its time put back.
+func SaveBestSharesDB(raised, gone []BestShare) error {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	if db == nil {
+		return ErrDatabaseNotInitialized
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), bestShareWriteTimeout)
+	defer cancel()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, b := range gone {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM best_shares WHERE miner_address = ? AND worker_name = ?`, b.Miner, b.Worker); err != nil {
+			return err
+		}
+	}
+	for _, b := range raised {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO best_shares (miner_address, worker_name, difficulty, seen_at)
+			VALUES (?, ?, ?, ?)
+			ON CONFLICT (miner_address, worker_name) DO UPDATE
+			SET difficulty = max(best_shares.difficulty, excluded.difficulty),
+			    seen_at = max(COALESCE(best_shares.seen_at, ''), excluded.seen_at)`,
+			b.Miner, b.Worker, b.Difficulty, SQLiteTime(b.Seen)); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // Compact gives back the space of rows deleted in bulk. SQLite keeps freed pages inside the file

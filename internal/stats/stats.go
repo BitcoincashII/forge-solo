@@ -88,7 +88,7 @@ type WorkerStats struct {
 	InvalidShares int64                `json:"invalid_shares"`
 	BestDiff      float64              `json:"best_diff"`       // Best share this round (resets on block found)
 	RoundBestDiff float64              `json:"round_best_diff"` // Alias for best_diff for UI compatibility
-	ATHDiff       float64              `json:"ath_diff"`        // All-time high share difficulty
+	ATHDiff       float64              `json:"ath_diff"`        // All-time best share difficulty, kept across restarts (best_shares.go)
 	TotalWork     float64              `json:"total_work"`      // Cumulative share difficulty for round effort
 	RoundEffort   float64              `json:"round_effort"`    // This round in blocks: each share over its job's network difficulty
 	BlocksFound   int64                `json:"blocks_found"`    // Number of blocks found by this worker
@@ -113,6 +113,12 @@ type StatsManager struct {
 	roundEffort float64   // Cumulative share difficulty for current round
 	luckHistory []float64 // Recent block luck values (capped at 100)
 	mu          sync.RWMutex
+
+	// The workers' all-time best shares, as the database keeps them (best_shares.go).
+	kept       map[bestKey]*keptBest
+	gone       map[bestKey]bool // dropped from kept: removed from the database at the next write
+	keptLoaded bool             // the database's were read
+	writeMu    sync.Mutex       // one write at a time
 }
 
 var (
@@ -145,12 +151,7 @@ func (m *StatsManager) UpdateWorkerForJob(minerID, workerName string, valid bool
 	key := minerID + ":" + workerName
 	w, exists := m.workers[key]
 	if !exists {
-		w = &WorkerStats{
-			MinerID:     minerID,
-			WorkerName:  workerName,
-			ConnectedAt: time.Now(),
-			ShareBuffer: NewCircularShareBuffer(MaxSharesPerWorker), // Fixed-size buffer
-		}
+		w = m.newWorker(minerID, workerName)
 		m.workers[key] = w
 	}
 
@@ -180,6 +181,7 @@ func (m *StatsManager) UpdateWorkerForJob(minerID, workerName string, valid bool
 		if actualDiff > w.ATHDiff {
 			w.ATHDiff = actualDiff
 		}
+		m.keepBest(minerID, workerName, w.ATHDiff, w.LastShareAt)
 	} else {
 		w.InvalidShares++
 	}
@@ -219,16 +221,26 @@ func (m *StatsManager) RecordInvalidShare(minerID, workerName string) {
 		if rejectOnly >= MaxRejectOnlyWorkers {
 			return
 		}
-		w = &WorkerStats{
-			MinerID:     minerID,
-			WorkerName:  workerName,
-			ConnectedAt: time.Now(),
-			ShareBuffer: NewCircularShareBuffer(MaxSharesPerWorker),
-		}
+		w = m.newWorker(minerID, workerName)
 		m.workers[key] = w
 	}
 	w.Online = true
 	w.InvalidShares++
+}
+
+// newWorker is a worker's entry, from its first share in this run or its first after it was
+// dropped (PruneStaleWorkers). Its all-time best is the one kept. The caller holds m.mu.
+func (m *StatsManager) newWorker(minerID, workerName string) *WorkerStats {
+	w := &WorkerStats{
+		MinerID:     minerID,
+		WorkerName:  workerName,
+		ConnectedAt: time.Now(),
+		ShareBuffer: NewCircularShareBuffer(MaxSharesPerWorker), // Fixed-size buffer
+	}
+	if b := m.kept[bestKey{minerID, workerName}]; b != nil {
+		w.ATHDiff = b.diff
+	}
+	return w
 }
 
 // hashrateMinSpan is the shortest time a hashrate is averaged over: a worker's first few shares, a

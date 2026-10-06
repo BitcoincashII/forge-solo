@@ -71,6 +71,12 @@ func TestEveryStoredTimeIsUTCSeconds(t *testing.T) {
 	do("share", SaveShare(other, "rig", 1, false))
 	_, err = GatewaySeed(strings.Repeat("ab", 32))
 	do("gateway key", err)
+	// A worker's best share, as the stratum keeps it.
+	bests := &StatsManager{workers: make(map[string]*WorkerStats)}
+	_, err = bests.LoadBestShares()
+	do("best shares read", err)
+	bests.UpdateWorker(miner, "rig", true, 1, 5e9)
+	do("best share", bests.WriteBestShares())
 
 	// The 1175 ledger: replaced at its height, orphaned and restored, confirmed and settled.
 	do("1175 record", Record1175Block(200, hash(8), 25, miner, true))

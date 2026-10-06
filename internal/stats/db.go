@@ -1300,6 +1300,24 @@ func sharesHeld(ctx context.Context, chunks []chunkRange, hyper bool) (any, ppln
 // TRUNCATE frees the space at once, and autovacuum reuses what a DELETE leaves.
 func Compact() error { return nil }
 
+// LoadBestSharesDB reads none: the PostgreSQL build keeps the workers' best shares in memory only.
+// Its schema is 1.0.12's, which the move to SQLite reads (internal/pgmigrate), and from 1.0.13 every
+// platform runs the SQLite build.
+func LoadBestSharesDB() ([]BestShare, error) {
+	if !IsDBInitialized() {
+		return nil, ErrDatabaseNotInitialized
+	}
+	return nil, nil
+}
+
+// SaveBestSharesDB keeps nothing in PostgreSQL; see LoadBestSharesDB.
+func SaveBestSharesDB(raised, gone []BestShare) error {
+	if !IsDBInitialized() {
+		return ErrDatabaseNotInitialized
+	}
+	return nil
+}
+
 // PPLNSShare represents a miner's share contribution in the PPLNS window
 type PPLNSShare struct {
 	MinerAddress string

@@ -197,6 +197,7 @@ var TableRules = map[string]string{
 	"blocks_1175":     "copied from PostgreSQL",
 	"payouts_1175":    "copied from PostgreSQL",
 	"shares":          "carried from the existing forgesolo.db during a merge; PostgreSQL's are left behind (NotCopied)",
+	"best_shares":     "the stratum's own; PostgreSQL has none (1.0.12 kept no best share), and a merge does not carry it yet",
 	"migration_meta":  "the migrator's own record of a move, written fresh by every prepare",
 	"sqlite_sequence": "SQLite's own: it follows the ids the copy keeps",
 }

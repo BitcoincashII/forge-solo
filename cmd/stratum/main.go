@@ -1779,6 +1779,9 @@ func main() {
 	// Start worker timeout detection (marks workers offline after 5 min of no shares)
 	workerTimeoutStop := make(chan struct{})
 	go stats.GetManager().StartWorkerTimeoutChecker(workerTimeoutStop)
+	// The workers' all-time best shares: read from the database, and what changed written every few
+	// seconds.
+	go stats.GetManager().KeepBestShares(workerTimeoutStop)
 
 	go startStatsServer()
 
@@ -1856,6 +1859,10 @@ func main() {
 		if n := g.Flush(); n > 0 {
 			logger.Info("TIDES: sent the pool the shares still queued", zap.Int("shares", n))
 		}
+	}
+	// The best shares raised since the last write, before the database closes.
+	if err := stats.GetManager().WriteBestShares(); err != nil {
+		logger.Warn("Could not keep the workers' latest best shares", zap.Error(err))
 	}
 }
 

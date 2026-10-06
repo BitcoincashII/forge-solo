@@ -14,7 +14,8 @@ import (
 //
 // A worker connected now is listed with the time its connection began (its earliest, when it has
 // several). One with no share yet was listed as connected in the year 1. A worker not connected
-// keeps the time its first share was counted.
+// keeps the time its first share was counted. One with no share in this run has the best share
+// kept for it.
 func withConnectedWorkers(workers []*stats.WorkerStats, connected []stratum.WorkerRef) []*stats.WorkerStats {
 	type key struct{ miner, worker string }
 	listed := make(map[key]bool, len(workers))
@@ -39,7 +40,8 @@ func withConnectedWorkers(workers []*stats.WorkerStats, connected []stratum.Work
 		k := key{c.MinerID, c.WorkerName}
 		if !listed[k] {
 			listed[k] = true
-			workers = append(workers, &stats.WorkerStats{MinerID: c.MinerID, WorkerName: c.WorkerName, Online: true, ConnectedAt: since[k]})
+			workers = append(workers, &stats.WorkerStats{MinerID: c.MinerID, WorkerName: c.WorkerName, Online: true, ConnectedAt: since[k],
+				ATHDiff: stats.GetManager().KeptBest(c.MinerID, c.WorkerName)})
 		}
 	}
 	return workers

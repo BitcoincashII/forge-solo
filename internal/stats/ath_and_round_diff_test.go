@@ -4,8 +4,8 @@ import "testing"
 
 // The Workers table shows two difficulty columns that mean different things, and nothing
 // pinned the difference: "Round Best" is this round's best share and must reset when a block
-// is found, while "ATH Diff" is titled "since the mining service last started" and must
-// survive every round. Only ValidShares and RoundShares were covered, so a reset that also
+// is found, while "Best Diff (all time)" must survive every round, and every restart
+// (best_shares_test.go). Only ValidShares and RoundShares were covered, so a reset that also
 // zeroed ATHDiff would have gone unnoticed -- and a miner's best-ever share silently
 // disappearing is the kind of thing a user notices and cannot explain.
 func TestATHSurvivesTheRoundResetButRoundBestDoesNot(t *testing.T) {
