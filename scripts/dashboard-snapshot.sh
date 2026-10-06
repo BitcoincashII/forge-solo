@@ -4,8 +4,9 @@
 # with the state of the move from PostgreSQL. What changes from one minute to the next (hashrates,
 # uptimes, the node's height, live TIDES figures) and what differs by platform (where the password
 # is kept, the platform's name, the server's time zone) is left out, so the same data gives the same
-# file on Umbrel, on Windows (scripts/windows/dashboard-snapshot.ps1 writes it byte for byte the
-# same) and on Linux, before an update and after it.
+# file before an update and after it, on Umbrel, on Windows (scripts/windows/dashboard-snapshot.ps1
+# writes it byte for byte the same) and on Linux. Linux, which runs no 1175 node, shows less of 1175
+# (below).
 #
 #   scripts/dashboard-snapshot.sh http://127.0.0.1:3080 after.json             # Windows' dashboard
 #   scripts/dashboard-snapshot.sh http://<api>:8080 before.json --save DIR     # keep the answers too
@@ -21,6 +22,13 @@
 # miner distributes it in its first round of 1175 payouts, two minutes after it starts; from then
 # on miner A's solo blocks list block 5002 and its 1175 totals count it. A later snapshot differs
 # from 1.0.12's in those lines by design: that is not the move.
+#
+# Linux runs no 1175 node, and there the API says merge-mining is not available. Where it says so,
+# the 1175 address in the payout settings is left out: 1.0.12 for Linux gives the stored one, 1.0.13
+# none. So on Linux the 1175 address is not shown, and block 5002 stays undistributed: 1.0.13 for
+# Linux runs no 1175 payouts, and its snapshot can be taken at any time. 1.0.12 for Linux, in solo
+# mode with a 1175 address saved, still distributes it after two minutes: take its snapshot right
+# before the update.
 #
 # The miners are those of testdata/migrate/seed-1012.sql unless MINERS names others, as
 # "label=address" pairs separated by spaces; a label is letters, digits and _.
@@ -56,6 +64,10 @@ VOLATILE = {
               r"currentHeight|balance|matureBalance|immatureBalance|balanceKnown"],  # the node's height
     "solo-blocks": [r"blocks\.\d+\.(confirmations|matures_in|mature)"],  # the node's height
 }
+
+# Where the answer says merge-mining is not available, as on Linux, the 1175 address is not used
+# and is left out too: 1.0.12 gives the stored one there, 1.0.13 none.
+NO_1175_NODE = {"pool-config": [r"payout_address_1175"]}
 
 # What 1.0.13's API shows differently from 1.0.12's of the same data, one pattern a change, on the
 # lines of a snapshot.
@@ -152,8 +164,11 @@ def snapshot(base, out, save, src):
             continue
         one = {}
         flatten("", doc, one)
+        skip = VOLATILE.get(kind, [])
+        if isinstance(doc, dict) and doc.get("merge_mining_available") is False:
+            skip = skip + NO_1175_NODE.get(kind, [])
         for k, v in one.items():
-            if not any(re.fullmatch(p, k) for p in VOLATILE.get(kind, [])):
+            if not any(re.fullmatch(p, k) for p in skip):
                 flat[name + "." + k] = v
     lines = ["%s: %s" % (json.dumps(k, ensure_ascii=True), value(flat[k])) for k in sorted(flat)]
     with open(out, "w", encoding="ascii", newline="\n") as f:

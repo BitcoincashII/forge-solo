@@ -3,8 +3,8 @@ What the dashboard shows of an install's data, as one sorted JSON file, byte for
 scripts/dashboard-snapshot.sh writes it on Umbrel and Linux: the payout settings, the TIDES Gateway
 ID, each miner's settings, blocks, payouts and 1175 blocks, and the health answer with the state of
 the move from PostgreSQL. What changes from one minute to the next and what differs by platform
-(the server's time zone included) is left out, so the same data gives the same file on every
-platform, before an update and after it.
+(the server's time zone included) is left out, so the same data gives the same file before an
+update and after it, on every platform. Linux, which runs no 1175 node, shows less of 1175 (below).
 
   scripts\windows\dashboard-snapshot.ps1 -Base http://127.0.0.1:3080 -Out after.json
   scripts\windows\dashboard-snapshot.ps1 -Base http://127.0.0.1:3080 -Out before.json -Save answers
@@ -20,6 +20,13 @@ first start of 1.0.13. The seed has 1175 block 5002 found and not yet distribute
 miner distributes it in its first round of 1175 payouts, two minutes after it starts; from then
 on miner A's solo blocks list block 5002 and its 1175 totals count it. A later snapshot differs
 from 1.0.12's in those lines by design: that is not the move.
+
+Linux runs no 1175 node, and there the API says merge-mining is not available. Where it says so,
+the 1175 address in the payout settings is left out: 1.0.12 for Linux gives the stored one, 1.0.13
+none. So on Linux the 1175 address is not shown, and block 5002 stays undistributed: 1.0.13 for
+Linux runs no 1175 payouts, and its snapshot can be taken at any time. 1.0.12 for Linux, in solo
+mode with a 1175 address saved, still distributes it after two minutes: take its snapshot right
+before the update.
 
 The miners are those of testdata\migrate\seed-1012.sql unless $env:MINERS names others, as
 "label=address" pairs separated by spaces; a label is letters, digits and _. Windows PowerShell
@@ -150,6 +157,11 @@ $volatile = @{
     'miner'         = @('hashrate5m|hashrate60m|workers|onlineWorkers|validShares|roundShares|invalidShares',
         'bestDiff|athDiff|totalWork|roundEffort|lastShare', 'currentHeight|balance|matureBalance|immatureBalance|balanceKnown')
     'solo-blocks'   = @('blocks\.\d+\.(confirmations|matures_in|mature)')
+}
+# Where the answer says merge-mining is not available, as on Linux, the 1175 address is not used
+# and is left out too (as in the .sh).
+$no1175Node = @{
+    'pool-config' = @('payout_address_1175')
 }
 $emptyObject = New-Object object
 $emptyList = New-Object object
@@ -291,6 +303,9 @@ foreach ($e in $endpoints) {
     $one = New-Object 'System.Collections.Generic.Dictionary[string,object]' ([StringComparer]::Ordinal)
     Add-Flat '' $doc $one
     $patterns = $volatile[$kind]
+    if ($no1175Node.ContainsKey($kind) -and $doc.merge_mining_available -is [bool] -and -not $doc.merge_mining_available) {
+        $patterns = $patterns + $no1175Node[$kind]
+    }
     foreach ($k in $one.Keys) {
         $left = $false
         foreach ($p in $patterns) { if ($k -cmatch "^(?:$p)$") { $left = $true; break } }
