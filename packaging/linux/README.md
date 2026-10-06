@@ -35,13 +35,14 @@ About 1 GB of disk is plenty (the whole BCH2 chain is about 90 MB today), and it
 ## Start it
 
 ```sh
-sha256sum -c SHA256SUMS-linux --ignore-missing      # check the download (SHA256SUMS-linux beside it)
+grep x86_64 SHA256SUMS-linux | sha256sum -c -      # check the download: it says OK (SHA256SUMS-linux beside it)
 tar xzf forge-solo-VERSION-linux-x86_64.tar.gz
 cd forge-solo-VERSION-linux-x86_64
 ./forge-solo
 ```
 
-It runs in the foreground; Ctrl-C stops it (see **Stopping**). Then:
+On other hardware, put what `uname -m` prints in place of `x86_64` in these lines. It runs in
+the foreground; Ctrl-C stops it (see **Stopping**). Then:
 
 1. Open **http://127.0.0.1:3080** in a browser on this machine (from another computer, see
    **The dashboard from another computer**).

@@ -36,7 +36,7 @@ Pick the file for what `uname -m` prints on your machine:
 
 Every program in them is fully static: no libraries and no packages are needed, on any
 distribution with Linux 3.2 or newer, glibc or musl. Check your download with
-`sha256sum -c SHA256SUMS-linux --ignore-missing`.
+`grep x86_64 SHA256SUMS-linux | sha256sum -c -`, with what `uname -m` prints in place of `x86_64`.
 
 ### Start
 
