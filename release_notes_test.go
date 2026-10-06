@@ -440,3 +440,41 @@ func TestReleaseNotesTellTheRentalPortsSideEffects(t *testing.T) {
 		}
 	}
 }
+
+// A port's log has two budgets for the lines clients cause: a miner's login, refused shares,
+// difficulty changes and disconnect have minerLogBurst lines at once and then minerLogRate a
+// minute, and the lines about connections serverLogBudget a minute. Lines left out are counted in a
+// line of their own at the cleanup round, every shareCleanupEvery. The release page gives the
+// figures server.go has. No release text gives one figure for a whole port: the notes said a client
+// could put at most 120 lines a minute per port in the log, and a miner's own lines go past that.
+func TestReleaseNotesGiveTheLogBudgets(t *testing.T) {
+	src := string(mustRead(t, "internal/stratum/server.go"))
+	num := func(re string) string {
+		t.Helper()
+		m := regexp.MustCompile(re).FindStringSubmatch(src)
+		if m == nil {
+			t.Fatalf("DOCS-LOG-CODE: internal/stratum/server.go has nothing matching %s", re)
+		}
+		return m[1]
+	}
+	burst := num(`(?m)^\s*minerLogBurst\s*=\s*(\d+)$`)
+	rate := num(`(?m)^\s*minerLogRate\s*=\s*(\d+)$`)
+	conns := num(`(?m)^const serverLogBudget = (\d+)$`)
+	every := num(`(?m)^var shareCleanupEvery = (\d+) \* time\.Second$`)
+	sec := flat(releaseSection(t, "1.0.13"))
+	for _, c := range []struct{ code, want string }{
+		{"DOCS-LOG-MINERS", "have a budget of their own on each port, " + burst + " lines at once and then " + rate + " a minute"},
+		{"DOCS-LOG-CONNS", "apart from the lines about connections (still " + conns + " a minute)"},
+		{"DOCS-LOG-LEFT-OUT", "Lines left out are counted in a line of their own within " + every + " seconds"},
+	} {
+		if !strings.Contains(sec, c.want) {
+			t.Errorf("%s: RELEASE_NOTES.md ## 1.0.13 does not say %q, as server.go has it", c.code, c.want)
+		}
+	}
+	perPort := regexp.MustCompile(`(?i)\b(at most|up to|no more than) \d+ (log )?lines a minute (per|on each|on a|a) port\b`)
+	for _, d := range releaseTexts(t) {
+		if m := perPort.FindString(flat(d.text)); m != "" {
+			t.Errorf("DOCS-LOG-PORT-ONE: %s says what a client puts in the log is %q; a miner's own lines have a budget of their own beside it", d.name, m)
+		}
+	}
+}

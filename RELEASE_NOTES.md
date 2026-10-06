@@ -212,6 +212,15 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
   under three days. The first is logged, and the rest are counted and logged together every 10
   minutes. The line for each new connection and the mining.configure line are now at debug level;
   login and disconnect lines give the miner's address, user agent and valid shares.
+- **Every platform:** a rental's start no longer pushes refused shares and disconnects out of the
+  mining service's log. A miner's login, refused shares, difficulty changes and disconnect have a
+  budget of their own on each port, 480 lines at once and then 120 a minute, apart from the lines
+  about connections (still 120 a minute), so dozens of rigs logging in together through one address
+  are logged in full and connections that never log in can no longer crowd them out. A client
+  sending shares below the floor could also have a line written for every 20 of them, outside both
+  budgets: that line, and every other a client can cause but those about a block or a share close to
+  one, now counts in one of them. Lines left out are counted in a line of their own within 30
+  seconds, saying how many, why and which, instead of in a count on another connection's line.
 - **Umbrel and Windows, TIDES:** the start no longer warns that 1175 merge-mining is off until you set
   a 1175 address in the dashboard, which would not turn it on in TIDES mode. It says that 1175
   merge-mining stays off while TIDES mode is on.
@@ -304,8 +313,8 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
   - one stuck connection no longer delays new work for every other miner, and a miner that reads
     everything it is sent is no longer dropped after a burst of its own requests, which happened
     most on single-CPU machines;
-  - what a client can put in the log is limited, at most 120 lines a minute per port, and worker
-    names are kept to plain labels;
+  - what a client can put in the log is limited on each port, and worker names are kept to plain
+    labels;
   - logging in again on a connection no longer sends the whole job again;
   - a share sent again under a later job that carries the same work counts once (in TIDES mode the
     pool refused the second copy as a duplicate).
