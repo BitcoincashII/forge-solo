@@ -67,7 +67,8 @@ and the service could no longer open them.
 To upgrade a copy you run yourself: unpack the new release beside the old one, stop the old one
 (Ctrl-C), and run `./forge-solo` from the new release's folder. The data stays in
 `~/.local/share/forge-solo`, so your settings and blocks carry over. Then delete the old release's
-folder.
+folder, the downloaded `.tar.gz` files and `SHA256SUMS-linux`: the new release's folder is all
+Forge Solo needs.
 
 ## Run it as a service (systemd)
 
@@ -92,8 +93,11 @@ the service runs you can delete that copy's `~/.local/share/forge-solo`.
 - Logs: `journalctl -u forge-solo -f`, and `/var/lib/forge-solo/logs/`
 - Stop and start: `sudo systemctl stop forge-solo`, `sudo systemctl start forge-solo`
 - Upgrade: unpack the new release and run `sudo ./forge-solo install-service` from it. The data,
-  your settings and the dashboard address (`--web`) are kept. The service runs from
-  `/opt/forge-solo`, so you can delete the unpacked folder afterwards.
+  your settings and the dashboard address (`--web`) are kept. The service runs from its own copy
+  in `/opt/forge-solo`, so once it runs, after an upgrade as after the first install, nothing you
+  downloaded or unpacked is needed: delete the new release's folder and the old release's, the
+  downloaded `.tar.gz` files and `SHA256SUMS-linux`. From the folder you downloaded them to:
+  `rm -r forge-solo-*-linux-* SHA256SUMS-linux`.
 - Remove: `sudo /opt/forge-solo/forge-solo uninstall-service`. It stops and removes the service
   and says how to delete the program and the data if you want to.
 

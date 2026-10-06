@@ -125,3 +125,64 @@ func TestLinuxDownloadCheckWorksWithBusyBox(t *testing.T) {
 		t.Errorf("DOCS-LINUX-SUM-BUSYBOX: with BusyBox, the README's check %q of a good download said %q (%v)", cmd, out, err)
 	}
 }
+
+// After an upgrade the Linux README says what to delete. install-service copies the program to
+// /opt/forge-solo, and the folders unpacked, the downloads and SHA256SUMS-linux are left over: the
+// old release's folder alone was 46 MB, 1.0.12's programs. The README said only that the unpacked
+// folder could go, and for a copy run by hand only the old release's folder.
+func TestLinuxReadmeSaysWhatAnUpgradeLeaves(t *testing.T) {
+	readme := string(mustRead(t, "packaging/linux/README.md"))
+	_, svc, ok := strings.Cut(readme, "\n- Upgrade: ")
+	svc, _, _ = strings.Cut(svc, "\n- ")
+	svcText := flat(svc)
+	for _, c := range []struct{ code, want string }{
+		{"DOCS-LINUX-UPGRADE-NEEDED", "nothing you downloaded or unpacked is needed"},
+		{"DOCS-LINUX-UPGRADE-FIRST", "as after the first install"},
+		{"DOCS-LINUX-UPGRADE-NEW", "delete the new release's folder"},
+		{"DOCS-LINUX-UPGRADE-OLD", "and the old release's"},
+		{"DOCS-LINUX-UPGRADE-DOWNLOADS", "the downloaded .tar.gz files and SHA256SUMS-linux"},
+	} {
+		if !ok || !strings.Contains(svcText, c.want) {
+			t.Errorf("%s: the README's Upgrade of the service does not say %q", c.code, c.want)
+		}
+	}
+	// Its command, run where the downloads are, deletes them and nothing else.
+	m := regexp.MustCompile("`(rm [^`]+)`").FindStringSubmatch(svc)
+	if m == nil {
+		t.Fatal("DOCS-LINUX-UPGRADE-RM: the README's Upgrade of the service gives no command to delete what is left over")
+	}
+	dir := t.TempDir()
+	left := []string{"forge-solo-1.0.12-linux-x86_64/bin/stratum", "forge-solo-1.0.13-linux-x86_64/bin/stratum",
+		"forge-solo-1.0.12-linux-x86_64.tar.gz", "forge-solo-1.0.13-linux-x86_64.tar.gz", "SHA256SUMS-linux"}
+	kept := []string{"notes.txt", "forge-solo-backup.db", "photos/forge-solo-1.0.13-linux-x86_64.jpg", "SHA256SUMS-windows"}
+	for _, f := range append(append([]string{}, left...), kept...) {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, f)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, f), []byte(f), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c := exec.Command("sh", "-c", m[1])
+	c.Dir = dir
+	if out, err := c.CombinedOutput(); err != nil {
+		t.Errorf("DOCS-LINUX-UPGRADE-RM: %q failed: %v %s", m[1], err, out)
+	}
+	for _, f := range left {
+		if _, err := os.Stat(filepath.Join(dir, strings.Split(f, "/")[0])); err == nil {
+			t.Errorf("DOCS-LINUX-UPGRADE-RM-LEFT: %q leaves %s", m[1], f)
+		}
+	}
+	for _, f := range kept {
+		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+			t.Errorf("DOCS-LINUX-UPGRADE-RM-KEEPS: %q deletes %s, which is not Forge Solo's", m[1], f)
+		}
+	}
+
+	// A copy run by hand runs from the new release's folder: the rest goes.
+	_, self, ok := strings.Cut(readme, "To upgrade a copy you run yourself")
+	self, _, _ = strings.Cut(self, "\n\n")
+	if want := "Then delete the old release's folder, the downloaded .tar.gz files and SHA256SUMS-linux: the new release's folder is all Forge Solo needs"; !ok || !strings.Contains(flat(self), want) {
+		t.Errorf("DOCS-LINUX-SELF-UPGRADE: the README's upgrade of a copy run by hand does not say %q", want)
+	}
+}
