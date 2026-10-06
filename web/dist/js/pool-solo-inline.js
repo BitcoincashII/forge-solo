@@ -360,6 +360,13 @@
         function tidesStatusLine(ms) {
             if (!tidesInEffect(ms) || !ms.tides) return { text: '', warn: false };
             const t = ms.tides;
+            // The pool answered, but this node is not on its block yet: mostly while it catches up
+            // with the chain after a restart. Nothing is wrong with the pool.
+            if (t.state === 'fallback' && t.node_behind) {
+                return { warn: true, text: '⏳ <b>TIDES paused, mining SOLO.</b> This BCH2 node is not on Forge Pool\'s block yet'
+                    + (t.reason ? ' (' + escapeHtml(t.reason) + ')' : '') + '. Blocks found meanwhile pay your own address in full; '
+                    + 'TIDES resumes by itself once it is.' };
+            }
             if (t.state === 'fallback') {
                 return { warn: true, text: '⚠️ <b>TIDES paused, mining SOLO.</b> Forge Pool is not taking this install\'s work'
                     + (t.reason ? ' (' + escapeHtml(t.reason) + ')' : '') + '. Blocks found meanwhile pay your own address in full; '
@@ -383,7 +390,9 @@
             const fallback = ms.tides && ms.tides.state === 'fallback';
             b.textContent = fallback ? 'TIDES · SOLO' : 'TIDES';
             b.className = 'mode-badge ' + (fallback ? 'fallback' : 'tides');
-            b.title = fallback ? 'TIDES chosen, but Forge Pool is unavailable: mining solo meanwhile' : 'Mining for the Forge Pool TIDES window';
+            b.title = !fallback ? 'Mining for the Forge Pool TIDES window'
+                : (ms.tides.node_behind ? 'TIDES chosen, but this BCH2 node is not on Forge Pool\'s block yet: mining solo meanwhile'
+                    : 'TIDES chosen, but Forge Pool is unavailable: mining solo meanwhile');
         }
 
         function fmtBCH2(sats) {
@@ -417,7 +426,10 @@
             const st = document.getElementById('tidesState');
             st.textContent = t.state === 'active' ? 'active' : (t.state === 'fallback' ? 'paused, mining solo' : 'starting');
             st.className = 'tides-state ' + (t.state || 'starting');
-            document.getElementById('tidesNote').textContent = t.state === 'fallback'
+            document.getElementById('tidesNote').textContent = t.state === 'fallback' && t.node_behind
+                ? 'This BCH2 node is not on Forge Pool\'s block yet' + (t.reason ? ' (' + t.reason + ')' : '')
+                  + ', so it is mining solo until it is. The figures below are the pool\'s.'
+                : t.state === 'fallback'
                 ? 'Forge Pool is not taking this install\'s work right now' + (t.reason ? ' (' + t.reason + ')' : '')
                   + ', so it is mining solo until the pool answers again. The figures below are the pool\'s.'
                 : 'This install builds its own blocks from its own node; their coinbase pays the TIDES split, and your shares are credited to your payout address.';

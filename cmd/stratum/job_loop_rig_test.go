@@ -103,19 +103,20 @@ type loopPool struct {
 	srv   *httptest.Server
 	clock *loopClock
 
-	mu       sync.Mutex
-	height   int64  // the height the pool mines: its tip + 1
-	prev     string // the block it mines on; chainHash(height-1) unless a test set another
-	jobs     []wire.JobRequest
-	snapGets int
-	shares   []wire.Share
-	delay    time.Duration // a job POST waits this long before it is answered
-	slowAt   int64         // with delay: only a job for this height waits
-	hang     bool          // a job POST is never answered: it waits until the gateway gives up
-	down     bool          // everything answers 502
-	release  chan struct{}
-	inFlight int // job POSTs being answered now
-	given    int // job POSTs the gateway gave up on before they were answered
+	mu         sync.Mutex
+	height     int64  // the height the pool mines: its tip + 1
+	prev       string // the block it mines on; chainHash(height-1) unless a test set another
+	snapHeight int64  // the height its TIDES snapshot names, when that is behind its node; else height
+	jobs       []wire.JobRequest
+	snapGets   int
+	shares     []wire.Share
+	delay      time.Duration // a job POST waits this long before it is answered
+	slowAt     int64         // with delay: only a job for this height waits
+	hang       bool          // a job POST is never answered: it waits until the gateway gives up
+	down       bool          // everything answers 502
+	release    chan struct{}
+	inFlight   int // job POSTs being answered now
+	given      int // job POSTs the gateway gave up on before they were answered
 }
 
 func newLoopPool(t *testing.T, clock *loopClock, height int64) *loopPool {
@@ -153,6 +154,12 @@ func (p *loopPool) waiting() (now, givenUp int) {
 	return p.inFlight, p.given
 }
 
+func (p *loopPool) gets() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.snapGets
+}
+
 func (p *loopPool) credited() []wire.Share {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -172,6 +179,9 @@ func (p *loopPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.snapGets++
 		s := wire.Snapshot{Version: 7, Height: p.height, PrevHash: p.prev, Dust: 546, Work: map[string]float64{},
 			Carry: map[string]int64{}, At: p.clock.Now()}
+		if p.snapHeight != 0 {
+			s.Height, s.PrevHash = p.snapHeight, chainHash(p.snapHeight-1)
+		}
 		p.mu.Unlock()
 		json.NewEncoder(w).Encode(s)
 		return

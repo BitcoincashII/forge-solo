@@ -267,7 +267,7 @@ type poolAnswer struct {
 // then goes out solo meanwhile. A job on the same block waits for nothing: miners keep the one they
 // have, and the pool's answer makes the next (finish).
 func (l *jobLoop) tidesJob(gw *tidesgw.Gateway, template *mining.BlockTemplate, isNewBlock bool, cur *mining.Job) (*mining.Job, bool) {
-	if !gw.Due(isNewBlock) {
+	if !gw.DueAt(isNewBlock, template.Height) {
 		return jobManager.CreateJob(template), false
 	}
 	p := l.register(gw, template, isNewBlock)

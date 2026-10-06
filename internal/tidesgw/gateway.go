@@ -159,6 +159,10 @@ type Gateway struct {
 	acceptedBy    string
 	firstAccepted time.Time
 	warnedWindow  bool
+
+	// waitHeight is the height the pool mines when the gateway fell back because this node was not
+	// on its block (StaleError), else 0: a new block whose template reaches it is tried at once.
+	waitHeight int64
 }
 
 // Counts are the gateway's running totals since start.
@@ -223,36 +227,93 @@ func CanonicalAddress(addr string) (string, error) {
 
 // Due reports whether the job loop should try the pool now. Active and starting gateways try
 // with every job the loop makes. A gateway that fell back to solo tries at most once per
-// RetryEvery, and never on a new block: a new block needs work at once, and a pool that did not
-// answer a minute ago should not hold it back.
-func (g *Gateway) Due(newBlock bool) bool {
+// RetryEvery, and not on a new block: a new block needs work at once, and a pool that did not
+// answer a minute ago should not hold it back. DueAt also tries a new block whose template has
+// reached the block the pool mines.
+func (g *Gateway) Due(newBlock bool) bool { return g.DueAt(newBlock, 0) }
+
+// DueAt is Due for a job on a template at height. A gateway that fell back because this node was
+// not on the pool's block (StaleError) tries the pool on the first new block whose template reaches
+// the height the pool mines: one below it the pool would refuse, and one that reaches it means this
+// node has caught up. It answered a moment ago, so the new block's work is not held back long.
+func (g *Gateway) DueAt(newBlock bool, height int64) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.state != StateFallback {
 		return true
 	}
-	return !newBlock && g.cfg.Now().Sub(g.lastTry) >= g.cfg.RetryEvery
+	if newBlock {
+		return g.waitHeight > 0 && height >= g.waitHeight
+	}
+	return g.cfg.Now().Sub(g.lastTry) >= g.cfg.RetryEvery
 }
 
-func (g *Gateway) snapshot(ctx context.Context, height int64) (*wire.Snapshot, error) {
+// StaleError is the pool refusing a template as stale, or the gateway not offering it because the
+// pool's snapshot is already past it: the pool mines another block than this BCH2 node's template
+// builds on. Either this node is behind the pool while it catches up with the chain, or the two
+// have different blocks at the same height. It clears once this node's template reaches the height
+// the pool mines (DueAt).
+type StaleError struct {
+	PoolHeight int64  // the height the pool mines; 0 when its answer did not say
+	Height     int64  // the template's
+	Refusal    string // the pool's answer; "" when the gateway saw the pool's height in its snapshot and asked nothing
+}
+
+func (e *StaleError) Error() string {
+	switch {
+	case e.PoolHeight > e.Height:
+		return fmt.Sprintf("this BCH2 node is catching up with the chain: it is at block %d, Forge Pool at %d", e.Height-1, e.PoolHeight-1)
+	case e.PoolHeight == e.Height:
+		return fmt.Sprintf("this BCH2 node and Forge Pool have different blocks at height %d", e.Height-1)
+	}
+	return e.Refusal
+}
+
+// waitFor is the template height from which the pool may take a registration.
+func (e *StaleError) waitFor() int64 {
+	if e.PoolHeight > e.Height {
+		return e.PoolHeight
+	}
+	return e.Height
+}
+
+// refused is the pool's answer refusing a job for a template at height, as an error: a StaleError
+// when the pool refused the template as stale, reading the height it mines from the answer
+// (forge-pool-v2: "stale template: the pool mines height %d on %s").
+func refused(answer string, height int64) error {
+	if !strings.HasPrefix(answer, "stale template") {
+		return errors.New(answer)
+	}
+	e := &StaleError{Height: height, Refusal: answer}
+	var mines int64
+	var on string
+	if n, _ := fmt.Sscanf(answer, "stale template: the pool mines height %d on %s", &mines, &on); n >= 1 && mines > 0 {
+		e.PoolHeight = mines
+	}
+	return e
+}
+
+// snapshot is the pool's TIDES snapshot for a template at height: the one fetched last while it is
+// for that height and fresh, else the pool's newest. asked says it was fetched from the pool now.
+func (g *Gateway) snapshot(ctx context.Context, height int64) (snap *wire.Snapshot, asked bool, err error) {
 	now := g.cfg.Now()
 	g.mu.Lock()
 	cached, at := g.snap, g.snapAt
 	g.mu.Unlock()
 	if cached != nil && cached.Height == height && now.Sub(at) < snapFresh {
-		return cached, nil
+		return cached, false, nil
 	}
 	s, err := g.client.SnapshotCtx(ctx)
 	if err != nil {
 		if cached != nil && now.Sub(at) < snapUsable {
-			return cached, nil
+			return cached, false, nil
 		}
-		return nil, fmt.Errorf("the pool's TIDES snapshot: %w", err)
+		return nil, false, fmt.Errorf("the pool's TIDES snapshot: %w", err)
 	}
 	g.mu.Lock()
 	g.snap, g.snapAt = s, now
 	g.mu.Unlock()
-	return s, nil
+	return s, true, nil
 }
 
 // retryPace is the wait between registration attempts the pool asked to retry: its rate limit
@@ -400,9 +461,14 @@ func (g *Gateway) register(ctx context.Context, t *mining.BlockTemplate, finder 
 			value += tx.Fee
 		}
 	}
-	snap, err := g.snapshot(ctx, t.Height)
+	snap, asked, err := g.snapshot(ctx, t.Height)
 	if err != nil {
 		return nil, err
+	}
+	// The pool mines a higher block than this template's, so it would refuse it as stale: this
+	// node is catching up with the chain. Asking would only spend the pool's rate limit.
+	if asked && snap.Height > t.Height {
+		return nil, &StaleError{PoolHeight: snap.Height, Height: t.Height}
 	}
 	outs, err := wire.Payouts(snap, value, finder)
 	if err != nil {
@@ -455,7 +521,7 @@ func (g *Gateway) register(ctx context.Context, t *mining.BlockTemplate, finder 
 		}
 		if !retryable || !g.cfg.Now().Add(wait).Before(deadline) {
 			if resp != nil && resp.Error != "" {
-				return nil, errors.New(resp.Error)
+				return nil, refused(resp.Error, t.Height)
 			}
 			return nil, err
 		}
@@ -551,14 +617,33 @@ func (g *Gateway) Fallback(err error) {
 	if err != nil {
 		why = briefReason(err)
 	}
-	if g.state != StateFallback {
-		if g.cfg.PoolOnly {
+	// Set at every fall back, never kept from one before: only while this node is not on the
+	// pool's block is a new block worth trying. A pool that timed out must not hold a new
+	// block's work back again.
+	var stale *StaleError
+	wasBehind := g.state == StateFallback && g.waitHeight > 0
+	g.waitHeight = 0
+	if errors.As(err, &stale) {
+		g.waitHeight = stale.waitFor()
+	}
+	behind := g.waitHeight > 0
+	if g.state != StateFallback || behind != wasBehind {
+		switch {
+		case behind && g.cfg.PoolOnly:
+			g.logger.Info("⏳ TIDES: this BCH2 node is not on Forge Pool's block yet; miners are turned away until it is (pool_only)",
+				zap.String("reason", why))
+		case behind:
+			g.logger.Info("⏳ TIDES: this BCH2 node is not on Forge Pool's block yet; mining SOLO until it is (blocks found meanwhile pay your own address in full)",
+				zap.String("reason", why))
+		case g.cfg.PoolOnly:
 			g.logger.Warn("⚠️  TIDES: Forge Pool unavailable — miners are turned away until it is back (pool_only)",
 				zap.String("reason", why))
-		} else {
+		default:
 			g.logger.Warn("⚠️  TIDES: Forge Pool unavailable — mining SOLO until it is back (blocks found meanwhile pay your own address in full)",
 				zap.String("reason", why))
 		}
+	}
+	if g.state != StateFallback {
 		g.since = g.cfg.Now()
 	}
 	g.state, g.reason = StateFallback, why
@@ -826,6 +911,9 @@ type Status struct {
 	Queued          int     `json:"shares_queued"`
 	// NotInWindow: the pool credits this install's shares, but its window holds none of its work.
 	NotInWindow bool `json:"not_in_window,omitempty"`
+	// NodeBehind: fallen back because this BCH2 node is not on the pool's block yet (StaleError),
+	// not because of the pool.
+	NodeBehind bool `json:"node_behind,omitempty"`
 	Counts
 }
 
@@ -835,7 +923,8 @@ func (g *Gateway) Status() Status {
 	defer g.mu.Unlock()
 	now := g.cfg.Now()
 	st := Status{State: g.state, Reason: g.reason, SinceSec: int64(now.Sub(g.since).Seconds()), Pool: g.cfg.PoolURL,
-		Gateway: g.client.ID(), ShareDifficulty: g.shareDiff, LastRegistered: -1, Queued: len(g.queue), Counts: g.counts}
+		Gateway: g.client.ID(), ShareDifficulty: g.shareDiff, LastRegistered: -1, Queued: len(g.queue), Counts: g.counts,
+		NodeBehind: g.state == StateFallback && g.waitHeight > 0}
 	if !g.lastOK.IsZero() {
 		st.LastRegistered = int64(now.Sub(g.lastOK).Seconds())
 	}
