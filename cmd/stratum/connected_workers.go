@@ -1,6 +1,8 @@
 package main
 
 import (
+	"time"
+
 	"github.com/BitcoincashII/forge-solo/internal/stats"
 	"github.com/BitcoincashII/forge-solo/internal/stratum"
 )
@@ -9,25 +11,35 @@ import (
 // now is online, and one with no share yet is listed too, at 0 H/s. "Online" was "a share in the
 // last 5 minutes", so a small miner -- one share every 10 minutes at the lowest difficulty, or
 // none for days -- showed offline most of the time, or not at all, while it worked.
+//
+// A worker connected now is listed with the time its connection began (its earliest, when it has
+// several). One with no share yet was listed as connected in the year 1. A worker not connected
+// keeps the time its first share was counted.
 func withConnectedWorkers(workers []*stats.WorkerStats, connected []stratum.WorkerRef) []*stats.WorkerStats {
 	type key struct{ miner, worker string }
 	listed := make(map[key]bool, len(workers))
-	live := make(map[key]bool, len(connected))
+	since := make(map[key]time.Time, len(connected))
 	for _, c := range connected {
-		live[key{c.MinerID, c.WorkerName}] = true
+		k := key{c.MinerID, c.WorkerName}
+		if at, ok := since[k]; !ok || (!c.ConnectedAt.IsZero() && (at.IsZero() || c.ConnectedAt.Before(at))) {
+			since[k] = c.ConnectedAt
+		}
 	}
 	for _, w := range workers {
 		k := key{w.MinerID, w.WorkerName}
 		listed[k] = true
-		if live[k] {
+		if at, live := since[k]; live {
 			w.Online = true
+			if !at.IsZero() {
+				w.ConnectedAt = at
+			}
 		}
 	}
 	for _, c := range connected {
 		k := key{c.MinerID, c.WorkerName}
 		if !listed[k] {
 			listed[k] = true
-			workers = append(workers, &stats.WorkerStats{MinerID: c.MinerID, WorkerName: c.WorkerName, Online: true})
+			workers = append(workers, &stats.WorkerStats{MinerID: c.MinerID, WorkerName: c.WorkerName, Online: true, ConnectedAt: since[k]})
 		}
 	}
 	return workers

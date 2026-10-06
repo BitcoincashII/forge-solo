@@ -3,6 +3,7 @@ package stratum
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // A worker name is kept to letters, digits and . _ - @ +, so the dashboard shows a label, not a
@@ -50,18 +51,23 @@ func TestWorkerLabelsAreKeptToASafeCharset(t *testing.T) {
 	}
 }
 
-// AuthorizedWorkers names the authorized clients, not the probes or the ones still logging in.
+// AuthorizedWorkers names the authorized clients, not the probes or the ones still logging in, with
+// the time each connected: the dashboard lists a worker with no share yet from it.
 func TestAuthorizedWorkersNamesTheConnectedMiners(t *testing.T) {
 	s := newSoloServer(t, testPayout)
+	at := time.Date(2026, 10, 5, 23, 14, 48, 0, time.UTC)
 	for id, c := range map[string]*Client{
-		"a": {ID: "a", Authorized: true, MinerID: testPayout, WorkerName: "rig1"},
-		"b": {ID: "b", Authorized: false, MinerID: testPayout, WorkerName: "logging-in"},
-		"c": {ID: "c", Authorized: true, MinerID: "probe", WorkerName: "braiinstest"},
+		"a": {ID: "a", Authorized: true, MinerID: testPayout, WorkerName: "rig1", ConnectedAt: at},
+		"b": {ID: "b", Authorized: false, MinerID: testPayout, WorkerName: "logging-in", ConnectedAt: at},
+		"c": {ID: "c", Authorized: true, MinerID: "probe", WorkerName: "braiinstest", ConnectedAt: at},
 	} {
 		s.clients.Store(id, c)
 	}
 	got := s.AuthorizedWorkers()
-	if len(got) != 1 || got[0] != (WorkerRef{testPayout, "rig1"}) {
+	if len(got) != 1 || got[0].MinerID != testPayout || got[0].WorkerName != "rig1" {
 		t.Fatalf("DATA13-AUTHORIZED: %+v", got)
+	}
+	if !got[0].ConnectedAt.Equal(at) {
+		t.Fatalf("DATA13-AUTHORIZED-AT: the worker connected at %v is named with %v", at, got[0].ConnectedAt)
 	}
 }

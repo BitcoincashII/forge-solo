@@ -1715,9 +1715,11 @@ func (s *Server) pruneDepartedLocked(now time.Time) {
 	}
 }
 
-// WorkerRef names a worker: the miner it is credited to and its label.
+// WorkerRef names a worker: the miner it is credited to and its label, and when its connection
+// began.
 type WorkerRef struct {
 	MinerID, WorkerName string
+	ConnectedAt         time.Time
 }
 
 // isProbe reports whether c is a marketplace's health check (isHealthCheck) that has sent no share:
@@ -1762,7 +1764,7 @@ func (s *Server) AuthorizedWorkers() []WorkerRef {
 		}
 		c.mu.RLock()
 		if c.Authorized && c.MinerID != "" && c.MinerID != "probe" && !c.isProbe() {
-			out = append(out, WorkerRef{MinerID: c.MinerID, WorkerName: c.WorkerName})
+			out = append(out, WorkerRef{MinerID: c.MinerID, WorkerName: c.WorkerName, ConnectedAt: c.ConnectedAt})
 		}
 		c.mu.RUnlock()
 		return true

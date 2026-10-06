@@ -1472,6 +1472,7 @@ func getMiner(c *fiber.Ctx) error {
 
 	// The API's times are in UTC on every platform. The stratum stamps a worker's in its own zone
 	// and keeps them so, for the clock reading its online checks rely on: they are converted here.
+	// With no share yet, lastShare is null (apiTime).
 	return c.JSON(fiber.Map{
 		"address":         address,
 		"hashrate5m":      totalHashrate5m,
@@ -1485,7 +1486,7 @@ func getMiner(c *fiber.Ctx) error {
 		"athDiff":         athDiff,
 		"totalWork":       totalWork,
 		"roundEffort":     roundEffort,
-		"lastShare":       lastShare.UTC(),
+		"lastShare":       apiTime(lastShare),
 		"soloMining":      hasSettings && settings.SoloMining,
 		"balance":         matureBalance + immatureBalance,
 		"matureBalance":   matureBalance,
@@ -1545,8 +1546,8 @@ func getMinerWorkers(c *fiber.Ctx) error {
 			"roundBestDiff": w.RoundBestDiff,
 			"athDiff":       w.ATHDiff,
 			"blocksFound":   w.BlocksFound,
-			"lastShare":     w.LastShareAt.UTC(), // in UTC, as in getMiner
-			"connectedAt":   w.ConnectedAt.UTC(),
+			"lastShare":     apiTime(w.LastShareAt), // as in getMiner
+			"connectedAt":   apiTime(w.ConnectedAt),
 		})
 	}
 
@@ -1554,6 +1555,15 @@ func getMinerWorkers(c *fiber.Ctx) error {
 		"workers": result,
 		"total":   total,
 	})
+}
+
+// apiTime is t in UTC, or nil (null in the answer) for no time at all: a worker connected with no
+// share yet has no last share, and Go's zero time read as a share in the year 1.
+func apiTime(t time.Time) interface{} {
+	if t.IsZero() {
+		return nil
+	}
+	return t.UTC()
 }
 
 // maxWorkersListed is the most workers one response lists.
