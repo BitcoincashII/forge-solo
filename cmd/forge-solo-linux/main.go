@@ -519,6 +519,7 @@ func runCmd(args []string) error {
 	// dashboard shows the node's sync progress.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	go sayPayoutAddress(ctx, "http://127.0.0.1:"+apiPort)
 	nodeUp := make(chan struct{})
 	go func() {
 		for ctx.Err() == nil {
@@ -602,7 +603,6 @@ func banner(w io.Writer, web, dataDir string, password, rentals bool) {
 		fmt.Fprintf(w, "  Password:   user forge, DASHBOARD_PASSWORD in %s\n", filepath.Join(dataDir, "secrets.env"))
 	}
 	fmt.Fprintf(w, "  Settings:   saving a change asks for DASHBOARD_PASSWORD in %s\n", filepath.Join(dataDir, "secrets.env"))
-	fmt.Fprintln(w, "  Set your BCH2 payout address in the dashboard's Settings: mining waits for it.")
 	fmt.Fprintln(w)
 }
 
