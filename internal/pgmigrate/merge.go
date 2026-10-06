@@ -35,6 +35,7 @@ type MergeReport struct {
 	PoolConfig    string             `json:"pool_config"`    // the side the pool settings came from
 	DatumIdentity string             `json:"datum_identity"` // the side the TIDES key came from
 	Shares        int64              `json:"shares"`
+	BestShares    int64              `json:"best_shares"` // the workers' all-time best shares
 }
 
 // The two sides, as the report names them.
@@ -541,7 +542,11 @@ func merge(ctx context.Context, s Queryer, t *sql.DB) (*mergePlan, error) {
 	}
 
 	// shares: forgesolo.db's, as they are. PostgreSQL's are never copied.
-	if mp.report.Shares, err = carryShares(ctx, s, tx); err != nil {
+	if mp.report.Shares, err = carryRows(ctx, s, tx, "shares", "id"); err != nil {
+		return nil, err
+	}
+	// best_shares: forgesolo.db's, as they are. 1.0.12 kept none.
+	if mp.report.BestShares, err = carryRows(ctx, s, tx, "best_shares", "miner_address, worker_name"); err != nil {
 		return nil, err
 	}
 
@@ -551,13 +556,14 @@ func merge(ctx context.Context, s Queryer, t *sql.DB) (*mergePlan, error) {
 	return mp, nil
 }
 
-// carryShares copies forgesolo.db's shares rows into the new database verbatim, ids and all.
-func carryShares(ctx context.Context, s Queryer, tx *sql.Tx) (int64, error) {
-	theirs, err := tableColumns(ctx, s, "shares")
+// carryRows copies forgesolo.db's rows of table into the new database verbatim, ids and all, in
+// the order given. A time is copied as the text it is stored as.
+func carryRows(ctx context.Context, s Queryer, tx *sql.Tx, table, order string) (int64, error) {
+	theirs, err := tableColumns(ctx, s, table)
 	if err != nil {
 		return 0, newErr(CodeOther, "forgesolo.db could not be read", err)
 	}
-	ours, err := tableColumns(ctx, tx, "shares")
+	ours, err := tableColumns(ctx, tx, table)
 	if err != nil {
 		return 0, newErr(CodeWrite, "the new database could not be read", err)
 	}
@@ -577,11 +583,11 @@ func carryShares(ctx context.Context, s Queryer, tx *sql.Tx) (int64, error) {
 	sel := make([]string, len(cols))
 	for i, c := range cols {
 		sel[i] = c
-		if c == "created_at" {
-			sel[i] = "CAST(created_at AS TEXT)"
+		if strings.HasSuffix(c, "_at") {
+			sel[i] = "CAST(" + c + " AS TEXT)"
 		}
 	}
-	rows, err := s.QueryContext(ctx, `SELECT `+strings.Join(sel, ", ")+` FROM shares ORDER BY id`)
+	rows, err := s.QueryContext(ctx, `SELECT `+strings.Join(sel, ", ")+` FROM `+table+` ORDER BY `+order)
 	if err != nil {
 		return 0, newErr(CodeOther, "forgesolo.db could not be read", err)
 	}
@@ -603,7 +609,7 @@ func carryShares(ctx context.Context, s Queryer, tx *sql.Tx) (int64, error) {
 		return 0, newErr(CodeOther, "forgesolo.db could not be read", err)
 	}
 	for _, r := range all {
-		if err := insertRow(ctx, tx, "shares", cols, r); err != nil {
+		if err := insertRow(ctx, tx, table, cols, r); err != nil {
 			return 0, newErr(CodeWrite, "the new database could not be written", err)
 		}
 	}

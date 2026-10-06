@@ -738,7 +738,8 @@ const itMinerA = "bitcoincashii:qzs6rgdp5xs6rgdp5xs6rgdp5xs6rgdp5yc72xjxq2"
 //   - IT_ACTION=later: the per-height cases of a later merge. 1175 block 5002, still pending and
 //     undistributed in the old database, is distributed, confirmed and settled here; and BCH2
 //     block 100149, pending there, is replaced at its height by another hash (IT_HASH), as the
-//     stratum records a block that superseded another;
+//     stratum records a block that superseded another. And a best share of 5.5e9 for miner A's
+//     worker s19, as the stratum keeps one;
 //   - IT_ACTION=hold: the database open for IT_HOLD seconds, as the api and the stratum hold it.
 func TestITWrite(t *testing.T) {
 	db := itEnv(t, "IT_DB")
@@ -775,6 +776,14 @@ func TestITWrite(t *testing.T) {
 		}
 		if err := stats.SaveSoloBlockCoinbaseDirect(itMinerA, 100149, 3.125, itEnv(t, "IT_HASH")); err != nil {
 			t.Fatalf("IT-WRITE-REORG: %v", err)
+		}
+		m := stats.GetManager()
+		if _, err := m.LoadBestShares(); err != nil {
+			t.Fatalf("IT-WRITE-BEST: %v", err)
+		}
+		m.UpdateWorker(itMinerA, "s19", true, 1000, 5.5e9)
+		if err := m.WriteBestShares(); err != nil {
+			t.Fatalf("IT-WRITE-BEST: %v", err)
 		}
 	case "hold":
 		s, err := strconv.Atoi(itEnv(t, "IT_HOLD"))

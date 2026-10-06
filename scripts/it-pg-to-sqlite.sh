@@ -20,7 +20,7 @@
 #    8. the databases of 1.0.0 and 1.0.9 (testdata/migrate) move with no figure changed
 #    9. back to 1.0.12: it opens its data with the figures it had
 #   10. forward again, twice: a merge, both periods kept, the newer payout address, one
-#       before-merge copy
+#       before-merge copy, the workers' best shares 1.0.13 kept
 #   11. per height: a 1175 block distributed and paid in 1.0.13 but not in 1.0.12, after which the
 #       stratum's sweep never refuses to redistribute; a block that replaced another at its height
 #   12. an update while 1.0.12's database runs: it shuts down before the move starts
@@ -586,7 +586,7 @@ fi
 if want 9 || want 10 || want 11; then
   echo "── 11: what 1.0.13 records at heights 1.0.12 has too"
   dc main new stop -t 30 >/dev/null 2>&1 || true
-  check "11: 1175 block 5002 distributed and paid, and block 100149 replaced, in 1.0.13" \
+  check "11: 1175 block 5002 distributed and paid, block 100149 replaced and a best share kept, in 1.0.13" \
     itapp main TestITWrite IT_ACTION=later IT_HASH="$HASH_B"
   figures_back() { ithost TestITFigures IT_PG="$(dsn main)" IT_OUT="$OUT/main.figures.back" && figures_equal "$OUT/main.figures.before" "$OUT/main.figures.back"; }
   for cycle in 1 2; do
@@ -612,7 +612,12 @@ if want 9 || want 10 || want 11; then
     check "10: blocks of both periods are there ($cycle)" equal "$(heights main 99000 100000 100150 100201 100202 100300)" "$expect"
     check "10: the payout address set later, in 1.0.12, is in effect ($cycle)" query_is main "SELECT pool_address FROM pool_config" "$MINER_D"
     check "10: one before-merge copy is kept ($cycle)" equal "$(asroot "ls $(db main) | grep -c '^forgesolo.db.before-merge-'")" 1
+    check "10: the best share kept in 1.0.13 is kept ($cycle)" query_is main \
+      "SELECT worker_name || '=' || CAST(difficulty AS INTEGER) FROM best_shares WHERE miner_address = '$MINER_A'" "s19=5500000000"
   done
+  # The stratum reads it at its start, and the api gives it as the miner's best with no worker back.
+  best_shown() { curl -fsS "$(api main)/api/v1/miners/$MINER_A" | has '"athDiff":5500000000[,}]'; }
+  check "10: the miner's best share is the one kept in 1.0.13" wait_for "the kept best share" 120 best_shown
   shown() { wait_app main && curl -fsS "$(api main)/api/v1/miners/$MINER_A/solo-blocks" | has "$HASH_B"; }
   check "11: the block that replaced 100149 in 1.0.13 is the one shown" shown
   check "11: 1175 block 5002 is 1.0.13's, whole: distributed, confirmed, its credit paid" \
