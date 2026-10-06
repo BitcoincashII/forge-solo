@@ -1746,24 +1746,7 @@ func main() {
 
 	// Start Braiins-compatible stratum server (8-byte extranonce2)
 	if config.GetBool("stratum_rental.enabled") {
-		rentalConfig := &stratum.ServerConfig{
-			Host:                config.GetString("stratum_rental.host"),
-			Port:                config.GetInt("stratum_rental.port"),
-			MaxConnections:      config.GetInt("stratum_rental.max_connections"),
-			MaxConnectionsPerIP: perIPLimit(config, "stratum_rental.max_connections_per_ip", config.GetInt("stratum_rental.max_connections")),
-			MaxSharesPerSecond:  config.GetInt("stratum_rental.max_shares_per_second"),
-			VardiffEnabled:      config.GetBool("stratum_rental.vardiff.enabled"),
-			MinDiff:             config.GetFloat64("stratum_rental.vardiff.min_diff"),
-			MaxDiff:             config.GetFloat64("stratum_rental.vardiff.max_diff"),
-			TargetShareTime:     config.GetInt("stratum_rental.vardiff.target_time"),
-			RetargetTime:        config.GetInt("stratum_rental.vardiff.retarget_time"),
-			ExtraNonce1Size:     config.GetInt("stratum_rental.extranonce1_size"),
-			ExtraNonce2Size:     config.GetInt("stratum_rental.extranonce2_size"),
-			ServerName:          "rental",
-			IsRentalPort:        true,
-			SoloOnly:            config.GetString("pool.payout_scheme") == "solo",
-			CreditPayoutAddress: config.GetString("pool.payout_scheme") == "solo",
-		}
+		rentalConfig := rentalServerConfig(config)
 		if got := rentalConfig.ExtraNonce1Size + rentalConfig.ExtraNonce2Size; got != mining.CoinbaseExtranonceReserve {
 			logger.Fatal("stratum_rental extranonce1_size + extranonce2_size must equal the coinbase reserve, else assembled blocks are malformed and rejected",
 				zap.Int("extranonce1_size", rentalConfig.ExtraNonce1Size),
