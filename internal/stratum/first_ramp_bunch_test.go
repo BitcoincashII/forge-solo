@@ -3,6 +3,7 @@ package stratum
 import (
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"strings"
 	"testing"
@@ -100,6 +101,89 @@ func TestFirstRampIsBoundedByTheTimeSinceTheFirstJob(t *testing.T) {
 		if got := ramp(noJob); got > 1.1*want {
 			t.Errorf("RAMP-BUNCHED-NO-JOB: %s: shares read together on a connection sent no job set the difficulty to %.4g, %.2fx the miner's level %.4g",
 				k.name, got, got/want, want)
+		}
+	}
+}
+
+// A rental of about 1 PH/s at the rental port's floor sends a share every 2 seconds. Where its
+// first minute or two of shares arrive together, they are still within VardiffSampleTime when the
+// record has dropped its first share and firstRamp no longer checks the step against the time
+// since the first job; measured over that time, they set such a rental 2.5 times its level. It
+// leaves its floor in one step to its level. The shares read together still count among its latest
+// ones for a while after that step, so it can be raised once more, as before, but not far.
+func TestFirstRampOfARentalWhoseFirstSharesArriveTogether(t *testing.T) {
+	s := rentalPortServer()
+	const hashrate = 1e15
+	floor, want := s.config.AbsoluteMinDiff, level(s, hashrate)
+	for _, bunch := range []int{VardiffMinShares, VardiffSampleShares, 2 * VardiffSampleShares} {
+		c := rampingClient(t, s, time.Now().Add(-time.Hour))
+		at := func(sec float64) time.Time { return c.firstJobAt.Add(time.Duration(sec * float64(time.Second))) }
+		difficulty := func() float64 {
+			c.mu.RLock()
+			defer c.mu.RUnlock()
+			return c.Difficulty
+		}
+		read := func(sec, foundAt float64) {
+			c.mu.Lock()
+			n := c.addShareSample(at(sec), foundAt)
+			c.mu.Unlock()
+			if n >= VardiffMinShares {
+				s.adjustVardiffAt(c, at(sec))
+			}
+		}
+		// The miner hashes from its first job and finds a share each time its work reaches the
+		// difficulty of the job it works on; a job goes out every 10 s. Its first `bunch` shares, and
+		// every one found until 200 ms after the last of them, are read together.
+		var held []float64
+		holding, heldUntil := true, math.Inf(1)
+		jobDiff, nextJob, work, sec := floor, 10.0, 0.0, 0.0
+		left, first, high := math.Inf(1), 0.0, 0.0
+		for sec < 900 {
+			next := nextJob
+			if holding && heldUntil < next {
+				next = heldUntil
+			}
+			if found := sec + math.Max(0, jobDiff*(1<<32)-work)/hashrate; found < next {
+				sec, work = found, 0
+				if holding {
+					if held = append(held, jobDiff); len(held) == bunch {
+						heldUntil = sec + 0.2
+					}
+				} else {
+					read(sec, jobDiff)
+				}
+			} else {
+				work += (next - sec) * hashrate
+				sec = next
+				if holding && sec == heldUntil {
+					for i, d := range held {
+						read(sec+float64(i)*10e-6, d)
+					}
+					holding = false
+				}
+				if sec == nextJob {
+					jobDiff, nextJob = difficulty(), nextJob+10
+				}
+			}
+			if d := difficulty(); d != floor && math.IsInf(left, 1) {
+				left, first = sec, d
+			}
+			if !math.IsInf(left, 1) {
+				high = math.Max(high, difficulty())
+			}
+		}
+		name := fmt.Sprintf("1 PH/s at the rental floor, its first %d shares read together", bunch)
+		if math.IsInf(left, 1) || left > 300 {
+			t.Errorf("RAMP-BUNCHED-RENTAL-LEAVES: %s: still at its floor %.4g after %.0f s, its level is %.4g", name, floor, math.Min(left, sec), want)
+			continue
+		}
+		if first > 1.1*want {
+			t.Errorf("RAMP-BUNCHED-RENTAL-STEP: %s: its first step, %.0f s after its first job, set %.4g, %.2fx its level %.4g",
+				name, left, first, first/want, want)
+		}
+		if high > 1.5*want {
+			t.Errorf("RAMP-BUNCHED-RENTAL-AFTER: %s: set as high as %.4g, %.2fx its level %.4g, in its first 15 minutes",
+				name, high, high/want, want)
 		}
 	}
 }

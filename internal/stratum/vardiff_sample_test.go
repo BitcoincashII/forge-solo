@@ -15,7 +15,8 @@ import (
 )
 
 // measuredShareTime counts each share as the work it was found against, in shares at the current
-// difficulty, over the latest VardiffSampleShares shares.
+// difficulty, over the shares of the last VardiffSampleTime or the latest VardiffSampleShares,
+// whichever are more.
 func TestMeasuredShareTime(t *testing.T) {
 	base := time.Unix(1_790_000_000, 0)
 	// samples: one share at base, then one per (seconds, found-against) step.
@@ -36,6 +37,14 @@ func TestMeasuredShareTime(t *testing.T) {
 		return out
 	}
 	long := append(repeat(10, [2]float64{1000, 8}), repeat(VardiffSampleShares, [2]float64{5, 8})...)
+	// 40 shares 2 s apart, then 30 shares 6 s apart: the latest 30 span 174 s, and VardiffSampleTime
+	// reaches 31 more of the earlier ones (240 s over 60 shares).
+	recent := append(repeat(40, [2]float64{2, 8}), repeat(VardiffSampleShares, [2]float64{6, 8})...)
+	// The same, the earlier ones found below half the current difficulty, on the climb to it.
+	climb := append(repeat(40, [2]float64{2, 3}), repeat(VardiffSampleShares, [2]float64{6, 8})...)
+	// 10 shares 39 s apart, then 19 shares 10 s apart: VardiffSampleTime holds 21 of them, and the
+	// latest 30 span 580 s.
+	slow := append(repeat(10, [2]float64{39, 8}), repeat(19, [2]float64{10, 8})...)
 	cases := []struct {
 		name    string
 		samples []shareSample
@@ -48,14 +57,21 @@ func TestMeasuredShareTime(t *testing.T) {
 		{"found at twice the current difficulty", samples(repeat(9, [2]float64{10, 16})...), 8, 5},
 		{"before and after a raise", samples([2]float64{2, 4}, [2]float64{2, 4}, [2]float64{4, 8}, [2]float64{4, 8}), 8, 4},
 		{"only the latest VardiffSampleShares count", samples(long...), 8, 5},
+		{"every share of the last VardiffSampleTime counts", samples(recent...), 8, 4},
+		{"the time window stops at a share found on the climb", samples(climb...), 8, 6},
+		{"fewer than VardiffSampleShares in VardiffSampleTime: the latest VardiffSampleShares count", samples(slow...), 8, 20},
 		{"one share: nothing to measure", samples(), 8, 0},
 		{"no time between them", samples(repeat(9, [2]float64{0, 8})...), 8, 0},
 		{"no current difficulty", samples(repeat(9, [2]float64{5, 8})...), 0, 0},
 	}
 	for _, k := range cases {
-		if got := measuredShareTime(k.samples, k.current); math.Abs(got-k.want) > 1e-9 {
+		if got := measuredShareTime(k.samples, k.current, VardiffSampleTime); math.Abs(got-k.want) > 1e-9 {
 			t.Errorf("SHARE-TIME: %s: %g s, want %g s", k.name, got, k.want)
 		}
+	}
+	// No window: the latest VardiffSampleShares alone.
+	if got := measuredShareTime(samples(recent...), 8, 0); math.Abs(got-6) > 1e-9 {
+		t.Errorf("SHARE-TIME-LATEST: with no window, %g s, want 6 s, the latest %d shares alone", got, VardiffSampleShares)
 	}
 }
 
@@ -266,6 +282,95 @@ func TestVardiffFollowsAHashrateDrop(t *testing.T) {
 	t.Logf("a fall to a fifth of the hashrate: typically near the new level in %.0f s", median(took))
 	if median(took) > 120*tt {
 		t.Errorf("DROP-TYPICAL: typically %.0f s to follow a fall to a fifth of the hashrate", median(took))
+	}
+}
+
+// A steady miner on the main port changes difficulty a few times an hour, not every few minutes,
+// whether it took its first step off the floor or resumed a remembered level. Over its latest 30
+// shares alone, two and a half minutes at the main port's target_time, luck took a steady miner
+// over the edge of the variance window about 20 times an hour, and to 1.65x its level.
+func TestVardiffHoldsASteadyMainPortMinerNearItsLevel(t *testing.T) {
+	s := mainPortServer()
+	hashrate := 100e12
+	lvl := level(s, hashrate)
+	for _, k := range []struct {
+		name string
+		run  func(seed int64) []diffChange
+	}{
+		{"after its first step", func(seed int64) []diffChange {
+			return simulateVardiff(t, s, seed, lvl, func(float64) float64 { return hashrate }, 3900)
+		}},
+		{"resumed at its level", func(seed int64) []diffChange {
+			m := newRampMiner(t, s, seed)
+			m.resume(lvl)
+			m.mine(hashrate, 3900)
+			return m.changes
+		}},
+	} {
+		var lows, highs, perHour []float64
+		for seed := int64(1); seed <= 20; seed++ {
+			changes := k.run(seed)
+			low, high, n := math.Inf(1), 0.0, 0
+			for sec := 300.0; sec < 3900; sec++ {
+				d := diffAt(changes, sec) / lvl
+				low, high = math.Min(low, d), math.Max(high, d)
+			}
+			for _, ch := range changes {
+				if ch.sec >= 300 {
+					n++
+				}
+			}
+			lows, highs, perHour = append(lows, low), append(highs, high), append(perHour, float64(n))
+		}
+		t.Logf("%s, over 20 simulated hours: typical range %.2fx to %.2fx of the level, %.0f changes an hour",
+			k.name, median(lows), median(highs), median(perHour))
+		if median(perHour) > 12 {
+			t.Errorf("STEADY-MAIN-CHANGES: a steady miner on the main port, %s, typically changed difficulty %.0f times an hour",
+				k.name, median(perHour))
+		}
+		if median(lows) < 0.7 || median(highs) > 1.45 {
+			t.Errorf("STEADY-MAIN-RANGE: a steady miner on the main port, %s, typically ranged %.2fx to %.2fx of its level",
+				k.name, median(lows), median(highs))
+		}
+	}
+}
+
+// The longer sample still follows a real change within a few minutes: a miner on the main port
+// whose hashrate halves or doubles is near its new level within about four minutes, and within ten
+// whatever its luck.
+func TestVardiffFollowsAHalvingAndADoublingOnTheMainPort(t *testing.T) {
+	s := mainPortServer()
+	const before, at = 100e12, 1800.0
+	for _, k := range []struct {
+		name   string
+		factor float64
+	}{{"halves", 0.5}, {"doubles", 2}} {
+		after := before * k.factor
+		var took []float64
+		for seed := int64(1); seed <= 40; seed++ {
+			changes := simulateVardiff(t, s, seed, level(s, before), func(sec float64) float64 {
+				if sec < at {
+					return before
+				}
+				return after
+			}, at+900)
+			near := math.Inf(1)
+			for sec := at; sec < at+900; sec++ {
+				if r := diffAt(changes, sec) / level(s, after); r >= 1/1.3 && r <= 1.3 {
+					near = sec - at
+					break
+				}
+			}
+			took = append(took, near)
+			if near > 600 {
+				t.Errorf("FOLLOW-MAIN-SETTLES: seed %d: %.0f s after the miner's hashrate %s, its difficulty was not yet near its new level",
+					seed, near, k.name)
+			}
+		}
+		t.Logf("hashrate %s: typically near the new level in %.0f s", k.name, median(took))
+		if median(took) > 240 {
+			t.Errorf("FOLLOW-MAIN-TYPICAL: typically %.0f s to follow a miner whose hashrate %s", median(took), k.name)
+		}
 	}
 }
 

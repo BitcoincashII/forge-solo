@@ -41,9 +41,13 @@ const (
 	// VardiffMinShares is the minimum shares needed before vardiff adjusts
 	VardiffMinShares = 10
 
-	// VardiffSampleShares is how many of a miner's latest shares vardiff measures its rate over
-	// (all of them while it has fewer). See measuredShareTime.
+	// VardiffSampleShares is how many of a miner's latest shares vardiff measures its rate over at
+	// the least (all of them while it has fewer). See measuredShareTime.
 	VardiffSampleShares = 30
+
+	// VardiffSampleTime is how far back vardiff measures a miner's rate where that holds more than
+	// VardiffSampleShares shares (up to the maxShareSamples on record). See measuredShareTime.
+	VardiffSampleTime = 240 * time.Second
 
 	// RecentSubmissionsWindow is the number of submissions to track for rejection rate
 	RecentSubmissionsWindow = 50
@@ -2752,22 +2756,41 @@ func (c *Client) addShareSample(at time.Time, diff float64) int {
 }
 
 // measuredShareTime is how long the miner takes to find a share at difficulty current, in
-// seconds, measured over its latest VardiffSampleShares shares (all of them while it has fewer):
-// the time they span, over the work found after the first, counted in shares at current. It is 0
-// where that cannot be measured.
+// seconds, measured over its shares of the last window, or its latest VardiffSampleShares where
+// those are more (all of them while it has fewer): the time they span, over the work found after
+// the first, counted in shares at current. It is 0 where that cannot be measured.
 //
 // Each share counts as the work it was found against. Counted as one share at the current
 // difficulty, the shares from before a change made the rate they were found at look like the
 // rate at the new difficulty: vardiff raised again after a raise and cut again after a cut, and a
-// steady miner swung between a fraction and several times its level. Thirty shares rather than
-// ten keep ordinary luck from moving it. The cost: a miner whose hashrate falls takes a few
-// minutes longer to reach its new level, its shares meanwhile slower, not refused.
-func measuredShareTime(samples []shareSample, current float64) float64 {
+// steady miner swung between a fraction and several times its level.
+//
+// adjustVardiffAt gives VardiffSampleTime as the window, or 0 while firstRamp may still lift the
+// connection off its floor (see there). At the main port's target_time a miner sends 30 shares in
+// under three minutes, and judged again at every share, luck alone took its difficulty over the
+// edge of the variance window several times an hour; VardiffSampleTime holds more of its shares.
+// A miner that sends fewer in that time, as a rental at the rental port's target_time does, is
+// measured over its latest VardiffSampleShares as before. The window stops at a share found below
+// half the current difficulty: that one belongs to the climb to this difficulty, not to the rate
+// now. The cost: a miner whose hashrate rises takes longer to reach its new level, its shares
+// meanwhile faster, never refused.
+func measuredShareTime(samples []shareSample, current float64, window time.Duration) float64 {
 	if current <= 0 {
 		return 0
 	}
-	if len(samples) > VardiffSampleShares {
-		samples = samples[len(samples)-VardiffSampleShares:]
+	n := VardiffSampleShares
+	if len(samples) > 0 {
+		last, k := samples[len(samples)-1].at, 0
+		for i := len(samples) - 1; i >= 0 && last.Sub(samples[i].at) <= window; i-- {
+			if d := samples[i].diff; d > 0 && d < current/2 {
+				break
+			}
+			k++
+		}
+		n = max(n, k)
+	}
+	if len(samples) > n {
+		samples = samples[len(samples)-n:]
 	}
 	if len(samples) < 2 {
 		return 0
@@ -2830,7 +2853,18 @@ func (s *Server) adjustVardiffAt(client *Client, now time.Time) {
 		client.mu.Unlock()
 		return
 	}
-	avgTime := measuredShareTime(client.ShareSamples, client.Difficulty)
+	// Use appropriate assignment floor based on client type (rental vs regular).
+	// vardiffFloor is lock-free, so it is safe to call with client.mu held.
+	minDiff := s.vardiffFloor(client.RentalService != RentalNone)
+	// A connection that firstRamp may still lift off its floor is measured over its latest shares
+	// alone. Once the record has dropped its first share, firstRamp's step is no longer checked
+	// against the time since the first job, and rests on the latest shares having come after any
+	// that were read together; the last VardiffSampleTime can still hold those.
+	window := VardiffSampleTime
+	if !client.FirstRampDone && client.Difficulty <= minDiff {
+		window = 0
+	}
+	avgTime := measuredShareTime(client.ShareSamples, client.Difficulty, window)
 	if avgTime <= 0 {
 		client.mu.Unlock()
 		return
@@ -2885,10 +2919,6 @@ func (s *Server) adjustVardiffAt(client *Client, now time.Time) {
 	} else if ratio < 1.0/MaxDifficultyMultiplier {
 		ratio = 1.0 / MaxDifficultyMultiplier
 	}
-
-	// Use appropriate assignment floor based on client type (rental vs regular).
-	// vardiffFloor is lock-free, so it is safe to call with client.mu held.
-	minDiff := s.vardiffFloor(client.RentalService != RentalNone)
 
 	// firstRamp: let a connection that starts at the floor and immediately proves it is
 	// far bigger take the whole measured ratio in ONE step, instead of crawling up at
