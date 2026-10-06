@@ -1631,7 +1631,11 @@ func getPoolConfig(c *fiber.Ctx) error {
 	if err != nil {
 		return settingsUnreadable(c, err)
 	}
-	if payout1175 == "" {
+	if !mergeMiningAvailable() {
+		// No 1175 node here: a 1175 address a database brought from Umbrel or Windows holds is not
+		// this install's setting, and Settings has no box for it.
+		payout1175 = ""
+	} else if payout1175 == "" {
 		// Validated, like the POOL_ADDRESS fallback beside it. Unvalidated, one typo in the
 		// Umbrel app config pre-filled the form with a bad address and then 400'd EVERY
 		// save -- including the save that sets the BCH2 address and un-pauses mining.
@@ -1736,7 +1740,7 @@ func savePoolConfig(c *fiber.Ctx) error {
 	// Load current DB values so a partial save (e.g. only the coinbase tag) preserves the rest.
 	// Only the BCH2 address and the minimum are carried forward on a partial save; the two
 	// optional fields are cleared by a blank, see below.
-	curPool, _, _, err := stats.GetPoolConfig()
+	curPool, cur1175, _, err := stats.GetPoolConfig()
 	if err != nil {
 		return settingsUnreadable(c, err)
 	}
@@ -1763,7 +1767,16 @@ func savePoolConfig(c *fiber.Ctx) error {
 	// the current value, answered "Settings saved", and the old address sprang straight back
 	// into the field, so a user who no longer controlled that address had no path at all.
 	payout1175 := strings.TrimSpace(input.PayoutAddress1175)
-	if payout1175 != "" && !isValid1175Address(payout1175) {
+	if !mergeMiningAvailable() {
+		// No 1175 node here (Forge Solo for Linux): a 1175 address would switch nothing on, so one
+		// is refused. Without one, what is stored stays: a database brought from Umbrel or Windows
+		// keeps its address for going back there. Sending the stored one back changes nothing, as a
+		// Settings page opened before the update does.
+		if payout1175 != "" && payout1175 != cur1175 {
+			return c.Status(400).JSON(fiber.Map{"success": false, "error": "This install runs no 1175 node, so it cannot merge-mine 1175: leave the 1175 (ESF) address out"})
+		}
+		payout1175 = cur1175
+	} else if payout1175 != "" && !isValid1175Address(payout1175) {
 		return c.Status(400).JSON(fiber.Map{"success": false, "error": "Invalid 1175 (ESF) address: it must be a valid esf1… address"})
 	}
 

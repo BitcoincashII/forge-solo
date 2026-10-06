@@ -722,13 +722,23 @@ func setAux1175Node(cfg *viper.Viper) {
 	aux1175Pass = cfg.GetString("mergemining.aux_node.pass")
 }
 
+// has1175Node reports whether this install runs a 1175 node: mergemining.enabled, with the node's
+// host and port. Forge Solo for Linux has none. Without one, merge-mining never comes on and the
+// 1175 payout processor never runs, whatever 1175 address the settings hold (a database brought
+// from Umbrel or Windows can hold one), so the 1175 records stay as they are.
+func has1175Node(cfg *viper.Viper) bool {
+	return cfg.GetBool("mergemining.enabled") &&
+		strings.TrimSpace(cfg.GetString("mergemining.aux_node.host")) != "" &&
+		cfg.GetInt("mergemining.aux_node.port") > 0
+}
+
 // start1175Ledger starts the 1175 payout processor when the install has a 1175 node and the
 // database is up. It judges the 1175 blocks already recorded and mines nothing, so it runs in
 // TIDES mode and without a 1175 address too: blocks found before a switch to TIDES, or before
 // the address was cleared, still mature, and an orphaned one is still marked. Forge Solo for
-// Linux has no 1175 node (mergemining.enabled is off) and starts nothing.
+// Linux has no 1175 node and starts nothing.
 func start1175Ledger(cfg *viper.Viper) {
-	if !cfg.GetBool("mergemining.enabled") {
+	if !has1175Node(cfg) {
 		return
 	}
 	setAux1175Node(cfg)
@@ -1260,6 +1270,8 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 	// what actually took effect. Only a transition from a non-empty DB value to an empty
 	// one is a user clearing the field.
 	var lastDB1175 string
+	// Without a 1175 node a 1175 address in the settings switches nothing on.
+	node1175 := has1175Node(cfg)
 	// lastMode is the payout mode in effect, seeded from what main() applied.
 	lastMode := currentPayoutMode()
 	// Seed with the values that were actually APPLIED at startup, so we only act on real
@@ -1396,7 +1408,7 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 			last1175 = ""
 		}
 		lastDB1175 = p1175
-		if p1175 != last1175 && p1175 != "" && currentPayoutMode() == stats.PayoutModeSolo {
+		if p1175 != last1175 && p1175 != "" && currentPayoutMode() == stats.PayoutModeSolo && node1175 {
 			if !merge1175Enabled {
 				ac := enableMergeMining1175(cfg, p1175)
 				if stratumServer != nil {
@@ -1670,15 +1682,19 @@ func main() {
 	}
 	// In TIDES mode the 1175 address changes nothing, so the warning that it is missing is for solo
 	// only. TIDES said "set it in the dashboard", which would not turn 1175 on.
-	if config.GetBool("mergemining.enabled") && startMode == stats.PayoutModeTides {
+	node1175 := has1175Node(config)
+	if node1175 && startMode == stats.PayoutModeTides {
 		logger.Info("💠 1175 merge-mining stays OFF while TIDES mode is on: TIDES mines BCH2 only. " +
 			"In solo it needs your 1175 (esf1…) address, set in the dashboard")
 	}
-	if config.GetBool("mergemining.enabled") && effective1175Payout == "" && startMode != stats.PayoutModeTides {
+	if node1175 && effective1175Payout == "" && startMode != stats.PayoutModeTides {
 		logger.Warn("⚠️  Merge mining is enabled but PAYOUT_ADDRESS_1175 (your esf1… address) is not set — 1175 merge-mining is OFF until you set it in the dashboard. BCH2 mining continues normally.")
 	}
-	if config.GetBool("mergemining.enabled") && effective1175Payout != "" && startMode != stats.PayoutModeTides {
+	if node1175 && effective1175Payout != "" && startMode != stats.PayoutModeTides {
 		auxClient = enableMergeMining1175(config, effective1175Payout)
+	}
+	if !node1175 && effective1175Payout != "" {
+		logger.Info("This install runs no 1175 node: the 1175 address in the settings is not used, and the 1175 records are left as they are")
 	}
 
 	shareProcessor := &BlockFindingShareProcessor{logger: logger}
