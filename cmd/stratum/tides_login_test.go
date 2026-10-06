@@ -115,18 +115,21 @@ func TestALoginOnAnUndercommittedTIDESJobAsksForANewJobAtOnce(t *testing.T) {
 
 // Both stratum ports run the check at each login, and the job loop takes its request.
 func TestTheLoginCheckIsWired(t *testing.T) {
-	raw, err := os.ReadFile("main.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	src := string(raw)
-	for _, want := range []string{
-		"stratumServer.SetLoginHandler(tidesLoginCheck)",
-		"stratumRentalServer.SetLoginHandler(tidesLoginCheck)",
-		"needPeriodicUpdate := periodicJobDue(lastJobTime, time.Now())",
+	for file, wants := range map[string][]string{
+		"main.go": {
+			"stratumServer.SetLoginHandler(tidesLoginCheck)",
+			"stratumRentalServer.SetLoginHandler(tidesLoginCheck)",
+		},
+		"job_loop.go": {"needPeriodicUpdate := periodicJobDue(l.lastJobTime, l.now())"},
 	} {
-		if !strings.Contains(src, want) {
-			t.Errorf("TIDES-LOGIN-WIRED: main.go no longer has %q", want)
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range wants {
+			if !strings.Contains(string(raw), want) {
+				t.Errorf("TIDES-LOGIN-WIRED: %s no longer has %q", file, want)
+			}
 		}
 	}
 }
