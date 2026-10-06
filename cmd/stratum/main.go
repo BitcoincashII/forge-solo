@@ -2519,17 +2519,8 @@ func internalAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 // HTTP server for stats
 func startStatsServer() {
 	http.HandleFunc("/internal/workers", internalAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		var connected []stratum.WorkerRef
-		for _, srv := range []*stratum.Server{stratumServer, stratumRentalServer} {
-			if srv != nil {
-				connected = append(connected, srv.AuthorizedWorkers()...)
-			}
-		}
-		workers := withConnectedWorkers(stats.GetManager().GetAllWorkerStats(), connected)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"workers": workers,
-		})
+		json.NewEncoder(w).Encode(internalWorkers())
 	}))
 	http.HandleFunc("/internal/stats", internalAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		poolStats := stats.GetManager().GetPoolStats()

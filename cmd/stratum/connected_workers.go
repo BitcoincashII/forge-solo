@@ -7,6 +7,22 @@ import (
 	"github.com/BitcoincashII/forge-solo/internal/stratum"
 )
 
+// internalWorkers is the answer of /internal/workers: the workers the dashboard lists, and each
+// miner's all-time best share (miner_ath_diff), which outlives the workers listed: one not seen
+// since the last restart, or for a day, is not listed.
+func internalWorkers() map[string]interface{} {
+	var connected []stratum.WorkerRef
+	for _, srv := range []*stratum.Server{stratumServer, stratumRentalServer} {
+		if srv != nil {
+			connected = append(connected, srv.AuthorizedWorkers()...)
+		}
+	}
+	return map[string]interface{}{
+		"workers":        withConnectedWorkers(stats.GetManager().GetAllWorkerStats(), connected),
+		"miner_ath_diff": stats.GetManager().MinerBests(),
+	}
+}
+
 // withConnectedWorkers is the worker list the dashboard shows: a worker connected and authorized
 // now is online, and one with no share yet is listed too, at 0 H/s. "Online" was "a share in the
 // last 5 minutes", so a small miner -- one share every 10 minutes at the lowest difficulty, or

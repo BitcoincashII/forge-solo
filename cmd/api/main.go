@@ -1119,17 +1119,25 @@ func internalAPIGet(urlPath string) (*http.Response, error) {
 }
 
 func getStratumWorkers() []WorkerStats {
+	return getStratumWorkerList().Workers
+}
+
+// stratumWorkerList is the mining service's answer about the workers: their figures, and each
+// miner's all-time best share, which outlives the workers listed.
+type stratumWorkerList struct {
+	Workers  []WorkerStats      `json:"workers"`
+	MinerATH map[string]float64 `json:"miner_ath_diff"`
+}
+
+func getStratumWorkerList() stratumWorkerList {
+	var result stratumWorkerList
 	resp, err := internalAPIGet(stratumURL + "/internal/workers")
 	if err != nil {
-		return nil
+		return result
 	}
 	defer resp.Body.Close()
-
-	var result struct {
-		Workers []WorkerStats `json:"workers"`
-	}
 	json.NewDecoder(resp.Body).Decode(&result)
-	return result.Workers
+	return result
 }
 
 // Network-stats last-good cache. getdifficulty / getnetworkhashps occasionally fail (RPC
@@ -1379,7 +1387,8 @@ func getMiner(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "Invalid BCH2 address format"})
 	}
 
-	workers := getStratumWorkers()
+	list := getStratumWorkerList()
+	workers := list.Workers
 
 	var totalHashrate5m, totalHashrate60m float64
 	var totalShares, totalRejected int64
@@ -1415,6 +1424,12 @@ func getMiner(c *fiber.Ctx) error {
 				totalHashrate5m += w.Hashrate5m
 				totalHashrate60m += w.Hashrate60m
 			}
+		}
+	}
+	// The all-time best share is kept across restarts, also for the workers no longer listed.
+	for miner, d := range list.MinerATH {
+		if d > athDiff && addressMatches(miner, address) {
+			athDiff = d
 		}
 	}
 

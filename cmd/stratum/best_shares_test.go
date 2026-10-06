@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -28,9 +29,24 @@ func bestShare(t *testing.T, worker string, diff float64) string {
 	return miner
 }
 
-// A worker connected again with no share yet in this run shows its kept best.
-func TestConnectedWorkerShowsItsKeptBest(t *testing.T) {
+// The api reads the miner's all-time best share from /internal/workers, also when none of the
+// workers listed holds it; a worker connected again with no share yet in this run shows its own.
+func TestWorkersAnswerHasTheKeptBest(t *testing.T) {
 	miner := bestShare(t, "nerd", 7e9)
+	b, err := json.Marshal(internalWorkers())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		MinerATH map[string]float64 `json:"miner_ath_diff"`
+	}
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.MinerATH[miner] != 7e9 {
+		t.Errorf("ATH-ANSWER-MINER: /internal/workers gives the miner's best as %v, want 7e9", got.MinerATH[miner])
+	}
+
 	listed := withConnectedWorkers(nil, []stratum.WorkerRef{{MinerID: miner, WorkerName: "nerd", ConnectedAt: time.Now()}})
 	if len(listed) != 1 || listed[0].ATHDiff != 7e9 {
 		t.Fatalf("ATH-CONNECTED-KEPT: a worker connected with no share in this run is listed as %+v, want its kept best 7e9", listed)
@@ -59,5 +75,8 @@ func TestStratumKeepsTheBestShares(t *testing.T) {
 	// The TIDES shares still queued are paid: they are sent first.
 	if flush := strings.Index(body, "g.Flush()"); flush < 0 || last < flush {
 		t.Error("ATH-WIRED-AFTER-FLUSH: main writes the last best shares before it sends the TIDES shares still queued")
+	}
+	if !strings.Contains(src, "json.NewEncoder(w).Encode(internalWorkers())") {
+		t.Error("ATH-WIRED-ANSWER: /internal/workers does not give internalWorkers(), with the miners' best shares")
 	}
 }
