@@ -296,6 +296,12 @@ func refusedTx(err error) bool {
 // If the pool refuses the template's transactions it registers the block without any: that
 // costs the block's fees, where giving up would cost TIDES until the conflict clears.
 func (g *Gateway) Register(t *mining.BlockTemplate, finder string, tag []byte) (*Registration, error) {
+	return g.RegisterCtx(context.Background(), t, finder, tag)
+}
+
+// RegisterCtx is Register, given up when parent ends: the stratum gives up a registration whose
+// job miners will never get, once a new block has come.
+func (g *Gateway) RegisterCtx(parent context.Context, t *mining.BlockTemplate, finder string, tag []byte) (*Registration, error) {
 	g.mu.Lock()
 	g.lastTry = g.cfg.Now()
 	g.mu.Unlock()
@@ -310,7 +316,7 @@ func (g *Gateway) Register(t *mining.BlockTemplate, finder string, tag []byte) (
 	// slow pool held new-block work for 10 seconds and a hostile one for 40, while the miners
 	// hashed the old tip.
 	deadline := g.cfg.Now().Add(g.cfg.RegisterFor)
-	ctx, cancel := context.WithTimeout(context.Background(), g.cfg.RegisterFor)
+	ctx, cancel := context.WithTimeout(parent, g.cfg.RegisterFor)
 	defer cancel()
 	reg, err := g.register(ctx, t, finder, tag, t.Transactions, deadline)
 	if err != nil && strings.Contains(err.Error(), "unknown or expired snapshot") {
@@ -453,7 +459,11 @@ func (g *Gateway) register(ctx context.Context, t *mining.BlockTemplate, finder 
 			}
 			return nil, err
 		}
-		time.Sleep(wait) // ends before the deadline, so before ctx does
+		select {
+		case <-time.After(wait): // ends before the deadline
+		case <-ctx.Done(): // given up
+			return nil, ctx.Err()
+		}
 	}
 
 	var mine int64

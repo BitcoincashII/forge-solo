@@ -110,10 +110,12 @@ type loopPool struct {
 	snapGets int
 	shares   []wire.Share
 	delay    time.Duration // a job POST waits this long before it is answered
+	slowAt   int64         // with delay: only a job for this height waits
 	hang     bool          // a job POST is never answered: it waits until the gateway gives up
 	down     bool          // everything answers 502
 	release  chan struct{}
 	inFlight int // job POSTs being answered now
+	given    int // job POSTs the gateway gave up on before they were answered
 }
 
 func newLoopPool(t *testing.T, clock *loopClock, height int64) *loopPool {
@@ -142,6 +144,13 @@ func (p *loopPool) registered() []wire.JobRequest {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return append([]wire.JobRequest(nil), p.jobs...)
+}
+
+// waiting is how many job POSTs the pool is answering now, and how many the gateway gave up on.
+func (p *loopPool) waiting() (now, givenUp int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.inFlight, p.given
 }
 
 func (p *loopPool) credited() []wire.Share {
@@ -179,13 +188,18 @@ func (p *loopPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.mu.Lock()
 		p.jobs = append(p.jobs, req)
 		n, delay, hang := len(p.jobs), p.delay, p.hang
+		if p.slowAt != 0 && req.Height != p.slowAt {
+			delay = 0
+		}
 		p.inFlight++
 		p.mu.Unlock()
 		defer p.set(func(p *loopPool) { p.inFlight-- })
+		gaveUp := func() { p.set(func(p *loopPool) { p.given++ }) }
 		if hang {
 			select {
 			case <-p.release:
 			case <-r.Context().Done():
+				gaveUp()
 			}
 			return
 		}
@@ -193,6 +207,7 @@ func (p *loopPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			select {
 			case <-time.After(delay):
 			case <-r.Context().Done():
+				gaveUp()
 				return
 			}
 		}
@@ -321,6 +336,8 @@ type loopRig struct {
 	rental *loopMiner // on the rental port
 	payout string
 	logs   *observer.ObservedLogs
+	tick   chan time.Time // with run: the loop's poll
+	blocks chan string    // with run: its ZMQ notices
 }
 
 func newLoopRig(t *testing.T, o loopRigOpts) *loopRig {
@@ -394,12 +411,63 @@ func newLoopRig(t *testing.T, o loopRigOpts) *loopRig {
 
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop) })
-	r.loop = &jobLoop{stop: stop, now: r.clock.Now}
+	r.loop = &jobLoop{stop: stop, now: r.clock.Now, newBlockWait: newBlockWait}
 	return r
 }
 
-// step is one turn of the loop: the 1 s poll, or (zmq) a new block's notice.
-func (r *loopRig) step(zmq bool) { r.loop.turn(zmq) }
+// step is one turn of the loop: the 1 s poll, or (zmq) a new block's notice. A registration the
+// turn left running beside the loop is waited for and its answer taken, as the running loop does.
+func (r *loopRig) step(zmq bool) {
+	r.loop.turn(zmq)
+	if p := r.loop.pending; p != nil {
+		select {
+		case a := <-p.answer:
+			r.loop.finish(a)
+		case <-time.After(10 * time.Second):
+			r.t.Fatal("the pool did not answer the registration")
+		}
+	}
+}
+
+// run runs the loop as main does, on the rig's poll and ZMQ, until the test ends. The test then
+// drives it with poll and zmq instead of step.
+func (r *loopRig) run() {
+	r.tick, r.blocks = make(chan time.Time, 1), make(chan string, 10)
+	stop, done := make(chan struct{}), make(chan struct{})
+	r.loop.tick, r.loop.blocks, r.loop.stop = r.tick, r.blocks, stop
+	go func() {
+		defer close(done)
+		r.loop.run()
+	}()
+	r.t.Cleanup(func() {
+		close(stop)
+		<-done
+	})
+}
+
+// poll is the loop's 1 s poll firing, unless the last one is still waiting to be taken.
+func (r *loopRig) poll() {
+	select {
+	case r.tick <- time.Now():
+	default:
+	}
+}
+
+// zmq is a new block reaching the node, and ZMQ telling the running loop.
+func (r *loopRig) zmq(tip int64) {
+	r.node.setTip(tip)
+	r.blocks <- chainHash(tip)
+}
+
+// waitUntil fails the test with code unless cond holds within d.
+func waitUntil(t *testing.T, d time.Duration, code string, cond func() bool) {
+	t.Helper()
+	for end := time.Now().Add(d); !cond(); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(end) {
+			t.Fatalf("%s: not so within %s", code, d)
+		}
+	}
+}
 
 // block is a new block reaching the node, and ZMQ telling the loop.
 func (r *loopRig) block(tip int64) {

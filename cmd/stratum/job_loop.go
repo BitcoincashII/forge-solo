@@ -1,13 +1,21 @@
 package main
 
 import (
+	"context"
 	"time"
 
 	"github.com/BitcoincashII/forge-solo/internal/mining"
 	"github.com/BitcoincashII/forge-solo/internal/stats"
 	"github.com/BitcoincashII/forge-solo/internal/stratum"
+	"github.com/BitcoincashII/forge-solo/internal/tidesgw"
 	"go.uber.org/zap"
 )
+
+// newBlockWait is how long a new block's work waits for Forge Pool to register it before the
+// miners get solo work for the block meanwhile; the pool's job follows when it comes. A
+// registration takes about 60 ms, and one or two "retry" answers, while the pool's node takes the
+// block, about 0.6 to 1.1 s: those still get the block's TIDES job first.
+const newBlockWait = 2 * time.Second
 
 // jobLoop builds work from the BCH2 node's block templates and hands it to both stratum ports.
 // Miners expect periodic job updates to confirm the pool is alive. It sends new jobs on:
@@ -19,6 +27,11 @@ type jobLoop struct {
 	tick   <-chan time.Time // the 1 s poll; run makes one when nil
 	stop   <-chan struct{}
 	now    func() time.Time
+	// newBlockWait is newBlockWait; a test may shorten it.
+	newBlockWait time.Duration
+
+	// pending is the TIDES registration running beside the loop, nil when none is.
+	pending *registration
 
 	lastHeight      int64
 	lastPrevHash    string
@@ -31,7 +44,7 @@ type jobLoop struct {
 
 // newJobLoop is the job loop main runs: ZMQ notices and the 1 s poll, until shutdown.
 func newJobLoop() *jobLoop {
-	return &jobLoop{blocks: zmqBlockCh, stop: shutdownCh, now: time.Now}
+	return &jobLoop{blocks: zmqBlockCh, stop: shutdownCh, now: time.Now, newBlockWait: newBlockWait}
 }
 
 func (l *jobLoop) run() {
@@ -43,6 +56,7 @@ func (l *jobLoop) run() {
 	for {
 		select {
 		case <-l.stop:
+			l.drop()
 			logger.Info("Job broadcast loop shutting down")
 			return
 		case blockHash := <-l.blocks:
@@ -52,6 +66,8 @@ func (l *jobLoop) run() {
 		case <-l.tick:
 			// Regular polling (fallback)
 			l.turn(false)
+		case answer := <-l.pendingAnswer():
+			l.finish(answer)
 		}
 	}
 }
@@ -130,13 +146,19 @@ func (l *jobLoop) turn(zmqTriggered bool) {
 
 	curJob := getCurrentJob()
 	isNewBlock := template.Height != l.lastHeight || template.PreviousBlockHash != l.lastPrevHash || curJob == nil
-	needPeriodicUpdate := periodicJobDue(l.lastJobTime, l.now())
 
 	// TIDES: jobs come from the gateway, which falls back to solo when the pool will not
 	// take them. A change of payout mode moves miners at once -- leaving TIDES, or a
 	// fallen-back install whose retry of the pool is due.
 	gw := tidesGateway()
 	tides := gw != nil && currentPayoutMode() == stats.PayoutModeTides
+	if isNewBlock || !tides {
+		l.drop() // a registration for the block before, or for TIDES, which miners have left
+	}
+	if l.pending != nil {
+		return // the pool's answer makes the next job on this block (finish)
+	}
+	needPeriodicUpdate := periodicJobDue(l.lastJobTime, l.now())
 	modeSwitch := curJob != nil && curJob.Tides != tides && (!tides || gw.Due(false))
 
 	auxWork, auxPayTo := jobManager.AuxWorkNow()
@@ -146,7 +168,7 @@ func (l *jobLoop) turn(zmqTriggered bool) {
 	var job *mining.Job
 	if tides {
 		var keep bool
-		if job, keep = tidesNextJob(gw, template, isNewBlock, curJob); keep {
+		if job, keep = l.tidesJob(gw, template, isNewBlock, curJob); keep {
 			l.lastJobTime = l.now()
 			return
 		}
@@ -223,4 +245,116 @@ func (l *jobLoop) send(job, curJob *mining.Job, template *mining.BlockTemplate, 
 	l.lastHeight = template.Height
 	l.lastPrevHash = template.PreviousBlockHash
 	l.lastJobTime = l.now()
+}
+
+// registration is a TIDES registration running beside the loop.
+type registration struct {
+	gw       *tidesgw.Gateway
+	template *mining.BlockTemplate
+	newBlock bool
+	cancel   context.CancelFunc
+	answer   chan poolAnswer // gets the pool's answer, once
+}
+
+type poolAnswer struct {
+	reg *tidesgw.Registration
+	err error
+}
+
+// tidesJob is this turn's job in TIDES mode. The pool registers a job before miners see it, which
+// takes one or two round trips, and a pool that is slow or does not answer must not hold the loop:
+// the registration runs beside it (register). A new block's work waits for it up to newBlockWait,
+// then goes out solo meanwhile. A job on the same block waits for nothing: miners keep the one they
+// have, and the pool's answer makes the next (finish).
+func (l *jobLoop) tidesJob(gw *tidesgw.Gateway, template *mining.BlockTemplate, isNewBlock bool, cur *mining.Job) (*mining.Job, bool) {
+	if !gw.Due(isNewBlock) {
+		return jobManager.CreateJob(template), false
+	}
+	p := l.register(gw, template, isNewBlock)
+	if !isNewBlock {
+		return nil, false
+	}
+	wait := time.NewTimer(l.newBlockWait)
+	defer wait.Stop()
+	select {
+	case a := <-p.answer:
+		l.pending = nil
+		p.cancel()
+		return tidesAnswer(gw, template, true, cur, a.reg, a.err)
+	case <-wait.C:
+		logger.Info("TIDES: Forge Pool has not registered the new block's work yet; miners get solo work for it meanwhile, and the pool's job once it comes",
+			zap.Int64("height", template.Height), zap.Duration("waited", l.newBlockWait))
+		return jobManager.CreateJob(template), false
+	case <-l.stop:
+		return nil, false
+	}
+}
+
+// register asks the pool to register template, beside the loop. One registration runs at a time:
+// any before it is given up.
+func (l *jobLoop) register(gw *tidesgw.Gateway, template *mining.BlockTemplate, newBlock bool) *registration {
+	l.drop()
+	ctx, cancel := context.WithCancel(context.Background())
+	p := &registration{gw: gw, template: template, newBlock: newBlock, cancel: cancel, answer: make(chan poolAnswer, 1)}
+	finder, tag := tidesPayoutAddress(), jobManager.CoinbaseTag()
+	go func() {
+		reg, err := gw.RegisterCtx(ctx, template, finder, tag)
+		p.answer <- poolAnswer{reg, err}
+	}()
+	l.pending = p
+	return p
+}
+
+// drop gives up the registration running beside the loop, if any. Its answer is never used.
+func (l *jobLoop) drop() {
+	if l.pending != nil {
+		l.pending.cancel()
+		l.pending = nil
+	}
+}
+
+// pendingAnswer is where the answer to the registration running beside the loop comes; nil, which
+// never delivers, when none is running.
+func (l *jobLoop) pendingAnswer() <-chan poolAnswer {
+	if l.pending == nil {
+		return nil
+	}
+	return l.pending.answer
+}
+
+// finish makes a job from the pool's answer to the registration that ran beside the loop. An answer
+// for a block other than the one the miners are on, or that comes when TIDES is no longer the
+// mode, is thrown away and never tracked: the gateway would drop every share on the miners' block
+// as stale until the next job.
+func (l *jobLoop) finish(a poolAnswer) {
+	p := l.pending
+	l.pending = nil
+	if p == nil {
+		return
+	}
+	p.cancel()
+	gw := tidesGateway()
+	if gw != p.gw || currentPayoutMode() != stats.PayoutModeTides ||
+		p.template.Height != l.lastHeight || p.template.PreviousBlockHash != l.lastPrevHash {
+		return
+	}
+	if p.newBlock && a.err != nil {
+		// The miners have had solo work for this block since newBlockWait.
+		gw.Fallback(a.err)
+		return
+	}
+	cur := getCurrentJob()
+	job, keep := tidesAnswer(gw, p.template, p.newBlock, cur, a.reg, a.err)
+	if keep {
+		l.lastJobTime = l.now()
+		return
+	}
+	if job == nil {
+		return
+	}
+	if p.newBlock {
+		logger.Info("🌊 TIDES: Forge Pool registered the new block's work; miners move to it from the solo work they had",
+			zap.Int64("height", p.template.Height), zap.String("job_id", job.ID))
+	}
+	l.send(job, cur, p.template, false, false)
 }

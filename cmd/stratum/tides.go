@@ -121,14 +121,11 @@ func tidesPayoutAddress() string {
 	return poolAddress
 }
 
-// tidesNextJob picks this turn's job in TIDES mode: one the pool registered, or -- when the pool
-// will not answer or will not take it -- a solo job meanwhile. keep=true means miners stay on the
-// TIDES job they have, which the pool still holds while the tip stands still.
-func tidesNextJob(g *tidesgw.Gateway, template *mining.BlockTemplate, isNewBlock bool, cur *mining.Job) (job *mining.Job, keep bool) {
-	if !g.Due(isNewBlock) {
-		return jobManager.CreateJob(template), false
-	}
-	reg, err := g.Register(template, tidesPayoutAddress(), jobManager.CoinbaseTag())
+// tidesAnswer makes the job for template in TIDES mode from the pool's answer to registering it
+// (the job loop asks: jobLoop.register): the job the pool registered, or -- when the pool did not
+// answer or will not take it -- a solo job meanwhile. keep=true means miners stay on the TIDES job
+// they have, which the pool still holds while the tip stands still.
+func tidesAnswer(g *tidesgw.Gateway, template *mining.BlockTemplate, isNewBlock bool, cur *mining.Job, reg *tidesgw.Registration, err error) (job *mining.Job, keep bool) {
 	if err == nil {
 		job = jobManager.CreateJobWithCoinbase(template, reg.Coinb1, reg.Coinb2, reg.Txs, reg.CoinbaseSats)
 		job.TidesFinderSats = reg.FinderSats

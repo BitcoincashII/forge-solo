@@ -1,6 +1,7 @@
 package tidesgw
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
@@ -231,6 +232,69 @@ func TestRegisterGivesUpAtItsDeadline(t *testing.T) {
 	}
 	if el := time.Since(start); el > 4*time.Second {
 		t.Fatalf("TIDES-GW-DEADLINE: registration held the job loop for %s", el)
+	}
+}
+
+// A registration the stratum gives up (a new block came) ends at once, also while it waits before
+// asking again after a "retry" answer.
+func TestRegisterCtxEndsWhenGivenUp(t *testing.T) {
+	p := newFakePool(t)
+	p.onJob = func(int, wire.JobRequest) wire.JobResponse { return wire.JobResponse{Error: "behind", Retry: true} }
+	g := newGateway(t, p)
+	ctx, cancel := context.WithCancel(context.Background())
+	gaveUp := make(chan time.Time, 1)
+	go func() {
+		// The second "retry" answer ends the client's two tries; the gateway then waits.
+		for {
+			p.mu.Lock()
+			n := len(p.jobs)
+			p.mu.Unlock()
+			if n >= 2 {
+				time.Sleep(50 * time.Millisecond)
+				gaveUp <- time.Now()
+				cancel()
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}()
+	_, err := g.RegisterCtx(ctx, template(), me, nil)
+	at := <-gaveUp
+	if took := time.Since(at); err == nil || took > 250*time.Millisecond {
+		t.Fatalf("TIDES-GW-CANCEL: a registration given up ended %s later (%v)", took, err)
+	}
+}
+
+// ...and while the pool has not answered it yet.
+func TestRegisterCtxEndsARequestTheGatewayGaveUp(t *testing.T) {
+	p := newFakePool(t)
+	release := make(chan struct{})
+	p.onJob = func(int, wire.JobRequest) wire.JobResponse {
+		<-release
+		return wire.JobResponse{Error: "late"}
+	}
+	t.Cleanup(func() { close(release) })
+	g := newGateway(t, p)
+	ctx, cancel := context.WithCancel(context.Background())
+	gaveUp := make(chan time.Time, 1)
+	go func() {
+		for {
+			p.mu.Lock()
+			n := len(p.jobs)
+			p.mu.Unlock()
+			if n >= 1 {
+				time.Sleep(50 * time.Millisecond)
+				gaveUp <- time.Now()
+				cancel()
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}()
+	_, err := g.RegisterCtx(ctx, template(), me, nil)
+	at := <-gaveUp
+	if took := time.Since(at); err == nil || took > 250*time.Millisecond {
+		t.Fatalf("TIDES-GW-CANCEL-POST: a registration given up ended %s later (%v)", took, err)
 	}
 }
 
