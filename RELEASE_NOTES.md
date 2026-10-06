@@ -123,14 +123,31 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
   worker that is connected and has no share yet, with the time it connected and a last share of
   null. A connected worker's `connectedAt` is when its connection began; it was when its first share
   was counted. A miner with no share yet has a `lastShare` of null; it said the year 1.
+- **Every platform:** each worker's best share (Best Diff in the dashboard's Workers table,
+  `athDiff` in the API) is kept in `forgesolo.db`, so a restart, an update or a reboot no longer
+  resets it, and the column now reads "Best Diff (all time)". It counts from 1.0.13: 1.0.12 stored
+  each share with the difficulty it was asked for, not the one it reached, so an earlier best cannot
+  be recovered. A worker with a share in the last day is always kept, also across a restart. Of the
+  others, each payout address keeps its best one and the ones seen last, 100 in all, and the 20
+  payout addresses seen last keep theirs. Round Best still starts again at each block found and at
+  a restart.
+- **Every platform:** a miner's `athDiff` in `/api/v1/miners/<address>` is its best share of all
+  time, also while the worker that found it is not connected, after a restart or a day without a
+  share.
+- **Umbrel and Windows:** going back to 1.0.12 and forward again keeps the best shares 1.0.13 kept;
+  what was found while 1.0.12 ran is not counted.
 
 **Steadier difficulty.**
 - **Every platform:** the difficulty each miner is given now stays near the level its hashrate calls
   for. Each change was measured partly from shares found before the last one, so it kept
   overshooting: a steady 5 PH/s rental swung between half and 3.4 times its level, a dozen changes in
-  7 minutes. Now a steady miner's difficulty stays between about 0.7 and 1.8 times its level, and
-  changes about 20 times an hour on 3333 and about 3 times an hour on 3335. Shares were always
-  credited at the difficulty they were found at; now they also arrive at a steady pace.
+  7 minutes. Vardiff now times each share at the difficulty it was found at, over every share of the
+  last 4 minutes, or the latest 30 where those are more. A steady miner's difficulty stays between
+  about 0.75 and 1.35 times its level on 3333 and changes about 8 times an hour; on 3335 it stays
+  between about 0.7 and 1.8 times its level and changes about 3 times an hour. A miner on 3333
+  whose hashrate halves reaches its new level in about 3 and a half minutes; one whose hashrate
+  doubles takes about 2 and a half minutes, its shares meanwhile faster, never refused. Shares were
+  always credited at the difficulty they were found at; now they also arrive at a steady pace.
 - **Every platform:** no miner is given a share difficulty above the network's, whether it comes
   from `d=` in the password, from the miner, from a remembered level or from vardiff, and when a new
   block lowers the network difficulty, miners above it are brought down to it. A miner set above it
@@ -176,6 +193,8 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
   no longer counted as miners or rentals. Workers, the mining banner and the public rental stats
   count one rented rig as one, and with only health checks connected the dashboard says no miner is
   connected. A health check that sends shares counts as a miner.
+- **Every platform:** the rental port, 3335, reads `stratum_rental.vardiff.variance_percent` as the
+  main port reads its own; no shipped config sets it, so 3335 keeps its +/-30% band.
 
 **While the BCH2 node catches up.**
 - **Every platform:** while the BCH2 node catches up with the chain, after a restart or at the end

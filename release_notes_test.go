@@ -561,3 +561,103 @@ func TestReleaseNotesGiveTheLogBudgets(t *testing.T) {
 		}
 	}
 }
+
+// Vardiff times each share at the difficulty it was found at, over every share of the last
+// VardiffSampleTime, or the latest VardiffSampleShares where those are more. A port whose config
+// sets no variance_percent keeps VardiffVariancePercent, and the shipped template sets none for the
+// rental port. The release page gives these as server.go and the template have them, and the
+// figures of a steady miner on each port as the simulation gives them. Measured over its latest 30
+// shares alone, a steady miner on 3333 changed difficulty about 20 times an hour and went up to
+// 1.65 times its level; no release text gives those figures.
+func TestReleaseNotesGiveTheVardiffWindow(t *testing.T) {
+	src := string(mustRead(t, "internal/stratum/server.go"))
+	num := func(re string) float64 {
+		t.Helper()
+		m := regexp.MustCompile(re).FindStringSubmatch(src)
+		if m == nil {
+			t.Fatalf("DOCS-VARDIFF-CODE: internal/stratum/server.go has nothing matching %s", re)
+		}
+		f, err := strconv.ParseFloat(m[1], 64)
+		if err != nil {
+			t.Fatalf("DOCS-VARDIFF-CODE: %s: %v", re, err)
+		}
+		return f
+	}
+	window := int(num(`(?m)^\s*VardiffSampleTime\s*=\s*(\d+) \* time\.Second$`))
+	shares := strconv.Itoa(int(num(`(?m)^\s*VardiffSampleShares\s*=\s*(\d+)$`)))
+	band := strconv.Itoa(int(num(`(?m)^\s*VardiffVariancePercent\s*=\s*([0-9.]+)\b`)*100 + 0.5))
+	if window%60 != 0 {
+		t.Fatalf("DOCS-VARDIFF-CODE: VardiffSampleTime is %d s, which the release notes cannot give in whole minutes", window)
+	}
+	var cfg struct {
+		Rental struct {
+			Vardiff map[string]any `yaml:"vardiff"`
+		} `yaml:"stratum_rental"`
+	}
+	if err := yaml.Unmarshal(mustRead(t, "docker/stratum/config.template.yaml"), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Rental.Vardiff) == 0 {
+		t.Fatal("DOCS-VARDIFF-RENTAL-SHIPPED: docker/stratum/config.template.yaml has no stratum_rental.vardiff")
+	}
+	if v, ok := cfg.Rental.Vardiff["variance_percent"]; ok {
+		t.Errorf("DOCS-VARDIFF-RENTAL-SHIPPED: the template sets the rental port's variance_percent to %v; the release notes say no shipped config sets it", v)
+	}
+	sec := flat(releaseSection(t, "1.0.13"))
+	for _, c := range []struct{ code, want string }{
+		{"DOCS-VARDIFF-WINDOW", "Vardiff now times each share at the difficulty it was found at, over every share of the last " + strconv.Itoa(window/60) + " minutes"},
+		{"DOCS-VARDIFF-SHARES", "minutes, or the latest " + shares + " where those are more"},
+		{"DOCS-VARDIFF-STEADY-3333", "A steady miner's difficulty stays between about 0.75 and 1.35 times its level on 3333 and changes about 8 times an hour"},
+		{"DOCS-VARDIFF-STEADY-3335", "on 3335 it stays between about 0.7 and 1.8 times its level and changes about 3 times an hour"},
+		{"DOCS-VARDIFF-RENTAL-BAND", "the rental port, 3335, reads stratum_rental.vardiff.variance_percent as the main port reads its own; no shipped config sets it, so 3335 keeps its +/-" + band + "% band"},
+	} {
+		if !strings.Contains(sec, c.want) {
+			t.Errorf("%s: RELEASE_NOTES.md ## 1.0.13 does not say %q, as the code has it", c.code, c.want)
+		}
+	}
+	old := regexp.MustCompile(`(?i)\b20 times an hour|\b1\.65 times|not only the latest`)
+	for _, d := range releaseTexts(t) {
+		if m := old.FindString(flat(d.text)); m != "" {
+			t.Errorf("DOCS-VARDIFF-OLD: %s says %q, a figure of vardiff over the latest %s shares alone", d.name, m, shares)
+		}
+	}
+}
+
+// Each worker's best share is kept in forgesolo.db. A worker with a share in the last
+// WorkerRetention is always kept; of the others, a miner keeps its best one and the ones seen last,
+// MaxKeptWorkers in all, and the MaxKeptMiners miners seen last keep theirs. The release page gives
+// the figures internal/stats has, and names the dashboard's column as the page heads it.
+func TestReleaseNotesTellWhichBestSharesAreKept(t *testing.T) {
+	src := string(mustRead(t, "internal/stats/best_shares.go")) + string(mustRead(t, "internal/stats/constants.go"))
+	num := func(re string) string {
+		t.Helper()
+		m := regexp.MustCompile(re).FindStringSubmatch(src)
+		if m == nil {
+			t.Fatalf("DOCS-ATH-CODE: internal/stats has nothing matching %s", re)
+		}
+		return m[1]
+	}
+	workers := num(`(?m)^\s*MaxKeptWorkers\s*=\s*(\d+)$`)
+	miners := num(`(?m)^\s*MaxKeptMiners\s*=\s*(\d+)$`)
+	if !regexp.MustCompile(`(?m)^\s*WorkerRetention\s*=\s*24 \* time\.Hour$`).MatchString(src) {
+		t.Error("DOCS-ATH-DAY-CODE: internal/stats/constants.go no longer keeps a silent worker for 24 hours, while the release notes say one with a share in the last day is always kept")
+	}
+	column := "Best Diff (all time)"
+	if !strings.Contains(string(mustRead(t, "web/dist/solo.html")), ">"+column+"</th>") {
+		t.Errorf("DOCS-ATH-COLUMN-PAGE: web/dist/solo.html no longer heads a column %q, which the release notes name", column)
+	}
+	sec := flat(releaseSection(t, "1.0.13"))
+	for _, c := range []struct{ code, want string }{
+		{"DOCS-ATH-KEPT", "each worker's best share (Best Diff in the dashboard's Workers table, athDiff in the API) is kept in forgesolo.db, so a restart, an update or a reboot no longer resets it"},
+		{"DOCS-ATH-COLUMN", `the column now reads "` + column + `"`},
+		{"DOCS-ATH-DAY", "A worker with a share in the last day is always kept, also across a restart"},
+		{"DOCS-ATH-WORKERS", "each payout address keeps its best one and the ones seen last, " + workers + " in all"},
+		{"DOCS-ATH-MINERS", "and the " + miners + " payout addresses seen last keep theirs"},
+		{"DOCS-ATH-API", "a miner's athDiff in /api/v1/miners/<address> is its best share of all time"},
+		{"DOCS-ATH-ROLLBACK", "going back to 1.0.12 and forward again keeps the best shares 1.0.13 kept"},
+	} {
+		if !strings.Contains(sec, c.want) {
+			t.Errorf("%s: RELEASE_NOTES.md ## 1.0.13 does not say %q", c.code, c.want)
+		}
+	}
+}
