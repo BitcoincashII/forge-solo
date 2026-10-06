@@ -166,6 +166,51 @@ func TestReleaseNotesTellTheLinuxAndWorkerChanges(t *testing.T) {
 	}
 }
 
+// A new block's work waits for Forge Pool at most newBlockWait, then goes out solo until the pool
+// registers it, and a refresh on the same block no longer runs ahead of it: the notes said it could
+// wait up to about 12 seconds behind another registration. While the BCH2 node catches up with the
+// chain a new block's work goes out at most every catchUpEvery, where every old block got a job, and
+// TIDES comes back with the block that brings the node level, where it stayed on solo for a minute
+// and the log and the dashboard blamed the pool. The release page says each, with the figures
+// job_loop.go has and the words the gateway logs.
+func TestReleaseNotesTellWhenANewBlocksWorkWaits(t *testing.T) {
+	src := string(mustRead(t, "cmd/stratum/job_loop.go"))
+	secs := func(re string) string {
+		t.Helper()
+		m := regexp.MustCompile(re).FindStringSubmatch(src)
+		if m == nil {
+			t.Fatalf("DOCS-JOBLOOP-CODE: cmd/stratum/job_loop.go has nothing matching %s", re)
+		}
+		return m[1]
+	}
+	wait := secs(`(?m)^const newBlockWait = (\d+) \* time\.Second$`)
+	every := secs(`(?m)^\s*catchUpEvery\s*=\s*(\d+) \* time\.Second$`)
+	behind := "this BCH2 node is not on Forge Pool's block yet"
+	if !strings.Contains(string(mustRead(t, "internal/tidesgw/gateway.go")), behind) {
+		t.Errorf("DOCS-NOTES-BEHIND-CODE: internal/tidesgw/gateway.go no longer logs %q, which the release notes quote", behind)
+	}
+	sec := flat(releaseSection(t, "1.0.13"))
+	for _, c := range []struct{ code, want string }{
+		{"DOCS-NOTES-POOL-WAIT", "a slow or unresponsive Forge Pool holds a new block's work back for " + wait + " seconds at most, not up to 40 as before"},
+		{"DOCS-NOTES-POOL-SOLO", "if the pool has not registered the block's work within " + wait + " seconds, miners get solo work for it, then switch to the pool's job (with clean_jobs) as soon as it registers"},
+		{"DOCS-NOTES-POOL-REFRESH", "A refresh on the same block no longer runs ahead of a new block's work"},
+		{"DOCS-NOTES-CATCHUP-EVERY", "miners get a new block's work at most every " + every + " seconds instead of one job per old block"},
+		{"DOCS-NOTES-CATCHUP-LEVEL", "The block that brings the node level goes out at once, and blocks that come " + every + " seconds or more apart, as at the tip, go out as before"},
+		{"DOCS-NOTES-TIDES-LEVEL", "TIDES comes back with the block that brings the node level instead of a minute later"},
+		{"DOCS-NOTES-TIDES-BEHIND", "The log and the dashboard now say that " + behind},
+	} {
+		if !strings.Contains(sec, c.want) {
+			t.Errorf("%s: RELEASE_NOTES.md ## 1.0.13 does not say %q", c.code, c.want)
+		}
+	}
+	old := regexp.MustCompile(`(?i)up to about 12 seconds|another registration is already under way`)
+	for _, d := range releaseTexts(t) {
+		if m := old.FindString(flat(d.text)); m != "" {
+			t.Errorf("DOCS-NOTES-POOL-12S: %s says a new block's work waits %q; it waits for the pool %s seconds at most", d.name, m, wait)
+		}
+	}
+}
+
 // The release page gives the Linux README's own commands to check a download and to delete what an
 // install or an upgrade leaves behind, so the two never differ. The check 1.0.12 gave stopped on
 // BusyBox's sha256sum.

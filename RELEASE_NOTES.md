@@ -177,6 +177,19 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
   count one rented rig as one, and with only health checks connected the dashboard says no miner is
   connected. A health check that sends shares counts as a miner.
 
+**While the BCH2 node catches up.**
+- **Every platform:** while the BCH2 node catches up with the chain, after a restart or at the end
+  of a first sync, miners get a new block's work at most every 5 seconds instead of one job per old
+  block. That was up to a hundred jobs a second, each with clean_jobs, so nearly every share in
+  flight was refused as stale. The block that brings the node level goes out at once, and blocks
+  that come 5 seconds or more apart, as at the tip, go out as before.
+- **Every platform, TIDES:** after a restart with the BCH2 node behind the chain, TIDES comes back
+  with the block that brings the node level instead of a minute later, and nothing is registered
+  with the pool in the meantime. The log and the dashboard now say that this BCH2 node is not on
+  Forge Pool's block yet, with both heights, where they said Forge Pool was unavailable or that
+  TIDES would resume when the pool answered again. The same applies when this node and the pool
+  have different blocks at the same height.
+
 **The dashboard.**
 - **Every platform:** Current Effort counts each share against the difficulty of the block it was
   mined for. BCH2's difficulty changes at every block, and the tile divided the whole round by the
@@ -324,13 +337,14 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
     pool refused the second copy as a duplicate).
 
   Rented hashpower is no longer disconnected for waiting quietly between jobs.
-- **Every platform, TIDES:** a slow or misbehaving pool holds up a new block's work for your miners
-  by seconds, not up to 40 as before: each registration with the pool has one deadline of 6 seconds,
-  fallbacks included, so the work waits up to about 12 seconds when another registration is already
-  under way. What the pool sends is limited in size and its split in outputs, and a block that would
-  not fit leaves out its transactions instead of being invalid. The dashboard warns if the pool's
-  window leaves out your address while it credits your shares. In solo mode the app asks Forge Pool
-  nothing.
+- **Every platform, TIDES:** a slow or unresponsive Forge Pool holds a new block's work back for 2
+  seconds at most, not up to 40 as before: if the pool has not registered the block's work within 2
+  seconds, miners get solo work for it, then switch to the pool's job (with clean_jobs) as soon as
+  it registers. A refresh on the same block no longer runs ahead of a new block's work. With a
+  healthy pool the work goes out as before. What the pool sends is limited in size and its split in
+  outputs, and a block that would not fit leaves out its transactions instead of being invalid. The
+  dashboard warns if the pool's window leaves out your address while it credits your shares. In solo
+  mode the app asks Forge Pool nothing.
 - **Windows and Linux:** Settings now asks for a password before it saves a change, as on Umbrel:
   other accounts on the computer could change your payout address. On Windows, right-click the
   Forge Solo tray icon and choose **Copy Settings Password**; on Linux it is `DASHBOARD_PASSWORD` in
