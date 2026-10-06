@@ -119,6 +119,10 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
   workers list): on Windows and Linux those were in the computer's time zone. The miner's answer
   gives `roundEffort` (this round so far, share by share; 1 is 100%), and the mining status gives
   `network_difficulty` (the difficulty of the block being mined).
+- **Every platform:** the API's workers list (`/api/v1/miners/<address>/workers`) also lists a
+  worker that is connected and has no share yet, with the time it connected and a last share of
+  null. A connected worker's `connectedAt` is when its connection began; it was when its first share
+  was counted. A miner with no share yet has a `lastShare` of null; it said the year 1.
 
 **Steadier difficulty.**
 - **Every platform:** the difficulty each miner is given now stays near the level its hashrate calls
@@ -366,6 +370,11 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
   Windows. It used to be started again and again with mining stopped.
 - **Linux:** Forge Solo needs Linux 3.17 or newer (1.0.12 said 3.2). On an older kernel it now says
   so and starts nothing; the node used to stop at every start without a word.
+- **Linux:** a 1175 address in the settings no longer switches 1175 merge-mining on. Forge Solo for
+  Linux runs no 1175 node, but an address in a database brought from Umbrel or Windows, or one saved
+  through the API, turned it on with no node to mine against: the log warned every minute that
+  merge-mining had never worked, and the 1175 payout processor worked through that database's 1175
+  records. They now stay as they are, and on Linux the API refuses a 1175 address.
 - **Linux:** `install-service` works whatever the umask, checks the ports before it stops a running
   service, and starts the service again if the install fails after stopping it; it used to leave the
   service stopped, and mining with it. It stops if a Forge Solo you started yourself still holds the
@@ -382,6 +391,14 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
 - **Linux:** `forge-solo cli` says when no Forge Solo runs with the data directory and gives the
   command for the service's node (`sudo /opt/forge-solo/forge-solo cli ...`), instead of
   "Authorization failed". It works as the `forge-solo` user too.
+- **Linux:** the start says mining waits for a BCH2 payout address only when none is saved; it said
+  so at every start.
+- **Linux:** the README checks a download with `grep x86_64 SHA256SUMS-linux | sha256sum -c -`,
+  which works on Alpine and other systems with BusyBox; `--ignore-missing` stopped there.
+- **Linux:** the README says what to delete once the service runs, after installing or upgrading it:
+  the unpacked folders, the downloaded `.tar.gz` files and `SHA256SUMS-linux`
+  (`rm -r forge-solo-*-linux-* SHA256SUMS-linux`). After upgrading a copy you run yourself, all of
+  that but the new release's folder can go.
 
 **Umbrel.**
 - **Umbrel:** a BCH2 node whose chain data is damaged (after a power cut or a full disk, say)

@@ -146,6 +146,44 @@ func TestReleaseNotesTellTheMove(t *testing.T) {
 	}
 }
 
+// On Linux a 1175 address in the settings no longer turns merge-mining on, and the start asks for a
+// payout address only when none is saved. The API's workers list gives a connected worker with no
+// share yet the time it connected and a null last share, and the miner's answer gives a null last
+// share where it gave the year 1. The release page says each.
+func TestReleaseNotesTellTheLinuxAndWorkerChanges(t *testing.T) {
+	sec := flat(releaseSection(t, "1.0.13"))
+	for _, c := range []struct{ code, want string }{
+		{"DOCS-NOTES-LINUX-1175", "a 1175 address in the settings no longer switches 1175 merge-mining on"},
+		{"DOCS-NOTES-LINUX-1175-API", "on Linux the API refuses a 1175 address"},
+		{"DOCS-NOTES-LINUX-PAYOUT", "the start says mining waits for a BCH2 payout address only when none is saved"},
+		{"DOCS-NOTES-WORKERS-NO-SHARE", "also lists a worker that is connected and has no share yet, with the time it connected and a last share of null"},
+		{"DOCS-NOTES-WORKERS-CONNECTED", "A connected worker's connectedAt is when its connection began"},
+		{"DOCS-NOTES-MINER-NULL", "A miner with no share yet has a lastShare of null"},
+	} {
+		if !strings.Contains(sec, c.want) {
+			t.Errorf("%s: RELEASE_NOTES.md ## 1.0.13 does not say %q", c.code, c.want)
+		}
+	}
+}
+
+// The release page gives the Linux README's own commands to check a download and to delete what an
+// install or an upgrade leaves behind, so the two never differ. The check 1.0.12 gave stopped on
+// BusyBox's sha256sum.
+func TestReleaseNotesGiveTheLinuxReadmesCommands(t *testing.T) {
+	sec := flat(releaseSection(t, "1.0.13"))
+	check := startCommand(t, "sha256sum")
+	if check == "" || !strings.Contains(sec, flat(check)) {
+		t.Errorf("DOCS-NOTES-LINUX-SUM: RELEASE_NOTES.md ## 1.0.13 does not give the Linux README's check of a download, %q", check)
+	}
+	rm := ""
+	if m := regexp.MustCompile("`(rm -r [^`]+)`").FindStringSubmatch(string(mustRead(t, "packaging/linux/README.md"))); m != nil {
+		rm = m[1]
+	}
+	if rm == "" || !strings.Contains(sec, flat(rm)) {
+		t.Errorf("DOCS-NOTES-LINUX-RM: RELEASE_NOTES.md ## 1.0.13 does not give the Linux README's command for what an install or an upgrade leaves behind, %q", rm)
+	}
+}
+
 // When another program holds 3335 on Windows or Linux, Forge Solo starts without the rental port.
 // Every text says the same about it: what is wrong and how to put it right, and never that
 // NiceHash or MiningRigRentals should use 3333 instead, where a whole order would start at the
