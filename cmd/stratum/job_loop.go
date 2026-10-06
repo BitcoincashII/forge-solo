@@ -2,6 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/BitcoincashII/forge-solo/internal/mining"
@@ -16,6 +21,24 @@ import (
 // registration takes about 60 ms, and one or two "retry" answers, while the pool's node takes the
 // block, about 0.6 to 1.1 s: those still get the block's TIDES job first.
 const newBlockWait = 2 * time.Second
+
+// While the BCH2 node catches up with the chain it connects blocks as fast as it can, a thousand a
+// second when they are small, and each one made a new block's job with clean_jobs: a hundred jobs a
+// second, every share in flight refused as stale, for blocks long buried. The node leaves initial
+// sync at once after any restart (its tip may be up to ten years old), so nothing else held that
+// back. While it is catchUpGap or more blocks behind the headers it knows, a new block's work goes
+// out at most every catchUpEvery; the block that brings it level goes out at once.
+const (
+	catchUpEvery = 5 * time.Second
+	// A header always arrives just before its block, so one block behind is every block.
+	catchUpGap = 2
+	// catchUpFor bounds one catch-up: a header the node never connects (a block withheld, or one it
+	// found invalid) must not slow the work of every block after it. catchUpQuiet without a sign of
+	// the node being behind ends a catch-up; a block that then comes within catchUpEvery of the one
+	// before starts another.
+	catchUpFor   = 10 * time.Minute
+	catchUpQuiet = time.Minute
+)
 
 // jobLoop builds work from the BCH2 node's block templates and hands it to both stratum ports.
 // Miners expect periodic job updates to confirm the pool is alive. It sends new jobs on:
@@ -32,6 +55,13 @@ type jobLoop struct {
 
 	// pending is the TIDES registration running beside the loop, nil when none is.
 	pending *registration
+
+	// lastNewBlockAt is when a new block's work last went out. behindSince is when the node was
+	// first seen behind its headers in this catch-up, zero when it is not catching up; lastBehind is
+	// when it was last seen so.
+	lastNewBlockAt time.Time
+	behindSince    time.Time
+	lastBehind     time.Time
 
 	lastHeight      int64
 	lastPrevHash    string
@@ -155,6 +185,9 @@ func (l *jobLoop) turn(zmqTriggered bool) {
 	if isNewBlock || !tides {
 		l.drop() // a registration for the block before, or for TIDES, which miners have left
 	}
+	if isNewBlock && l.catchingUp() {
+		return // miners keep the work they have, on a block as old as this one
+	}
 	if l.pending != nil {
 		return // the pool's answer makes the next job on this block (finish)
 	}
@@ -228,6 +261,7 @@ func (l *jobLoop) send(job, curJob *mining.Job, template *mining.BlockTemplate, 
 	}
 
 	if isNewBlock {
+		l.lastNewBlockAt = l.now()
 		source := "polling"
 		if zmqTriggered {
 			source = "ZMQ"
@@ -245,6 +279,68 @@ func (l *jobLoop) send(job, curJob *mining.Job, template *mining.BlockTemplate, 
 	l.lastHeight = template.Height
 	l.lastPrevHash = template.PreviousBlockHash
 	l.lastJobTime = l.now()
+}
+
+// catchingUp reports whether a new block's work waits this turn because the BCH2 node is catching up
+// with the chain. The node is asked only when the block comes within catchUpEvery of the last
+// block's work, so at the tip, where blocks come minutes apart, it is never asked. The work waits
+// only while the node says it has catchUpGap or more blocks still to connect, and never past
+// catchUpEvery after the last block's work: a node that does not answer, a header it never
+// connects, or one that stays behind can delay a block's work by catchUpEvery at most, and within
+// one catch-up only for catchUpFor. The first block's work, when miners have none, goes out at once.
+func (l *jobLoop) catchingUp() bool {
+	now := l.now()
+	if now.Sub(l.lastNewBlockAt) >= catchUpEvery {
+		return false
+	}
+	blocks, headers, ok := bch2ChainState()
+	if !ok {
+		return false
+	}
+	if headers-blocks < catchUpGap {
+		if !l.behindSince.IsZero() {
+			logger.Info("✅ The BCH2 node has caught up with the chain", zap.Int64("block", blocks))
+		}
+		l.behindSince = time.Time{}
+		return false
+	}
+	if l.behindSince.IsZero() || now.Sub(l.lastBehind) >= catchUpQuiet {
+		l.behindSince = now
+		logger.Info(fmt.Sprintf("⏳ The BCH2 node is catching up with the chain: a new block's work goes out at most every %s until it has", catchUpEvery),
+			zap.Int64("block", blocks), zap.Int64("headers", headers))
+	}
+	l.lastBehind = now
+	return now.Sub(l.behindSince) < catchUpFor
+}
+
+// chainStateClient asks the BCH2 node about its chain from the job loop, which must not wait on it
+// long: a node that does not answer within a second counts as caught up.
+var chainStateClient = &http.Client{Timeout: time.Second}
+
+// bch2ChainState is the BCH2 node's chain height and the height of the best header it knows. ok is
+// false when it did not answer, or not with both.
+func bch2ChainState() (blocks, headers int64, ok bool) {
+	req, err := http.NewRequest("POST", rpcURL, strings.NewReader(`{"jsonrpc":"1.0","id":"forge","method":"getblockchaininfo","params":[]}`))
+	if err != nil {
+		return 0, 0, false
+	}
+	req.SetBasicAuth(rpcUser, rpcPass)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := chainStateClient.Do(req)
+	if err != nil {
+		return 0, 0, false
+	}
+	defer resp.Body.Close()
+	var r struct {
+		Result *struct {
+			Blocks  *int64 `json:"blocks"`
+			Headers *int64 `json:"headers"`
+		} `json:"result"`
+	}
+	if json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&r) != nil || r.Result == nil || r.Result.Blocks == nil || r.Result.Headers == nil {
+		return 0, 0, false
+	}
+	return *r.Result.Blocks, *r.Result.Headers, true
 }
 
 // registration is a TIDES registration running beside the loop.

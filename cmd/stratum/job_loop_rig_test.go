@@ -45,7 +45,8 @@ type loopNode struct {
 	tipHash   string // its hash; chainHash(tip) unless a test set another
 	headers   int64  // the best header it knows of; never below tip
 	ibd       bool
-	chainDown bool // getblockchaininfo fails
+	chainDown bool          // getblockchaininfo fails
+	chainSlow time.Duration // getblockchaininfo answers this late
 	calls     map[string]int
 }
 
@@ -66,6 +67,25 @@ func (n *loopNode) setTip(tip int64) {
 	}
 }
 
+// setHeaders sets the best header the node knows of.
+func (n *loopNode) setHeaders(h int64) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.headers = h
+}
+
+func (n *loopNode) set(f func(n *loopNode)) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	f(n)
+}
+
+func (n *loopNode) count(method string) int {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.calls[method]
+}
+
 func (n *loopNode) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Method string `json:"method"`
@@ -73,8 +93,15 @@ func (n *loopNode) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&req)
 	n.mu.Lock()
 	n.calls[req.Method]++
-	tip, hash, headers, ibd, down := n.tip, n.tipHash, n.headers, n.ibd, n.chainDown
+	tip, hash, headers, ibd, down, slow := n.tip, n.tipHash, n.headers, n.ibd, n.chainDown, n.chainSlow
 	n.mu.Unlock()
+	if req.Method == "getblockchaininfo" && slow > 0 {
+		select {
+		case <-time.After(slow):
+		case <-r.Context().Done():
+			return
+		}
+	}
 	var result interface{}
 	var rpcErr interface{}
 	switch req.Method {
@@ -483,6 +510,25 @@ func waitUntil(t *testing.T, d time.Duration, code string, cond func() bool) {
 func (r *loopRig) block(tip int64) {
 	r.node.setTip(tip)
 	r.step(true)
+}
+
+// drain is every job the main port's miner received within d, waiting d after the last, with the
+// rental port's checked to be the same.
+func (r *loopRig) drain(d time.Duration) []loopNotice {
+	var got []loopNotice
+	for {
+		n, ok := r.miner.next(d)
+		if !ok {
+			break
+		}
+		got = append(got, n)
+	}
+	for range got {
+		if _, ok := r.rental.next(d); !ok {
+			r.t.Fatalf("the rental port got fewer jobs than the main port's %d", len(got))
+		}
+	}
+	return got
 }
 
 // sent waits for the next job on both ports and checks they are the same.
