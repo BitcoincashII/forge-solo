@@ -5,6 +5,9 @@ import (
 	"go/parser"
 	"go/token"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
@@ -12,14 +15,18 @@ import (
 
 // The dashboard's pages, as the API serves them on its own port, may not be framed by another
 // page. Its /api/ answers carry none of these headers: the servers in front of it set them, and a
-// second X-Frame-Options is one a browser may ignore.
+// second X-Frame-Options is one a browser may ignore. No answer grants another origin a cross-origin
+// read: the dashboard is served from the API's own origin and needs none, and the old default let
+// any page on localhost:3000 read the API.
 func TestPageSecurityHeaders(t *testing.T) {
 	app := fiber.New()
 	app.Use(pageSecurityHeaders)
 	app.Get("/settings", func(c *fiber.Ctx) error { return c.SendString("<html>") })
 	app.Get("/api/v1/stats", func(c *fiber.Ctx) error { return c.JSON(fiber.Map{}) })
 
-	resp, err := app.Test(httptest.NewRequest("GET", "/settings", nil))
+	req := httptest.NewRequest("GET", "/settings", nil)
+	req.Header.Set("Origin", "http://localhost:3000")
+	resp, err := app.Test(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,17 +36,26 @@ func TestPageSecurityHeaders(t *testing.T) {
 			t.Errorf("API-PAGE-NOT-FRAMED: /settings has %s %q, want %q", k, got, v)
 		}
 	}
-	resp, err = app.Test(httptest.NewRequest("GET", "/api/v1/stats", nil))
+	if got := resp.Header.Values("Access-Control-Allow-Origin"); len(got) != 0 {
+		t.Errorf("API-NO-CORS: /settings grants a cross-origin read: Access-Control-Allow-Origin %q", got)
+	}
+	req = httptest.NewRequest("GET", "/api/v1/stats", nil)
+	req.Header.Set("Origin", "http://localhost:3000")
+	resp, err = app.Test(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := resp.Header.Values("X-Frame-Options"); len(got) != 0 {
 		t.Errorf("API-JSON-NO-DUP: /api/ answers carry X-Frame-Options %q, which the servers in front add again", got)
 	}
+	if got := resp.Header.Values("Access-Control-Allow-Origin"); len(got) != 0 {
+		t.Errorf("API-NO-CORS: /api/v1/stats grants a cross-origin read: Access-Control-Allow-Origin %q", got)
+	}
 }
 
 // main() must use the headers before its first route: fiber runs handlers in the order they were
-// added, and the test above builds its own app.
+// added, and the test above builds its own app. And nothing in the api can grant a cross-origin
+// read: no file imports a CORS middleware or sets the header itself.
 func TestPageSecurityHeadersWired(t *testing.T) {
 	f, err := parser.ParseFile(token.NewFileSet(), "main.go", nil, 0)
 	if err != nil {
@@ -81,5 +97,22 @@ func TestPageSecurityHeadersWired(t *testing.T) {
 	}
 	if used == token.NoPos || (firstRoute != token.NoPos && firstRoute < used) {
 		t.Fatal("API-HEADERS-WIRED: main() does not use pageSecurityHeaders before its first route")
+	}
+
+	paths, err := filepath.Glob("*.go")
+	if err != nil || len(paths) == 0 {
+		t.Fatalf("no sources: %v", err)
+	}
+	for _, p := range paths {
+		if strings.HasSuffix(p, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(src), "/middleware/cors") || strings.Contains(string(src), "Access-Control-Allow-Origin") {
+			t.Errorf("API-NO-CORS: %s can grant a cross-origin read; the dashboard needs none", p)
+		}
 	}
 }
