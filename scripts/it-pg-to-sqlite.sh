@@ -32,11 +32,12 @@
 #       which the Windows CI job compares its own move with; and the lib/pq tests on a real server
 #   16. after a fresh start, a move, a merge and a deferral, db/ is 10001:10001 0700 and every file
 #       in it 10001:10001 0600
-#   snapshot: the dashboard (scripts/dashboard-snapshot.sh) reads the same from 1.0.12 (built from
+#   snapshot: the dashboard (scripts/dashboard-snapshot.sh) after the move reads byte for byte as
+#       the kept testdata/migrate/dashboard-snapshot.json, and the same as from 1.0.12 (built from
 #       the v1.0.12 tag) before the move, its cluster in America/Chicago, as a Windows PC's is, and
-#       in Pacific/Chatham, as from 1.0.13 after it, apart from what 1.0.13 shows differently by
-#       design. Kept answers (testdata/migrate/dashboard*) read as their committed snapshots, which
-#       the Windows CI job checks dashboard-snapshot.ps1 against.
+#       in Pacific/Chatham, apart from what 1.0.13 shows differently by design. Kept answers
+#       (testdata/migrate/dashboard*) read as their committed snapshots, which the Windows CI job
+#       checks dashboard-snapshot.ps1 against.
 #
 #   ./scripts/it-pg-to-sqlite.sh                    # all of it; 1 when a check fails or cannot run
 #   IT_CASES="5 snapshot" ./scripts/...             # the move, the old cluster and these: 3, never 0
@@ -46,8 +47,9 @@
 #   IT_TAG, IT_PROJECT, IT_PORT_BASE, IT_WORK   the images' tag, the compose projects' prefix, the
 #                             first of the local ports, the work folder: two runs side by side
 #   CAPTURE_FIXTURES=1        write the pg_control files it captures into internal/pgmigrate/testdata
-#   UPDATE_GOLDEN=1           write testdata/migrate/seed-1012.db.json from case 15, 1.0.12's answers
-#                             into testdata/migrate/dashboard-1012, and the kept answers' snapshots
+#   UPDATE_GOLDEN=1           write testdata/migrate/seed-1012.db.json from case 15, the answers after
+#                             the move into testdata/migrate/dashboard, 1.0.12's into dashboard-1012,
+#                             and the kept answers' snapshots (dashboard-zones is edited by hand)
 #
 # Needs docker with compose, Go, python3, curl, and the v1.0.12 tag (a checkout with fetch-depth 0).
 set -euo pipefail
@@ -498,11 +500,14 @@ if want snapshot; then
   check "snapshot: the stratum answers the api" wait_for "the stratum" 120 stratum_answers main
   scripts/dashboard-snapshot.sh "$(api main)" "$OUT/dashboard.after.json" --save "$OUT/answers.after" || bad "snapshot: after the move"
   check "snapshot: it shows the seed's blocks and 1175 blocks" grep -q '"A-solo-blocks.blocks.0.height"' "$OUT/dashboard.after.json"
+  check "snapshot: the dashboard after the move reads as the kept snapshot, testdata/migrate/dashboard-snapshot.json" \
+    diff testdata/migrate/dashboard-snapshot.json "$OUT/dashboard.after.json"
   check "snapshot: 1.0.12's dashboard reads the same, apart from what 1.0.13 shows differently by design" \
     compared "$OUT/dashboard.app1012.json" "$OUT/dashboard.after.json" 1.0.12
   check "snapshot: so does 1.0.12's on the cluster in Pacific/Chatham" \
     compared "$OUT/dashboard.app1012chatham.json" "$OUT/dashboard.after.json" 1.0.12
   if [ "${UPDATE_GOLDEN:-0}" = 1 ]; then
+    rm -rf testdata/migrate/dashboard && cp -r "$OUT/answers.after" testdata/migrate/dashboard
     rm -rf testdata/migrate/dashboard-1012 && cp -r "$OUT/answers.app1012" testdata/migrate/dashboard-1012
   fi
 fi
