@@ -22,12 +22,12 @@ permissions:
 
 jobs:
   unit:
-    name: Unit tests (both build tags)
+    name: Unit tests
     runs-on: ubuntu-latest
     # Every check below runs once Go is set up, whatever an earlier check did, so one failure does
     # not hide the others' results. On a release commit TestCompose fails by design until CI has
-    # re-pinned the image digests; that used to skip every suite after "Test (postgres build)".
-    # The job still fails if any check does.
+    # re-pinned the image digests; that used to skip every suite after the test step. The job
+    # still fails if any check does.
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -49,53 +49,36 @@ jobs:
           unformatted=$(gofmt -l .)
           if [ -n "$unformatted" ]; then echo "not gofmt-clean:"; echo "$unformatted"; exit 1; fi
 
-      - name: Vet (postgres build)
+      - name: Vet
         if: ${{ !cancelled() && steps.go.outcome == 'success' }}
         run: go vet ./...
 
-      # staticcheck finds what vet does not: code nothing reaches. That is how a Postgres
-      # UPDATE of two columns the schema never declared survived, how a mining-password check
-      # the PIN design had deliberately replaced stayed in the tree, and how an entire
-      # unreachable Stratum V2 server sat behind a false constant. Both tags are clean as of
-      # this commit; this keeps them that way.
+      # staticcheck finds what vet does not: code nothing reaches. Clean as of this commit; this
+      # keeps it that way.
       #
       # Pinned to v0.7.0 (2026.1) for two reasons. A floating version would fail this build on
       # someone else's release schedule. And it must BUILD with the Go this job has: setup-go
       # exports GOTOOLCHAIN=local, so there is no automatic toolchain download, and v0.8.x
       # declared go >= 1.26.0 while go.mod pinned Go 1.25. v0.7.0 declares go 1.25.0 and builds
       # with the toolchain go.mod now pins (1.26.8); moving to v0.8.x is a separate change.
-      - name: staticcheck (both build tags)
+      - name: staticcheck
         if: ${{ !cancelled() && steps.go.outcome == 'success' }}
         run: |
           go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
           "$(go env GOPATH)/bin/staticcheck" ./...
-          "$(go env GOPATH)/bin/staticcheck" -tags sqlite ./...
 
-      - name: Vet (sqlite build)
-        if: ${{ !cancelled() && steps.go.outcome == 'success' }}
-        run: go vet -tags sqlite ./...
-
-      - name: Test (postgres build)
+      - name: Test
         if: ${{ !cancelled() && steps.go.outcome == 'success' }}
         run: go test -count=1 ./...
-
-      - name: Test (sqlite build)
-        if: ${{ !cancelled() && steps.go.outcome == 'success' }}
-        run: go test -count=1 -tags sqlite ./...
 
       # Forge Solo for Linux ships 32-bit builds (armv6l, armv7l, i686). On a 32-bit platform a
       # 64-bit atomic operation panics unless its word is 8-byte aligned, which only the
       # sync/atomic types guarantee; the 32-bit stratum crashed on its first miner that way.
-      # 386 runs natively on this runner, so the whole suite runs as 32-bit here. Each build is a
-      # step of its own, so the SQLite suite runs when the PostgreSQL one fails: a step stops at its
-      # first failing command, and on a release commit TestCompose fails by design.
-      - name: Test as 32-bit (386), postgres build
+      # 386 runs natively on this runner, so the whole suite runs as 32-bit here, as a step of its
+      # own: on a release commit TestCompose fails by design.
+      - name: Test as 32-bit (386)
         if: ${{ !cancelled() && steps.go.outcome == 'success' }}
         run: CGO_ENABLED=0 GOARCH=386 go test -count=1 ./...
-
-      - name: Test as 32-bit (386), sqlite build
-        if: ${{ !cancelled() && steps.go.outcome == 'success' }}
-        run: CGO_ENABLED=0 GOARCH=386 go test -count=1 -tags sqlite ./...
 
       - name: Build Forge Solo for Linux for every architecture it ships
         if: ${{ !cancelled() && steps.go.outcome == 'success' }}
@@ -103,31 +86,27 @@ jobs:
           for t in amd64: arm64: arm:7 arm:6 386: riscv64:; do
             arch=${t%%:*} arm=${t#*:}
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch GOARM=$arm go build -o /dev/null ./cmd/forge-solo-linux
-            CGO_ENABLED=0 GOOS=linux GOARCH=$arch GOARM=$arm go build -tags sqlite -o /dev/null ./cmd/stratum
-            CGO_ENABLED=0 GOOS=linux GOARCH=$arch GOARM=$arm go build -tags sqlite -o /dev/null ./cmd/api
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch GOARM=$arm go build -o /dev/null ./cmd/stratum
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch GOARM=$arm go build -o /dev/null ./cmd/api
           done
           # forge-solo-migrate ships in the migrate image (amd64, arm64) and in the Windows installer.
           for arch in amd64 arm64; do
-            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -tags sqlite -o /dev/null ./cmd/forge-solo-migrate
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -o /dev/null ./cmd/forge-solo-migrate
           done
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags sqlite -o /dev/null ./cmd/forge-solo-migrate
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o /dev/null ./cmd/forge-solo-migrate
 
-      # Both builds: every platform runs on SQLite, where the api and the stratum share one file and
-      # the move replaces it under the in-use lock.
+      # Every platform runs on SQLite, where the api and the stratum share one file and the move
+      # replaces it under the in-use lock.
       - name: Test with race detector
         if: ${{ !cancelled() && steps.go.outcome == 'success' }}
-        run: |
-          go test -count=1 -race ./internal/stratum/ ./cmd/stratum/ ./cmd/api/ ./internal/mining/ ./internal/stats/
-          go test -count=1 -race -tags sqlite ./internal/stratum/ ./cmd/stratum/ ./cmd/api/ ./internal/mining/ ./internal/stats/ ./internal/dblock/ ./internal/pgmigrate/ ./internal/migstatus/ ./cmd/forge-solo-migrate/
+        run: go test -count=1 -race ./internal/stratum/ ./cmd/stratum/ ./cmd/api/ ./internal/mining/ ./internal/stats/ ./internal/dblock/ ./internal/pgmigrate/ ./internal/migstatus/ ./cmd/forge-solo-migrate/
 
-      - name: Build every binary, both tags
+      - name: Build every binary
         if: ${{ !cancelled() && steps.go.outcome == 'success' }}
-        run: |
-          go build ./...
-          go build -tags sqlite ./...
+        run: go build ./...
 
   integration:
-    name: Integration (postgres, the move to SQLite, live 1175 node)
+    name: Integration (the move to SQLite, live 1175 node)
     runs-on: ubuntu-latest
     # The move's end-to-end run builds the images and waits out three sweeps of the 1175 ledger.
     timeout-minutes: 60
@@ -145,11 +124,9 @@ jobs:
           go-version-file: go.mod
 
       # Both steps run the SAME scripts a developer runs locally, so there is no second
-      # copy of the provisioning logic to drift. Each script fails if its test SKIPS, which
+      # copy of the provisioning logic to drift. Each script fails if a test it runs SKIPS, which
       # is what stops a silently-unopened gate from reading as a pass.
-      - name: 1175 payout ledger (real postgres)
-        run: ./scripts/it-postgres.sh
-
+      #
       # 1.0.12's data, as its own code and the seed leave it, moved by the migrate image and the
       # compose as umbreld runs them, then compared in full; going back to 1.0.12 and forward
       # again; a move cut short, refused, deferred or damaged; the Windows shape.
@@ -240,17 +217,17 @@ jobs:
           go test -race -count=1 ./...
           GOOS=windows GOARCH=amd64 go test -c -o /tmp/launcher-test.exe .
 
-      # The services and forge-solo-migrate.exe as the release builds them for Windows, on SQLite.
-      # The tests of the packages whose locking, renaming and paths differ on Windows are compiled
-      # for it too. cmd/forge-solo-linux is Linux's alone.
+      # The services and forge-solo-migrate.exe as the release builds them for Windows. The tests of
+      # the packages whose locking, renaming and paths differ on Windows are compiled for it too.
+      # cmd/forge-solo-linux is Linux's alone.
       - name: Vet and build the services for Windows
         run: |
-          GOOS=windows GOARCH=amd64 go vet -tags sqlite ./cmd/stratum ./cmd/api ./cmd/forge-solo-migrate ./internal/...
+          GOOS=windows GOARCH=amd64 go vet ./cmd/stratum ./cmd/api ./cmd/forge-solo-migrate ./internal/...
           for c in stratum api forge-solo-migrate; do
-            CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags sqlite -o /dev/null ./cmd/$c
+            CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o /dev/null ./cmd/$c
           done
           for p in internal/stats internal/dblock internal/pgmigrate; do
-            CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go test -c -tags sqlite -o /dev/null ./$p
+            CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go test -c -o /dev/null ./$p
           done
 
       # A release takes the Visual C++ runtime PostgreSQL needs from Microsoft's installer, at a
@@ -303,9 +280,9 @@ jobs:
 
       - name: The database's locks and the move's decisions and commit, on Windows
         run: |
-          go test -count=1 -v -tags sqlite ./internal/dblock | tee "$RUNNER_TEMP/locks.log"
-          go test -count=1 -v -tags sqlite ./internal/stats -run 'InUse|InitDBWaits|ApiAndStratum|Pragmas' | tee -a "$RUNNER_TEMP/locks.log"
-          go test -count=1 -v -tags sqlite ./internal/pgmigrate -run 'Commit|InUse|Plan' | tee "$RUNNER_TEMP/commit.log"
+          go test -count=1 -v ./internal/dblock | tee "$RUNNER_TEMP/locks.log"
+          go test -count=1 -v ./internal/stats -run 'InUse|InitDBWaits|ApiAndStratum|Pragmas' | tee -a "$RUNNER_TEMP/locks.log"
+          go test -count=1 -v ./internal/pgmigrate -run 'Commit|InUse|Plan' | tee "$RUNNER_TEMP/commit.log"
           if grep -h -- '--- SKIP' "$RUNNER_TEMP/locks.log" "$RUNNER_TEMP/commit.log"; then echo "::error::a test skipped"; exit 1; fi
 
       - name: The launcher's code page, junction and fast-path tests, on Windows
@@ -327,7 +304,7 @@ jobs:
 
       - name: A move through junctions, from folders named in a script the code page lacks
         run: |
-          go build -tags sqlite -o "$RUNNER_TEMP/forge-solo-migrate.exe" ./cmd/forge-solo-migrate
+          go build -o "$RUNNER_TEMP/forge-solo-migrate.exe" ./cmd/forge-solo-migrate
           cd windows/launcher
           FS_PGSQL="$RUNNER_TEMP/pg/pgsql" FS_MIGRATE="$RUNNER_TEMP/forge-solo-migrate.exe" FS_MOVED="$RUNNER_TEMP/moved.db" \
             go test -count=1 -v -run '^TestMoveThroughAJunctionOnWindows$' . | tee "$RUNNER_TEMP/move.log"
@@ -338,7 +315,7 @@ jobs:
       - name: The moved database holds what the Linux run of the same rows holds
         run: |
           IT_DB="$RUNNER_TEMP/moved.db" IT_WANT=../../testdata/migrate/seed-1012.db.json \
-            go test -count=1 -v -tags 'sqlite it' -run '^TestITSnapshot$' ./internal/pgmigrate | tee "$RUNNER_TEMP/snapshot.log"
+            go test -count=1 -v -tags it -run '^TestITSnapshot$' ./internal/pgmigrate | tee "$RUNNER_TEMP/snapshot.log"
           grep -q -- '--- PASS: TestITSnapshot' "$RUNNER_TEMP/snapshot.log"
 
       # The Linux run checks that dashboard-snapshot.sh reads the same kept answers as the same files.

@@ -164,8 +164,8 @@ func TestReadmesDoNotOverstateThePassword(t *testing.T) {
 	checkPasswordScope(t, docs)
 }
 
-// The Windows README describes the build as it is: services on SQLite with the migrator beside
-// them, PostgreSQL only for a move, the junction folder named from the account's SID, and Smart
+// The Windows README describes the build as it is: the services and the migrator as the one build,
+// with no tag, PostgreSQL only for a move, the junction folder named from the account's SID, and Smart
 // App Control as Microsoft documents it. Smart App Control checks every program and DLL that
 // loads, so a trusted certificate on the installer alone would still leave the programs it installs
 // blocked; text that said such a certificate lets Smart App Control run Forge Solo could steer the
@@ -177,13 +177,13 @@ func TestWindowsReadmeDescribesTheSQLiteBuild(t *testing.T) {
 	for _, l := range strings.Split(readme, "\n") {
 		if strings.Contains(l, "go build") && regexp.MustCompile(`\./cmd/(stratum|api|forge-solo-migrate)\b`).MatchString(l) {
 			builds++
-			if !strings.Contains(l, "-tags sqlite") {
-				t.Errorf("DOCS-WIN-BUILD-TAGS: windows/README.md builds a service without -tags sqlite, so it would look for a PostgreSQL server: %q", strings.TrimSpace(l))
+			if strings.Contains(l, "-tags") {
+				t.Errorf("DOCS-WIN-BUILD-TAG: windows/README.md builds a service with a build tag; there is one build: %q", strings.TrimSpace(l))
 			}
 		}
 	}
 	if builds != 3 {
-		t.Errorf("DOCS-WIN-BUILD-TAGS: windows/README.md builds %d of stratum.exe, api.exe and forge-solo-migrate.exe, want all 3", builds)
+		t.Errorf("DOCS-WIN-BUILD: windows/README.md builds %d of stratum.exe, api.exe and forge-solo-migrate.exe, want all 3", builds)
 	}
 	for _, s := range []struct {
 		code string

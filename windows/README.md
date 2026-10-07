@@ -90,9 +90,8 @@ Up to 1.0.12 the data was in PostgreSQL, in `pgdata` in the same folder. The lau
 ## External binaries (place in `bin/` before building the installer)
 - `bitcoincashIId.exe`: BCH2 node (Windows release)
 - `elevenseventyfived.exe`: 1175 node (Windows release)
-- `stratum.exe`, `api.exe`, `forge-solo-migrate.exe`: cross-compiled with `-tags sqlite` from this
-  repository's `cmd/stratum`, `cmd/api` and `cmd/forge-solo-migrate` (see
-  [Building locally](#building-locally))
+- `stratum.exe`, `api.exe`, `forge-solo-migrate.exe`: cross-compiled from this repository's
+  `cmd/stratum`, `cmd/api` and `cmd/forge-solo-migrate` (see [Building locally](#building-locally))
 - `pgsql/`: portable PostgreSQL **16.x**, extracted into `windows/` so that
   `windows\pgsql\bin\postgres.exe` exists. Only a move of the old data runs it.
 
@@ -118,9 +117,9 @@ asset: two downloads means a user can pick the one that does not install.
 
 Everything inside the installer is fetched during that run and **sha256-verified fail-closed**:
 both node binaries from their own published releases, PostgreSQL from EnterpriseDB, and the four
-Go executables (`stratum.exe`, `api.exe` and `forge-solo-migrate.exe`, all built with
-`-tags sqlite`, and the launcher `forge-solo.exe`) compiled from this repository at the tag. So a
-release is reproducible from public sources rather than from whatever was on someone's laptop.
+Go executables (`stratum.exe`, `api.exe`, `forge-solo-migrate.exe` and the launcher
+`forge-solo.exe`) compiled from this repository at the tag. So a release is reproducible from public
+sources rather than from whatever was on someone's laptop.
 Bumping any pinned version means bumping its hash in the same commit; the versions and hashes are
 the `env:` block at the top of the workflow.
 
@@ -150,10 +149,10 @@ Only needed to test a change before tagging; releases come from CI. Requires Go 
 
 ```sh
 # From the repository root.
-# 1) services, on SQLite, and the migrator:
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags sqlite -ldflags '-s -w' -o windows/bin/stratum.exe ./cmd/stratum
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags sqlite -ldflags '-s -w' -o windows/bin/api.exe     ./cmd/api
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags sqlite -ldflags "-s -w -X main.version=<version>" -o windows/bin/forge-solo-migrate.exe ./cmd/forge-solo-migrate
+# 1) services and the migrator:
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags '-s -w' -o windows/bin/stratum.exe ./cmd/stratum
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags '-s -w' -o windows/bin/api.exe     ./cmd/api
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -X main.version=<version>" -o windows/bin/forge-solo-migrate.exe ./cmd/forge-solo-migrate
 
 # 2) exe icon resource (regenerate only if the icon changes):
 (cd windows/launcher && rsrc -ico forge-solo.ico -arch amd64 -o rsrc.syso)

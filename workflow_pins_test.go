@@ -216,35 +216,31 @@ func TestUnitJobRunsEveryCheck(t *testing.T) {
 	if !setUp {
 		t.Error("UNIT-RUNS-EVERY-CHECK: the unit job does not set up Go")
 	}
-	// A step stops at its first failing command, so each build's 32-bit suite is a step of its own:
-	// the SQLite one runs when the PostgreSQL one fails.
+	// A step stops at its first failing command, and on a release commit TestCompose fails by
+	// design, so the 32-bit suite is a step of its own.
 	runs := map[string]int{}
 	for _, s := range w.Jobs["unit"].Steps {
 		runs[strings.TrimSpace(s.Run)]++
 	}
-	for code, cmd := range map[string]string{
-		"UNIT-386-PG-OWN-STEP":     "CGO_ENABLED=0 GOARCH=386 go test -count=1 ./...",
-		"UNIT-386-SQLITE-OWN-STEP": "CGO_ENABLED=0 GOARCH=386 go test -count=1 -tags sqlite ./...",
-	} {
-		if runs[cmd] != 1 {
-			t.Errorf("%s: no step of the unit job runs only %s", code, cmd)
-		}
+	if cmd := "CGO_ENABLED=0 GOARCH=386 go test -count=1 ./..."; runs[cmd] != 1 {
+		t.Errorf("UNIT-386-OWN-STEP: no step of the unit job runs only %s", cmd)
 	}
 }
 
 // The Windows services keep their data in forgesolo.db, as on Umbrel and Linux, and
 // forge-solo-migrate.exe moves an earlier version's database into it: the release builds all three
-// with -tags sqlite into windows/bin, which the installer takes whole, and stamps the migrator and
-// the launcher with the version, which they write in the status file. The Windows job vets and
-// builds them the same way, and compiles the tests of the packages whose locking, renaming and
-// paths differ on Windows. PostgreSQL, which reads that database, stays pinned by version and hash.
+// as the one build, with no tag, into windows/bin, which the installer takes whole, and stamps the
+// migrator and the launcher with the version, which they write in the status file. The Windows job
+// vets and builds them the same way, and compiles the tests of the packages whose locking, renaming
+// and paths differ on Windows. PostgreSQL, which reads that database, stays pinned by version and
+// hash.
 func TestWindowsBuildRunsOnSQLite(t *testing.T) {
 	rel := loadWorkflow(t, ".github/workflows/release.yml")
 	build := stepRun(t, rel, "installer", "Build the Go executables")
 	for _, c := range []string{"stratum", "api", "forge-solo-migrate"} {
-		re := regexp.MustCompile(`(?m)^\s*CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags sqlite -ldflags ('[^']*'|"[^"]*") -o windows/bin/` + c + `\.exe +\./cmd/` + c + `$`)
+		re := regexp.MustCompile(`(?m)^\s*CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags ('[^']*'|"[^"]*") -o windows/bin/` + c + `\.exe +\./cmd/` + c + `$`)
 		if !re.MatchString(build) {
-			t.Errorf("WIN-BUILD-SQLITE-%s: the release does not build %s.exe with -tags sqlite into windows/bin:\n%s", strings.ToUpper(c), c, build)
+			t.Errorf("WIN-BUILD-%s: the release does not build %s.exe, with no tag, into windows/bin:\n%s", strings.ToUpper(c), c, build)
 		}
 	}
 	for _, want := range []string{
@@ -274,12 +270,12 @@ func TestWindowsBuildRunsOnSQLite(t *testing.T) {
 
 	win := stepRun(t, loadWorkflow(t, ".github/workflows/test.yml"), "windows", "Vet and build the services for Windows")
 	for _, want := range []string{
-		"GOOS=windows GOARCH=amd64 go vet -tags sqlite ./cmd/stratum ./cmd/api ./cmd/forge-solo-migrate ./internal/...",
-		"for c in stratum api forge-solo-migrate; do\n  CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags sqlite -o /dev/null ./cmd/$c\ndone",
-		"for p in internal/stats internal/dblock internal/pgmigrate; do\n  CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go test -c -tags sqlite -o /dev/null ./$p\ndone",
+		"GOOS=windows GOARCH=amd64 go vet ./cmd/stratum ./cmd/api ./cmd/forge-solo-migrate ./internal/...",
+		"for c in stratum api forge-solo-migrate; do\n  CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o /dev/null ./cmd/$c\ndone",
+		"for p in internal/stats internal/dblock internal/pgmigrate; do\n  CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go test -c -o /dev/null ./$p\ndone",
 	} {
 		if !strings.Contains(win, want) {
-			t.Errorf("WIN-CI-SQLITE: the Windows job lacks:\n%s", want)
+			t.Errorf("WIN-CI-BUILD: the Windows job lacks:\n%s", want)
 		}
 	}
 }
@@ -329,12 +325,11 @@ func TestReleaseBundlesTheVCRuntime(t *testing.T) {
 	}
 }
 
-// The switch to SQLite is guarded in CI. The race suite runs the SQLite build too, with the
-// packages of the move; the migrator is cross-built for each platform it ships on; the move runs
-// end to end on real clusters, from a database 1.0.12's own code made (the v1.0.12 tag: the whole
-// history); and a job on Windows itself tests what only Windows can show, its locks and renames,
-// code pages and junctions, and a whole move with the PostgreSQL the release ships, compared with
-// the Linux run of the same rows.
+// The switch to SQLite is guarded in CI. The race suite runs with the packages of the move; the
+// migrator is cross-built for each platform it ships on; the move runs end to end on real clusters,
+// from a database 1.0.12's own code made (the v1.0.12 tag: the whole history); and a job on Windows
+// itself tests what only Windows can show, its locks and renames, code pages and junctions, and a
+// whole move with the PostgreSQL the release ships, compared with the Linux run of the same rows.
 func TestSQLiteSwitchIsGuardedInCI(t *testing.T) {
 	w := loadWorkflow(t, ".github/workflows/test.yml")
 	// A script's lines, each trimmed, without the comments: a command commented out is not run.
@@ -348,13 +343,13 @@ func TestSQLiteSwitchIsGuardedInCI(t *testing.T) {
 		return strings.Join(out, "\n")
 	}
 	race := uncommented(stepRun(t, w, "unit", "Test with race detector"))
-	if !strings.Contains(race, "go test -count=1 -race -tags sqlite ./internal/stratum/ ./cmd/stratum/ ./cmd/api/ ./internal/mining/ ./internal/stats/ ./internal/dblock/ ./internal/pgmigrate/") {
-		t.Errorf("CI-SQLITE-RACE: the race step does not run the SQLite build with the move's packages:\n%s", race)
+	if !strings.Contains(race, "go test -count=1 -race ./internal/stratum/ ./cmd/stratum/ ./cmd/api/ ./internal/mining/ ./internal/stats/ ./internal/dblock/ ./internal/pgmigrate/") {
+		t.Errorf("CI-SQLITE-RACE: the race step does not run the move's packages:\n%s", race)
 	}
 	cross := uncommented(stepRun(t, w, "unit", "Build Forge Solo for Linux for every architecture it ships"))
 	for _, want := range []string{
-		"for arch in amd64 arm64; do\nCGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -tags sqlite -o /dev/null ./cmd/forge-solo-migrate\ndone",
-		"CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags sqlite -o /dev/null ./cmd/forge-solo-migrate",
+		"for arch in amd64 arm64; do\nCGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -o /dev/null ./cmd/forge-solo-migrate\ndone",
+		"CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o /dev/null ./cmd/forge-solo-migrate",
 	} {
 		if !strings.Contains(cross, want) {
 			t.Errorf("CI-MIGRATOR-CROSS: the cross-build step lacks:\n%s", want)
@@ -372,9 +367,6 @@ func TestSQLiteSwitchIsGuardedInCI(t *testing.T) {
 	if !runs["./scripts/it-pg-to-sqlite.sh"] {
 		t.Error("CI-PG-TO-SQLITE: the integration job does not run scripts/it-pg-to-sqlite.sh")
 	}
-	if !runs["./scripts/it-postgres.sh"] {
-		t.Error("CI-PG-KEPT: the integration job no longer runs scripts/it-postgres.sh")
-	}
 
 	win, ok := w.Jobs["windows-native"]
 	if !ok || win.RunsOn != "windows-latest" {
@@ -386,9 +378,9 @@ func TestSQLiteSwitchIsGuardedInCI(t *testing.T) {
 	}
 	job := strings.Join(all, "\n")
 	for code, want := range map[string]string{
-		"CI-WIN-LOCKS":        "go test -count=1 -v -tags sqlite ./internal/dblock",
-		"CI-WIN-INUSE":        "go test -count=1 -v -tags sqlite ./internal/stats -run 'InUse|InitDBWaits|ApiAndStratum|Pragmas'",
-		"CI-WIN-COMMIT":       "go test -count=1 -v -tags sqlite ./internal/pgmigrate -run 'Commit|InUse|Plan'",
+		"CI-WIN-LOCKS":        "go test -count=1 -v ./internal/dblock",
+		"CI-WIN-INUSE":        "go test -count=1 -v ./internal/stats -run 'InUse|InitDBWaits|ApiAndStratum|Pragmas'",
+		"CI-WIN-COMMIT":       "go test -count=1 -v ./internal/pgmigrate -run 'Commit|InUse|Plan'",
 		"CI-WIN-LAUNCHER":     "windows/launcher$ go test -count=1 -v -run 'ACP|Junction|PgReachable|FastPath' .",
 		"CI-WIN-PG-PINS":      `PG_SHA256=$(sed -n "s/^  PG_SHA256: '\(.*\)'\$/\1/p" .github/workflows/release.yml)`,
 		"CI-WIN-PG-CHECKED":   `echo "${PG_SHA256}  $RUNNER_TEMP/pg.zip" | sha256sum -c -`,

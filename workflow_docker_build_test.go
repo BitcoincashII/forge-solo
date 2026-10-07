@@ -172,10 +172,10 @@ func TestDockerBuildMakesTheMigrateImage(t *testing.T) {
 	}
 }
 
-// The migrate image's own build: the migrator compiled with -tags sqlite and the version it is
-// given, PostgreSQL 16 (the major version of the data it reads), every base image pinned by
-// digest, and two checks that fail the build: the server starts far enough to print its version
-// (a library left out stops it), and the migrator answers (a build without -tags sqlite exits 2).
+// The migrate image's own build: the migrator compiled with the version it is given, PostgreSQL 16
+// (the major version of the data it reads), every base image pinned by digest, and two checks that
+// fail the build: the server starts far enough to print its version (a library left out stops it),
+// and the migrator answers.
 func TestMigrateImageBuild(t *testing.T) {
 	b, err := os.ReadFile("docker/migrate/Dockerfile")
 	if err != nil {
@@ -196,10 +196,10 @@ func TestMigrateImageBuild(t *testing.T) {
 		t.Fatal("MIGRATE-IMAGE-PG16: the image does not take PostgreSQL 16, the version of the data it reads")
 	}
 	for code, re := range map[string]string{
-		"MIGRATE-IMAGE-SQLITE":     `go build -tags sqlite [^\n]*(\\\n[^\n]*)*\./cmd/forge-solo-migrate`,
+		"MIGRATE-IMAGE-BUILD":      `go build [^\n]*(\\\n[^\n]*)*\./cmd/forge-solo-migrate`,
 		"MIGRATE-IMAGE-VERSION":    `-X main\.version=\$VERSION`,
 		"MIGRATE-IMAGE-CHECK-PG":   `postgres --version \| grep -F ' ` + regexp.QuoteMeta(pg[1]) + `'`,
-		"MIGRATE-IMAGE-CHECK-TAG":  `forge-solo-migrate plan --help`,
+		"MIGRATE-IMAGE-CHECK-RUNS": `forge-solo-migrate plan --help`,
 		"MIGRATE-IMAGE-PG-USER":    `adduser [^\n]*-u 70 `,
 		"MIGRATE-IMAGE-ENTRYPOINT": `(?m)^ENTRYPOINT \["/usr/local/bin/forge-solo-migrate"\]$`,
 	} {

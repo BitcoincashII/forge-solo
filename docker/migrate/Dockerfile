@@ -23,7 +23,7 @@ ARG TARGETARCH
 # The app version, such as 1.0.13: the migrator records it in what it writes.
 ARG VERSION
 RUN case "$VERSION" in ""|*[!0-9A-Za-z.+-]*) echo "build with --build-arg VERSION=<the app version>, such as 1.0.13; got '$VERSION'"; exit 1 ;; esac \
- && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -tags sqlite -trimpath \
+ && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
       -ldflags="-s -w -X main.version=$VERSION" -o /out/forge-solo-migrate ./cmd/forge-solo-migrate
 
 # The server and what it loads, gathered under /out for the last stage: the postgres program, its

@@ -76,17 +76,16 @@ jobs:
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "Building version $V"
 
-      # The services keep their data in forgesolo.db, as on Umbrel and Linux: built without -tags
-      # sqlite they would look for a PostgreSQL server (build_tags_test.go). forge-solo-migrate.exe
+      # The services keep their data in forgesolo.db, as on Umbrel and Linux. forge-solo-migrate.exe
       # moves an earlier version's database into it, once. The installer takes windows/bin whole.
       - name: Build the Go executables
         env:
           V: ${{ steps.ver.outputs.version }}
         run: |
           mkdir -p windows/bin
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags sqlite -ldflags '-s -w' -o windows/bin/stratum.exe ./cmd/stratum
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags sqlite -ldflags '-s -w' -o windows/bin/api.exe     ./cmd/api
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags sqlite -ldflags "-s -w -X main.version=$V" -o windows/bin/forge-solo-migrate.exe ./cmd/forge-solo-migrate
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags '-s -w' -o windows/bin/stratum.exe ./cmd/stratum
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags '-s -w' -o windows/bin/api.exe     ./cmd/api
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -X main.version=$V" -o windows/bin/forge-solo-migrate.exe ./cmd/forge-solo-migrate
           go install github.com/akavel/rsrc@v0.10.2
           (cd windows/launcher && "$(go env GOPATH)/bin/rsrc" -ico forge-solo.ico -arch amd64 -o rsrc.syso)
           (cd windows/launcher && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui -s -w -X main.version=$V" -o ../bin/forge-solo.exe .)

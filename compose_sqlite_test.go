@@ -202,14 +202,14 @@ func TestSQLiteComposeAppDatabase(t *testing.T) {
 	}
 }
 
-// The api and stratum images are the SQLite build, and their user's group is 10001 too, the group
-// the database's folder and files belong to.
+// The api and stratum images build their program as the one build, with no tag, and their user's
+// group is 10001 too, the group the database's folder and files belong to.
 func TestSQLiteAppImages(t *testing.T) {
 	for _, svc := range []string{"api", "stratum"} {
 		f := "docker/" + svc + "/Dockerfile"
 		src := string(mustRead(t, f))
-		if !regexp.MustCompile(`go build -tags sqlite [^\n]*\./cmd/` + svc + `\n`).MatchString(src) {
-			t.Errorf("SQL-DOCKERFILE-SQLITE: %s does not build ./cmd/%s with -tags sqlite", f, svc)
+		if build := regexp.MustCompile(`go build [^\n]*\./cmd/` + svc + `\n`).FindString(src); build == "" || strings.Contains(build, "-tags") {
+			t.Errorf("SQL-DOCKERFILE-ONE-BUILD: %s does not build ./cmd/%s as the one build, with no tag: %q", f, svc, build)
 		}
 		if !strings.Contains(src, "groupadd --system --gid 10001 forge") || !strings.Contains(src, "useradd --system --uid 10001 --gid 10001 ") {
 			t.Errorf("SQL-DOCKERFILE-GID: %s does not make its user forge with uid and gid 10001", f)

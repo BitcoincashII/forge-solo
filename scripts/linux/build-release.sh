@@ -117,7 +117,7 @@ for arch in $ARCHES; do
   mkdir -p "$stage/bin"
   for prog in stratum api; do
     (cd "$ROOT" && CGO_ENABLED=0 GOOS=linux GOARCH=$goarch GOARM=$goarm \
-      go build -tags sqlite -trimpath -ldflags "-s -w" -o "$stage/bin/$prog" "./cmd/$prog")
+      go build -trimpath -ldflags "-s -w" -o "$stage/bin/$prog" "./cmd/$prog")
   done
   (cd "$ROOT" && CGO_ENABLED=0 GOOS=linux GOARCH=$goarch GOARM=$goarm \
     go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$stage/forge-solo" ./cmd/forge-solo-linux)
