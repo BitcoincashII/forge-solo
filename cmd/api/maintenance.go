@@ -97,7 +97,7 @@ func (m *maintenanceMode) gate(c *fiber.Ctx) error {
 			"platform": platformFromEnv(), "skip_file": skipFileThere(m.db), "database_file": databaseThere(m.db)})
 	case p == "/api/v1/old-data" && c.Method() == fiber.MethodPost:
 		return saveOldDataChoice(c)
-	case p == "/api" || strings.HasPrefix(p, "/api/") || p == "/metrics" || p == "/health":
+	case p == "/api" || strings.HasPrefix(p, "/api/"):
 		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"success": false, "maintenance": true,
 			"message": maintenanceMessage, "error": maintenanceMessage})
 	}

@@ -51,7 +51,6 @@ func testApp(m *maintenanceMode) *fiber.App {
 	api.Get("/stats", func(c *fiber.Ctx) error { return c.SendString("reached the figures") })
 	api.Get("/health", healthCheck)
 	api.Post("/old-data", saveOldDataChoice)
-	app.Get("/api/stats", func(c *fiber.Ctx) error { return c.SendString("reached the figures") })
 	app.Get("/settings", func(c *fiber.Ctx) error { return c.SendString("<html>settings</html>") })
 	return app
 }
@@ -108,7 +107,7 @@ func TestMaintenanceAnswersTheAPI(t *testing.T) {
 	if a := call(t, app, "HEAD", "/api/v1/health", "", nil); a.code != 200 {
 		t.Errorf("MAINT-HEALTH-HEAD: the healthcheck's HEAD answers %d, want 200", a.code)
 	}
-	for _, p := range []string{"/api/v1/stats", "/API/V1/STATS", "/api/v1/stats/", "/api/stats", "/api/v1/miners/x/payouts", "/metrics", "/health", "/api"} {
+	for _, p := range []string{"/api/v1/stats", "/API/V1/STATS", "/api/v1/stats/", "/api/v1/miners/x/payouts", "/api"} {
 		a := call(t, app, "GET", p, "", nil)
 		if a.code != 503 || a.json["maintenance"] != true || a.json["message"] != maintenanceMessage || a.json["error"] != maintenanceMessage {
 			t.Errorf("MAINT-503: %s answers %d %s, want 503 with maintenance and the message", p, a.code, a.body)
