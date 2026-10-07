@@ -41,7 +41,7 @@ func GetDBPath() string {
 	return filepath.Join(dir, "forgesolo.db")
 }
 
-// SQLiteTime is t as the SQLite build stores every time: UTC, to the second, "YYYY-MM-DD
+// SQLiteTime is t as the database stores every time: UTC, to the second, "YYYY-MM-DD
 // HH:MM:SS", the form SQLite's own CURRENT_TIMESTAMP writes. Bound as a time.Time, the driver
 // stored Go's String() form in t's own zone, "2026-10-01 01:45:30.009992576 -0500 CDT m=+0.0058",
 // which SQLite's date functions cannot read: strftime('%s', ...) returned NULL, the scan failed,
@@ -668,7 +668,7 @@ func LoadAllMinerSettings() map[string]*MinerSettings {
 
 // GetMinerPayoutsDB returns a miner's payouts grouped by txid, newest first, how many groups there
 // are, and what the paid ones come to. A group is paid unless a row in it was orphaned or its txid
-// is a reservation (pending_...). The Postgres build answers the same.
+// is a reservation (pending_...).
 func GetMinerPayoutsDB(minerID string) ([]PayoutRecord, int, float64) {
 	dbMu.RLock()
 	defer dbMu.RUnlock()

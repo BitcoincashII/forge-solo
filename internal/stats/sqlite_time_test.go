@@ -9,10 +9,10 @@ import (
 	"time"
 )
 
-// storedTime is the one form the SQLite build stores a time in: SQLiteTime's.
+// storedTime is the one form the database stores a time in: SQLiteTime's.
 var storedTime = regexp.MustCompile(`^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$`)
 
-// Every time the SQLite build writes is UTC, to the second, in SQLite's own form, whatever the
+// Every time written is UTC, to the second, in SQLite's own form, whatever the
 // computer's zone: this package's tests run five hours behind UTC (TestMain). A time.Time bound as
 // it is was stored in Go's form and in the local zone, "2026-10-03 20:01:25.6793959 -0500 CDT
 // m=+0.03", and the dashboard, which reads the first 19 characters as UTC, listed it five hours off.
