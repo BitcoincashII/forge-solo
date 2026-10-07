@@ -776,49 +776,6 @@ func GetTotalBlocksDB() int64 {
 	return count
 }
 
-// GetAllPoolBlocksDB gets all blocks mined by the pool with pagination
-func GetAllPoolBlocksDB(page, limit int) ([]PoolBlock, int64) {
-	if db == nil {
-		log.Printf("Warning: GetAllPoolBlocksDB called but database not initialized")
-		return []PoolBlock{}, 0
-	}
-
-	// Get total count
-	var total int64
-	if err := db.QueryRow("SELECT COUNT(*) FROM blocks").Scan(&total); err != nil {
-		log.Printf("Warning: failed to count blocks: %v", err)
-		total = 0
-	}
-
-	// Get paginated blocks
-	offset := (page - 1) * limit
-	rows, err := db.Query(`
-		SELECT height, hash, reward, miner_address, status, EXTRACT(EPOCH FROM created_at)::bigint, COALESCE(is_solo, false)
-		FROM blocks ORDER BY height DESC LIMIT $1 OFFSET $2`,
-		limit, offset)
-	if err != nil {
-		log.Printf("Warning: failed to query pool blocks: %v", err)
-		return []PoolBlock{}, total
-	}
-	defer rows.Close()
-
-	var blocks []PoolBlock
-	for rows.Next() {
-		var b PoolBlock
-		if err := rows.Scan(&b.Height, &b.Hash, &b.Reward, &b.MinerAddr, &b.Status, &b.CreatedAt, &b.IsSolo); err != nil {
-			log.Printf("Warning: failed to scan pool block: %v", err)
-			continue
-		}
-		blocks = append(blocks, b)
-	}
-
-	if err := rows.Err(); err != nil {
-		log.Printf("Warning: error iterating pool blocks: %v", err)
-	}
-
-	return blocks, total
-}
-
 // GetMinerSoloBlocksDB gets solo blocks found by a specific miner
 func GetMinerSoloBlocksDB(minerID string) []SoloBlock {
 	blocks, _, _, err := SoloBlocksSummary(minerID)

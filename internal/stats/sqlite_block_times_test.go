@@ -45,13 +45,4 @@ func TestSoloBlocksAreListedWithTheirTime(t *testing.T) {
 			}
 		}
 	}
-	if got := len(listedPoolBlocks(t)); got != 2 {
-		t.Fatalf("the pool block list has %d rows, want 2", got)
-	}
-}
-
-func listedPoolBlocks(t *testing.T) []PoolBlock {
-	t.Helper()
-	blocks, _ := GetAllPoolBlocksDB(1, 50)
-	return blocks
 }

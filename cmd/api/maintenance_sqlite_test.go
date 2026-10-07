@@ -191,8 +191,8 @@ func TestMaintenanceModeAsAProgram(t *testing.T) {
 	if code, health, raw := api.do("GET", "/api/v1/health", "", nil); code != 200 || health["status"] != "maintenance" || health["code"] != float64(20) || health["reason"] != "the copy of the old data did not check out" {
 		t.Errorf("MAINT-API-HEALTH: health answers %d %s, want 200 with status maintenance, code 20 and the reason", code, raw)
 	}
-	if c, j, b := api.do("GET", "/api/v1/blocks", "", nil); c != 503 || j["maintenance"] != true {
-		t.Errorf("MAINT-API-503: /api/v1/blocks answers %d %s, want 503 maintenance", c, b)
+	if c, j, b := api.do("GET", "/api/v1/stats", "", nil); c != 503 || j["maintenance"] != true {
+		t.Errorf("MAINT-API-503: /api/v1/stats answers %d %s, want 503 maintenance", c, b)
 	}
 	if c, _, b := api.do("GET", "/settings", "", nil); c != 200 || !strings.Contains(b, "<title>Settings - Forge Solo</title>") {
 		t.Errorf("MAINT-API-PAGES: the Settings page answers %d in maintenance, want the page", c)

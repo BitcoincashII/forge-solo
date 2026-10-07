@@ -2480,28 +2480,6 @@ func startStatsServer() {
 			"total":  len(blocks),
 		})
 	}))
-	http.HandleFunc("/internal/pool-blocks", internalAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		page := 1
-		limit := 25
-		if p := r.URL.Query().Get("page"); p != "" {
-			if v, err := strconv.Atoi(p); err == nil && v > 0 {
-				page = v
-			}
-		}
-		if l := r.URL.Query().Get("limit"); l != "" {
-			if v, err := strconv.Atoi(l); err == nil && v > 0 && v <= 100 {
-				limit = v
-			}
-		}
-		blocks, total := stats.GetAllPoolBlocksDB(page, limit)
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"blocks": blocks,
-			"total":  total,
-			"page":   page,
-			"limit":  limit,
-		})
-	}))
 	http.HandleFunc("/internal/miner-payouts", internalAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		minerID := r.URL.Query().Get("miner")
 		payouts, total, totalPaid := stats.GetMinerPayoutsDB(minerID)

@@ -2,17 +2,6 @@ package stats
 
 import "time"
 
-// PoolBlock represents a block mined by the pool
-type PoolBlock struct {
-	Height    int64   `json:"height"`
-	Hash      string  `json:"hash"`
-	Reward    float64 `json:"reward"`
-	MinerAddr string  `json:"miner_address"`
-	Status    string  `json:"status"`
-	CreatedAt int64   `json:"time"`
-	IsSolo    bool    `json:"is_solo"`
-}
-
 // MinerBlockContribution represents a miner's contribution to a specific block
 type MinerBlockContribution struct {
 	Height   int64   `json:"height"`

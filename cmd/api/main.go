@@ -369,7 +369,6 @@ func main() {
 	// API routes FIRST
 	api := app.Group("/api/v1")
 	api.Get("/stats", getPoolStats)
-	api.Get("/blocks", getBlocksAPI)
 	api.Get("/miners", getMinersListAPI)
 	api.Get("/miners/:address", getMiner)
 	api.Get("/miners/:address/workers", getMinerWorkers)
@@ -396,7 +395,6 @@ func main() {
 
 	// Alias routes for miningpoolstats and other services that expect /api/stats
 	app.Get("/api/stats", getPoolStats)
-	app.Get("/api/blocks", getBlocksAPI)
 
 	// Prometheus-style metrics endpoint
 	app.Get("/metrics", func(c *fiber.Ctx) error {
@@ -1280,85 +1278,6 @@ func getPoolStats(c *fiber.Ctx) error {
 			"other":    rentalStats.OtherRentals,
 			"total":    rentalStats.TotalRentals,
 		},
-	})
-}
-
-func getBlocksAPI(c *fiber.Ctx) error {
-	page := c.QueryInt("page", 1)
-	limit := c.QueryInt("limit", 25)
-	if limit > 100 {
-		limit = 100 // Cap at 100 blocks per request
-	}
-	if limit < 1 {
-		limit = 1
-	}
-	if page < 1 {
-		page = 1
-	}
-
-	// Fetch pool-mined blocks from stratum internal endpoint
-	url := fmt.Sprintf("%s/internal/pool-blocks?page=%d&limit=%d", stratumURL, page, limit)
-	resp, err := internalAPIGet(url)
-	if err != nil {
-		// Return empty blocks if stratum is unavailable
-		return c.JSON(fiber.Map{"blocks": []interface{}{}, "total": 0, "page": page, "limit": limit})
-	}
-	defer resp.Body.Close()
-
-	// Check for non-200 status
-	if resp.StatusCode != 200 {
-		return c.JSON(fiber.Map{"blocks": []interface{}{}, "total": 0, "page": page, "limit": limit})
-	}
-
-	var data struct {
-		Blocks []struct {
-			Height    int64   `json:"height"`
-			Hash      string  `json:"hash"`
-			Reward    float64 `json:"reward"`
-			MinerAddr string  `json:"miner_address"`
-			Status    string  `json:"status"`
-			Time      int64   `json:"time"`
-			IsSolo    bool    `json:"is_solo"`
-		} `json:"blocks"`
-		Total int64 `json:"total"`
-		Page  int   `json:"page"`
-		Limit int   `json:"limit"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Failed to parse pool blocks"})
-	}
-
-	// Get current height for confirmation status
-	var currentHeight int64
-	if heightResult, err := rpcCall("getblockcount", []interface{}{}); err == nil {
-		json.Unmarshal(heightResult, &currentHeight)
-	}
-
-	// Transform to API response format
-	var blocks []fiber.Map
-	for _, b := range data.Blocks {
-		blockType := "PPLNS"
-		if b.IsSolo {
-			blockType = "SOLO"
-		}
-		blocks = append(blocks, fiber.Map{
-			"height": b.Height,
-			"hash":   b.Hash,
-			"time":   b.Time,
-			"miner":  poolNameFromEnv(),
-			"reward": b.Reward,
-			// Six deep reads as confirmed, but never an orphan: those used to be reported confirmed.
-			"confirmed": b.Status == "confirmed" || (b.Status != "orphaned" && currentHeight > 0 && currentHeight-b.Height >= 6),
-			"status":    b.Status,
-			"type":      blockType,
-		})
-	}
-
-	return c.JSON(fiber.Map{
-		"blocks": blocks,
-		"total":  data.Total,
-		"page":   data.Page,
-		"limit":  data.Limit,
 	})
 }
 
