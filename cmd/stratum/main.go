@@ -2471,15 +2471,6 @@ func startStatsServer() {
 			"total_rentals":   rentalStats.TotalRentals,
 		})
 	}))
-	http.HandleFunc("/internal/miner-blocks", internalAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		minerID := r.URL.Query().Get("miner")
-		blocks := stats.GetMinerBlocksDB(minerID)
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"blocks": blocks,
-			"total":  len(blocks),
-		})
-	}))
 	http.HandleFunc("/internal/miner-payouts", internalAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		minerID := r.URL.Query().Get("miner")
 		payouts, total, totalPaid := stats.GetMinerPayoutsDB(minerID)
@@ -2517,59 +2508,6 @@ func startStatsServer() {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"matureBalance":   mature,
 			"immatureBalance": immature,
-		})
-	}))
-
-	http.HandleFunc("/internal/validate-address", internalAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		address := r.URL.Query().Get("address")
-		if address == "" {
-			json.NewEncoder(w).Encode(map[string]interface{}{"valid": false, "error": "No address provided"})
-			return
-		}
-		result, err := rpcCall(rpcURL, "validateaddress", []interface{}{address})
-		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{"valid": false, "error": err.Error()})
-			return
-		}
-		if validResult, ok := result.(map[string]interface{}); ok {
-			isValid, _ := validResult["isvalid"].(bool)
-			json.NewEncoder(w).Encode(map[string]interface{}{"valid": isValid})
-		} else {
-			json.NewEncoder(w).Encode(map[string]interface{}{"valid": false, "error": "Invalid response"})
-		}
-	}))
-
-	// Debug endpoint to verify block submission readiness
-	http.HandleFunc("/internal/block-readiness", internalAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-
-		jobHistoryMu.RLock()
-		jobCount := len(jobHistory)
-		var jobIDs []string
-		for id := range jobHistory {
-			jobIDs = append(jobIDs, id)
-		}
-		jobHistoryMu.RUnlock()
-
-		var currentJobInfo map[string]interface{}
-		curJob := getCurrentJob()
-		if curJob != nil {
-			currentJobInfo = map[string]interface{}{
-				"id":     curJob.ID,
-				"height": curJob.Height,
-				"nbits":  curJob.NBits,
-			}
-		}
-
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"ready":            curJob != nil && jobCount > 0,
-			"network_diff":     getNetworkDifficulty(),
-			"job_history_size": jobCount,
-			"job_ids":          jobIDs,
-			"current_job":      currentJobInfo,
-			"message":          "Block submission will work when share.Difficulty >= network_diff",
 		})
 	}))
 
