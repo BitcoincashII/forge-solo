@@ -152,7 +152,6 @@ type Gateway struct {
 	queue     []queued
 	counts    Counts
 	lastWarn  time.Time
-	wake      chan struct{}
 
 	// acceptedBy is the address the pool last credited one of this install's shares to, and
 	// firstAccepted when it first did (notInWindow).
@@ -199,7 +198,7 @@ func New(cfg Config) *Gateway {
 	c.HTTP = &http.Client{Timeout: cfg.RequestTimeout, CheckRedirect: gateway.NoRedirects}
 	c.Now = cfg.Now
 	return &Gateway{cfg: cfg, client: c, logger: cfg.Logger, jobs: map[string]*tracked{},
-		state: StateStarting, since: cfg.Now(), wake: make(chan struct{}, 1)}
+		state: StateStarting, since: cfg.Now()}
 }
 
 // KeyFromSeed turns a stored hex seed into the gateway's key.
@@ -838,7 +837,6 @@ func (g *Gateway) Run(stop <-chan struct{}) {
 		case <-stop:
 			return
 		case <-tick.C:
-		case <-g.wake:
 		}
 		g.Flush()
 	}
@@ -934,12 +932,4 @@ func (g *Gateway) Status() Status {
 		st.NotInWindow = g.notInWindow()
 	}
 	return st
-}
-
-// Wake asks Run to flush now.
-func (g *Gateway) Wake() {
-	select {
-	case g.wake <- struct{}{}:
-	default:
-	}
 }
