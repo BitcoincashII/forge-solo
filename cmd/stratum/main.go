@@ -1922,7 +1922,6 @@ func loadConfig(path string) (*viper.Viper, error) {
 	v.SetDefault("stratum.host", "0.0.0.0")
 	v.SetDefault("stratum.port", 3333)
 	v.SetDefault("stratum.max_connections", 10000)
-	v.SetDefault("stratum.ban_duration", "10m")
 	v.SetDefault("stratum.max_shares_per_second", 100)
 	v.SetDefault("stratum_rental.max_shares_per_second", 100)
 	// The rental port's vardiff as every platform ships it (docker/stratum/config.template.yaml).
@@ -1939,11 +1938,6 @@ func loadConfig(path string) (*viper.Viper, error) {
 	v.SetDefault("stratum.vardiff.target_time", 10)
 	v.SetDefault("stratum.high_hash_threshold", 10)
 	v.SetDefault("stratum.high_hash_diff", 1000000)
-
-	// Node defaults - IMPORTANT: Set RPC_USER and RPC_PASSWORD env vars
-	// DO NOT use default credentials in production
-	v.SetDefault("node.user", "")
-	v.SetDefault("node.password", "")
 
 	// Mining defaults. No fee key of any kind: this app takes none on any path, and a
 	// default here would be a live deduction the shipped template could not switch off.
