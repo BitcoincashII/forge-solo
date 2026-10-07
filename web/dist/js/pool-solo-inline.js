@@ -1,11 +1,12 @@
         // Whether /api/v1/pool/config has ever answered. Without this the page cannot
         // tell "you have not set a payout address" from "the API is down": minerAddress is
         // only ever learned from that endpoint, and apiFetch throws on a non-OK response,
-        // so both arrive as an empty address. The app serves `web` from a separate nginx
-        // container with start-only depends_on while `api` waits on postgres health, so an
-        // unreachable API is the NORMAL view during startup, an update, or a crash-loop --
-        // and telling a correctly configured user to set an address they already set
-        // invites them to overwrite it from a Settings page that shows no error either.
+        // so both arrive as an empty address. On Umbrel nginx serves this page and waits only
+        // for the api container to start; on Windows the launcher serves it and on Linux
+        // forge-solo-linux does. An unreachable API is the NORMAL view during startup, an
+        // update, or a crash-loop, and telling a correctly configured user to set an address
+        // they already set invites them to overwrite it from a Settings page that shows no
+        // error either.
         let configReachable = false;
         // The API's reason when it answered the settings read with an error of its own ("cannot
         // read its saved settings right now (database unavailable)"): Forge Solo answers, but
@@ -137,7 +138,7 @@
 
         // Status banner: shows "set your payout address" or live node-sync progress,
         // so a fresh install (empty address / still-syncing node) reads as a clear state
-        // instead of a frozen spinner. Injected here so no HTML edit is required.
+        // instead of a frozen spinner.
         (function ensureBanner(){
             if (document.getElementById('syncBanner')) return;
             var b = document.createElement('div');
@@ -164,13 +165,11 @@
         })();
 
         // The stratum address to tell the user to point a miner at. This page is served
-        // from the same host as the stratum, so its own hostname is the right answer --
-        // the old copy hardcoded "this PC: 127.0.0.1:3333 · a Bitaxe: your PC LAN IP",
-        // which is wrong for the Umbrel this app ships as, and disagreed with Settings
-        // and the README (both of which say <your-umbrel-ip>). Except where the page is
-        // opened on this machine itself (Windows, Linux): 127.0.0.1 reaches only a miner
-        // running here, so this machine's network address from /connectivity is shown.
-        var lanIp = ''; // var: stratumHostHint may run before this line does
+        // from the same host as the stratum, so its own hostname is the right answer, as
+        // Settings and the README say. Except where the page is opened on this machine
+        // itself (Windows, Linux): 127.0.0.1 reaches only a miner running here, so this
+        // machine's network address from /connectivity is shown.
+        let lanIp = '';
         function isLoopbackHost(h) {
             return h === 'localhost' || h === '[::1]' || h === '::1' || /^127\./.test(h);
         }
