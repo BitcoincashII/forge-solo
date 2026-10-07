@@ -32,7 +32,7 @@ OutputBaseFilename=ForgeSolo-Setup-{#MyAppVersion}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
-SetupIconFile=forge-solo.ico
+SetupIconFile=launcher\forge-solo.ico
 UninstallDisplayIcon={app}\{#MyAppExe}
 UninstallDisplayName={#MyAppName}
 ; No AppMutex: Setup and the uninstaller would check it at start, before [Code] closes a running
