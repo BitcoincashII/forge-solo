@@ -55,16 +55,6 @@ var (
 	internalHTTPClient = &http.Client{Timeout: 10 * time.Second}
 )
 
-// CachedBlock stores block data with cache timestamp
-type CachedBlock struct {
-	Height   int64     `json:"height"`
-	Hash     string    `json:"hash"`
-	Time     int64     `json:"time"`
-	Size     int       `json:"size"`
-	TxCount  int       `json:"txCount"`
-	CachedAt time.Time `json:"-"`
-}
-
 // CashAddr charset for BCH addresses
 const cashAddrCharset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 
@@ -253,7 +243,6 @@ type MinerSetting struct {
 	Address     string  `json:"address"`
 	SoloMining  bool    `json:"solo_mining"`
 	ManualDiff  float64 `json:"manual_diff"`
-	Password    string  `json:"password"`
 	Address1175 string  `json:"address_1175"` // 1175 merge-mining payout address (esf1...)
 	Pin         string  `json:"pin"`          // optional settings PIN: proof-of-control for changing address_1175 (rental-friendly, no keys)
 }
