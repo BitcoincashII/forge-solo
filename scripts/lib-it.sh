@@ -21,7 +21,7 @@ run_must_pass() {
   fi
   echo "$out" | grep -E "^(=== RUN|--- |ok|FAIL)" || true
   if echo "$out" | grep -q -- "--- SKIP: ${name}"; then
-    echo "✗ ${name} SKIPPED — its environment gate did not open, so nothing was verified"
+    echo "✗ ${name} SKIPPED: its environment gate did not open, so nothing was verified"
     return 1
   fi
   if ! echo "$out" | grep -q -- "--- PASS: ${name}"; then
