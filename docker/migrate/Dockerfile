@@ -29,7 +29,7 @@ RUN case "$VERSION" in ""|*[!0-9A-Za-z.+-]*) echo "build with --build-arg VERSIO
 # The server and what it loads, gathered under /out for the last stage: the postgres program, its
 # modules (without the JIT, which needs LLVM, and the build files), its share files, the time zones
 # and every library ldd lists for them. The C library is the last stage's own (the same Alpine).
-FROM postgres:16.15-alpine3.23@sha256:621a761097839bdb50207afd6b87a72f38e2d718dd46c3d744828d8917c4f1e0 AS pg
+FROM postgres:18.6-alpine3.23@sha256:885cf05d376c7cf27afef02073e6bdac3841252537f16e244fd1c1e6a7c99fb1 AS pg
 RUN set -eu; \
     mkdir -p /out/usr/local/bin /out/usr/local/lib /out/usr/local/share /out/usr/share; \
     cp -a /usr/local/bin/postgres /out/usr/local/bin/; \
