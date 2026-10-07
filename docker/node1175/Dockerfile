@@ -1,8 +1,11 @@
 # 1175 (ESF) full node — v29.1.0, the live-network version (difficulty re-anchor at activation
 # 31733 + the transition guard that purges the bad low-diff 31806 chain). Multi-arch
 # (amd64 + arm64): buildx sets TARGETARCH and we fetch the matching sha-verified release tarball.
-# v29 release binaries are depends-built (static libs), so ubuntu:24.04 + ca-certificates suffices.
-FROM ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
+# v29 release binaries are depends-built (static libs), so a plain ubuntu:24.04 runs them.
+#
+# The release is fetched in a stage of its own: curl and the CA store are needed for the download
+# only, and the image that runs the node carries neither.
+FROM ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90 AS fetch
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
@@ -24,6 +27,8 @@ RUN set -eux; \
     install -m0755 /tmp/elevenseventyfive-${ESF_VERSION}/bin/elevenseventyfive-cli /usr/local/bin/elevenseventyfive-cli; \
     rm -rf /tmp/esf.tar.gz /tmp/elevenseventyfive-${ESF_VERSION}
 
+FROM ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
+COPY --from=fetch /usr/local/bin/elevenseventyfived /usr/local/bin/elevenseventyfive-cli /usr/local/bin/
 COPY entrypoint.sh /entrypoint.sh
 COPY peeraddr.sh /peeraddr.sh
 COPY damaged-chain.sh /damaged-chain.sh
