@@ -32,7 +32,6 @@ import (
 )
 
 var (
-	startTime     = time.Now()
 	minerSettings = make(map[string]MinerSetting)
 	settingsMu    sync.RWMutex
 
@@ -998,55 +997,24 @@ func fetchNetStats() (difficulty, networkHashrate float64) {
 }
 
 func getPoolStats(c *fiber.Ctx) error {
-	heightResult, _ := rpcCall("getblockcount", []interface{}{})
-	var height int64
-	json.Unmarshal(heightResult, &height)
-
 	// Network difficulty + hashrate with last-good fallback (never flash 0 on an RPC hiccup).
 	difficulty, networkHashrate := fetchNetStats()
-
-	infoResult, _ := rpcCall("getblockchaininfo", []interface{}{})
-	var info struct {
-		Chain         string `json:"chain"`
-		BestBlockHash string `json:"bestblockhash"`
-	}
-	json.Unmarshal(infoResult, &info)
 
 	// Get worker stats and pool stats from stratum
 	workers := getStratumWorkers()
 	var totalHashrate float64
-	var onlineWorkers int
-	minerSet := make(map[string]bool)
 	for _, w := range workers {
 		if w.Online {
 			totalHashrate += w.Hashrate5m // Use 5-minute average for more responsive display
-			onlineWorkers++
 		}
-		minerSet[w.MinerID] = true
 	}
 
 	// Get total blocks found from database (persists across restarts)
 	blocksFound := stats.GetTotalBlocksDB()
 
-	// Get luck stats from stratum internal stats
-	var avgLuck float64 = 1.0 // Default to 100% (neutral luck)
-	if resp, err := internalAPIGet(stratumURL + "/internal/stats"); err == nil {
-		defer resp.Body.Close()
-		var poolStats struct {
-			AvgLuck float64 `json:"avg_luck"`
-		}
-		json.NewDecoder(resp.Body).Decode(&poolStats)
-		if poolStats.AvgLuck > 0 {
-			avgLuck = poolStats.AvgLuck
-		}
-	}
-
 	// Get rental stats from stratum
 	var rentalStats struct {
-		NiceHashMiners int64 `json:"nicehash_miners"`
-		MRRMiners      int64 `json:"mrr_miners"`
-		OtherRentals   int64 `json:"other_rentals"`
-		TotalRentals   int64 `json:"total_rentals"`
+		TotalRentals int64 `json:"total_rentals"`
 	}
 	if resp, err := internalAPIGet(stratumURL + "/internal/rental-stats"); err == nil {
 		defer resp.Body.Close()
@@ -1076,9 +1044,6 @@ func getPoolStats(c *fiber.Ctx) error {
 
 	return c.JSON(fiber.Map{
 		"hashrate":      hashrateStr,
-		"hashrateRaw":   totalHashrate * 1e12,
-		"workers":       onlineWorkers,
-		"miners":        len(minerSet),
 		"blocksFound":   blocksFound,
 		"blocksPending": 0,
 		// All three are constants now, and 0 is the truth rather than a placeholder: this
@@ -1093,17 +1058,10 @@ func getPoolStats(c *fiber.Ctx) error {
 		"poolFee":           0.0,
 		"soloFee":           0.0,
 		"minPayout":         0.0,
-		"currentHeight":     height,
 		"networkDifficulty": difficulty,
 		"networkHashrate":   networkHashrate,
-		"bestBlockHash":     info.BestBlockHash,
-		"uptime":            time.Since(startTime).String(),
-		"luck":              avgLuck, // Average luck over recent blocks (1.0 = 100%)
 		"rentals": fiber.Map{
-			"nicehash": rentalStats.NiceHashMiners,
-			"mrr":      rentalStats.MRRMiners,
-			"other":    rentalStats.OtherRentals,
-			"total":    rentalStats.TotalRentals,
+			"total": rentalStats.TotalRentals,
 		},
 	})
 }
