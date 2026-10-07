@@ -10,7 +10,7 @@ import (
 // restart)", and its note that an update or a reboot resets it.
 func TestWorkersBestDiffIsAllTime(t *testing.T) {
 	page := readWebFile(t, "solo.html")
-	th := regexp.MustCompile(`<th scope="col" data-i18n="p_solo_th_ath_diff" title="([^"]*)">([^<]*)</th>`).FindStringSubmatch(page)
+	th := regexp.MustCompile(`<th scope="col" title="([^"]*)">(Best Diff[^<]*)</th>`).FindStringSubmatch(page)
 	if th == nil {
 		t.Fatal("ATH-WEB-COLUMN: solo.html has no Best Diff column")
 	}

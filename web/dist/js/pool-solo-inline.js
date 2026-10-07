@@ -787,7 +787,7 @@
             try {
                 const data = await apiFetch('/api/v1/miners/' + encodeURIComponent(minerAddress) + '/workers');
                 if (!data.workers || data.workers.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state" data-i18n="p_solo_no_workers">' + (typeof PT !== 'undefined' && PT.p_solo_no_workers ? PT.p_solo_no_workers : 'No workers connected') + '</div></td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">No workers connected</div></td></tr>';
                     return;
                 }
                 tbody.innerHTML = data.workers.map(w => `
@@ -804,7 +804,7 @@
                     : '');
             } catch(e) {
                 console.error('Failed to fetch workers', e);
-                tbody.innerHTML = '<tr><td colspan="6"><div class="error-state"><span class="error-icon">!</span><span data-i18n="p_error_load_workers">' + (typeof PT !== 'undefined' && PT.p_error_load_workers ? PT.p_error_load_workers : 'Failed to load workers') + '</span></div></td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6"><div class="error-state"><span class="error-icon">!</span><span>Failed to load workers</span></div></td></tr>';
             }
         }
 
@@ -816,8 +816,8 @@
                 if (!data.blocks || data.blocks.length === 0) {
                     const none = soloFiguresOnly()
                         ? 'No solo blocks yet. Your TIDES blocks, and what each paid you, are in the TIDES card above.'
-                        : (typeof PT !== 'undefined' && PT.p_solo_no_blocks ? PT.p_solo_no_blocks : 'No blocks found yet. Keep mining!');
-                    tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state" data-i18n="p_solo_no_blocks">' + none + '</div></td></tr>';
+                        : 'No blocks found yet. Keep mining!';
+                    tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">' + none + '</div></td></tr>';
                     minerBlocksCount = 0;
                     soloBlocksKnown = true;
                     renderBlocksFound();
@@ -828,9 +828,9 @@
                     // merged in the merge-mined 1175 rows, so the tile read 10 while the
                     // same page's own workers table and /api/v1/stats both said 7.
                     minerBlocksCount = (data.total != null) ? data.total : sorted.filter(b => b.coin !== '1175').length;
-                    var confirmedText = typeof PT !== 'undefined' && PT.p_status_confirmed ? PT.p_status_confirmed : 'Confirmed';
-                    var pendingText = typeof PT !== 'undefined' && PT.p_status_pending ? PT.p_status_pending : 'Pending';
-                    var processingText = typeof PT !== 'undefined' && PT.p_status_processing ? PT.p_status_processing : 'Processing';
+                    var confirmedText = 'Confirmed';
+                    var pendingText = 'Pending';
+                    var processingText = 'Processing';
                     let bch2Reward = 0, esfReward = 0, esfCount = 0;
                     // Sum over EVERY row the API returned, not just the 20 rendered below.
                     // The total was accumulated inside the .slice(0,20).map(), while the
@@ -912,7 +912,7 @@
                 renderBlocksFound();
                 document.getElementById('totalEarned').textContent = totalLabel() + ': --';
                 // The API's reason when it gave one ("the database is not answering").
-                const why = (e && e.apiError) ? escapeHtml(e.apiError) : (typeof PT !== 'undefined' && PT.p_error_load_blocks ? PT.p_error_load_blocks : 'Failed to load blocks');
+                const why = (e && e.apiError) ? escapeHtml(e.apiError) : 'Failed to load blocks';
                 tbody.innerHTML = '<tr><td colspan="7"><div class="error-state"><span class="error-icon">!</span><span>' + why + '</span></div></td></tr>';
             }
         }
@@ -931,8 +931,8 @@
                 if (!data.payouts || data.payouts.length === 0) {
                     const none = soloFiguresOnly()
                         ? 'No solo payouts yet. Your TIDES payouts are in the TIDES card above.'
-                        : (typeof PT !== 'undefined' && PT.p_solo_no_payouts ? PT.p_solo_no_payouts : 'No payouts yet');
-                    tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state" data-i18n="p_solo_no_payouts">' + none + '</div></td></tr>';
+                        : 'No payouts yet';
+                    tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state">' + none + '</div></td></tr>';
                     return;
                 }
                 tbody.innerHTML = data.payouts.slice(0, 20).map(p => {
@@ -954,7 +954,7 @@
                             ? `<a href="https://explorer.bch2.org/tx/${safeTxid}" target="_blank" rel="noopener noreferrer" class="hash-link" style="color:var(--gold)">${truncateHash(safeTxid, 8, 4)}</a>`
                             : (paidByCoinbase
                                 ? '<span style="color:var(--bch-green)">Paid by coinbase</span>'
-                                : (typeof PT !== 'undefined' && PT.p_status_pending ? PT.p_status_pending : 'Pending')));
+                                : 'Pending'));
                     const amountStyle = orphaned
                         ? 'color:var(--text-secondary);text-decoration:line-through'
                         : 'color:var(--bch-green)';
@@ -970,7 +970,7 @@
                 console.error("Failed to fetch payouts", e);
                 document.getElementById("payoutCount").textContent = "(--)";
                 document.getElementById("totalPaidAmount").textContent = "--";
-                const why = (e && e.apiError) ? escapeHtml(e.apiError) : (typeof PT !== 'undefined' && PT.p_error_load_payouts ? PT.p_error_load_payouts : 'Failed to load payouts');
+                const why = (e && e.apiError) ? escapeHtml(e.apiError) : 'Failed to load payouts';
                 tbody.innerHTML = '<tr><td colspan="4"><div class="error-state"><span class="error-icon">!</span><span>' + why + '</span></div></td></tr>';
             }
         }

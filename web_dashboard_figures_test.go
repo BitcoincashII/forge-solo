@@ -91,7 +91,7 @@ func TestTidesModeSaysTheBalanceIsSolo(t *testing.T) {
 	if !strings.Contains(help, "Your Blocks Found counts your TIDES blocks too.") {
 		t.Error("BAL-HELP-FOUND: the TIDES help page does not say that Your Blocks Found counts TIDES blocks")
 	}
-	if !strings.Contains(page, `<h2 id="blocksTitle" data-i18n="p_solo_your_blocks">Your Blocks Found</h2>`) {
+	if !strings.Contains(page, `<h2 id="blocksTitle">Your Blocks Found</h2>`) {
 		t.Error("BAL-SOLO-BLOCKS-TITLE-ID: the Blocks table's heading has no id for renderBalanceLabels() to set")
 	}
 	for _, want := range []string{`<h2 id="matureLabel"`, `<span id="immatureLabel">Still maturing</span>:`,
