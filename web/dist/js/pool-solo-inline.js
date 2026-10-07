@@ -552,10 +552,7 @@
                 // The mining service counts the round share by share, each against the difficulty of
                 // the block it was mined for. The round's work over today's difficulty rescaled the
                 // whole round at every retarget, and BCH2 retargets at every block.
-                const workDone = data.totalWork || 0;
-                const effort = typeof data.roundEffort === 'number'
-                    ? data.roundEffort * 100
-                    : (networkDiff > 0 ? (workDone / networkDiff * 100) : 0);
+                const effort = (Number(data.roundEffort) || 0) * 100;
                 document.getElementById('currentEffort').textContent = effort.toFixed(1) + '%';
                 const barWidth = Math.min(effort / 2, 100);
                 const effortBar = document.getElementById('effortBar');
@@ -790,8 +787,8 @@
                         <td style="color:var(--gold);font-weight:600">${formatNumber(w.blocksFound || 0)}</td>
                         <td>${formatHashrate((w.hashrate5m || 0) * 1e12)}</td>
                         <td>${formatHashrate((w.hashrate60m || 0) * 1e12)}</td>
-                        <td style="color:var(--gold)">${formatDiff(w.roundBestDiff || w.bestDiff || 0)}</td>
-                        <td style="color:var(--bch-green)">${formatDiff(w.athDiff || w.bestDiff || 0)}</td>
+                        <td style="color:var(--gold)">${formatDiff(w.roundBestDiff || 0)}</td>
+                        <td style="color:var(--bch-green)">${formatDiff(w.athDiff || 0)}</td>
                     </tr>
                 `).join('') + (data.total > data.workers.length
                     ? '<tr><td colspan="6" style="color:var(--text-secondary)">Showing the ' + formatNumber(data.workers.length) + ' busiest of ' + formatNumber(data.total) + ' workers.</td></tr>'
@@ -834,7 +831,7 @@
                     const shownLimit = 20;
                     for (const b of sorted) {
                         if (b.status === 'orphaned') continue;   // paid nothing
-                        const r = (b.reward != null ? b.reward : (b.coin === '1175' ? 0 : 50));
+                        const r = Number(b.reward) || 0;
                         if (b.coin === '1175') { esfReward += r; esfCount++; } else { bch2Reward += r; }
                     }
                     // The server's figures cover every block; the rows are only the latest (100
@@ -869,8 +866,6 @@
                             payoutCell = '<span style="color:var(--red)" title="This block was superseded on the chain and paid nothing">Orphaned</span>';
                         } else if (paidByCoinbase) {
                             payoutCell = '<span style="color:var(--bch-green)" title="Paid directly by this block\u2019s coinbase; there is no separate payout transaction">Paid by coinbase</span>';
-                        } else if (is1175) {
-                            payoutCell = b.confirmed ? '<span style="color:var(--gold)">' + processingText + '</span>' : '<span style="color:var(--text-secondary)">' + pendingText + '</span>';
                         } else if (safeTxid) {
                             payoutCell = `<a href="https://explorer.bch2.org/tx/${safeTxid}" target="_blank" rel="noopener noreferrer" class="hash-link" style="color:var(--bch-green)">${truncateHash(safeTxid, 6, 4)}</a>`;
                         } else if (b.confirmed) {
@@ -878,7 +873,7 @@
                         } else {
                             payoutCell = '<span style="color:var(--text-secondary)">' + pendingText + '</span>';
                         }
-                        const reward = (b.reward != null ? b.reward : (is1175 ? 0 : 50));
+                        const reward = Number(b.reward) || 0;
                         const rewardDisplay = formatBCH2(reward, is1175 ? 4 : 2) + (is1175 ? ' ESF' : ' BCH2');
                         return `
                         <tr>

@@ -21,7 +21,7 @@ func TestWorkersBestDiffIsAllTime(t *testing.T) {
 		t.Errorf("ATH-WEB-NOTE: the column's note says %q; it must say restarts and updates keep the best", th[1])
 	}
 	js := readWebFile(t, "js/pool-solo-inline.js")
-	if !strings.Contains(js, "${formatDiff(w.athDiff || w.bestDiff || 0)}") {
+	if !strings.Contains(js, "${formatDiff(w.athDiff || 0)}") {
 		t.Error("ATH-WEB-FIGURE: the column no longer shows the worker's athDiff")
 	}
 }

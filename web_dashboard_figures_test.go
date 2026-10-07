@@ -16,9 +16,7 @@ import (
 func TestCurrentEffortIsCountedShareByShare(t *testing.T) {
 	js := readWebFile(t, "js/pool-solo-inline.js")
 	miner := textBetween(js, "async function fetchMinerData() {", "\n        // Connect & Network")
-	if !strings.Contains(miner, `                const effort = typeof data.roundEffort === 'number'
-                    ? data.roundEffort * 100
-                    : (networkDiff > 0 ? (workDone / networkDiff * 100) : 0);`) {
+	if !strings.Contains(miner, `                const effort = (Number(data.roundEffort) || 0) * 100;`) {
 		t.Error("EFFORT-JS-PER-SHARE: Current Effort is not the mining service's per-share figure (roundEffort)")
 	}
 	if !regexp.MustCompile(`const diffNow = difficultyNow\(\);\s*if \(hashrate > 0 && diffNow > 0\) \{[^}]*const hashesNeeded = diffNow \* 4294967296;`).MatchString(miner) {
