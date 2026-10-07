@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -55,7 +54,8 @@ func caseContent(t *testing.T, spec string) []byte {
 	return []byte(spec)
 }
 
-// layOut makes a case's files under a new folder and returns the database and the old-data paths.
+// layOut makes a case's files under a new folder, its unreadable ones unreadable, and returns the
+// database and the old-data paths.
 func layOut(t *testing.T, c planCase) (db, pgdata string) {
 	t.Helper()
 	root := t.TempDir()
@@ -69,15 +69,7 @@ func layOut(t *testing.T, c planCase) (db, pgdata string) {
 		}
 	}
 	for _, name := range c.Unreadable {
-		p := filepath.Join(root, filepath.FromSlash(name))
-		fi, err := os.Stat(p)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Chmod(p, 0); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { os.Chmod(p, fi.Mode().Perm()) })
+		unreadable(t, filepath.Join(root, filepath.FromSlash(name)))
 	}
 	return filepath.Join(root, "data", "forgesolo.db"), filepath.Join(root, "pgdata")
 }
@@ -90,9 +82,6 @@ func TestPlanCases(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.Name, func(t *testing.T) {
-			if len(c.Unreadable) > 0 && (runtime.GOOS == "windows" || os.Geteuid() == 0) {
-				t.Skip("a file cannot be made unreadable here")
-			}
 			d := Plan(layOut(t, c))
 			if d.Action != c.Want {
 				t.Fatalf("MIG-PLAN: %s: Plan says %s, want %s", c.Name, d, c.Want)
