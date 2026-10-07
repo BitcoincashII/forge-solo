@@ -61,12 +61,10 @@ func (e *Error) MarshalJSON() ([]byte, error) {
 }
 
 var (
-	ErrUnknown        = &Error{20, "Unknown error"}
 	ErrJobNotFound    = &Error{21, "Job not found"}
 	ErrDuplicateShare = &Error{22, "Duplicate share"}
 	ErrLowDifficulty  = &Error{23, "Low difficulty share"}
 	ErrUnauthorized   = &Error{24, "Unauthorized worker"}
-	ErrNotSubscribed  = &Error{25, "Not subscribed"}
 	ErrRateLimited    = &Error{26, "Rate limit exceeded"}
 	ErrMalformedShare = &Error{20, "Malformed share"}
 	ErrInvalidNTime   = &Error{20, "Invalid ntime"}
@@ -126,15 +124,11 @@ type Client struct {
 	firstRampLevel        float64   // the difficulty that escape set; see Server.countedDifficulty
 	firstJobAt            time.Time // when the first job went out to this connection; see adjustVardiffAt
 	samplesDropped        bool      // ShareSamples no longer holds every share since the first job
-	LastShareTime         time.Time
 	ProvenDifficulty      float64   // credited difficulty of the last valid share (see Server.MaxDifficulty)
 	ProvenAt              time.Time // when that share arrived
-	ShareCount            int64
 	ConnectedAt           time.Time
-	LastActivity          time.Time
 	ValidShares           atomic.Int64 // atomic types: see serverCounters
 	InvalidShares         atomic.Int64
-	StaleShares           int64
 	ShareSamples          []shareSample
 	submitWindowStart     time.Time // start of the current per-second submit-rate window
 	submitCount           int       // submits counted in the current window (intake DoS cap)
@@ -200,7 +194,6 @@ type Share struct {
 	NTime       string
 	Nonce       string
 	IsValid     bool
-	IsBlock     bool
 	IsSolo      bool
 	BlockHash   string
 	SubmittedAt time.Time

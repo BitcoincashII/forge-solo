@@ -28,10 +28,6 @@ import (
 )
 
 const (
-	// DifficultyGracePeriod is the time window after a difficulty change
-	// during which shares at the old difficulty are still accepted
-	DifficultyGracePeriod = 30 * time.Second
-
 	// MaxDifficultyMultiplier caps how much difficulty can change in one adjustment
 	MaxDifficultyMultiplier = 1.5 // Max 50% change per adjustment (miningcore style)
 
@@ -287,9 +283,7 @@ type serverCounters struct {
 }
 
 type ServerStats struct {
-	TotalConnections  int64
 	ActiveConnections int64
-	TotalShares       int64
 	ValidShares       int64
 	InvalidShares     int64
 	BlocksFound       int64
