@@ -5,7 +5,7 @@
 #
 # The release is fetched in a stage of its own: curl and the CA store are needed for the download
 # only, and the image that runs the node carries neither.
-FROM ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90 AS fetch
+FROM ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7 AS fetch
 
 ARG BCH2_VERSION=27.0.2
 ARG TARGETARCH
@@ -30,7 +30,7 @@ RUN set -eux; \
     install -m0755 /tmp/bitcoincashII-${BCH2_VERSION}-${ARCH_SUFFIX}/bin/bitcoincashII-cli /usr/local/bin/bitcoincashII-cli; \
     rm -rf /tmp/bch2.tar.gz /tmp/bitcoincashII-*
 
-FROM ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
+FROM ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       libminiupnpc17 libnatpmp1 libevent-pthreads-2.1-7 libevent-2.1-7 libzmq5 libsqlite3-0 \
