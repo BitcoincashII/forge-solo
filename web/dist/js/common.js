@@ -110,14 +110,6 @@ async function copyText(text, buttonElement) {
     }
 }
 
-// Validate BCH2 address format (basic validation)
-function isValidBCH2Address(address) {
-    if (!address || typeof address !== 'string') return false;
-    // BCH2 addresses are typically base58 or bech32 format
-    // This is a basic validation - adjust based on actual BCH2 address format
-    return /^[a-zA-Z0-9]{25,64}$/.test(address.trim());
-}
-
 // Validate block hash format (64 hex characters)
 function isValidBlockHash(hash) {
     if (!hash || typeof hash !== 'string') return false;
@@ -130,34 +122,9 @@ function truncateHash(hash, startChars = 12, endChars = 8) {
     return hash.substring(0, startChars) + '...' + hash.substring(hash.length - endChars);
 }
 
-// Show loading state for an element
-function showLoading(elementId, message = 'Loading...') {
-    const el = document.getElementById(elementId);
-    if (el) {
-        el.innerHTML = `<div class="loading-state"><div class="loading-spinner"></div><span>${sanitizeHTML(message)}</span></div>`;
-    }
-}
-
-// Show error state for an element
-function showError(elementId, message = 'Failed to load data') {
-    const el = document.getElementById(elementId);
-    if (el) {
-        el.innerHTML = `<div class="error-state"><span class="error-icon">!</span><span>${sanitizeHTML(message)}</span></div>`;
-    }
-}
-
-// Show empty state for an element
-function showEmpty(elementId, message = 'No data available') {
-    const el = document.getElementById(elementId);
-    if (el) {
-        el.innerHTML = `<div class="empty-state">${sanitizeHTML(message)}</div>`;
-    }
-}
-
 // Connection status management
 const ConnectionStatus = {
     isOnline: navigator.onLine,
-    listeners: [],
 
     init() {
         window.addEventListener('online', () => this.setStatus(true));
@@ -168,7 +135,6 @@ const ConnectionStatus = {
     setStatus(online) {
         this.isOnline = online;
         this.updateUI();
-        this.listeners.forEach(fn => fn(online));
     },
 
     updateUI() {
@@ -176,10 +142,6 @@ const ConnectionStatus = {
         if (banner) {
             banner.style.display = this.isOnline ? 'none' : 'flex';
         }
-    },
-
-    onStatusChange(callback) {
-        this.listeners.push(callback);
     }
 };
 
@@ -213,98 +175,6 @@ async function apiFetch(url, options = {}) {
         throw error;
     }
 }
-
-// Debounce function for search/input handlers
-function debounce(func, wait) {
-    let timeout;
-    return function executedFunction(...args) {
-        const later = () => {
-            clearTimeout(timeout);
-            func(...args);
-        };
-        clearTimeout(timeout);
-        timeout = setTimeout(later, wait);
-    };
-}
-
-// Local storage helpers with error handling
-const Storage = {
-    get(key, defaultValue = null) {
-        try {
-            const item = localStorage.getItem(key);
-            return item ? JSON.parse(item) : defaultValue;
-        } catch (e) {
-            console.error('Storage get error:', e);
-            return defaultValue;
-        }
-    },
-
-    set(key, value) {
-        try {
-            localStorage.setItem(key, JSON.stringify(value));
-            return true;
-        } catch (e) {
-            console.error('Storage set error:', e);
-            return false;
-        }
-    },
-
-    remove(key) {
-        try {
-            localStorage.removeItem(key);
-            return true;
-        } catch (e) {
-            console.error('Storage remove error:', e);
-            return false;
-        }
-    }
-};
-
-// Modal management
-const Modal = {
-    show(modalId) {
-        const modal = document.getElementById(modalId);
-        if (modal) {
-            modal.classList.add('active');
-            modal.setAttribute('aria-hidden', 'false');
-            document.body.style.overflow = 'hidden';
-
-            // Focus first focusable element
-            const focusable = modal.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
-            if (focusable) focusable.focus();
-        }
-    },
-
-    hide(modalId) {
-        const modal = document.getElementById(modalId);
-        if (modal) {
-            modal.classList.remove('active');
-            modal.setAttribute('aria-hidden', 'true');
-            document.body.style.overflow = '';
-        }
-    },
-
-    init() {
-        // Close modal on backdrop click
-        document.querySelectorAll('.modal-overlay').forEach(modal => {
-            modal.addEventListener('click', (e) => {
-                if (e.target === modal) {
-                    this.hide(modal.id);
-                }
-            });
-        });
-
-        // Close modal on Escape key
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
-                const activeModal = document.querySelector('.modal-overlay.active');
-                if (activeModal) {
-                    this.hide(activeModal.id);
-                }
-            }
-        });
-    }
-};
 
 // Why rentals (NiceHash, MiningRigRentals) have no port of their own, and what to do, from the API's
 // mining status, or '' while the rental port listens or the mining service has not said. On Windows
@@ -462,31 +332,5 @@ const OldData = {
 // Initialize common functionality when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     ConnectionStatus.init();
-    Modal.init();
     OldData.init();
 });
-
-// Export for module usage (if needed)
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = {
-        sanitizeHTML,
-        formatHashrate,
-        timeAgo,
-        formatDiff,
-        formatBCH2,
-        formatNumber,
-        copyText,
-        isValidBCH2Address,
-        isValidBlockHash,
-        truncateHash,
-        showLoading,
-        showError,
-        showEmpty,
-        ConnectionStatus,
-        apiFetch,
-        debounce,
-        Storage,
-        Modal,
-        OldData
-    };
-}

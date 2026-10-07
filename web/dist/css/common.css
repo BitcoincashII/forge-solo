@@ -616,78 +616,6 @@ table tr:hover {
     font-size: 13px;
 }
 
-/* Modal */
-.modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.8);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-    opacity: 0;
-    visibility: hidden;
-    transition: all var(--transition-normal);
-}
-
-.modal-overlay.show {
-    opacity: 1;
-    visibility: visible;
-}
-
-.modal {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: var(--spacing-xl);
-    max-width: 480px;
-    width: 90%;
-    transform: scale(0.9);
-    transition: transform var(--transition-normal);
-}
-
-.modal-overlay.show .modal {
-    transform: scale(1);
-}
-
-.modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: var(--spacing-lg);
-}
-
-.modal-title {
-    font-size: 20px;
-    font-weight: 700;
-}
-
-.modal-close {
-    background: none;
-    border: none;
-    color: var(--text-secondary);
-    font-size: 24px;
-    cursor: pointer;
-    padding: var(--spacing-xs);
-}
-
-.modal-close:hover {
-    color: var(--text-primary);
-}
-
-.modal-body {
-    margin-bottom: var(--spacing-lg);
-}
-
-.modal-footer {
-    display: flex;
-    gap: var(--spacing-md);
-    justify-content: flex-end;
-}
-
 /* Tooltip */
 .tooltip {
     position: relative;
@@ -766,16 +694,6 @@ table tr:hover {
     font-weight: 700;
     font-size: 14px;
     flex-shrink: 0;
-}
-
-/* Modal Active State */
-.modal-overlay.active {
-    opacity: 1;
-    visibility: visible;
-}
-
-.modal-overlay.active .modal {
-    transform: scale(1);
 }
 
 /* Screen Reader Only */
