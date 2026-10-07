@@ -45,7 +45,6 @@ var (
 	internalAPIToken string
 	settingsPassword string                // SETTINGS_PASSWORD (settingsPasswordGateFromEnv): a settings change must carry it
 	webRoot          string = "./web/dist" // Web UI root directory, configurable via WEB_ROOT env
-	halvingInterval  int64  = 210000       // BCH2 halving interval, configurable via HALVING_INTERVAL env
 
 	// Internal HTTP client with timeout to prevent cascading failures
 	internalHTTPClient = &http.Client{Timeout: 10 * time.Second}
@@ -227,12 +226,6 @@ func init() {
 	if envWebRoot := os.Getenv("WEB_ROOT"); envWebRoot != "" {
 		webRoot = envWebRoot
 	}
-	// BCH2 halving interval (default 210000, same as Bitcoin/BCH)
-	if envHalving := os.Getenv("HALVING_INTERVAL"); envHalving != "" {
-		if h, err := strconv.ParseInt(envHalving, 10, 64); err == nil && h > 0 {
-			halvingInterval = h
-		}
-	}
 }
 
 type MinerSetting struct {
@@ -369,7 +362,6 @@ func main() {
 	// API routes FIRST
 	api := app.Group("/api/v1")
 	api.Get("/stats", getPoolStats)
-	api.Get("/miners", getMinersListAPI)
 	api.Get("/miners/:address", getMiner)
 	api.Get("/miners/:address/workers", getMinerWorkers)
 	api.Get("/miners/:address/payouts", getMinerPayouts)
@@ -377,11 +369,7 @@ func main() {
 	api.Get("/miners/:address/blocks", getMinerBlocks)
 	api.Get("/miners/:address/solo-blocks", getMinerSoloBlocks)
 	api.Get("/miners/:address/settings", getMinerSettingsAPI)
-	api.Get("/network", getNetworkInfo)
 	api.Get("/connectivity", getConnectivity)
-	api.Get("/workers", getAllWorkers)
-	api.Get("/validate-address", validateAddress)
-	api.Get("/validate-1175-address", validate1175Address)
 	api.Get("/health", healthCheck)
 	api.Get("/node-status", getNodeStatus)
 	api.Get("/mining-status", getMiningStatus)
@@ -1357,43 +1345,6 @@ func apiTime(t time.Time) interface{} {
 // maxWorkersListed is the most workers one response lists.
 const maxWorkersListed = 500
 
-func getMinersListAPI(c *fiber.Ctx) error {
-	// Privacy: do not enumerate miner addresses publicly. Return aggregate count only.
-	// Per-address lookup remains available at /api/v1/miners/:address (caller must know the address).
-	workers := getStratumWorkers()
-	minerMap := make(map[string]bool)
-	for _, w := range workers {
-		if w.MinerID != "" {
-			minerMap[w.MinerID] = true
-		}
-	}
-	return c.JSON(fiber.Map{
-		"count": len(minerMap),
-	})
-}
-
-func getAllWorkers(c *fiber.Ctx) error {
-	// Privacy: do not enumerate per-worker stats publicly. Return aggregate only.
-	// Per-miner workers remain available at /api/v1/miners/:address/workers.
-	workers := getStratumWorkers()
-	online := 0
-	var totalHashrate5m float64
-	var totalShares int64
-	for _, w := range workers {
-		if w.Online {
-			online++
-			totalHashrate5m += w.Hashrate5m
-		}
-		totalShares += w.ValidShares
-	}
-	return c.JSON(fiber.Map{
-		"total":            len(workers),
-		"online":           online,
-		"totalHashrate5m":  totalHashrate5m,
-		"totalValidShares": totalShares,
-	})
-}
-
 // sanitizeTagAPI mirrors the stratum coinbase-tag sanitizer (printable ASCII, <=24 bytes).
 func sanitizeTagAPI(tag string) string {
 	out := make([]byte, 0, len(tag))
@@ -1852,65 +1803,6 @@ func getMinerSoloPayouts(c *fiber.Ctx) error {
 		"total":     data["total"],
 		"totalPaid": data["totalPaid"],
 	})
-}
-
-func getNetworkInfo(c *fiber.Ctx) error {
-	heightResult, _ := rpcCall("getblockcount", []interface{}{})
-	var height int64
-	json.Unmarshal(heightResult, &height)
-
-	diffResult, _ := rpcCall("getdifficulty", []interface{}{})
-	var difficulty float64
-	json.Unmarshal(diffResult, &difficulty)
-
-	// Calculate current halving epoch and next halving block
-	currentEpoch := height / halvingInterval
-	nextHalvingBlock := (currentEpoch + 1) * halvingInterval
-	blocksToHalving := nextHalvingBlock - height
-
-	// Calculate current block reward (halves every halvingInterval blocks)
-	reward := 50.0
-	for i := int64(0); i < currentEpoch; i++ {
-		reward /= 2
-	}
-
-	return c.JSON(fiber.Map{
-		"height":          height,
-		"difficulty":      difficulty,
-		"reward":          reward,
-		"halvingInterval": halvingInterval,
-		"halvingBlock":    nextHalvingBlock,
-		"blocksToHalving": blocksToHalving,
-		"halvingEpoch":    currentEpoch,
-	})
-}
-
-func validateAddress(c *fiber.Ctx) error {
-	address := c.Query("address")
-	if address == "" {
-		return c.JSON(fiber.Map{"valid": false, "error": "No address provided"})
-	}
-
-	result, err := rpcCall("validateaddress", []interface{}{address})
-	if err != nil {
-		return c.JSON(fiber.Map{"valid": false, "error": err.Error()})
-	}
-
-	var validResult struct {
-		IsValid bool `json:"isvalid"`
-	}
-	json.Unmarshal(result, &validResult)
-
-	return c.JSON(fiber.Map{"valid": validResult.IsValid})
-}
-
-// validate1175Address checks a 1175 merge-mining payout address (bech32 esf1...).
-func validate1175Address(c *fiber.Ctx) error {
-	address, _ := url.QueryUnescape(c.Query("address"))
-	if address == "" {
-		return c.JSON(fiber.Map{"valid": false, "error": "No address provided"})
-	}
-	return c.JSON(fiber.Map{"valid": isValid1175Address(address)})
 }
 
 // healthCheck returns the health status of the API including database connectivity
