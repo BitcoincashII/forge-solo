@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -33,14 +32,12 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/limiter"
 	fiberrecover "github.com/gofiber/fiber/v2/middleware/recover"
 	"go.uber.org/zap"
-	"golang.org/x/crypto/bcrypt"
 )
 
 var (
-	startTime          = time.Now()
-	minerSettings      = make(map[string]MinerSetting)
-	settingsLastChange = make(map[string]time.Time)
-	settingsMu         sync.RWMutex
+	startTime     = time.Now()
+	minerSettings = make(map[string]MinerSetting)
+	settingsMu    sync.RWMutex
 
 	rpcURL           string
 	rpcUser          string
@@ -244,7 +241,6 @@ type MinerSetting struct {
 	SoloMining  bool    `json:"solo_mining"`
 	ManualDiff  float64 `json:"manual_diff"`
 	Address1175 string  `json:"address_1175"` // 1175 merge-mining payout address (esf1...)
-	Pin         string  `json:"pin"`          // optional settings PIN: proof-of-control for changing address_1175 (rental-friendly, no keys)
 }
 
 type WorkerStats struct {
@@ -383,7 +379,6 @@ func main() {
 	api.Get("/miners/:address/blocks", getMinerBlocks)
 	api.Get("/miners/:address/solo-blocks", getMinerSoloBlocks)
 	api.Get("/miners/:address/settings", getMinerSettingsAPI)
-	api.Post("/miners/settings", saveMinerSettings)
 	api.Get("/network", getNetworkInfo)
 	api.Get("/connectivity", getConnectivity)
 	api.Get("/workers", getAllWorkers)
@@ -1843,249 +1838,6 @@ func loadMinerSettingsFromDB() {
 			Address1175: s.Address1175,
 		}
 	}
-}
-
-// PIN brute-force lockout: after too many wrong PINs for an address, lock the sensitive
-// (1175-address) path for a cooldown. bcrypt already makes each guess ~expensive; this
-// caps online guessing of short PINs.
-var (
-	pinFailMu    sync.Mutex
-	pinFailCount = map[string]int{}
-	pinFailUntil = map[string]time.Time{}
-
-	// bcryptSem bounds concurrent bcrypt operations (each ~100ms of CPU) so a flood of
-	// PIN checks/registrations cannot saturate all cores.
-	bcryptSem = make(chan struct{}, 8)
-)
-
-const (
-	pinMaxFails   = 5
-	pinLockoutDur = 15 * time.Minute
-	pinMinLen     = 6
-	pinMaxLen     = 64 // bcrypt only hashes the first 72 bytes; keep PINs well under that
-)
-
-// pinBeginAttempt atomically records a PIN attempt for the address and reports whether
-// it is allowed. The count is incremented BEFORE the (slow) bcrypt compare, so a burst
-// of concurrent requests cannot all slip past the cap before any of them is counted — at
-// most pinMaxFails compares run before the address locks. A correct PIN later calls
-// pinClearFail to reset the count.
-func pinBeginAttempt(address string) bool {
-	pinFailMu.Lock()
-	defer pinFailMu.Unlock()
-	if until, ok := pinFailUntil[address]; ok {
-		if time.Now().Before(until) {
-			return false
-		}
-		delete(pinFailUntil, address)
-		delete(pinFailCount, address)
-	}
-	pinFailCount[address]++
-	if pinFailCount[address] > pinMaxFails {
-		pinFailUntil[address] = time.Now().Add(pinLockoutDur)
-		return false
-	}
-	return true
-}
-
-func pinClearFail(address string) {
-	pinFailMu.Lock()
-	defer pinFailMu.Unlock()
-	delete(pinFailCount, address)
-	delete(pinFailUntil, address)
-}
-
-// bcryptCompareLimited / bcryptGenerateLimited wrap the CPU-bound bcrypt calls with the
-// concurrency semaphore so a request flood cannot exhaust CPU.
-func bcryptCompareLimited(hash, pw []byte) error {
-	bcryptSem <- struct{}{}
-	defer func() { <-bcryptSem }()
-	return bcrypt.CompareHashAndPassword(hash, pw)
-}
-
-func bcryptGenerateLimited(pw []byte) ([]byte, error) {
-	bcryptSem <- struct{}{}
-	defer func() { <-bcryptSem }()
-	return bcrypt.GenerateFromPassword(pw, bcrypt.DefaultCost)
-}
-
-func saveMinerSettings(c *fiber.Ctx) error {
-	var settings MinerSetting
-	if err := c.BodyParser(&settings); err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
-	}
-
-	if settings.Address == "" {
-		return c.Status(400).JSON(fiber.Map{"error": "Address required"})
-	}
-
-	// MEDIUM FIX: Validate address format before processing
-	if !isValidBCH2Address(settings.Address) {
-		return c.Status(400).JSON(fiber.Map{"error": "Invalid BCH2 address format"})
-	}
-
-	// Validate the 1175 merge-mining payout address when supplied (the get-started
-	// UI requires it; other callers may omit it and keep any previously saved one).
-	if settings.Address1175 != "" && !isValid1175Address(settings.Address1175) {
-		return c.Status(400).JSON(fiber.Map{"error": "Invalid 1175 address (expected esf1...)"})
-	}
-
-	// Check for admin token (allows pool operator to manage any miner settings).
-	// Constant-time compare so the token cannot be recovered via response timing.
-	adminToken := os.Getenv("INTERNAL_API_TOKEN")
-	authHeader := c.Get("Authorization")
-	isAdmin := adminToken != "" && subtle.ConstantTimeCompare([]byte(authHeader), []byte("Bearer "+adminToken)) == 1
-	// The home app is single-tenant behind Umbrel's own auth, so its dashboard IS the
-	// admin (same model as savePoolConfig); HOME_APP=1 authorizes sensitive changes.
-	authorized := isAdmin || os.Getenv("HOME_APP") == "1"
-
-	// Only a change to the fund-critical, redirectable 1175 payout address (or setting a
-	// PIN) is "sensitive" and needs proof-of-control. Mode and difficulty stay open
-	// (griefing at worst, never fund loss) so rental miners onboard with no friction.
-	settingsMu.RLock()
-	oldS, hadOld := minerSettings[settings.Address]
-	settingsMu.RUnlock()
-	old1175 := ""
-	if hadOld {
-		old1175 = strings.TrimSpace(oldS.Address1175)
-	}
-	new1175 := strings.TrimSpace(settings.Address1175)
-	// Empty 1175 means "keep whatever is stored" — a blank field never CLEARS a saved
-	// payout address (avoids an accidental wipe, and removes a griefing vector). For a
-	// non-empty value, persist the TRIMMED form so the sensitivity decision and the stored
-	// bytes cannot diverge (a whitespace-padded copy is not a "new" address).
-	if new1175 == "" {
-		settings.Address1175 = old1175
-	} else {
-		settings.Address1175 = new1175
-	}
-	changing1175 := new1175 != "" && new1175 != old1175
-
-	pinHash, pinErr := stats.GetSettingsPinHash(settings.Address)
-	hasPin := pinHash != ""
-	pin := strings.TrimSpace(settings.Pin)
-	registeringPin := !hasPin && pin != ""
-	sensitive := changing1175 || registeringPin
-
-	// Fail CLOSED: if we cannot read the PIN state, never treat a sensitive change as
-	// unprotected. Deny (retryable) rather than silently proceeding as "no PIN".
-	if !authorized && sensitive && pinErr != nil {
-		return c.Status(503).JSON(fiber.Map{"success": false, "error": "Temporarily unavailable",
-			"message": "Can't verify your PIN right now. Try again in a moment."})
-	}
-
-	// No trust-on-first-use: an unauthorized caller may NOT claim/redirect a fund-critical
-	// 1175 payout address (or register its PIN) when no PIN exists yet. This closes the
-	// LAN hijack where a single request set both a new address and a new PIN with no proof
-	// of control. In the home app this never triggers (HOME_APP=1 → authorized); a public
-	// deployment must set the first-time address via the admin token.
-	if !authorized && sensitive && !hasPin {
-		return c.Status(401).JSON(fiber.Map{"success": false, "error": "Not authorized",
-			"message": "Set your 1175 payout address from the app's own settings."})
-	}
-
-	// Validate a newly-set PIN's length before doing any expensive/persisting work.
-	if registeringPin && (len(pin) < pinMinLen || len(pin) > pinMaxLen) {
-		return c.Status(400).JSON(fiber.Map{"success": false, "error": "Invalid PIN length",
-			"message": fmt.Sprintf("Choose a PIN of %d–%d characters.", pinMinLen, pinMaxLen)})
-	}
-
-	// Authorize a sensitive change: admin always; otherwise the PIN once one is set. Before
-	// a PIN exists the first setter claims the address (trust-on-first-use) — the accepted,
-	// keyless residual: an unclaimed public address can be claimed by whoever sets a PIN
-	// first (logged; admin-resettable).
-	if !authorized && sensitive && hasPin {
-		if !pinBeginAttempt(settings.Address) {
-			return c.Status(429).JSON(fiber.Map{"success": false, "error": "Too many attempts",
-				"message": "Too many incorrect PINs. Please wait 15 minutes and try again."})
-		}
-		if bcryptCompareLimited([]byte(pinHash), []byte(pin)) != nil {
-			return c.Status(403).JSON(fiber.Map{"success": false, "error": "Wrong PIN",
-				"message": "That PIN is incorrect. Enter the PIN you set to protect your 1175 payout address."})
-		}
-		pinClearFail(settings.Address)
-	}
-
-	// Pre-compute the new PIN hash (if registering) BEFORE persisting anything, so a bcrypt
-	// failure aborts cleanly instead of saving settings and silently skipping the PIN.
-	var newPinHash string
-	if !authorized && registeringPin {
-		h, herr := bcryptGenerateLimited([]byte(pin))
-		if herr != nil {
-			return c.Status(500).JSON(fiber.Map{"success": false, "error": "Could not set PIN",
-				"message": "Something went wrong setting your PIN. Please try again."})
-		}
-		newPinHash = string(h)
-	}
-
-	// Validate numeric parameters (check for NaN, Inf, and bounds)
-	if math.IsNaN(settings.ManualDiff) || math.IsInf(settings.ManualDiff, 0) {
-		return c.Status(400).JSON(fiber.Map{"error": "Invalid manual difficulty value"})
-	}
-	if settings.ManualDiff < 0 {
-		return c.Status(400).JSON(fiber.Map{"error": "Manual difficulty cannot be negative"})
-	}
-	if settings.ManualDiff > 1e15 {
-		return c.Status(400).JSON(fiber.Map{"error": "Manual difficulty too high"})
-	}
-
-	settingsMu.Lock()
-	defer settingsMu.Unlock()
-
-	// Check cooldown (15 minutes to prevent rapid mode switching)
-	cooldownDuration := 15 * time.Minute
-	if lastChange, exists := settingsLastChange[settings.Address]; exists {
-		timeSince := time.Since(lastChange)
-		if timeSince < cooldownDuration {
-			remaining := cooldownDuration - timeSince
-			return c.Status(429).JSON(fiber.Map{
-				"error":     "Please wait before changing settings again",
-				"remaining": int(remaining.Minutes()),
-				"message":   fmt.Sprintf("You can change settings again in %d minutes", int(remaining.Minutes())+1),
-			})
-		}
-	}
-
-	// Check if solo mode is actually changing
-	oldSettings, hadOldSettings := minerSettings[settings.Address]
-	modeChanged := !hadOldSettings || oldSettings.SoloMining != settings.SoloMining
-
-	minerSettings[settings.Address] = settings
-
-	// Save to database for persistence
-	dbSettings := &stats.MinerSettings{
-		Address:     settings.Address,
-		SoloMining:  settings.SoloMining,
-		ManualDiff:  settings.ManualDiff,
-		Address1175: settings.Address1175,
-	}
-	if err := stats.SaveMinerSettings(dbSettings); err != nil {
-		// Log but don't fail - memory is already updated
-		fmt.Printf("Warning: failed to persist settings to database: %v\n", err)
-	}
-
-	// Register the newly-set PIN (hash pre-computed above) once the settings row exists.
-	if newPinHash != "" {
-		if serr := stats.SetSettingsPinHash(settings.Address, newPinHash); serr != nil {
-			log.Printf("Warning: failed to set settings PIN for %s: %v", settings.Address, serr)
-			// Settings persisted, but the PIN did not — report failure so the user retries
-			// rather than believing their address is protected when it is not.
-			return c.Status(500).JSON(fiber.Map{"success": false, "error": "PIN not set",
-				"message": "Your settings were saved but the PIN could not be set. Please try setting your PIN again."})
-		}
-		log.Printf("🔒 settings PIN set for %s", settings.Address)
-	}
-	// Log any change to the fund-critical 1175 payout address for detectability.
-	if changing1175 {
-		log.Printf("🔁 1175 payout address changed for %s: %q -> %q from %s", settings.Address, old1175, new1175, c.IP())
-	}
-
-	// Only update cooldown if mode changed
-	if modeChanged {
-		settingsLastChange[settings.Address] = time.Now()
-	}
-
-	return c.JSON(fiber.Map{"success": true, "message": "Settings saved"})
 }
 
 func getMinerSettingsAPI(c *fiber.Ctx) error {

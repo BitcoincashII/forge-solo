@@ -33,7 +33,6 @@ func TestSettingsNeedThePassword(t *testing.T) {
 	app.Use(settingsPasswordGate(settingsPassword, settingsPasswordRequired("1", "")))
 	app.Get("/api/v1/pool/config", getPoolConfig)
 	app.Post("/api/v1/pool/config", savePoolConfig)
-	app.Post("/api/v1/miners/settings", saveMinerSettings)
 	post := func(path, body, password string) (int, string) {
 		req := httptest.NewRequest("POST", path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -90,14 +89,6 @@ func TestSettingsNeedThePassword(t *testing.T) {
 	}
 	if code, b := post("/api/v1/pool/config", body, pw); code != 200 || stored() != mine {
 		t.Fatalf("PW-E2E-SAVE: %d %s, stored %q", code, b, stored())
-	}
-	// The per-miner endpoint is open to a home app's own dashboard (HOME_APP authorizes it), so it
-	// is just as much a way in.
-	if code, b := post("/api/v1/miners/settings", `{"address":"`+mine+`","solo_mining":true}`, ""); code != 401 {
-		t.Fatalf("PW-E2E-MINER-SETTINGS: %d %s", code, b)
-	}
-	if n := len(stats.LoadAllMinerSettings()); n != 0 {
-		t.Fatalf("PW-E2E-MINER-SETTINGS-STORED: a refused request stored %d miner settings", n)
 	}
 
 	settingsPassword = ""
