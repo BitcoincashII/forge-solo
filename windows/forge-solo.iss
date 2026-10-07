@@ -279,10 +279,9 @@ const
   // finish writing. Usually it is done in a few seconds.
   StopWait = 120;
   // The mutex the launcher of 1.0.13 and later holds while it runs (runningMutex in
-  // launcher/instance_windows.go), and the name test builds of 1.0.13 held. There is one for the
-  // whole PC: Forge Solo running for another Windows account holds it too.
+  // launcher/instance_windows.go). There is one for the whole PC: Forge Solo running for another
+  // Windows account holds it too.
   RunningMutex = 'Global\ForgeSoloRunning';
-  TestBuildMutex = 'ForgeSoloRunning';
   SYNCHRONIZE_ACCESS = $00100000;
   ERROR_ACCESS_DENIED = 5;
 
@@ -563,7 +562,7 @@ end;
 // ForgeSoloRuns reports whether Forge Solo 1.0.13 or later runs on this PC, for any Windows account.
 function ForgeSoloRuns: Boolean;
 begin
-  Result := MutexHeld(RunningMutex) or MutexHeld(TestBuildMutex);
+  Result := MutexHeld(RunningMutex);
 end;
 
 // NoOtherForgeSolo reports, once this account's Forge Solo has stopped (StopForgeSolo), whether no

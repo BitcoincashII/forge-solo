@@ -522,7 +522,6 @@ func TestInstallerSeesAnotherAccountsMutex(t *testing.T) {
 	runs := installerFunc(t, "function ForgeSoloRuns: Boolean;")
 	if !strings.Contains(code, "function OpenMutex(Access: Cardinal; Inherit: Bool; Name: String): Cardinal;\n  external 'OpenMutexW@kernel32.dll stdcall';") ||
 		!strings.Contains(code, "\n  SYNCHRONIZE_ACCESS = $00100000;\n") || !strings.Contains(code, "\n  ERROR_ACCESS_DENIED = 5;\n") ||
-		!strings.Contains(code, "\n  TestBuildMutex = 'ForgeSoloRunning';\n") ||
 		!strings.Contains(held, `
 begin
   Mutex := OpenMutex(SYNCHRONIZE_ACCESS, False, Name);
@@ -531,8 +530,12 @@ begin
     CloseHandle(Mutex)
   else
     Result := DLLGetLastError = ERROR_ACCESS_DENIED;
-end;`) || !strings.Contains(runs, "\nbegin\n  Result := MutexHeld(RunningMutex) or MutexHeld(TestBuildMutex);\nend;") {
+end;`) || !strings.Contains(runs, "\nbegin\n  Result := MutexHeld(RunningMutex);\nend;") {
 		t.Errorf("CLOSE-OTHER-DENIED: a mutex this account may not open (another account's) is not taken for one that is held:\n%s\n%s", held, runs)
+	}
+	// Only the launcher's mutex is looked for: no released build held a name of its own.
+	if strings.Count(code, "ForgeSoloRunning") != 1 || !strings.Contains(code, "\n  RunningMutex = 'Global\\ForgeSoloRunning';\n") {
+		t.Errorf("CLOSE-OTHER-ONE-NAME: [Code] names ForgeSoloRunning %d times, not once as RunningMutex = 'Global\\ForgeSoloRunning'", strings.Count(code, "ForgeSoloRunning"))
 	}
 }
 
