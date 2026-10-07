@@ -23,9 +23,6 @@ const (
 	// (the health check, the stratum's settings loop) waited with it.
 	PingTimeout = 3 * time.Second
 
-	// MaxPayoutBatch is the maximum number of payouts to process in one transaction
-	MaxPayoutBatch = 100
-
 	// WorkerOfflineThreshold is how long without shares before a worker is marked offline
 	WorkerOfflineThreshold = 5 * time.Minute
 

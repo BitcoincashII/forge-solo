@@ -1562,12 +1562,6 @@ func InitDBWithRetry(connStr string, attempts int, delay time.Duration) error {
 	return err
 }
 
-// PPLNSShare represents a miner's share contribution in the PPLNS window
-type PPLNSShare struct {
-	MinerAddress string
-	TotalWork    float64
-}
-
 // blockRowExecer is satisfied by both *sql.DB and *sql.Tx.
 type blockRowExecer interface {
 	Exec(query string, args ...interface{}) (sql.Result, error)

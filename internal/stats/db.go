@@ -1318,12 +1318,6 @@ func SaveBestSharesDB(raised, gone []BestShare) error {
 	return nil
 }
 
-// PPLNSShare represents a miner's share contribution in the PPLNS window
-type PPLNSShare struct {
-	MinerAddress string
-	TotalWork    float64
-}
-
 // GetPPLNSShares returns the sum of difficulty per miner for the last N shares
 // Returns a map of minerAddress -> total difficulty contributed
 func GetPPLNSShares(windowSize int) (map[string]float64, float64, error) {
