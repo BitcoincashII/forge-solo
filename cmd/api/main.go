@@ -212,7 +212,8 @@ func init() {
 		stratumURL = "http://127.0.0.1:3337"
 	}
 	internalAPIToken = os.Getenv("INTERNAL_API_TOKEN")
-	// Web root directory (default ./web/dist for Docker, ./web for Windows)
+	// Web root directory. Only Forge Solo for Linux sets WEB_ROOT: on Umbrel nginx serves the
+	// pages and on Windows the launcher does, each proxying /api/ alone.
 	if envWebRoot := os.Getenv("WEB_ROOT"); envWebRoot != "" {
 		webRoot = envWebRoot
 	}
@@ -376,11 +377,10 @@ func main() {
 
 	// Fallback for "/" and unknown paths.
 	//
-	// On Umbrel an nginx container fronts this API with `index solo.html`, so this never
-	// runs. On Windows the API IS the web server, and the Forge Solo dist ships solo.html
-	// with NO index.html -- so sending index.html unconditionally 404s the dashboard root
-	// for every Windows user. Probe in order and serve whichever the shipped dist actually
-	// contains, rather than assuming a filename.
+	// Only Forge Solo for Linux gives this API a web root (WEB_ROOT); on Umbrel nginx serves
+	// the pages and on Windows the launcher does, each proxying /api/ alone. The dist ships
+	// solo.html with no index.html, so the pages are probed in order and whichever is there
+	// is served, rather than assuming a filename.
 	app.Use(func(c *fiber.Ctx) error {
 		// Don't override API routes
 		if len(c.Path()) > 4 && c.Path()[:4] == "/api" {
