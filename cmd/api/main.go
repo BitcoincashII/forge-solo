@@ -88,9 +88,8 @@ func prefixToValues(prefix string) []int {
 // isValid1175Address validates a 1175 payout address: a bech32 address with the
 // mainnet HRP "esf" and a valid checksum (esf1...). This is the address a miner
 // supplies to receive merge-mined 1175 rewards.
-// poolNameFromEnv honours POOL_NAME, which .env.example has always advertised and which
-// nothing read: it is not substituted into the stratum config template either, so setting
-// it in the Umbrel app config changed nothing anywhere.
+// poolNameFromEnv is POOL_NAME, which the Umbrel compose sets and .env.example advertises, else
+// "Forge Solo": the pool_name of /pool/config.
 func poolNameFromEnv() string {
 	if v := strings.TrimSpace(os.Getenv("POOL_NAME")); v != "" {
 		return v
@@ -1046,15 +1045,9 @@ func getPoolStats(c *fiber.Ctx) error {
 		"hashrate":      hashrateStr,
 		"blocksFound":   blocksFound,
 		"blocksPending": 0,
-		// All three are constants now, and 0 is the truth rather than a placeholder: this
-		// app takes no fee on any path, and there is no minimum because a solo block pays
-		// its finder in its own coinbase -- nothing accumulates. These literals once said
-		// poolFee 1% and minPayout 5 BCH2, and this route is deliberately aliased at
-		// /api/stats for aggregators, so those were the numbers the outside world saw.
-		//
-		// The keys stay. For a product whose headline claim is "no pool fee", a
-		// machine-readable 0 IS the claim; undefined would be worse. The POOL_FEE env
-		// branch that used to feed poolFee was set by nothing in the tree and is gone.
+		// 0 is the truth, not a placeholder: this app takes no fee on any path, and there is no
+		// minimum because a solo block pays its finder in its own coinbase. The keys stay: for a
+		// product whose claim is "no pool fee", a machine-readable 0 is the claim.
 		"poolFee":           0.0,
 		"soloFee":           0.0,
 		"minPayout":         0.0,

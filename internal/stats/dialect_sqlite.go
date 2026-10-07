@@ -28,13 +28,7 @@ func dbTime(t time.Time) interface{} {
 	return SQLiteTime(t)
 }
 
-// Init1175Schema creates the 1175 merge-mining ledger tables.
-//
-// This existed only in the postgres backend, so on SQLite -- i.e. every Windows build --
-// blocks_1175 was never created and a found aux block died in the handler with
-// "no such table: blocks_1175", logged as "1175 record block FAILED (block may be lost)".
-// The block was not actually lost, because the aux coinbase pays on-chain directly, but the
-// ledger row and the dashboard entry were.
+// Init1175Schema creates the 1175 merge-mining ledger tables; InitDB runs it.
 //
 // blocks_1175.status:  pending | confirmed | orphaned   (+ distributed bool)
 // payouts_1175.status: pending | sending | paid

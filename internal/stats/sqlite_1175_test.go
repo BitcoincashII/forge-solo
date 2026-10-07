@@ -7,15 +7,9 @@ import (
 	"testing"
 )
 
-// The 1175 ledger is shared code with postgres-shaped SQL, and Init1175Schema used to live
-// only in the postgres backend. On SQLite -- every Windows build -- blocks_1175 therefore
-// never existed, and a found aux block died in the handler with "no such table: blocks_1175",
-// logged as "1175 record block FAILED (block may be lost — verify)". The block itself
-// survived (the aux coinbase pays on-chain directly); the ledger row and the dashboard
-// entry did not.
-//
-// This drives the REAL functions the stratum calls when it finds an aux block, in the order
-// it calls them, against a real SQLite file.
+// The 1175 ledger is shared code with PostgreSQL-shaped SQL. This drives the real functions the
+// stratum calls when it finds an aux block, in the order it calls them, against a real SQLite
+// file, so the ledger's tables and statements are known to work on it.
 func Test1175LedgerWorksOnSQLite(t *testing.T) {
 	if err := InitDB(filepath.Join(t.TempDir(), "esf.db")); err != nil {
 		t.Fatalf("InitDB: %v", err)

@@ -1161,7 +1161,7 @@ func LoadAllPendingPayouts() {
 	// Not needed for SQLite - query directly
 }
 
-// GetSettingsPinHash — sqlite variant (dev). See db.go for semantics.
+// GetSettingsPinHash is the hash of the settings PIN set for address, "" when none.
 func GetSettingsPinHash(address string) (string, error) {
 	dbMu.RLock()
 	defer dbMu.RUnlock()
@@ -1176,7 +1176,7 @@ func GetSettingsPinHash(address string) (string, error) {
 	return h, err
 }
 
-// SetSettingsPinHash — sqlite variant (dev). See db.go for semantics.
+// SetSettingsPinHash stores the hash of the settings PIN for address.
 func SetSettingsPinHash(address, hash string) error {
 	dbMu.RLock()
 	defer dbMu.RUnlock()
@@ -1191,12 +1191,8 @@ func SetSettingsPinHash(address, hash string) error {
 	return err
 }
 
-// ---------------------------------------------------------------------------
-// Symbols the postgres backend (db.go, //go:build !sqlite) has and this file did
-// not, which is why `go build -tags sqlite` -- i.e. every Windows build -- failed
-// to link. Semantics match postgres; dialect and, for the reservation, the
-// concurrency strategy differ. See ReserveMaturePayouts.
-// ---------------------------------------------------------------------------
+// The payout reservation, as the PostgreSQL backend (db.go) has it: the semantics match; the
+// dialect and, for the reservation, the concurrency strategy differ. See ReserveMaturePayouts.
 
 // PayoutRow is a single mature, reserved payout ledger row.
 type PayoutRow struct {
