@@ -1721,18 +1721,6 @@ func main() {
 		startRentalStratum(stratumRentalServer, rentalConfig)
 	}
 
-	// Stratum V2 is not implemented in this build. The previous implementation was removed
-	// rather than shipped disabled: a solved V2 block was logged and discarded (submission
-	// was never written), the bridge never reversed the prev-hash so a V2 share could not be
-	// a valid block anyway, and it had no duplicate check and no vardiff. Refuse loudly and
-	// keep mining on V1 -- NOT logger.Fatal, because this runs after :3333 is already
-	// listening, and aborting would turn a config typo into a crash loop in which no miner of
-	// any kind can connect.
-	if config.GetBool("stratumv2.enabled") {
-		logger.Error("⛔ stratumv2.enabled is set, but Stratum V2 is not supported by this build. " +
-			"Mining continues on the V1 stratum; remove the stratumv2 section from your config to silence this.")
-	}
-
 	// Start worker timeout detection (marks workers offline after 5 min of no shares)
 	workerTimeoutStop := make(chan struct{})
 	go stats.GetManager().StartWorkerTimeoutChecker(workerTimeoutStop)
