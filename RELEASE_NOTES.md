@@ -74,6 +74,9 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
   100 MB database cache, a 50 MB mempool and a 4 MB signature cache. On Umbrel and Windows they also
   run without a wallet, which nothing here uses. On Windows the 1175 node is no longer pruned, as on
   Umbrel: with 25360 forwarded it is listed as a full node and gets more incoming peers.
+- **Umbrel:** the BCH2 and 1175 node images are smaller, about 99 MB and 95 MB instead of 111 MB
+  and 110 MB (amd64): they no longer carry curl and the certificate store, which only the image
+  build used.
 
 **Found blocks, and what the dashboard says about them.**
 - **Every platform:** a block found while the node is restarting or too busy to answer is kept
@@ -447,6 +450,32 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
   installed after Forge Solo whose own port is 3333 or 3335 takes that port from Forge Solo without
   an error: Bleskomat Server uses 3333 (every miner) and Bitmagnet 3335 (rentals), so neither can run
   beside Forge Solo.
+
+**Gone, since nothing used it.**
+- **Every platform:** the API no longer answers routes nothing used: `GET /api/v1/blocks` and
+  `/api/blocks`, `/api/v1/network`, `/api/v1/miners`, `/api/v1/workers`, `/api/v1/validate-address`,
+  `/api/v1/validate-1175-address` and `POST /api/v1/miners/settings` (with the settings PIN it could
+  set), and at the root of the API's own port `/api/stats`, `/metrics`, `/health` and `/favicon.ico`
+  (`/api/v1/health` stays). `/api/v1/stats` no longer carries `hashrateRaw`, `workers`, `miners`,
+  `currentHeight`, `bestBlockHash`, `uptime`, `luck` and the per-marketplace rental counts
+  (`rentals.total` stays); `/api/v1/miners/<address>` no longer carries `workers`, `balance` and
+  `currentHeight`; each row of `/api/v1/miners/<address>/workers` no longer carries `validShares`,
+  `invalidShares` and `rejectRate`. The dashboard reads none of them.
+- **Every platform:** the programs no longer read `HOME_APP`, `CORS_ORIGINS`, `API_HOST`, `API_PORT`,
+  `API_RATE_LIMIT`, `FORGE_RPC_USER`, `FORGE_RPC_PASSWORD`, `FORGE_DB_PASSWORD`, `HALVING_INTERVAL`
+  and `WEBHOOK_URL`. In the mining service's config, `stratumv2.enabled` is ignored like any unknown
+  key instead of logging a refusal, and `stratum.ban_duration`, `node.user` and `node.password` have
+  no default.
+- **Every platform:** the mining service's `config.yaml` (written by Forge Solo on Windows and Linux,
+  rendered from the template on Umbrel) no longer sets `pool.name`, `pool.coin` and
+  `pool.coin_symbol`, which the mining service never read; on Windows and Linux the file loses them
+  at the next start. Nothing changes in how it runs.
+- **Every platform:** with `DB_PATH` unset (a run by hand; every platform sets it), the mining
+  service and the API no longer adopt a `forgepool.db` beside the executable.
+- **Umbrel:** the 1175 node image no longer lists 25361 as an exposed port; nothing listened on it
+  (peers 25360, RPC 25359).
+- **Umbrel:** the store listing no longer includes `init-db.sql`, the PostgreSQL schema of 1.0.12 and
+  before; nothing in 1.0.13 reads it.
 
 **Up to date.** Built with Go 1.26.8; Go 1.25 no longer gets security fixes. **Umbrel:** nginx 1.30
 (was 1.27, which is no longer maintained). **Umbrel and Windows:** PostgreSQL 16.15 is used only to
