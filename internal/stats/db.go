@@ -590,11 +590,6 @@ func recordBlockRowAt(ex blockRowExecer, height int64, hash, miner string, rewar
 	return err
 }
 
-// SaveBlock saves a block to the database
-func SaveBlock(height int64, hash, minerID string, reward float64) error {
-	return SaveBlockDBWithSolo(minerID, height, hash, reward, false)
-}
-
 // SaveBlockDBWithSolo saves a block to the database with solo flag
 func SaveBlockDBWithSolo(minerID string, height int64, hash string, reward float64, isSolo bool) error {
 	dbMu.RLock()
@@ -604,12 +599,6 @@ func SaveBlockDBWithSolo(minerID string, height int64, hash string, reward float
 	}
 
 	return recordBlockRow(db, height, hash, minerID, reward, isSolo)
-}
-
-// SavePayoutAtomic saves both block and payout in a single transaction
-// This prevents double-payout bugs and ensures consistency
-func SavePayoutAtomic(minerID string, blockHeight int64, amount float64, blockHash string) error {
-	return SavePayoutAtomicWithSolo(minerID, blockHeight, amount, blockHash, false)
 }
 
 // SavePayoutAtomicWithSolo saves both block and payout with solo flag
@@ -1146,7 +1135,7 @@ func SoloPayoutsSummary(minerID string) ([]PayoutRecord, int, float64, error) {
 
 // SaveShare saves a PPLNS share to the database for reward distribution
 // SaveShare stores a share for the PPLNS window. A solo share is not stored: the PPLNS window
-// (GetPPLNSShares) reads only non-solo shares, and nothing else reads them. Up to 1.0.12 every solo
+// (getPPLNSSharesLocked) reads only non-solo shares, and nothing else reads them. Up to 1.0.12 every solo
 // share was stored anyway, and trimmed only when a block was found, so a home miner's table grew by
 // every share between blocks; ClearSoloShares removes those.
 func SaveShare(minerAddress string, workerName string, difficulty float64, isSolo bool) error {
@@ -1318,15 +1307,8 @@ func SaveBestSharesDB(raised, gone []BestShare) error {
 	return nil
 }
 
-// GetPPLNSShares returns the sum of difficulty per miner for the last N shares
-// Returns a map of minerAddress -> total difficulty contributed
-func GetPPLNSShares(windowSize int) (map[string]float64, float64, error) {
-	dbMu.RLock()
-	defer dbMu.RUnlock()
-	return getPPLNSSharesLocked(windowSize)
-}
-
-// getPPLNSSharesLocked is GetPPLNSShares for a caller that already holds dbMu's read lock.
+// getPPLNSSharesLocked returns the sum of difficulty per miner for the last N non-solo shares, for
+// a caller that holds dbMu's read lock (Distribute1175Block).
 func getPPLNSSharesLocked(windowSize int) (map[string]float64, float64, error) {
 	if db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")

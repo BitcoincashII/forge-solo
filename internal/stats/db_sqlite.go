@@ -878,7 +878,7 @@ func SoloPayoutsSummary(minerID string) ([]PayoutRecord, int, float64, error) {
 
 // SaveShare saves a PPLNS share to the database
 // SaveShare stores a share for the PPLNS window. A solo share is not stored: the PPLNS window
-// (GetPPLNSShares) reads only non-solo shares, and nothing else reads them. Up to 1.0.12 every solo
+// (getPPLNSSharesLocked) reads only non-solo shares, and nothing else reads them. Up to 1.0.12 every solo
 // share was stored anyway, and trimmed only when a block was found, so a home miner's table grew by
 // every share between blocks; ClearSoloShares removes those.
 func SaveShare(minerAddress string, workerName string, difficulty float64, isSolo bool) error {
@@ -1032,14 +1032,8 @@ func Compact() error {
 	return err
 }
 
-// GetPPLNSShares returns the sum of difficulty per miner for the last N shares
-func GetPPLNSShares(windowSize int) (map[string]float64, float64, error) {
-	dbMu.RLock()
-	defer dbMu.RUnlock()
-	return getPPLNSSharesLocked(windowSize)
-}
-
-// getPPLNSSharesLocked is GetPPLNSShares for a caller that already holds dbMu's read lock.
+// getPPLNSSharesLocked returns the sum of difficulty per miner for the last N non-solo shares, for
+// a caller that holds dbMu's read lock (Distribute1175Block).
 func getPPLNSSharesLocked(windowSize int) (map[string]float64, float64, error) {
 	if db == nil {
 		return nil, 0, ErrDatabaseNotInitialized
@@ -1122,15 +1116,6 @@ func CleanupOldShares(windowSize int) (int64, error) {
 		return 0, nil
 	}
 	return deleted, nil
-}
-
-// Additional compatibility functions
-func SaveBlock(height int64, hash, minerID string, reward float64) error {
-	return SaveBlockDBWithSolo(minerID, height, hash, reward, false)
-}
-
-func SavePayoutAtomic(minerID string, blockHeight int64, amount float64, blockHash string) error {
-	return SavePayoutAtomicWithSolo(minerID, blockHeight, amount, blockHash, false)
 }
 
 func GetMinerSettingsDB(address string) (*MinerSettings, error) {

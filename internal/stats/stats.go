@@ -1,8 +1,6 @@
 package stats
 
 import (
-	"crypto/rand"
-	"fmt"
 	"sync"
 	"time"
 )
@@ -547,43 +545,16 @@ type PendingPayout struct {
 	MinerID     string    `json:"miner_id"`
 	BlockHeight int64     `json:"block_height"`
 	Amount      float64   `json:"amount"`
-	PaidAmount  float64   `json:"paid_amount"` // Track partial payments for split payouts
 	Confirmed   bool      `json:"confirmed"`
-	TxIDs       []string  `json:"txids"` // Multiple txids for split payouts
-	TxID        string    `json:"txid"`  // Primary/last txid (backwards compat)
+	TxID        string    `json:"txid"` // the paying transaction, "" while unpaid
 	CreatedAt   time.Time `json:"created_at"`
 	PaidAt      time.Time `json:"paid_at,omitempty"`
-}
-
-// generateUUID creates a simple UUID for payout tracking
-func generateUUID() string {
-	b := make([]byte, 16)
-	rand.Read(b)
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
 
 var (
 	pendingPayouts   = make(map[string][]PendingPayout)
 	pendingPayoutsMu sync.RWMutex
 )
-
-func AddPendingPayout(minerID string, blockHeight int64, amount float64) {
-	pendingPayoutsMu.Lock()
-	defer pendingPayoutsMu.Unlock()
-
-	payout := PendingPayout{
-		ID:          generateUUID(),
-		MinerID:     minerID,
-		BlockHeight: blockHeight,
-		Amount:      amount,
-		PaidAmount:  0,
-		Confirmed:   false,
-		TxIDs:       []string{},
-		CreatedAt:   time.Now(),
-	}
-
-	pendingPayouts[minerID] = append(pendingPayouts[minerID], payout)
-}
 
 func GetMinerBalance(minerID string, currentHeight int64) (mature float64, immature float64) {
 	pendingPayoutsMu.RLock()

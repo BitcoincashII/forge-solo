@@ -106,10 +106,9 @@ func Distribute1175Block(height int64, windowSize int) error {
 	// payouts_1175.amount -- a durable ledger row understating what the chain paid.
 	payoutAmount := gross
 
-	// shares only needed for the PPLNS path. They are read under the read lock taken above:
-	// GetPPLNSShares would take it again, and a second read lock waits for a CloseDB or InitDB
-	// that asked for the lock in between, which waits for the first. Both then hung, and every
-	// database call after them.
+	// shares only needed for the PPLNS path. They are read under the read lock taken above: a
+	// second read lock waits for a CloseDB or InitDB that asked for the lock in between, which
+	// waits for the first. Both then hung, and every database call after them.
 	var shares map[string]float64
 	var totalWork float64
 	if !isSolo {
