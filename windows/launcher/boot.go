@@ -280,9 +280,9 @@ func startAPI() error {
 	c.Env = append(append(os.Environ(), dbEnv()...),
 		"RPC_URL=http://127.0.0.1:"+bch2RPC, "RPC_USER=forge", "RPC_PASSWORD="+sec.BCH2Pass,
 		"STRATUM_INTERNAL_URL=http://127.0.0.1:"+stratumInt, "INTERNAL_API_TOKEN="+sec.Token,
-		// API_LISTEN_HOST keeps the API on this PC: it has no login of its own (HOME_APP) and the
-		// dashboard server reaches it on 127.0.0.1. Unset, it listened on every interface.
-		"API_HOST=127.0.0.1", "API_PORT="+apiPort, "API_LISTEN_HOST=127.0.0.1", "API_LISTEN_PORT="+apiPort, "HOME_APP=1", "CORS_ORIGINS=",
+		// API_LISTEN_HOST keeps the API on this PC: it has no login of its own and the dashboard
+		// server reaches it on 127.0.0.1. Unset, it listened on every interface.
+		"API_LISTEN_HOST=127.0.0.1", "API_LISTEN_PORT="+apiPort,
 		"AUX1175_URL=http://127.0.0.1:"+aux1175RPC, "AUX1175_USER=forge1175", "AUX1175_PASSWORD="+sec.AuxPass,
 		"SETTINGS_PASSWORD="+sec.Settings, "FORGE_PLATFORM=windows")
 	c.Stdout, c.Stderr = serviceLog("api"), serviceLog("api")

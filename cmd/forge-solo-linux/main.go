@@ -580,8 +580,8 @@ func apiEnv(dataDir, inst string, p ports, sec secrets) []string {
 	return []string{"DB_PATH=" + filepath.Join(dataDir, "forgesolo.db"),
 		"RPC_URL=http://127.0.0.1:" + rpcPort, "RPC_USER=forge", "RPC_PASSWORD=" + sec.RPCPassword,
 		"STRATUM_INTERNAL_URL=http://127.0.0.1:" + statsPort, "INTERNAL_API_TOKEN=" + sec.Token,
-		"API_HOST=127.0.0.1", "API_PORT=" + apiPort, "API_LISTEN_HOST=127.0.0.1", "API_LISTEN_PORT=" + apiPort,
-		"HOME_APP=1", "CORS_ORIGINS=", "MERGE_MINING_AVAILABLE=0", "WEB_ROOT=" + filepath.Join(inst, "web"),
+		"API_LISTEN_HOST=127.0.0.1", "API_LISTEN_PORT=" + apiPort,
+		"MERGE_MINING_AVAILABLE=0", "WEB_ROOT=" + filepath.Join(inst, "web"),
 		// Other accounts on this machine can reach the API, so a settings change needs a password:
 		// the same DASHBOARD_PASSWORD the dashboard asks for when it listens beyond this machine.
 		"SETTINGS_PASSWORD=" + sec.DashboardPassword, "FORGE_PLATFORM=linux"}
