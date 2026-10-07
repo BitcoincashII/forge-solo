@@ -27,7 +27,6 @@ import (
 	"github.com/BitcoincashII/forge-solo/internal/stats"
 	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
 	fiberrecover "github.com/gofiber/fiber/v2/middleware/recover"
 	"go.uber.org/zap"
@@ -329,8 +328,6 @@ func main() {
 	if listenHostIsLoopback(os.Getenv("API_LISTEN_HOST")) {
 		app.Use(onlyLocalHost)
 	}
-
-	useCORS(app, os.Getenv("CORS_ORIGINS"))
 
 	// Rate limiting: 1000 requests per minute per IP
 	apiRateMax := 6000
@@ -663,22 +660,6 @@ func logRequests(c *fiber.Ctx) error {
 		log.Printf("%s %s %d %s", m, c.Path(), status, time.Since(start).Round(time.Millisecond))
 	}
 	return err
-}
-
-// useCORS allows cross-origin reads only from the origins CORS_ORIGINS names. The dashboard is
-// served from the API's own origin and needs none; the old default, used whenever the variable was
-// empty (on every platform), let any page on localhost:3000 read the API.
-func useCORS(app *fiber.App, origins string) {
-	if origins == "" {
-		return
-	}
-	app.Use(cors.New(cors.Config{
-		AllowOrigins:     origins,
-		AllowMethods:     "GET,POST,OPTIONS",
-		AllowHeaders:     "Origin,Content-Type,Accept,Authorization",
-		AllowCredentials: false,
-		MaxAge:           3600,
-	}))
 }
 
 // pageSecurityHeaders sets on the dashboard's pages what its own servers send them with (Umbrel's

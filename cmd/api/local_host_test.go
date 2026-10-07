@@ -32,28 +32,3 @@ func TestLoopbackListenerAnswersOnlyLocalHosts(t *testing.T) {
 		}
 	}
 }
-
-// With CORS_ORIGINS empty, as on every platform, no origin gets cross-origin access.
-func TestNoCORSUnlessConfigured(t *testing.T) {
-	for _, tc := range []struct {
-		origins, origin string
-		allowed         bool
-	}{
-		{"", "http://localhost:3000", false},
-		{"", "http://127.0.0.1:3000", false},
-		{"https://pool.example", "https://pool.example", true},
-	} {
-		app := fiber.New()
-		useCORS(app, tc.origins)
-		app.Get("/api/v1/stats", func(c *fiber.Ctx) error { return c.SendString("ok") })
-		req := httptest.NewRequest("GET", "/api/v1/stats", nil)
-		req.Header.Set("Origin", tc.origin)
-		resp, err := app.Test(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := resp.Header.Get("Access-Control-Allow-Origin") != ""; got != tc.allowed {
-			t.Errorf("CORS_ORIGINS=%q, Origin %s: allowed=%v, want %v", tc.origins, tc.origin, got, tc.allowed)
-		}
-	}
-}
