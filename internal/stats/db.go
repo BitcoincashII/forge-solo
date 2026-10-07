@@ -71,8 +71,8 @@ var dbConnectTimeout = 10
 // The sqlite build creates these tables in db_sqlite.go; the Postgres path must create
 // them here so a fresh install is never schema-less. Idempotent (CREATE ... IF NOT
 // EXISTS), safe to run on every start; TimescaleDB features degrade gracefully on plain
-// Postgres. init-db.sql creates a subset of it when Postgres makes a fresh database.
-// Includes blocks.is_solo, which recordBlockRow and the solo/pool block queries require.
+// Postgres. Includes blocks.is_solo, which recordBlockRow and the solo/pool block queries
+// require.
 const corePostgresSchema = `
 DO $$
 BEGIN
@@ -272,8 +272,8 @@ func initPostgresSchema(pool *sql.DB) error {
 	if mErr := exec(`ALTER TABLE miners ADD COLUMN IF NOT EXISTS settings_pin_hash TEXT`); mErr != nil {
 		log.Printf("Warning: settings_pin_hash column migration: %v", mErr)
 	}
-	// Idempotent additive migration: payouts.status lifecycle column. The core schema and
-	// init-db.sql predate it, yet several payout upserts/queries (and the solo coinbase-direct
+	// Idempotent additive migration: payouts.status lifecycle column. The core schema
+	// predates it, yet several payout upserts/queries (and the solo coinbase-direct
 	// settle) reference payouts.status, so a fresh Postgres install must have it.
 	if mErr := exec(`ALTER TABLE payouts ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'pending'`); mErr != nil {
 		log.Printf("Warning: payouts.status column migration: %v", mErr)
