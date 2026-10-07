@@ -350,7 +350,7 @@ func createTables() error {
 		// there. The dashboard sums payouts on read instead (GetMinerBalanceDB).
 		`ALTER TABLE miners DROP COLUMN balance`,
 		`ALTER TABLE miners DROP COLUMN total_paid`,
-		// Matches postgres (payouts UNIQUE(miner_address, block_height) in corePostgresSchema).
+		// Matches 1.0.12's PostgreSQL schema (payouts UNIQUE(miner_address, block_height)).
 		// Without it the INSERT OR IGNORE above ignores nothing and a re-recorded block
 		// double-credits. Fails loudly-but-nonfatally if an existing file already holds
 		// duplicates, which must then be reconciled by hand rather than silently indexed.

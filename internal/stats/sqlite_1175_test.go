@@ -5,9 +5,10 @@ import (
 	"testing"
 )
 
-// The 1175 ledger is shared code with PostgreSQL-shaped SQL. This drives the real functions the
-// stratum calls when it finds an aux block, in the order it calls them, against a real SQLite
-// file, so the ledger's tables and statements are known to work on it.
+// The 1175 ledger's SQL is 1.0.12's, written for PostgreSQL; dialect_sqlite.go gives SQLite the
+// fragments it cannot parse. This drives the real functions the stratum calls when it finds an
+// aux block, in the order it calls them, against a real SQLite file, so the ledger's tables and
+// statements are known to work on it.
 func Test1175LedgerWorksOnSQLite(t *testing.T) {
 	if err := InitDB(filepath.Join(t.TempDir(), "esf.db")); err != nil {
 		t.Fatalf("InitDB: %v", err)
@@ -67,8 +68,8 @@ func Test1175LedgerWorksOnSQLite(t *testing.T) {
 		t.Errorf("settled %d payouts, want 1", n)
 	}
 
-	// The dashboard read path: this is the query carrying EXTRACT(EPOCH ...)::bigint on
-	// postgres, which SQLite cannot parse at all.
+	// The dashboard read path: the query that, in 1.0.12's form, carried
+	// EXTRACT(EPOCH ...)::bigint, which SQLite cannot parse at all.
 	blocks, err := Get1175BlocksForMiner(miner, true, 10)
 	if err != nil {
 		t.Fatalf("Get1175BlocksForMiner: %v", err)

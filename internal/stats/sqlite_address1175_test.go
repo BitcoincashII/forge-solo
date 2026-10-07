@@ -5,13 +5,12 @@ import (
 	"testing"
 )
 
-// The sqlite backend must round-trip a per-miner 1175 payout address, exactly as postgres
-// does.
+// SQLite must round-trip a per-miner 1175 payout address, as 1.0.12's PostgreSQL build did.
 //
 // Its schema declares miners.address_1175, but the INSERT never wrote it and neither the
 // single-miner read nor the bulk read selected it. On the Windows build the API accepted a
 // 1175 address, reported it back from the in-memory copy, and then the next settings
-// reload (every 10s) blanked it — losing the address with no error anywhere.
+// reload (every 10s) blanked it: the address was lost with no error anywhere.
 func TestSQLiteRoundTripsPerMinerAddress1175(t *testing.T) {
 	if err := InitDB(filepath.Join(t.TempDir(), "s1175.db")); err != nil {
 		t.Fatalf("InitDB: %v", err)
