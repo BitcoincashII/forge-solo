@@ -11,8 +11,6 @@
     <link rel="stylesheet" href="/css/common.css?v=20261007d">
     <script src="/js/chart.min.js"></script>
     <style>
-        :root{--gold:#f59e0b;--gold-dark:#d97706}
-
         .dashboard{padding-top:32px;padding-bottom:32px}
         .miner-header{margin-bottom:32px}
         .miner-header h1{font-size:28px;margin-bottom:8px;display:flex;align-items:center;gap:12px}
@@ -60,11 +58,6 @@
         .workers-table th,.workers-table td{padding:12px;text-align:left;border-bottom:1px solid var(--border)}
         .workers-table th{color:var(--text-secondary);font-weight:500;font-size:11px;text-transform:uppercase}
         .workers-table td{font-family:'JetBrains Mono',monospace;font-size:13px}
-        .status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:8px}
-        .status-dot.online{background:var(--bch-green);box-shadow:0 0 8px var(--bch-green)}
-        .status-dot.offline{background:var(--red)}
-
-        .chart-container{height:200px;position:relative}
 
         /* overflow-x too: a grid child defaults to min-width:auto, so a wide table forced
            the whole page to ~604px and pushed the Time/Status/Payout columns off a phone
