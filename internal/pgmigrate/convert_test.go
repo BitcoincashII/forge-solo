@@ -1,5 +1,3 @@
-//go:build sqlite
-
 package pgmigrate
 
 import (
@@ -9,7 +7,7 @@ import (
 	_ "time/tzdata" // the zone tests need the zone database on every OS
 )
 
-// A time is stored as the SQLite build stores every time: UTC, rounded to the nearest second.
+// A time is stored as the app stores every time: UTC, rounded to the nearest second.
 func TestConvertTime(t *testing.T) {
 	chicago, err := time.LoadLocation("America/Chicago")
 	if err != nil {

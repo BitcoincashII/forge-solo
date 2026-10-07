@@ -10,7 +10,7 @@ import (
 
 // minerPayoutsJSON is what /internal/miner-payouts answers for a miner: GetMinerPayoutsDB, encoded
 // as the stratum encodes it. An orphaned payout's time is when it was found orphaned; it must be
-// within a minute of now and is written as the zero time, so that both builds give one answer.
+// within a minute of now and is written as the zero time, so that every run gives one answer.
 func minerPayoutsJSON(t *testing.T, miner string) string {
 	t.Helper()
 	payouts, total, totalPaid := GetMinerPayoutsDB(miner)
@@ -32,8 +32,8 @@ func minerPayoutsJSON(t *testing.T, miner string) string {
 
 // checkMinerPayouts records, for one miner, two solo blocks paid by their coinbase, a third found
 // orphaned and an old payout with no time, and one block for another miner, and checks the payout
-// list both builds give: the same JSON, byte for byte. On Postgres the list failed with 42803 (the
-// paid state read a column the query did not group by); on SQLite every row was dropped (the latest
+// list: the same JSON, byte for byte. In 1.0.12 the list failed on PostgreSQL with 42803 (the paid
+// state read a column the query did not group by); on SQLite every row was dropped (the latest
 // payout time came back as text, which a time.Time cannot be scanned from), so the list was always
 // empty. A miner with no payouts gets an empty list, not null. base keeps the heights clear of other
 // tests' rows in a shared database.
@@ -67,7 +67,7 @@ func checkMinerPayouts(t *testing.T, a, b, none string, base int64) {
 	if n, err := OrphanSoloBlock(base + 2); err != nil || n != 1 {
 		t.Fatalf("PAYOUTS-SETUP: orphaning block %d: %d rows, %v", base+2, n, err)
 	}
-	// A payout of the old pool-style sender, which kept no time: listed last on both builds.
+	// A payout of the old pool-style sender, which kept no time: listed last.
 	if _, err := db.Exec(`INSERT INTO payouts (miner_address, block_height, amount, confirmed, txid, status) VALUES ($1, $2, 0.5, $3, $4, 'paid')`,
 		a, base+4, true, strings.Repeat("ab", 32)); err != nil {
 		t.Fatal(err)

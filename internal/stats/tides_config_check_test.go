@@ -4,8 +4,7 @@ import (
 	"testing"
 )
 
-// checkTidesConfig exercises the TIDES settings against whichever backend InitDB opened. Shared
-// by the SQLite and Postgres entry points so both backends answer the same questions.
+// checkTidesConfig exercises the TIDES settings on the database InitDB opened.
 func checkTidesConfig(t *testing.T) {
 	t.Helper()
 

@@ -1,4 +1,4 @@
-//go:build sqlite && !unix
+//go:build !unix
 
 package pgmigrate
 

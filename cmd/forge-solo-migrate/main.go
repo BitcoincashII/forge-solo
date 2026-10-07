@@ -1,5 +1,3 @@
-//go:build sqlite
-
 // Command forge-solo-migrate moves an earlier Forge Solo's PostgreSQL data into forgesolo.db, once,
 // and merges what each version recorded after a return to 1.0.12 and back. On Umbrel it is a
 // one-shot container that runs before the api and the stratum (run); on Windows the launcher runs

@@ -7,16 +7,15 @@ import (
 	"testing"
 )
 
-// Every column a query writes must exist in that dialect's schema.
+// Every column a query writes must exist in the schema.
 //
-// The Postgres miners table never declared balance or total_paid, yet three functions ran
+// 1.0.12's PostgreSQL miners table never declared balance or total_paid, yet three functions ran
 // UPDATE miners SET balance = ..., total_paid = ... against it. Every one of those discarded
-// the error, so the write failed silently on every install and nothing ever noticed -- the
-// columns existed only in the SQLite schema. Nothing read them either, so the two dialects
-// disagreed for as long as both existed.
+// the error, so the write failed silently on every install and nothing ever noticed: the
+// columns existed only in the SQLite schema.
 //
-// A dialect may declare a column nobody writes (Postgres has several). The reverse is always
-// a bug: the statement either errors at runtime or, when the error is dropped, does nothing.
+// The schema may declare a column nobody writes. The reverse is always a bug: the statement
+// either errors at runtime or, when the error is dropped, does nothing.
 //
 // Scope: INSERT INTO ... (cols), UPDATE <t> SET ..., and the DO UPDATE SET of an upsert.
 // Columns written through any other shape are not covered.
@@ -166,69 +165,55 @@ func schemaOf(t *testing.T, paths []string) map[string]map[string]bool {
 	return schema
 }
 
-func TestEveryWrittenColumnExistsInItsDialectSchema(t *testing.T) {
-	dialects := map[string]struct{ schema, queries []string }{
-		"postgres": {
-			schema:  []string{"internal/stats/db.go", "internal/stats/dialect.go"},
-			queries: []string{"internal/stats/db.go", "internal/stats/dialect.go", "internal/stats/payout1175.go", "internal/stats/tides_config.go"},
-		},
-		"sqlite": {
-			schema:  []string{"internal/stats/db_sqlite.go", "internal/stats/dialect_sqlite.go"},
-			queries: []string{"internal/stats/db_sqlite.go", "internal/stats/dialect_sqlite.go", "internal/stats/payout1175.go", "internal/stats/tides_config.go"},
-		},
+func TestEveryWrittenColumnExistsInTheSchema(t *testing.T) {
+	schema := schemaOf(t, []string{"internal/stats/db_sqlite.go", "internal/stats/dialect_sqlite.go"})
+	if len(schema) == 0 {
+		t.Fatal("parsed no tables; the guard would pass vacuously")
 	}
-
-	for name, d := range dialects {
-		schema := schemaOf(t, d.schema)
-		if len(schema) == 0 {
-			t.Fatalf("%s: parsed no tables; the guard would pass vacuously", name)
+	checked := 0
+	for _, p := range []string{"internal/stats/db_sqlite.go", "internal/stats/dialect_sqlite.go", "internal/stats/payout1175.go", "internal/stats/tides_config.go"} {
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("read %s: %v", p, err)
 		}
-		checked := 0
-		for _, p := range d.queries {
-			raw, err := os.ReadFile(p)
-			if err != nil {
-				t.Fatalf("read %s: %v", p, err)
+		for _, blob := range sqlBlobs(stripGoComments(string(raw))) {
+			report := func(table, col string) {
+				cols, known := schema[strings.ToLower(table)]
+				if !known {
+					return // table defined elsewhere
+				}
+				checked++
+				if !cols[col] {
+					t.Errorf("%s writes %s.%s, which the schema does not declare", p, table, col)
+				}
 			}
-			for _, blob := range sqlBlobs(stripGoComments(string(raw))) {
-				report := func(table, col string) {
-					cols, known := schema[strings.ToLower(table)]
-					if !known {
-						return // table defined elsewhere (e.g. a hypertable helper)
-					}
-					checked++
-					if !cols[col] {
-						t.Errorf("%s/%s writes %s.%s, which the %s schema does not declare",
-							name, p, table, col, name)
+			for _, m := range reInsert.FindAllStringSubmatch(blob, -1) {
+				for _, c := range strings.Split(m[2], ",") {
+					c = strings.ToLower(strings.TrimSpace(c))
+					if reIdent.MatchString(c) {
+						report(m[1], c)
 					}
 				}
-				for _, m := range reInsert.FindAllStringSubmatch(blob, -1) {
-					for _, c := range strings.Split(m[2], ",") {
-						c = strings.ToLower(strings.TrimSpace(c))
-						if reIdent.MatchString(c) {
-							report(m[1], c)
-						}
-					}
+			}
+			for _, loc := range reUpdate.FindAllStringSubmatchIndex(blob, -1) {
+				table := blob[loc[2]:loc[3]]
+				for _, c := range assignedColumns(blob[loc[1]:]) {
+					report(table, c)
 				}
-				for _, loc := range reUpdate.FindAllStringSubmatchIndex(blob, -1) {
-					table := blob[loc[2]:loc[3]]
-					for _, c := range assignedColumns(blob[loc[1]:]) {
-						report(table, c)
-					}
-				}
-				for _, m := range reInsert.FindAllStringSubmatchIndex(blob, -1) {
-					rest := blob[m[1]:]
-					if u := reUpsert.FindStringIndex(rest); u != nil {
-						for _, c := range assignedColumns(rest[u[1]:]) {
-							report(blob[m[2]:m[3]], c)
-						}
+			}
+			for _, m := range reInsert.FindAllStringSubmatchIndex(blob, -1) {
+				rest := blob[m[1]:]
+				if u := reUpsert.FindStringIndex(rest); u != nil {
+					for _, c := range assignedColumns(rest[u[1]:]) {
+						report(blob[m[2]:m[3]], c)
 					}
 				}
 			}
 		}
-		if checked == 0 {
-			t.Errorf("%s: no column writes were checked; the guard is vacuous", name)
-		} else {
-			t.Logf("%s: %d column writes checked against %d tables", name, checked, len(schema))
-		}
+	}
+	if checked == 0 {
+		t.Error("no column writes were checked; the guard is vacuous")
+	} else {
+		t.Logf("%d column writes checked against %d tables", checked, len(schema))
 	}
 }

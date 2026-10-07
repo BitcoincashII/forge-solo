@@ -11,9 +11,8 @@ func abs1175(x float64) float64 {
 	return x
 }
 
-// TestPayout1175Accounting exercises the hardened 1175 merge-mining payout ledger
-// against a real postgres test DB (MMTEST_DB connStr). It validates the fund-safety
-// invariants:
+// TestPayout1175Accounting exercises the hardened 1175 merge-mining payout ledger on a new
+// database file (payout1175TestDB). It validates the fund-safety invariants:
 //   - proportional PPLNS distribution (60/40) of the full reward
 //   - idempotent re-distribution (no double-credit)
 //   - the CONFIRMATION GATE: credits are unpayable until the aux block is confirmed
@@ -22,10 +21,6 @@ func abs1175(x float64) float64 {
 //   - ORPHAN-VOID: an orphaned block voids its unpaid credits + drops from the payable set
 //   - the mark->send->finalize money path, stuck-sending surfacing, and revert
 //   - 1175 address resolution
-//
-// On Postgres run it with ./scripts/it-postgres.sh, which provisions a throwaway postgres in the
-// image docker-compose.yml pins, passes MMTEST_DB, and fails if this test skips. CI runs the same
-// script. The SQLite build runs it on a new file in every run (payout1175TestDB).
 func TestPayout1175Accounting(t *testing.T) {
 	if err := InitDB(payout1175TestDB(t)); err != nil {
 		t.Fatalf("LEDGER-SETUP: InitDB: %v", err)

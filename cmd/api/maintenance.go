@@ -35,8 +35,7 @@ import (
 // Umbrel that reboots, Docker starts the api before compose runs the move again, so the api starts
 // in maintenance on the old status and has to notice the new one.
 
-// migrationDB is the database whose status file the api reads (stats.DatabaseFile); "" where there
-// is none, in the PostgreSQL build.
+// migrationDB is the database whose status file the api reads (stats.DatabaseFile).
 var migrationDB string
 
 // statusPollEvery is how often maintenance mode reads the status file. A variable for the tests.

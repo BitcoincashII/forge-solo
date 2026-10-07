@@ -1,5 +1,3 @@
-//go:build sqlite
-
 package pgmigrate
 
 import (
@@ -27,8 +25,8 @@ const (
 	pgChar        = "character"
 )
 
-// ConvertTime is a PostgreSQL timestamptz as the SQLite build stores a time: UTC, rounded to the
-// nearest second, "YYYY-MM-DD HH:MM:SS". Rounded, not cut: the PostgreSQL build showed a time as
+// ConvertTime is a PostgreSQL timestamptz as the app stores a time: UTC, rounded to the nearest
+// second, "YYYY-MM-DD HH:MM:SS". Rounded, not cut: 1.0.12 showed a time as
 // EXTRACT(EPOCH ...)::bigint, which rounds. The instant does not depend on the zone lib/pq read it
 // in, nor on the server's TimeZone.
 func ConvertTime(t time.Time) string {
@@ -44,7 +42,7 @@ func ConvertBool(b bool) int64 {
 }
 
 // ConvertNumeric is a PostgreSQL numeric, read as its text, as the REAL SQLite stores. It is the
-// conversion the PostgreSQL build's Scan into a float64 made, so the dashboard sees the same number.
+// conversion 1.0.12's Scan into a float64 made, so the dashboard sees the same number.
 // NaN and infinities are refused: no amount is either, and SQLite would store NULL.
 func ConvertNumeric(s string) (float64, error) {
 	f, err := strconv.ParseFloat(s, 64)

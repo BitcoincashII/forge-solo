@@ -1,5 +1,3 @@
-//go:build sqlite
-
 package pgmigrate
 
 import (
@@ -67,7 +65,7 @@ func dirFiles(t *testing.T, dir string) []string {
 	return out
 }
 
-// Every table, every row, every value, as the SQLite build stores it, in <db>.migrating; the
+// Every table, every row, every value, as the app stores it, in <db>.migrating; the
 // database itself is not made.
 func TestPrepareCopiesEverything(t *testing.T) {
 	db := filepath.Join(t.TempDir(), "forgesolo.db")

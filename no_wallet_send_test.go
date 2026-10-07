@@ -106,10 +106,10 @@ func TestNoMinimumPayoutConcept(t *testing.T) {
 		}
 	}
 
-	// The schema files may keep exactly one kind of reference: the migration that drops the
+	// The schema file may keep exactly one kind of reference: the migration that drops the
 	// dead column from databases created before it was removed. Any mention on a line that is
 	// not that migration means a CREATE TABLE grew it back.
-	for _, path := range []string{"internal/stats/db.go", "internal/stats/db_sqlite.go"} {
+	for _, path := range []string{"internal/stats/db_sqlite.go"} {
 		src, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatalf("read %s: %v", path, err)

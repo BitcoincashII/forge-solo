@@ -1,5 +1,3 @@
-//go:build sqlite
-
 package stats
 
 import (
@@ -8,22 +6,19 @@ import (
 	"time"
 )
 
-// SQLite counterparts of the fragments in dialect.go. See that file for why the split is
-// this narrow.
-//
-// Probed against modernc.org/sqlite before writing: $N placeholders bind correctly,
-// ON CONFLICT upserts work, and partial indexes (INDEX ... WHERE) are supported, so those
-// stay in the shared file. What SQLite rejects is BIGSERIAL, TIMESTAMPTZ, NOW(),
-// EXTRACT(...)::bigint, interval arithmetic and ADD COLUMN IF NOT EXISTS.
+// The SQL of payout1175.go and tides_config.go was shared with 1.0.12's PostgreSQL build, and
+// stays as it is: $N placeholders bind correctly, ON CONFLICT upserts work, and partial indexes
+// (INDEX ... WHERE) are supported. What SQLite rejects is BIGSERIAL, TIMESTAMPTZ, NOW(),
+// EXTRACT(...)::bigint, interval arithmetic and ADD COLUMN IF NOT EXISTS: those are here.
 
 // epochSecondsExpr renders a timestamp column as an integer Unix epoch.
 func epochSecondsExpr(col string) string {
 	return "CAST(strftime('%s', substr(" + col + ", 1, 19)) AS INTEGER)"
 }
 
-// dbTime is t as a query parameter for a timestamp column in the files both builds share:
-// SQLiteTime, the form CURRENT_TIMESTAMP writes and epochSecondsExpr reads. A time.Time is stored
-// in a form strftime cannot read.
+// dbTime is t as a query parameter for a timestamp column of payout1175.go: SQLiteTime, the
+// form CURRENT_TIMESTAMP writes and epochSecondsExpr reads. A time.Time is stored in a form
+// strftime cannot read.
 func dbTime(t time.Time) interface{} {
 	return SQLiteTime(t)
 }

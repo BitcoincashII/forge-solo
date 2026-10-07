@@ -1,4 +1,4 @@
-//go:build sqlite && !windows
+//go:build !windows
 
 package stats
 

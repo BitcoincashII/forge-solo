@@ -1,5 +1,3 @@
-//go:build sqlite
-
 package stats
 
 import (
@@ -68,7 +66,7 @@ func parseSQLiteTime(s string) (time.Time, bool) {
 	return t, err == nil
 }
 
-// GetDBConnStr returns connection string (for compatibility)
+// GetDBConnStr is the database the api and the stratum open: GetDBPath.
 func GetDBConnStr() string {
 	return GetDBPath()
 }
@@ -1191,8 +1189,8 @@ func SetSettingsPinHash(address, hash string) error {
 	return err
 }
 
-// The payout reservation, as the PostgreSQL backend (db.go) has it: the semantics match; the
-// dialect and, for the reservation, the concurrency strategy differ. See ReserveMaturePayouts.
+// The payout reservation, as 1.0.12's PostgreSQL build had it: the same semantics, with
+// SQLite's own concurrency strategy for the reservation. See ReserveMaturePayouts.
 
 // PayoutRow is a single mature, reserved payout ledger row.
 type PayoutRow struct {
@@ -1229,8 +1227,8 @@ func idPlaceholders(ids []int64) (string, []interface{}) {
 // this is what stops the auto processor and a concurrent manual request from both
 // paying the same balance.
 //
-// DIFFERS FROM POSTGRES BY DESIGN. Postgres reserves with SELECT ... FOR UPDATE then
-// UPDATEs the same predicate in one transaction. SQLite has no row locks, and a plain
+// DIFFERS FROM 1.0.12'S POSTGRESQL BUILD BY DESIGN. That one reserved with SELECT ... FOR
+// UPDATE then UPDATEd the same predicate in one transaction. SQLite has no row locks, and a plain
 // BEGIN is DEFERRED -- it takes no write lock until the first write -- so a literal
 // translation would leave a window where another writer claims the same rows between
 // the SELECT and the UPDATE, and both callers would pay them. A faithful-looking port

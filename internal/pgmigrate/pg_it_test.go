@@ -1,4 +1,4 @@
-//go:build sqlite && it
+//go:build it
 
 package pgmigrate
 

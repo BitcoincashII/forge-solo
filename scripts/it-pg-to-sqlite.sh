@@ -402,8 +402,8 @@ for c in api stratum; do
   if [ $c = api ]; then img=$API_PG_IMG base=$API_IMG; else img=$STRATUM_PG_IMG base=$STRATUM_IMG; fi
   printf 'FROM %s\nCOPY %s /usr/local/bin/%s\n' "$base" "$c" "$c" | docker build -q -t "$img" -f - "$BIN/pg" >/dev/null || die "$img"
 done
-CGO_ENABLED=0 go test -c -tags 'sqlite it' -o "$BIN/it.test" ./internal/pgmigrate/ || die "it.test does not build"
-CGO_ENABLED=0 go build -tags sqlite -o "$BIN/forge-solo-migrate" ./cmd/forge-solo-migrate || die "forge-solo-migrate does not build"
+CGO_ENABLED=0 go test -c -tags it -o "$BIN/it.test" ./internal/pgmigrate/ || die "it.test does not build"
+CGO_ENABLED=0 go build -o "$BIN/forge-solo-migrate" ./cmd/forge-solo-migrate || die "forge-solo-migrate does not build"
 
 # ── 1.0.12 with data ─────────────────────────────────────────────────────────────────────────────
 echo "── 1.0.12's database, made and filled by 1.0.12's own code and the seed"
@@ -413,8 +413,10 @@ up main old postgres || die "1.0.12's database did not start"
 wait_pg main init || die "1.0.12's database is not ready"
 mkdir -p "$WORK/v1012"
 git archive v1.0.12 | tar -x -C "$WORK/v1012"
-cp internal/stats/it_seed_pg_test.go "$WORK/v1012/internal/stats/"
-if ! (cd "$WORK/v1012" && IT_PG="$(dsn main)" go test -count=1 -tags it -run '^TestITSeed1012$' -v ./internal/stats/) > "$OUT/seed1012.log" 2>&1 \
+frozen_is_1012s() { (cd internal/pgmigrate && IT_V1012="$WORK/v1012" go test -count=1 -tags it -run '^TestITFrozenSchemaIs1012s$' .); }
+check "the frozen schema the move's spec follows is what 1.0.12's own InitDB ran" frozen_is_1012s
+cp internal/stats/seed1012_test.go "$WORK/v1012/internal/stats/"
+if ! (cd "$WORK/v1012" && IT_PG="$(dsn main)" go test -count=1 -tags seed1012 -run '^TestITSeed1012$' -v ./internal/stats/) > "$OUT/seed1012.log" 2>&1 \
   || ! grep -q -- '--- PASS: TestITSeed1012' "$OUT/seed1012.log"; then
   cat "$OUT/seed1012.log"
   die "1.0.12's code did not make its database"
@@ -491,7 +493,7 @@ check "2: shut down, and 1.0.12 opens it with the same figures and fingerprint" 
 manifest main > "$OUT/main.manifest.after"
 echo "   files PostgreSQL's own start and stop changed:"
 diff "$OUT/main.manifest.before" "$OUT/main.manifest.after" | sed -n 's/^> [0-9a-f]*  *\.\//      /p' | head -40 || true
-control_fixtures() { (cd internal/pgmigrate && IT_CONTROL_DIR="$OUT/control" go test -count=1 -tags "sqlite it" -run '^TestITControl$' .); }
+control_fixtures() { (cd internal/pgmigrate && IT_CONTROL_DIR="$OUT/control" go test -count=1 -tags it -run '^TestITControl$' .); }
 check "2: the pg_control files captured here read as the committed fixtures" control_fixtures
 if [ "${CAPTURE_FIXTURES:-0}" = 1 ]; then
   cp "$OUT/control/pg_control-shutdown" "$OUT/control/pg_control-inproduction" internal/pgmigrate/testdata/
@@ -836,7 +838,7 @@ if want 15; then
   wait_for "PostgreSQL 16.15" 120 docker exec "$c" psql -U forge -c "SELECT 1" >/dev/null || bad "15: PostgreSQL 16.15"
   libpq() {
     FORGE_MIGRATE_IT_PG="postgres://forge:Secret-Pw-1@127.0.0.1:$(inst_port win API)/postgres?sslmode=disable" \
-      run_must_pass TestPostgresSourceReadsAsTheModel -tags 'sqlite it' ./internal/pgmigrate/ -run '^TestPostgres'
+      run_must_pass TestPostgresSourceReadsAsTheModel -tags it ./internal/pgmigrate/ -run '^TestPostgres'
   }
   check "15: the lib/pq source reads a real PostgreSQL 16 as the model the unit tests use" libpq
   docker rm -f "$c" >/dev/null

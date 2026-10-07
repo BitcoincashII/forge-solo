@@ -1,7 +1,7 @@
 -- Forge Solo 1.0.12's PostgreSQL schema, frozen: what its InitDB ran on every start, in order.
--- corePostgresSchema, the migrations after it (internal/stats/db.go initPostgresSchema) and the 1175
--- ledger (internal/stats/dialect.go init1175Schema). drift_test.go checks that the PostgreSQL build
--- still makes exactly this, and that every column here is carried or left behind for a reason.
+-- corePostgresSchema, the migrations after it and the 1175 ledger (Init1175Schema). drift_test.go
+-- checks that every column here is carried or left behind for a reason, and that this file is not
+-- edited; scripts/it-pg-to-sqlite.sh checks it against 1.0.12's own sources, statement for statement.
 
 DO $$
 BEGIN

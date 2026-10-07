@@ -1,4 +1,4 @@
-//go:build !sqlite && it
+//go:build seed1012
 
 package stats
 
@@ -9,10 +9,12 @@ import (
 )
 
 // The 1.0.12 half of the seed scripts/it-pg-to-sqlite.sh moves: copied into a worktree of v1.0.12
-// and run there against IT_PG, it makes 1.0.12's database with 1.0.12's own code, its InitDB and
-// the saves its api and stratum make for the settings: the payout addresses and tag, TIDES mode,
-// the TIDES key and a miner's settings. testdata/migrate/seed-1012.sql then adds the rest, and its
-// settings rows only where these did not write them, so the values here are the file's.
+// and run there, with -tags seed1012, against IT_PG, it makes 1.0.12's database with 1.0.12's own
+// code, its InitDB and the saves its api and stratum make for the settings: the payout addresses
+// and tag, TIDES mode, the TIDES key and a miner's settings. testdata/migrate/seed-1012.sql then
+// adds the rest, and its settings rows only where these did not write them, so the values here are
+// the file's. The tag is its own because this is 1.0.12's test, not this tree's: 1.0.12's InitDB
+// takes a PostgreSQL address, this tree's a file.
 func TestITSeed1012(t *testing.T) {
 	dsn := os.Getenv("IT_PG")
 	if dsn == "" {

@@ -1,21 +1,18 @@
-//go:build sqlite
-
 package pgmigrate
 
 import (
 	"context"
-	"go/ast"
-	"go/parser"
-	"go/token"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 )
 
-// The spec must follow both schemas. Without these, a column or table a later change adds is
-// silently left empty in the moved database, or dropped by a merge, and nothing says so.
+// The spec must follow both schemas: the app's, and 1.0.12's PostgreSQL schema, frozen in
+// testdata/pg-1.0.12-schema.sql. Without these, a column or table a later change adds is silently
+// left empty in the moved database, or dropped by a merge, and nothing says so.
 
 // (a) Every column the app creates in a copied table is carried, or listed with a reason.
 func TestEveryAppColumnIsCarried(t *testing.T) {
@@ -87,46 +84,21 @@ func TestEveryOldColumnHasARule(t *testing.T) {
 	}
 }
 
-// (c) The frozen schema is what the PostgreSQL build makes, statement for statement.
-func TestFrozenSchemaIsThePostgresBuilds(t *testing.T) {
-	var built []string
-	for _, src := range []struct{ file, fn string }{
-		{"../stats/db.go", "initPostgresSchema"},
-		{"../stats/dialect.go", "init1175Schema"},
-	} {
-		f, err := parser.ParseFile(token.NewFileSet(), src.file, nil, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, d := range f.Decls {
-			switch d := d.(type) {
-			case *ast.GenDecl:
-				for _, s := range d.Specs {
-					if vs, ok := s.(*ast.ValueSpec); ok && len(vs.Names) == 1 && vs.Names[0].Name == "corePostgresSchema" {
-						built = append(built, splitSQL(unquote(t, vs.Values[0]))...)
-					}
-				}
-			case *ast.FuncDecl:
-				if d.Name.Name != src.fn {
-					continue
-				}
-				ast.Inspect(d.Body, func(n ast.Node) bool {
-					if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING {
-						if s := unquote(t, lit); isDDL(s) {
-							built = append(built, normalizeSQL(s))
-						}
-					}
-					return true
-				})
-			}
-		}
+// (c) 1.0.12's schema is history: the frozen file is not edited. scripts/it-pg-to-sqlite.sh checks
+// it against 1.0.12's own sources (it_schema_test.go); this catches an edit without the v1.0.12 tag.
+func TestFrozenSchemaIsNotEdited(t *testing.T) {
+	b, err := os.ReadFile("testdata/pg-1.0.12-schema.sql")
+	if err != nil {
+		t.Fatal(err)
 	}
-	frozen := frozenStatements(t)
-	if strings.Join(built, "\n") != strings.Join(frozen, "\n") {
-		t.Errorf("MIG-DRIFT-FROZEN: the PostgreSQL build's schema is no longer testdata/pg-1.0.12-schema.sql. A schema change must "+
-			"also change what the move carries. Built:\n%s\n\nFrozen:\n%s", strings.Join(built, "\n"), strings.Join(frozen, "\n"))
+	sum := sha256.Sum256([]byte(strings.ReplaceAll(string(b), "\r\n", "\n")))
+	if got := hex.EncodeToString(sum[:]); got != frozenSchemaSHA256 {
+		t.Errorf("MIG-DRIFT-FROZEN: testdata/pg-1.0.12-schema.sql hashes to %s, not %s: it is 1.0.12's schema and is not edited", got, frozenSchemaSHA256)
 	}
 }
+
+// frozenSchemaSHA256 is the SHA-256 of testdata/pg-1.0.12-schema.sql, with LF line ends.
+const frozenSchemaSHA256 = "03e24805d3adbfe5d3129a4eb9fcd4eaa9dc0ab215686499d2f36c11b5b3c6a6"
 
 // (d) Every table the app creates has a rule: a table added later is not dropped by a merge
 // without anyone deciding so.
@@ -285,27 +257,4 @@ func splitSQL(script string) []string {
 
 func normalizeSQL(s string) string {
 	return strings.TrimSuffix(strings.Join(strings.Fields(s), " "), ";")
-}
-
-func isDDL(s string) bool {
-	u := strings.ToUpper(strings.TrimSpace(s))
-	for _, p := range []string{"CREATE ", "ALTER ", "DROP ", "DO "} {
-		if strings.HasPrefix(u, p) {
-			return true
-		}
-	}
-	return false
-}
-
-func unquote(t *testing.T, e ast.Expr) string {
-	t.Helper()
-	lit, ok := e.(*ast.BasicLit)
-	if !ok {
-		t.Fatalf("not a string literal: %T", e)
-	}
-	s, err := strconv.Unquote(lit.Value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return s
 }

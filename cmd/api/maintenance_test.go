@@ -264,13 +264,13 @@ func TestHealthCarriesTheMovesState(t *testing.T) {
 	}
 }
 
-// Without a status file (Forge Solo for Linux, and a PostgreSQL build) the health answer is what
-// it always was, to the byte.
+// Without a status file (Forge Solo for Linux, and a run with no database file) the health answer
+// is what it always was, to the byte.
 func TestHealthWithoutAStatusFileIsUnchanged(t *testing.T) {
 	for _, noFile := range []bool{true, false} {
 		statusDB(t, "")
 		if noFile {
-			migrationDB = "" // the PostgreSQL build
+			migrationDB = ""
 		}
 		db := migrationDB
 		got := call(t, testApp(nil), "GET", "/api/v1/health", "", nil)
@@ -329,11 +329,10 @@ func TestOldDataChoiceWhenRunning(t *testing.T) {
 	}
 }
 
-// The PostgreSQL build has no database file, so no status file, and never runs in maintenance.
-func TestPostgresBuildHasNoStatusFile(t *testing.T) {
+// The status file is read beside the database file, DB_PATH.
+func TestStatusFileIsBesideTheDatabase(t *testing.T) {
 	t.Setenv("DB_PATH", filepath.Join(t.TempDir(), "forgesolo.db"))
-	pg := strings.HasPrefix(stats.GetDBConnStr(), "host=")
-	if got := stats.DatabaseFile(); pg && got != "" || !pg && got != os.Getenv("DB_PATH") {
-		t.Errorf("MAINT-DBFILE: DatabaseFile is %q (PostgreSQL build: %v)", got, pg)
+	if got := stats.DatabaseFile(); got != os.Getenv("DB_PATH") {
+		t.Errorf("MAINT-DBFILE: DatabaseFile is %q, want DB_PATH %q", got, os.Getenv("DB_PATH"))
 	}
 }

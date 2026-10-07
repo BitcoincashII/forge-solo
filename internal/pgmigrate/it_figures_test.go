@@ -1,9 +1,9 @@
-//go:build sqlite && it
+//go:build it
 
 package pgmigrate
 
 // What scripts/it-pg-to-sqlite.sh reads and writes on the databases it moves, built into one test
-// binary (go test -c -tags 'sqlite it') that the script runs on the dev machine and in containers,
+// binary (go test -c -tags it) that the script runs on the dev machine and in containers,
 // one test at a time:
 //   - TestITFigures: the 54 figures the dashboard and the stratum depend on, from PostgreSQL before
 //     a move and from forgesolo.db after it;

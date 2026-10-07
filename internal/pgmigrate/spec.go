@@ -1,5 +1,3 @@
-//go:build sqlite
-
 // Package pgmigrate moves the data of an earlier Forge Solo's PostgreSQL database into forgesolo.db,
 // the SQLite file every platform runs on from 1.0.13, once. It reads PostgreSQL in one read-only
 // snapshot, builds <db>.migrating with the app's own schema (stats.InitDB), proves the copy complete,
@@ -8,7 +6,7 @@
 //
 // This file is what is carried and how: every table and column, the kind each column holds, the
 // value a column an older database lacks gets, and what is left behind and why. drift_test.go keeps
-// it in step with the schemas both builds create.
+// it in step with the schema the app creates and with 1.0.12's, frozen in testdata.
 package pgmigrate
 
 // Kind is what a column holds. It decides the conversion, the stored type the copy checks for and

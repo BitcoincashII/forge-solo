@@ -21,8 +21,6 @@ func ValidPayoutMode(mode string) bool {
 
 // GetPayoutMode returns the dashboard-chosen payout mode; solo when nothing was ever chosen or
 // the stored value is not one the app knows.
-//
-// Portable SQL, shared by both backends like payout1175.go.
 func GetPayoutMode() (string, error) {
 	dbMu.RLock()
 	defer dbMu.RUnlock()
