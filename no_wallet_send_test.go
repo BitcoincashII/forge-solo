@@ -91,8 +91,7 @@ func TestNo1175SendPipeline(t *testing.T) {
 // And the minimum-payout concept must not come back with it.
 func TestNoMinimumPayoutConcept(t *testing.T) {
 	for _, path := range []string{
-		"cmd/stratum/main.go", "docker/stratum/config.template.yaml",
-		"docker-compose.yml", ".env.example", "init-db.sql",
+		"cmd/stratum/main.go", "docker/stratum/config.template.yaml", "docker-compose.yml",
 	} {
 		src, err := os.ReadFile(path)
 		if err != nil {

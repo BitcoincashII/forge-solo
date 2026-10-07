@@ -169,7 +169,7 @@ func schemaOf(t *testing.T, paths []string) map[string]map[string]bool {
 func TestEveryWrittenColumnExistsInItsDialectSchema(t *testing.T) {
 	dialects := map[string]struct{ schema, queries []string }{
 		"postgres": {
-			schema:  []string{"internal/stats/db.go", "internal/stats/dialect.go", "init-db.sql"},
+			schema:  []string{"internal/stats/db.go", "internal/stats/dialect.go"},
 			queries: []string{"internal/stats/db.go", "internal/stats/dialect.go", "internal/stats/payout1175.go", "internal/stats/tides_config.go"},
 		},
 		"sqlite": {

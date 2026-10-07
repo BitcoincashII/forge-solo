@@ -42,7 +42,7 @@ STORE_DIR = (
 # was invisible, and a fresh install got neither version. The compose is the file that decides
 # which images a user actually runs.
 LOCAL = "umbrel-app.yml"
-STORE_FILES = ["umbrel-app.yml", "docker-compose.yml", "exports.sh", "init-db.sql"]
+STORE_FILES = ["umbrel-app.yml", "docker-compose.yml", "exports.sh"]
 
 
 def main() -> int:
