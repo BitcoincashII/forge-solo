@@ -2,8 +2,8 @@
 # Builds a fully static (musl) BCH2 node inside an Alpine container of the target platform; run by
 # build-release.sh. Expects the node source at /w/src and builds in /w/work-<arch>, kept between
 # runs so depends and objects are reused. Output: /w/out/<arch>/{bitcoincashIId,bitcoincashII-cli}.
-# TESTS=--enable-tests also builds test_bitcoinII. ARCH names the build when uname cannot (armv6l:
-# QEMU reports armv7l, but the armhf image's compiler targets ARMv6).
+# ARCH names the build when uname cannot (armv6l: QEMU reports armv7l, but the armhf image's
+# compiler targets ARMv6).
 set -eux
 ARCH=${ARCH:-$(uname -m)}
 J=${JOBS:-$(nproc)}
@@ -16,7 +16,7 @@ HOST=$(ls -d depends/*-linux-* | grep -v '\.' | head -1 | xargs basename)
 if [ ! -f config.status ]; then
   ./autogen.sh >/w/logs/autogen-$ARCH.log 2>&1
   CONFIG_SITE=$PWD/depends/$HOST/share/config.site ./configure --disable-wallet --with-gui=no --without-miniupnpc --without-natpmp \
-    --disable-bench --disable-fuzz-binary ${TESTS:---disable-tests} --disable-gui-tests --enable-reduce-exports --disable-shared \
+    --disable-bench --disable-fuzz-binary --disable-tests --disable-gui-tests --enable-reduce-exports --disable-shared \
     LDFLAGS="-static-libgcc -static-libstdc++" >/w/logs/configure-$ARCH.log 2>&1
 fi
 # libtool drops a plain -static; -all-static links the programs fully static. (-static-pie
@@ -24,7 +24,6 @@ fi
 make -j"$J" LIBTOOL_APP_LDFLAGS=-all-static >/w/logs/make-$ARCH.log 2>&1
 mkdir -p /w/out/$ARCH
 for b in bitcoincashIId bitcoincashII-cli; do strip -o /w/out/$ARCH/$b src/$b; done
-if [ -f src/test/test_bitcoinII ]; then strip -o /w/out/$ARCH/test_bitcoinII src/test/test_bitcoinII; fi
 file /w/out/$ARCH/*
 if readelf -l /w/out/$ARCH/bitcoincashIId | grep -q INTERP; then echo "NOT STATIC $ARCH"; exit 1; fi
 /w/out/$ARCH/bitcoincashIId -version | head -1
