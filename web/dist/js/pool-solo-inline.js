@@ -209,12 +209,6 @@
             return d > 0 ? d : networkDiff;
         }
 
-        function escapeHtml(v) {
-            return String(v == null ? '' : v).replace(/[&<>"']/g, function (ch) {
-                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
-            });
-        }
-
         async function updateStatusBanner() {
             var el = document.getElementById('syncBanner');
             if (!el) return;
@@ -249,7 +243,7 @@
                     if (!minerAddress && configReachable && !configError) msg += '<div style="height:8px"></div>⚙️ Meanwhile, set your <a href="/settings" style="color:inherit;font-weight:600;text-decoration:underline">payout address</a> in Settings.';
                 } else if (s.status === 'starting') {
                     // s.message is the node's own word for the step it is on ("Loading block index…").
-                    msg = '⏳ <b>Starting the BCH2 node:</b> ' + escapeHtml(s.message || 'loading its chain') + ' This can take a few minutes; mining starts once it is ready.';
+                    msg = '⏳ <b>Starting the BCH2 node:</b> ' + sanitizeHTML(s.message || 'loading its chain') + ' This can take a few minutes; mining starts once it is ready.';
                 } else if (s.status !== 'synced') {
                     // Not answering at all: stopped, crashed, or being started again. Not "starting":
                     // that read the same for hours as a node half a minute into its start.
@@ -283,10 +277,10 @@
                         tone = 'gold';
                         msg = '⏸️ <b>No miner connected.</b> Node synced and work is ready: point a miner at <b>port ' + stratumHostHint() + '</b>.';
                     } else if (ms && ms.mining === false && ms.message) {
-                        // escapeHtml: ms.message can carry the node's raw JSON-RPC error
+                        // sanitizeHTML: ms.message can carry the node's raw JSON-RPC error
                         // text, which is the one dynamic string on this page that does not
                         // originate here.
-                        msg = '⚠️ <b>Not mining.</b> ' + escapeHtml(ms.message);
+                        msg = '⚠️ <b>Not mining.</b> ' + sanitizeHTML(ms.message);
                         // The detail line must agree with the message above it. "receiving no
                         // work" is only true when the node has stopped producing jobs; appending
                         // it to no_shares -- whose message says the miner IS receiving work and
@@ -364,12 +358,12 @@
             // with the chain after a restart. Nothing is wrong with the pool.
             if (t.state === 'fallback' && t.node_behind) {
                 return { warn: true, text: '⏳ <b>TIDES paused, mining SOLO.</b> This BCH2 node is not on Forge Pool\'s block yet'
-                    + (t.reason ? ' (' + escapeHtml(t.reason) + ')' : '') + '. Blocks found meanwhile pay your own address in full; '
+                    + (t.reason ? ' (' + sanitizeHTML(t.reason) + ')' : '') + '. Blocks found meanwhile pay your own address in full; '
                     + 'TIDES resumes by itself once it is.' };
             }
             if (t.state === 'fallback') {
                 return { warn: true, text: '⚠️ <b>TIDES paused, mining SOLO.</b> Forge Pool is not taking this install\'s work'
-                    + (t.reason ? ' (' + escapeHtml(t.reason) + ')' : '') + '. Blocks found meanwhile pay your own address in full; '
+                    + (t.reason ? ' (' + sanitizeHTML(t.reason) + ')' : '') + '. Blocks found meanwhile pay your own address in full; '
                     + 'TIDES resumes by itself when the pool answers again.' };
             }
             if (t.state === 'starting') {
@@ -482,11 +476,11 @@
                 const got = paidAt[b.height + ':' + b.hash];
                 const when = b.found_at ? new Date(b.found_at).toLocaleString() : '';
                 return '<tr><td>' + Number(b.height) + '</td>'
-                    + '<td>' + (you ? '<span class="tides-you">You</span>' : escapeHtml(shortAddr(b.finder))) + '</td>'
-                    + '<td>' + escapeHtml(fmtBCH2(b.value_sats)) + '</td>'
-                    + '<td>' + (got != null ? escapeHtml(fmtBCH2(got)) : '—') + '</td>'
-                    + '<td>' + escapeHtml(b.status) + '</td>'
-                    + '<td>' + escapeHtml(when) + '</td></tr>';
+                    + '<td>' + (you ? '<span class="tides-you">You</span>' : sanitizeHTML(shortAddr(b.finder))) + '</td>'
+                    + '<td>' + sanitizeHTML(fmtBCH2(b.value_sats)) + '</td>'
+                    + '<td>' + (got != null ? sanitizeHTML(fmtBCH2(got)) : '—') + '</td>'
+                    + '<td>' + sanitizeHTML(b.status) + '</td>'
+                    + '<td>' + sanitizeHTML(when) + '</td></tr>';
             }).join('');
         }
 
@@ -783,7 +777,7 @@
 
         async function fetchWorkers() {
             const tbody = document.getElementById('workersTable');
-            if (!minerAddress) { tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">' + escapeHtml(noAddressNotice(true)) + '</div></td></tr>'; return; }
+            if (!minerAddress) { tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">' + sanitizeHTML(noAddressNotice(true)) + '</div></td></tr>'; return; }
             try {
                 const data = await apiFetch('/api/v1/miners/' + encodeURIComponent(minerAddress) + '/workers');
                 if (!data.workers || data.workers.length === 0) {
@@ -810,7 +804,7 @@
 
         async function fetchBlocks() {
             const tbody = document.getElementById('blocksTable');
-            if (!minerAddress) { tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">' + escapeHtml(noAddressNotice(true)) + '</div></td></tr>'; return; }
+            if (!minerAddress) { tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">' + sanitizeHTML(noAddressNotice(true)) + '</div></td></tr>'; return; }
             try {
                 const data = await apiFetch('/api/v1/miners/' + encodeURIComponent(minerAddress) + '/solo-blocks');
                 if (!data.blocks || data.blocks.length === 0) {
@@ -912,14 +906,14 @@
                 renderBlocksFound();
                 document.getElementById('totalEarned').textContent = totalLabel() + ': --';
                 // The API's reason when it gave one ("the database is not answering").
-                const why = (e && e.apiError) ? escapeHtml(e.apiError) : 'Failed to load blocks';
+                const why = (e && e.apiError) ? sanitizeHTML(e.apiError) : 'Failed to load blocks';
                 tbody.innerHTML = '<tr><td colspan="7"><div class="error-state"><span class="error-icon">!</span><span>' + why + '</span></div></td></tr>';
             }
         }
 
         async function fetchPayouts() {
             const tbody = document.getElementById("payoutsTable");
-            if (!minerAddress) { tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state">' + escapeHtml(noAddressNotice(true)) + '</div></td></tr>'; return; }
+            if (!minerAddress) { tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state">' + sanitizeHTML(noAddressNotice(true)) + '</div></td></tr>'; return; }
             try {
                 const data = await apiFetch("/api/v1/miners/" + encodeURIComponent(minerAddress) + "/solo-payouts");
                 document.getElementById("payoutCount").textContent = "(" + formatNumber(data.total || 0) + ")";
@@ -970,7 +964,7 @@
                 console.error("Failed to fetch payouts", e);
                 document.getElementById("payoutCount").textContent = "(--)";
                 document.getElementById("totalPaidAmount").textContent = "--";
-                const why = (e && e.apiError) ? escapeHtml(e.apiError) : 'Failed to load payouts';
+                const why = (e && e.apiError) ? sanitizeHTML(e.apiError) : 'Failed to load payouts';
                 tbody.innerHTML = '<tr><td colspan="4"><div class="error-state"><span class="error-icon">!</span><span>' + why + '</span></div></td></tr>';
             }
         }

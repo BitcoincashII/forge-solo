@@ -153,7 +153,7 @@ func TestDashboardTellsAStartingNodeFromOneNotAnswering(t *testing.T) {
 	js := readWebFile(t, "js/pool-solo-inline.js")
 	const startHead, downHead = "} else if (s.status === 'starting') {", "} else if (s.status !== 'synced') {"
 	start, down := branchAfter(js, startHead), branchAfter(js, downHead)
-	if !strings.Contains(start, "Starting the BCH2 node") || !strings.Contains(start, "escapeHtml(s.message") {
+	if !strings.Contains(start, "Starting the BCH2 node") || !strings.Contains(start, "sanitizeHTML(s.message") {
 		t.Errorf("NODE-JS-STARTING: no branch for a starting node that says what it is doing: %q", start)
 	}
 	if !strings.Contains(down, "not answering") || !strings.Contains(down, "nodeDownAdvice()") || strings.Contains(down, "Starting") {
@@ -233,7 +233,7 @@ func TestDatabaseOutageIsShownAsSuch(t *testing.T) {
 	}
 	js := readWebFile(t, "js/pool-solo-inline.js")
 	for _, fn := range []string{"async function fetchBlocks() {", "async function fetchPayouts() {"} {
-		if !strings.Contains(textBetween(js, fn, "\n        }\n"), "(e && e.apiError) ? escapeHtml(e.apiError)") {
+		if !strings.Contains(textBetween(js, fn, "\n        }\n"), "(e && e.apiError) ? sanitizeHTML(e.apiError)") {
 			t.Errorf("DB-TABLE-REASON: %s does not show the API's reason when the figures cannot be read", fn)
 		}
 	}
