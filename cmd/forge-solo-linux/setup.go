@@ -195,9 +195,6 @@ func stratumConf(p ports) string {
 	return fmt.Sprintf(`# Written by Forge Solo at every start: edits here are overwritten. The payout address,
 # coinbase tag and payout mode are set on the dashboard's Settings page.
 pool:
-  name: "Forge Solo"
-  coin: "Bitcoin Cash II"
-  coin_symbol: "BCH2"
   address: ""
   block_reward: 50.0
   payout_scheme: "solo"

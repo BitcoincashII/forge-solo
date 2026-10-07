@@ -6,9 +6,6 @@
 # marketplaces require.
 
 pool:
-  name: "Forge Solo"
-  coin: "Bitcoin Cash II"
-  coin_symbol: "BCH2"
   address: "${POOL_ADDRESS}"
   block_reward: 50.0
   payout_scheme: "solo"

@@ -156,9 +156,6 @@ func configYAML() string {
 	// Keep the two in step: keys the stratum does not read are silently ignored, so a stale
 	// key here looks configured but does nothing.
 	return `pool:
-  name: "Forge Solo"
-  coin: "Bitcoin Cash II"
-  coin_symbol: "BCH2"
   address: ""
   block_reward: 50.0
   payout_scheme: "solo"
