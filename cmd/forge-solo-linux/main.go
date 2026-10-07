@@ -213,8 +213,8 @@ func noRentals(port int) string {
 	return fmt.Sprintf("(no rentals: another program uses port %d)", port)
 }
 
-// restrictDatabase makes a database an earlier run created readable by this user only (SQLite
-// creates its files with the process's umask, which was 022 before this launcher set 077).
+// restrictDatabase makes the database readable by this user alone. Forge Solo makes its own
+// files 0600; one copied in from another platform or by hand keeps the mode the copy gave it.
 func restrictDatabase(dataDir string) {
 	for _, f := range []string{"forgesolo.db", "forgesolo.db-wal", "forgesolo.db-shm"} {
 		_ = os.Chmod(filepath.Join(dataDir, f), 0o600)
