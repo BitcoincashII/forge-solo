@@ -1107,39 +1107,6 @@ func bitsToDifficulty(bitsHex string) float64 {
 	return stratum.BitsToDifficulty(bitsHex)
 }
 
-// sendWebhookAlert sends a webhook notification for important events
-func sendWebhookAlert(event string, data map[string]interface{}) {
-	webhookURL := os.Getenv("WEBHOOK_URL")
-	if webhookURL == "" {
-		return // No webhook configured
-	}
-
-	payload := map[string]interface{}{
-		"event":     event,
-		"timestamp": time.Now().UTC().Format(time.RFC3339),
-		"pool":      "Forge Solo",
-		"data":      data,
-	}
-
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		log.Printf("Failed to marshal webhook payload: %v", err)
-		return
-	}
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Post(webhookURL, "application/json", bytes.NewReader(jsonData))
-	if err != nil {
-		log.Printf("Failed to send webhook: %v", err)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 {
-		log.Printf("Webhook returned status %d", resp.StatusCode)
-	}
-}
-
 // startZMQListener subscribes to ZMQ block notifications for instant block detection
 // This reduces orphan rate by getting new block notifications in milliseconds vs 1-second polling
 func startZMQListener(zmqEndpoint string, logger *zap.Logger) {
@@ -2180,7 +2147,7 @@ func (p *BlockFindingShareProcessor) submitBlock(share *stratum.Share) {
 		// fees. Preferring it in BOTH directions matters -- the old code only ever adjusted
 		// DOWNWARD (a guard against a stale block_reward after a halving), so on mainnet,
 		// where coinbasevalue exceeds the 50.0 default by the fee total, every solo block
-		// was recorded, reported and webhooked as exactly 50.0 and under-stated its own
+		// was recorded and reported as exactly 50.0 and under-stated its own
 		// reward by its fees. Invisible on an empty regtest chain, where every block is
 		// subsidy-only.
 		cbv := blockCoinbaseBTC(job.CoinbaseValue, getLatestCoinbaseBTC())
@@ -2236,10 +2203,6 @@ func (p *BlockFindingShareProcessor) submitBlock(share *stratum.Share) {
 				zap.Float64("your_part", yours))
 			stats.NoteTidesBlock(share.MinerID, share.WorkerName, job.Height, hashStr, yours)
 			stats.GetManager().RecordBlockWithEffort(hashStr, getNetworkDifficulty())
-			go sendWebhookAlert("block_found", map[string]interface{}{
-				"height": job.Height, "hash": hashStr, "miner": share.MinerID, "worker": share.WorkerName,
-				"mode": "TIDES", "reward": effectiveReward, "payout": yours,
-			})
 			// The round still ended here, as below for a solo block.
 			stats.GetManager().ResetWorkerRoundStats(share.MinerID)
 			go func() {
@@ -2260,17 +2223,6 @@ func (p *BlockFindingShareProcessor) submitBlock(share *stratum.Share) {
 		// Record block for miner stats with effort tracking for luck calculation
 		stats.RecordMinerBlockWithWorkerSolo(owner, share.WorkerName, job.Height, hashStr, effectiveReward, share.IsSolo)
 		stats.GetManager().RecordBlockWithEffort(hashStr, getNetworkDifficulty())
-
-		// Send webhook alert for block found
-		go sendWebhookAlert("block_found", map[string]interface{}{
-			"height": job.Height,
-			"hash":   hashStr,
-			"miner":  share.MinerID,
-			"worker": share.WorkerName,
-			"mode":   mode,
-			"reward": effectiveReward,
-			"payout": payoutAmount,
-		})
 
 		if share.IsSolo {
 			// SOLO MODE: the block reward is paid on-chain DIRECTLY by the coinbase to the
