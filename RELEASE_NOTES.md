@@ -48,7 +48,7 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
 - **Umbrel and Windows:** the dashboard says so when the move finishes only at the next restart
   (something had the database open), when Forge Solo runs without the old data, and when the old
   database's folder is damaged and ignored.
-- **Umbrel:** the move runs in a small step of its own (the migrate container, about 22 MB to
+- **Umbrel:** the move runs in a small step of its own (the migrate container, about 23 MB to
   download) before the API and the miner start. Once the data is moved it finds nothing to do and
   ends within a second, at every start. An update made while 1.0.12 still runs stops its database
   cleanly first, and a move cut short (a power cut, say) is made again at the next start.

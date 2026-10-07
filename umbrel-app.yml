@@ -15,7 +15,9 @@ description: >-
   TIDES pool: share blocks with other miners through Forge Pool's TIDES window, paid
   straight from each block's coinbase, still with no fee.
 
+
   This is a home miner, not a production pool: one household.
+
 
   Includes:
     - A built-in BCH2 full node (auto-syncs and keeps the whole chain)
@@ -30,11 +32,14 @@ description: >-
   miner individually, so it uses 3333 like your own hardware; NiceHash and MiningRigRentals put
   the whole order behind one connection, so they use 3335.
 
+
   Settings asks for Forge Solo's password before it saves a change. umbrelOS shows it when you
   open the app, and any time later when you right-click the Forge Solo icon.
 
+
   To accept inbound peers, forward TCP 8339 (BCH2) and 25360 (1175) in your router. To
   accept rented hashpower, forward 3333 (Braiins) or 3335 (NiceHash/MiningRigRentals).
+
 
   Forge Solo needs ports 3333 and 3335 for miners, and 8339 and 25360 for the nodes' peers. If
   another app already uses one, installing stops with "exit code 1", and the parts of Forge Solo
@@ -65,7 +70,6 @@ releaseNotes: >-
     - Rentals get a difficulty inside MiningRigRentals' optimal range for most rigs; TIDES no longer under-credits their first jobs.
     - The BCH2 node rebuilds chain data a power cut damaged, once, instead of restarting for ever.
     - The mining ports and TIDES mode hold up against bad shares, idle connections and a slow pool.
-
 
   Full release notes: https://github.com/BitcoincashII/forge-solo/blob/main/RELEASE_NOTES.md
 dependencies: []

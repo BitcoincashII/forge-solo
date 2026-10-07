@@ -384,9 +384,13 @@ func TestReleaseNotesNameTheDashboardAsItShows(t *testing.T) {
 	}
 }
 
-// The store's description and update notes keep their lists one item to a line. In a folded
-// block, lines at the block's own indentation are joined into one: the store showed "Includes: - A
-// built-in BCH2 full node ... - A built-in 1175 (ESF) node ...". The update screen is short.
+// The store's description and update notes keep their lists one item to a line and their
+// paragraphs apart. umbrelOS shows both as plain text with every line break kept, not as Markdown.
+// In a folded block, lines at the block's own indentation are joined into one: the store showed
+// "Includes: - A built-in BCH2 full node ... - A built-in 1175 (ESF) node ...". One empty line
+// after such a line folds into a single line break, so paragraphs set apart by one ran together on
+// the app page; only after a more-indented line, the end of a list, does one empty line keep a
+// blank line. The update screen is short.
 func TestUmbrelStoreTextReadsAsWritten(t *testing.T) {
 	m := readUmbrelManifest(t)
 	if m.Version != "1.0.13" {
@@ -394,10 +398,27 @@ func TestUmbrelStoreTextReadsAsWritten(t *testing.T) {
 	}
 	joined := regexp.MustCompile(`\S[ \t]+-[ \t]+[A-Z]`)
 	item := regexp.MustCompile(`(?m)^[ \t]*- \S`)
+	head := func(s string) string {
+		if r := []rune(s); len(r) > 50 {
+			return string(r[:50]) + "..."
+		}
+		return s
+	}
 	for _, d := range []docText{{"description", m.Description}, {"releaseNotes", m.ReleaseNotes}} {
-		for _, l := range strings.Split(d.text, "\n") {
+		lines := strings.Split(d.text, "\n")
+		for i, l := range lines {
 			if joined.MatchString(l) {
 				t.Errorf("DOCS-UMBREL-LIST: %s has list items run together on one line: %q", d.name, l)
+			}
+			if i == 0 {
+				continue
+			}
+			// A line right under a line of text belongs to its paragraph only when it is a list
+			// item; two empty lines show as two blank lines.
+			if prev := lines[i-1]; prev != "" && l != "" && !item.MatchString(l) {
+				t.Errorf("DOCS-UMBREL-PARAGRAPH: %s shows %q right under %q, with no blank line between", d.name, head(l), head(prev))
+			} else if prev == "" && l == "" {
+				t.Errorf("DOCS-UMBREL-BLANK: %s shows two blank lines in a row", d.name)
 			}
 		}
 		if n := len(item.FindAllString(d.text, -1)); n < 5 {
