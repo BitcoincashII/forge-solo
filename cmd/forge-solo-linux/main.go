@@ -29,7 +29,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// version is set at build time: -ldflags "-X main.version=1.0.12".
+// version is set at build time: -ldflags "-X main.version=...".
 var version = "dev"
 
 const usageText = `Forge Solo %s for Linux: BCH2 solo and TIDES mining with your own node.
