@@ -21,7 +21,6 @@ func TestSettingsNeedThePassword(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer stats.CloseDB()
-	t.Setenv("HOME_APP", "1")
 	t.Setenv("POOL_ADDRESS", "")
 	const pw = "0b4f3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b"
 	old := settingsPassword
@@ -30,7 +29,7 @@ func TestSettingsNeedThePassword(t *testing.T) {
 
 	app := fiber.New()
 	app.Use(rejectCrossSiteWrites)
-	app.Use(settingsPasswordGate(settingsPassword, settingsPasswordRequired("1", "")))
+	app.Use(settingsPasswordGate(settingsPassword, settingsPasswordRequired("")))
 	app.Get("/api/v1/pool/config", getPoolConfig)
 	app.Post("/api/v1/pool/config", savePoolConfig)
 	post := func(path, body, password string) (int, string) {

@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1459,7 +1458,7 @@ func getMiner(c *fiber.Ctx) error {
 	// Unknown is said, not shown as 0.00 or as all maturing: with no height from the node every
 	// block counted as maturing, and with no answer from the database nothing was earned.
 	balanceKnown := true
-	if os.Getenv("HOME_APP") == "1" && matureBalance == 0 && immatureBalance == 0 {
+	if matureBalance == 0 && immatureBalance == 0 {
 		if currentHeight <= 0 {
 			balanceKnown = false
 		} else if m, im, err := stats.SoloEarningsErr(normalizedAddr, currentHeight); err != nil {
@@ -1725,15 +1724,6 @@ func settingsUnreadable(c *fiber.Ctx, err error) error {
 }
 
 func savePoolConfig(c *fiber.Ctx) error {
-	// Home app (single-tenant behind Umbrel auth): the dashboard IS the admin, so
-	// HOME_APP=1 lets it save settings without the internal token. Public pool keeps token auth.
-	adminToken := os.Getenv("INTERNAL_API_TOKEN")
-	if os.Getenv("HOME_APP") != "1" {
-		if adminToken == "" || subtle.ConstantTimeCompare([]byte(c.Get("Authorization")), []byte("Bearer "+adminToken)) != 1 {
-			return c.Status(401).JSON(fiber.Map{"success": false, "error": "Unauthorized"})
-		}
-	}
-
 	var input struct {
 		PoolAddress       string `json:"pool_address"`
 		PayoutAddress1175 string `json:"payout_address_1175"`

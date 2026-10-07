@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/subtle"
 	"errors"
 	"io/fs"
 	"log"
@@ -154,12 +153,6 @@ const skipFileText = "Forge Solo starts without the data of its earlier version 
 // version's data (SKIP-POSTGRES-MIGRATION beside the database), or bring it in. Either takes effect
 // when Forge Solo next starts. Only while the move has failed or the old data was left out.
 func saveOldDataChoice(c *fiber.Ctx) error {
-	if os.Getenv("HOME_APP") != "1" {
-		adminToken := os.Getenv("INTERNAL_API_TOKEN")
-		if adminToken == "" || subtle.ConstantTimeCompare([]byte(c.Get("Authorization")), []byte("Bearer "+adminToken)) != 1 {
-			return c.Status(401).JSON(fiber.Map{"success": false, "error": "Unauthorized"})
-		}
-	}
 	var in struct {
 		Skip *bool `json:"skip"`
 	}

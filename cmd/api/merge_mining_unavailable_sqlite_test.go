@@ -22,7 +22,6 @@ func TestNo1175NodeNo1175Address(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer stats.CloseDB()
-	t.Setenv("HOME_APP", "1")
 	t.Setenv("POOL_ADDRESS", "")
 	t.Setenv("PAYOUT_ADDRESS_1175", "")
 	const (

@@ -235,7 +235,6 @@ services:
       # Forge Solo's default tag, //forgesolo//, which the api and stratum both build in.
       - COINBASE_TAG=${COINBASE_TAG:-}
       - PAYOUT_ADDRESS_1175=${PAYOUT_ADDRESS_1175:-}
-      - HOME_APP=1
       # A settings change must carry this app's own password: every app on an Umbrel shares one
       # network and can reach this API directly, without going through umbrelOS's login. umbrelOS
       # derives the password for this app alone and shows it to the owner under the app's Default

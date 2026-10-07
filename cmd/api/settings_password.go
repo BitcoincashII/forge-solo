@@ -19,7 +19,7 @@ const settingsPasswordHeader = "X-Forge-Password"
 // and how long it is.
 func settingsPasswordGateFromEnv() fiber.Handler {
 	settingsPassword = strings.TrimSpace(os.Getenv("SETTINGS_PASSWORD"))
-	required := settingsPasswordRequired(os.Getenv("HOME_APP"), os.Getenv("API_LISTEN_HOST"))
+	required := settingsPasswordRequired(os.Getenv("API_LISTEN_HOST"))
 	switch {
 	case settingsPassword != "":
 		log.Printf("🔒 settings changes need the app's password")
@@ -29,11 +29,10 @@ func settingsPasswordGateFromEnv() fiber.Handler {
 	return settingsPasswordGate(settingsPassword, required)
 }
 
-// settingsPasswordRequired: a home app whose API other machines can reach (Umbrel, where it
-// listens on every interface) takes no settings change without the app's password. A public pool
-// (no HOME_APP) checks its admin token in the handlers instead.
-func settingsPasswordRequired(homeApp, listenHost string) bool {
-	return homeApp == "1" && !listenHostIsLoopback(listenHost)
+// settingsPasswordRequired: an API other machines can reach (Umbrel, where it listens on every
+// interface) takes no settings change without the app's password.
+func settingsPasswordRequired(listenHost string) bool {
+	return !listenHostIsLoopback(listenHost)
 }
 
 // settingsPasswordGate guards every request that changes something.

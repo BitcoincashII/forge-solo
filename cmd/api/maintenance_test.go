@@ -35,7 +35,6 @@ func statusDB(t *testing.T, state string) string {
 	prevDB, prevM := migrationDB, maintenance
 	migrationDB, maintenance = db, nil
 	t.Cleanup(func() { migrationDB, maintenance = prevDB, prevM })
-	t.Setenv("HOME_APP", "1")
 	return db
 }
 
@@ -328,22 +327,6 @@ func TestOldDataChoiceWhenRunning(t *testing.T) {
 	}
 	if _, err := os.Lstat(migstatus.SkipName); err == nil {
 		t.Error("OLDDATA-NO-FILE: a skip file was written in the working folder")
-	}
-}
-
-// A public pool (no HOME_APP) changes nothing without its admin token, as for its other settings.
-func TestOldDataChoiceNeedsTheAdminTokenOnAPool(t *testing.T) {
-	db := statusDB(t, migstatus.Skipped)
-	t.Setenv("HOME_APP", "")
-	t.Setenv("INTERNAL_API_TOKEN", "tok")
-	app := testApp(nil)
-	if a := call(t, app, "POST", "/api/v1/old-data", `{"skip":true}`, withPassword()); a.code != 401 || skipFileThere(db) {
-		t.Errorf("OLDDATA-ADMIN: without the admin token answers %d", a.code)
-	}
-	h := withPassword()
-	h["Authorization"] = "Bearer tok"
-	if a := call(t, app, "POST", "/api/v1/old-data", `{"skip":true}`, h); a.code != 200 || !skipFileThere(db) {
-		t.Errorf("OLDDATA-ADMIN: with the admin token answers %d %s", a.code, a.body)
 	}
 }
 

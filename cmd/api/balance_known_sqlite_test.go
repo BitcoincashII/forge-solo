@@ -19,7 +19,6 @@ import (
 // it said everything was still maturing, and with no answer from the database 0.00: now the last
 // height the node gave stands in, and what cannot be known is said to be unknown.
 func TestTheBalanceIsNeverAGuess(t *testing.T) {
-	t.Setenv("HOME_APP", "1")
 	if err := stats.InitDB(filepath.Join(t.TempDir(), "api.db")); err != nil {
 		t.Fatal(err)
 	}

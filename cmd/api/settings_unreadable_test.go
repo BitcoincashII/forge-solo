@@ -15,8 +15,7 @@ import (
 // blank fields and Solo, and the user's next save wrote those over the real settings: the TIDES
 // mode, the 1175 address and the tag were lost.
 func TestSettingsUnreadableIsNotReportedAsDefaults(t *testing.T) {
-	stats.CloseDB() // no database: every read fails, as during an outage
-	t.Setenv("HOME_APP", "1")
+	stats.CloseDB()                                                                      // no database: every read fails, as during an outage
 	t.Setenv("POOL_ADDRESS", "bitcoincashii:qtestminer00000000000000000000000000000000") // never reached: the read fails first
 
 	app := fiber.New()

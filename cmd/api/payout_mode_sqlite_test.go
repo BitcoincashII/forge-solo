@@ -20,7 +20,6 @@ func TestPayoutModeSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer stats.CloseDB()
-	t.Setenv("HOME_APP", "1")
 	t.Setenv("POOL_ADDRESS", "")
 
 	app := fiber.New()

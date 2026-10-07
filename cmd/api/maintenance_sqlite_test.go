@@ -112,7 +112,7 @@ func startAPI(t *testing.T, db string) *apiProgram {
 	port := freePort(t)
 	p := &apiProgram{t: t, cmd: exec.Command(os.Args[0]), base: "http://127.0.0.1:" + port, out: &lockedBuffer{}, exited: make(chan error, 1)}
 	p.cmd.Env = append(os.Environ(), apiMainEnv+"=1", "DB_PATH="+db, "API_LISTEN_HOST=127.0.0.1", "API_LISTEN_PORT="+port,
-		"HOME_APP=1", "SETTINGS_PASSWORD="+testPassword, "WEB_ROOT="+web, "FORGE_PLATFORM=umbrel",
+		"SETTINGS_PASSWORD="+testPassword, "WEB_ROOT="+web, "FORGE_PLATFORM=umbrel",
 		"RPC_URL=http://127.0.0.1:9", "STRATUM_INTERNAL_URL=http://127.0.0.1:9", "API_RATE_LIMIT=", "CORS_ORIGINS=")
 	p.cmd.Stdout, p.cmd.Stderr = p.out, p.out
 	if err := p.cmd.Start(); err != nil {

@@ -13,18 +13,16 @@ import (
 // cannot be left open by forgetting to turn the check on.
 func TestSettingsPasswordRequired(t *testing.T) {
 	for _, tc := range []struct {
-		homeApp, listenHost string
-		want                bool
+		listenHost string
+		want       bool
 	}{
-		{"1", "", true}, // Umbrel: every interface
-		{"1", "0.0.0.0", true},
-		{"1", "127.0.0.1", false}, // Forge Solo for Windows and Linux
-		{"1", "localhost", false},
-		{"", "", false}, // a public pool: the handlers check its admin token
-		{"0", "", false},
+		{"", true}, // Umbrel: every interface
+		{"0.0.0.0", true},
+		{"127.0.0.1", false}, // Forge Solo for Windows and Linux
+		{"localhost", false},
 	} {
-		if got := settingsPasswordRequired(tc.homeApp, tc.listenHost); got != tc.want {
-			t.Errorf("PW-RULE: HOME_APP=%q API_LISTEN_HOST=%q: %v, want %v", tc.homeApp, tc.listenHost, got, tc.want)
+		if got := settingsPasswordRequired(tc.listenHost); got != tc.want {
+			t.Errorf("PW-RULE: API_LISTEN_HOST=%q: %v, want %v", tc.listenHost, got, tc.want)
 		}
 	}
 }
@@ -130,16 +128,15 @@ func TestSettingsPasswordGateFromEnv(t *testing.T) {
 	old := settingsPassword
 	t.Cleanup(func() { settingsPassword = old })
 	for _, tc := range []struct {
-		code, homeApp, listenHost, password, sent string
-		want                                      int
+		code, listenHost, password, sent string
+		want                             int
 	}{
-		{"PW-ENV-UMBREL-NONE", "1", "", pw, "", 401},
-		{"PW-ENV-UMBREL-RIGHT", "1", "", " " + pw + "\n", pw, 200},
-		{"PW-ENV-UMBREL-NO-PASSWORD", "1", "", "", "", 503},
-		{"PW-ENV-LOCAL", "1", "127.0.0.1", "", "", 200},
-		{"PW-ENV-LOCAL-WITH-PASSWORD", "1", "127.0.0.1", pw, "", 401},
+		{"PW-ENV-UMBREL-NONE", "", pw, "", 401},
+		{"PW-ENV-UMBREL-RIGHT", "", " " + pw + "\n", pw, 200},
+		{"PW-ENV-UMBREL-NO-PASSWORD", "", "", "", 503},
+		{"PW-ENV-LOCAL", "127.0.0.1", "", "", 200},
+		{"PW-ENV-LOCAL-WITH-PASSWORD", "127.0.0.1", pw, "", 401},
 	} {
-		t.Setenv("HOME_APP", tc.homeApp)
 		t.Setenv("API_LISTEN_HOST", tc.listenHost)
 		t.Setenv("SETTINGS_PASSWORD", tc.password)
 		app := fiber.New()
