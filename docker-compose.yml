@@ -5,10 +5,9 @@
 # Umbrel pattern).
 
 # The app's own containers talk on a network of their own. Every Umbrel app joins the one shared
-# umbrel_main_network by default, so the database, both nodes' RPC and the stratum's stats API were
-# reachable from every other app's containers, and their traffic (the database password among it,
-# on a connection without TLS) crossed that shared segment. Only web is on both networks: umbrelOS
-# reaches the dashboard through it there.
+# umbrel_main_network by default, so both nodes' RPC and the stratum's stats API were reachable
+# from every other app's containers. Only web is on both networks: umbrelOS reaches the dashboard
+# through it there.
 networks:
   forge: {}
 
@@ -16,9 +15,7 @@ services:
   # The services reach each other by container name (bch2-apps-forge-solo_<service>_1, the name
   # umbreld gives every container), never by bare service name. On umbrel_main_network a bare name
   # such as "postgres", "api" or "node" is also the alias of other apps' services (BTCPay Server and
-  # Immich have a postgres, mempool and LocalAI an api): a lookup then returned both apps'
-  # containers, and in review 22 of 40 fresh database connections went to the other app's postgres
-  # ("role forge does not exist").
+  # Immich have a postgres, mempool and LocalAI an api), so a lookup returns both apps' containers.
   app_proxy:
     environment:
       APP_HOST: bch2-apps-forge-solo_web_1
@@ -227,12 +224,8 @@ services:
       - AUX1175_PASSWORD=${APP_1175_RPC_PASSWORD}
       - POOL_ADDRESS=${POOL_ADDRESS:-}
       - POOL_NAME=${POOL_NAME:-Forge Solo}
-      # The api reads these as fallbacks for a fresh install; without them here its
-      # fallback branches could never fire, so a user who configured the tag or the 1175
-      # address in the Umbrel app config saw "not configured, merge-mining OFF" while
-      # merge mining was in fact running, and a tag box showing the default while blocks
-      # carried the real one -- which the next Save would then overwrite. Empty means
-      # Forge Solo's default tag, //forgesolo//, which the api and stratum both build in.
+      # The api reads these as fallbacks for a fresh install. Empty means Forge Solo's default
+      # tag, //forgesolo//, which the api and stratum both build in.
       - COINBASE_TAG=${COINBASE_TAG:-}
       - PAYOUT_ADDRESS_1175=${PAYOUT_ADDRESS_1175:-}
       # A settings change must carry this app's own password: every app on an Umbrel shares one
@@ -241,7 +234,7 @@ services:
       # credentials (deterministicPassword in umbrel-app.yml). Without it the API takes no change.
       - SETTINGS_PASSWORD=${APP_PASSWORD}
     healthcheck:
-      # /health checks the database only. /stats, checked before, cost node and stratum calls every time.
+      # /health checks the database file only.
       test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/api/v1/health || exit 1"]
       interval: 30s
       timeout: 5s
@@ -284,7 +277,7 @@ services:
       # The stats server the api polls. Bound on 0.0.0.0 so the api container can reach it
       # over the private app network; the port is never published to the host, and the
       # constant-time internal-token check is what guards it. Must stay in step with the
-      # api's STRATUM_INTERNAL_URL (http://stratum:3337).
+      # api's STRATUM_INTERNAL_URL (bch2-apps-forge-solo_stratum_1:3337).
       - INTERNAL_STATS_HOST=0.0.0.0
       - DB_PATH=/data/forgesolo.db
       - RPC_USER=forge
