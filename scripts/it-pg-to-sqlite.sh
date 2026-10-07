@@ -32,12 +32,11 @@
 #       which the Windows CI job compares its own move with; and the lib/pq tests on a real server
 #   16. after a fresh start, a move, a merge and a deferral, db/ is 10001:10001 0700 and every file
 #       in it 10001:10001 0600
-#   snapshot: the dashboard (scripts/dashboard-snapshot.sh) reads the same from this tree's
-#       PostgreSQL build before the move, its cluster in Pacific/Chatham, as from its SQLite build
-#       after it; and the same as from 1.0.12 (built from the v1.0.12 tag) on a cluster in
-#       America/Chicago, as a Windows PC's is, apart from what 1.0.13 shows differently by design.
-#       Kept answers (testdata/migrate/dashboard*) read as their committed snapshots, which the
-#       Windows CI job checks dashboard-snapshot.ps1 against.
+#   snapshot: the dashboard (scripts/dashboard-snapshot.sh) reads the same from 1.0.12 (built from
+#       the v1.0.12 tag) before the move, its cluster in America/Chicago, as a Windows PC's is, and
+#       in Pacific/Chatham, as from 1.0.13 after it, apart from what 1.0.13 shows differently by
+#       design. Kept answers (testdata/migrate/dashboard*) read as their committed snapshots, which
+#       the Windows CI job checks dashboard-snapshot.ps1 against.
 #
 #   ./scripts/it-pg-to-sqlite.sh                    # all of it; 1 when a check fails or cannot run
 #   IT_CASES="5 snapshot" ./scripts/...             # the move, the old cluster and these: 3, never 0
@@ -87,7 +86,6 @@ PG16=$(platform_ref "$PG16")
 ALPINE=$(platform_ref "$ALPINE")
 TAG=${IT_TAG:-$VERSION} # the tag of the images built here
 MIGRATE_IMG=forge-it-migrate:$TAG API_IMG=forge-it-api:$TAG STRATUM_IMG=forge-it-stratum:$TAG
-API_PG_IMG=forge-it-api-pg:$TAG STRATUM_PG_IMG=forge-it-stratum-pg:$TAG
 API_1012_IMG=forge-it-api:v1.0.12 STRATUM_1012_IMG=forge-it-stratum:v1.0.12 # built from the v1.0.12 tag
 PW=it-settings-password-0123456789   # the app's settings password (APP_PASSWORD)
 DBPW=it-db-password                   # 1.0.12's database password (APP_DB_PASSWORD)
@@ -129,7 +127,7 @@ cleanup() {
   local rc=$?
   [ "${KEEP:-0}" = 1 ] && { echo "── KEEP=1: the containers and $WORK are left"; exit $rc; }
   for n in "${INSTANCES[@]}"; do
-    for f in new old pgapp app1012; do
+    for f in new old app1012; do
       [ -f "$WORK/$n/$f.json" ] && docker compose -p "$P-$n" -f "$WORK/$n/$f.json" down -t 5 --remove-orphans >/dev/null 2>&1
     done
   done
@@ -147,10 +145,9 @@ asroot() { docker run --platform "$PLATFORM" --rm --network none -v "$WORK:$WORK
 # ── instances: one APP_DATA_DIR each, and the compose files that run it ──────────────────────────
 # inst NAME N: $WORK/NAME/app is its APP_DATA_DIR; its old database listens on 127.0.0.1:PORT_BASE+2N
 # and its api on the next port. The compose files: new (this tree's postgres, migrate, api and
-# stratum services, with the images built here), old (1.0.12's postgres service), pgapp (1.0.12's
-# postgres with this tree's PostgreSQL build of the api and the stratum), and app1012 (1.0.12's
-# postgres, api and stratum services, the last two built from the v1.0.12 tag). Neither node runs;
-# TIDES mode reaches no pool.
+# stratum services, with the images built here), old (1.0.12's postgres service), and app1012
+# (1.0.12's postgres, api and stratum services, the last two built from the v1.0.12 tag). Neither
+# node runs; TIDES mode reaches no pool.
 inst() {
   local n=$1 i=$2 d=$WORK/$1
   mkdir -p "$d/app"
@@ -175,7 +172,6 @@ EOF
     docker compose -f docker-compose.yml config --no-consistency --format json > "$d/new.src.json"
     docker compose -f "$d/old.yml" config --no-consistency --format json > "$d/old.src.json"
     IT_MIGRATE_IMAGE=$MIGRATE_IMG IT_API_IMAGE=$API_IMG IT_STRATUM_IMAGE=$STRATUM_IMG \
-      IT_API_PG_IMAGE=$API_PG_IMG IT_STRATUM_PG_IMAGE=$STRATUM_PG_IMG \
       IT_API_1012_IMAGE=$API_1012_IMG IT_STRATUM_1012_IMAGE=$STRATUM_1012_IMG python3 - "$d" <<'PY'
 import json, os, sys
 d = sys.argv[1]
@@ -183,22 +179,13 @@ E = os.environ
 load = lambda f: json.load(open("%s/%s.src.json" % (d, f)))["services"]
 alias = lambda s: {"aliases": ["bch2-apps-forge-solo_%s_1" % s]}
 
-def app(name, pg):
+def app(name):
     s = load("new")[name]
     s.pop("ports", None)
-    s["image"] = E["IT_%s%s_IMAGE" % (name.upper(), "_PG" if pg else "")]
+    s["image"] = E["IT_%s_IMAGE" % name.upper()]
     s["networks"] = {"forge": alias(name)}
-    env = s["environment"]
-    env["DATUM_POOL_URL"] = "http://127.0.0.1:9"
-    deps = {k: v for k, v in s.get("depends_on", {}).items() if k in ("migrate", "api")}
-    if pg:
-        del env["DB_PATH"]
-        env.update(DB_HOST="bch2-apps-forge-solo_postgres_1", DB_PORT="5432", DB_USER="forge",
-                   DB_PASSWORD=E["APP_DB_PASSWORD"], DB_NAME="forgesolo", DB_SSLMODE="disable")
-        s.pop("volumes", None)
-        deps.pop("migrate", None)
-        deps["postgres"] = {"condition": "service_healthy"}
-    s["depends_on"] = deps
+    s["environment"]["DATUM_POOL_URL"] = "http://127.0.0.1:9"
+    s["depends_on"] = {k: v for k, v in s.get("depends_on", {}).items() if k in ("migrate", "api")}
     if name == "api":
         s["ports"] = [{"target": 8080, "published": E["IT_API_PORT"], "host_ip": "127.0.0.1", "protocol": "tcp"}]
     return s
@@ -223,9 +210,8 @@ pg.pop("container_name", None)
 pg["ports"] = [{"target": 5432, "published": E["IT_PG_PORT"], "host_ip": "127.0.0.1", "protocol": "tcp"}]
 pg["networks"] = {"default": {}, "forge": alias("postgres")}
 files = {
-    "new": dict(mine, api=app("api", False), stratum=app("stratum", False)),
+    "new": dict(mine, api=app("api"), stratum=app("stratum")),
     "old": {"postgres": pg},
-    "pgapp": {"postgres": pg, "api": app("api", True), "stratum": app("stratum", True)},
     "app1012": {"postgres": pg, "api": app1012("api"), "stratum": app1012("stratum")},
 }
 for f, svcs in files.items():
@@ -396,12 +382,6 @@ build_image() { # tag dockerfile [reusable] [context]
 build_image "$MIGRATE_IMG" docker/migrate/Dockerfile
 build_image "$API_IMG" docker/api/Dockerfile reusable
 build_image "$STRATUM_IMG" docker/stratum/Dockerfile reusable
-mkdir -p "$BIN/pg"
-for c in api stratum; do
-  CGO_ENABLED=0 go build -o "$BIN/pg/$c" "./cmd/$c" || die "the PostgreSQL build of $c failed"
-  if [ $c = api ]; then img=$API_PG_IMG base=$API_IMG; else img=$STRATUM_PG_IMG base=$STRATUM_IMG; fi
-  printf 'FROM %s\nCOPY %s /usr/local/bin/%s\n' "$base" "$c" "$c" | docker build -q -t "$img" -f - "$BIN/pg" >/dev/null || die "$img"
-done
 CGO_ENABLED=0 go test -c -tags it -o "$BIN/it.test" ./internal/pgmigrate/ || die "it.test does not build"
 CGO_ENABLED=0 go build -o "$BIN/forge-solo-migrate" ./cmd/forge-solo-migrate || die "forge-solo-migrate does not build"
 
@@ -436,31 +416,32 @@ PIDLINE=$(asroot "head -1 $WORK/main/app/postgres/postmaster.pid" || true)
 asroot "cp -a $WORK/main/app/postgres $WORK/crashed"
 echo "   seeded: $(grep -E '^count\.(blocks|payouts|blocks_1175)=' "$OUT/main.figures.before" | tr '\n' ' ')"
 
-# ── the dashboard before: 1.0.12, and this tree's PostgreSQL build, each on a copy of the data ──
-# Each copy's cluster is in another time zone, as the one 1.0.12 made on a Windows PC is in the PC's:
-# PostgreSQL answers times in its own zone, which the snapshot must read as the same instants.
-# snapshot_before NAME N COMPOSE ZONE OFFSET WHAT: the dashboard of WHAT, on a copy of the data whose
-# cluster is in ZONE, as $OUT/dashboard.NAME.json, its answers in $OUT/answers.NAME; its payout times
-# carry OFFSET. 1.0.12's api has a miner's solo blocks and payouts from the stratum, which serves
-# them once it has waited for the node (none runs here) and started.
+# ── the dashboard before: 1.0.12 on two copies of the data, each cluster in another zone ───────
+# The cluster 1.0.12 made on a Windows PC is in the PC's zone: PostgreSQL answers times in its own
+# zone, which the snapshot must read as the same instants.
+# snapshot_before NAME N ZONE OFFSET: 1.0.12's dashboard on a copy of the data whose cluster is in
+# ZONE, as $OUT/dashboard.NAME.json, its answers in $OUT/answers.NAME; its payout times carry
+# OFFSET. 1.0.12's api has a miner's solo blocks and payouts from the stratum, which serves them once
+# it has waited for the node (none runs here) and started.
 stratum_answers() { curl -fsS "$(api "$1")/api/v1/mining-status" | has '"payout_mode"'; }
 snapshot_before() {
-  local n=$1 i=$2 f=$3 zone=$4 offset=$5 what=$6
+  local n=$1 i=$2 zone=$3 offset=$4
   inst_from_crashed "$n" "$i"
   asroot "echo \"timezone = '$zone'\" >> $WORK/$n/app/postgres/postgresql.conf"
-  up "$n" "$f" || die "$what did not start"
-  check "snapshot: $what serves the dashboard" wait_app "$n"
-  check "snapshot: the stratum of $what answers the api" wait_for "the stratum of $what" 120 stratum_answers "$n"
-  scripts/dashboard-snapshot.sh "$(api "$n")" "$OUT/dashboard.$n.json" --save "$OUT/answers.$n" || die "the snapshot of $what"
-  check "snapshot: $what answers times in $zone" grep -q -- "\"paidAt\":\"[^\"]*$offset\"" "$OUT/answers.$n/A-solo-payouts.json"
-  dc "$n" "$f" down -t 30 >/dev/null 2>&1 || true
+  up "$n" app1012 || die "1.0.12 in $zone did not start"
+  check "snapshot: 1.0.12 in $zone serves the dashboard" wait_app "$n"
+  check "snapshot: the stratum of 1.0.12 in $zone answers the api" wait_for "the stratum of 1.0.12 in $zone" 120 stratum_answers "$n"
+  scripts/dashboard-snapshot.sh "$(api "$n")" "$OUT/dashboard.$n.json" --save "$OUT/answers.$n" || die "the snapshot of 1.0.12 in $zone"
+  check "snapshot: 1.0.12 in $zone answers times in $zone" grep -q -- "\"paidAt\":\"[^\"]*$offset\"" "$OUT/answers.$n/A-solo-payouts.json"
+  dc "$n" app1012 down -t 30 >/dev/null 2>&1 || true
 }
 if want snapshot; then
-  echo "── the dashboard before the move: 1.0.12, and this tree's PostgreSQL build"
+  echo "── the dashboard before the move: 1.0.12, its cluster in America/Chicago and in Pacific/Chatham"
   build_image "$API_1012_IMG" "$WORK/v1012/docker/api/Dockerfile" reusable "$WORK/v1012"
   build_image "$STRATUM_1012_IMG" "$WORK/v1012/docker/stratum/Dockerfile" reusable "$WORK/v1012"
-  snapshot_before app1012 11 app1012 America/Chicago -05:00 "1.0.12"
-  snapshot_before pgapp 1 pgapp Pacific/Chatham +12:45 "the PostgreSQL build"
+  snapshot_before app1012 11 America/Chicago -05:00
+  snapshot_before app1012chatham 1 Pacific/Chatham +12:45
+  check "snapshot: 1.0.12 reads the same instants whatever its cluster's zone" diff "$OUT/dashboard.app1012.json" "$OUT/dashboard.app1012chatham.json"
 fi
 
 # ── 1. the move, and 6: the stale postmaster.pid ────────────────────────────────────────────────
@@ -516,10 +497,11 @@ compared() {
 if want snapshot; then
   check "snapshot: the stratum answers the api" wait_for "the stratum" 120 stratum_answers main
   scripts/dashboard-snapshot.sh "$(api main)" "$OUT/dashboard.after.json" --save "$OUT/answers.after" || bad "snapshot: after the move"
-  check "snapshot: the dashboard reads the same as before the move" diff "$OUT/dashboard.pgapp.json" "$OUT/dashboard.after.json"
   check "snapshot: it shows the seed's blocks and 1175 blocks" grep -q '"A-solo-blocks.blocks.0.height"' "$OUT/dashboard.after.json"
   check "snapshot: 1.0.12's dashboard reads the same, apart from what 1.0.13 shows differently by design" \
     compared "$OUT/dashboard.app1012.json" "$OUT/dashboard.after.json" 1.0.12
+  check "snapshot: so does 1.0.12's on the cluster in Pacific/Chatham" \
+    compared "$OUT/dashboard.app1012chatham.json" "$OUT/dashboard.after.json" 1.0.12
   if [ "${UPDATE_GOLDEN:-0}" = 1 ]; then
     rm -rf testdata/migrate/dashboard-1012 && cp -r "$OUT/answers.app1012" testdata/migrate/dashboard-1012
   fi
