@@ -12,7 +12,7 @@
 # version: a migrator always knows the schema of the release it ships with.
 
 # The migrator is compiled once, on the machine that builds the image, for each platform.
-FROM --platform=$BUILDPLATFORM golang:1.26.8-bookworm@sha256:a688600ca24f8a4d3ca77f95b0dd40704a9fc787c826660eb7ba0b641b8b175d AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.0-bookworm@sha256:ded31c68586d2e49e760acc2e65a884b23d032e9bbbed0ae0c55abd3fcaf4452 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
