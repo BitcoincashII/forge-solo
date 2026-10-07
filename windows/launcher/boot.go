@@ -259,7 +259,7 @@ func startStratum() error {
 		// STRATUM_INTERNAL_URL.
 		"INTERNAL_API_TOKEN="+sec.Token,
 		"INTERNAL_STATS_HOST=127.0.0.1", "INTERNAL_STATS_PORT="+stratumInt,
-		"RPC_USER=forge", "RPC_PASSWORD="+sec.BCH2Pass, "HOME_APP=1",
+		"RPC_USER=forge", "RPC_PASSWORD="+sec.BCH2Pass,
 		// Windows cannot signal it, so closing its stdin is how it is asked to stop cleanly: it
 		// then disconnects its miners and sends the pool the TIDES shares it still holds.
 		"FORGE_STOP_ON_STDIN_EOF=1")

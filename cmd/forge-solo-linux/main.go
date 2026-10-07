@@ -481,7 +481,7 @@ func runCmd(args []string) error {
 		env: append(os.Environ(), db,
 			"INTERNAL_API_TOKEN="+sec.Token,
 			"INTERNAL_STATS_HOST=127.0.0.1", "INTERNAL_STATS_PORT="+statsPort,
-			"RPC_USER=forge", "RPC_PASSWORD="+sec.RPCPassword, "HOME_APP=1"),
+			"RPC_USER=forge", "RPC_PASSWORD="+sec.RPCPassword),
 		log: newRotatingLog(filepath.Join(logDir, "stratum.log"), logMax)}
 	all := []*child{stratum, api, node} // stop order
 
