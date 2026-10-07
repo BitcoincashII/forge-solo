@@ -203,12 +203,6 @@ nav a.active {
     margin-bottom: var(--spacing-xs);
 }
 
-.stat-value {
-    font-size: 24px;
-    font-weight: 700;
-    font-family: var(--font-mono);
-}
-
 /* Tables */
 table {
     width: 100%;
@@ -241,11 +235,6 @@ table td {
 
 table tr:hover {
     background: var(--bg-hover);
-}
-
-.table-scroll {
-    max-height: 300px;
-    overflow-y: auto;
 }
 
 /* Status Badges */
@@ -286,17 +275,6 @@ table tr:hover {
 }
 
 /* Copy Button */
-.copy-btn {
-    background: var(--border);
-    border: none;
-    padding: 6px 10px;
-    border-radius: var(--radius-sm);
-    color: var(--text-primary);
-    cursor: pointer;
-    font-size: 12px;
-    transition: all var(--transition-fast);
-}
-
 .copy-btn:hover {
     background: var(--bch-green);
     color: #000;
@@ -440,10 +418,6 @@ footer a:hover {
     :root {
         --spacing-lg: 16px;
         --spacing-xl: 24px;
-    }
-
-    .stat-value {
-        font-size: 20px;
     }
 
     table th,
