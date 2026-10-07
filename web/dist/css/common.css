@@ -1,5 +1,4 @@
 /* Forge Solo - Common Styles */
-/* Version: 1.0.0 */
 
 /* CSS Reset */
 *, *::before, *::after {
@@ -32,6 +31,7 @@
     /* Status Colors */
     --warning: #f59e0b;
     --error: #ef4444;
+    --red: #ef4444;
 
     /* Spacing */
     --spacing-xs: 4px;
@@ -364,11 +364,6 @@ table tr:hover {
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
     border: 0;
-}
-
-/* Red color variable alias */
-:root {
-    --red: #ef4444;
 }
 
 /* Footer */
