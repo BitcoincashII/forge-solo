@@ -11,8 +11,7 @@ import (
 
 // AuxWork is the getauxblock work-request result from the 1175 node.
 type AuxWork struct {
-	Hash              string `json:"hash"`    // child block hash (big-endian display hex)
-	ChainID           int    `json:"chainid"` // 1175
+	Hash              string `json:"hash"` // child block hash (big-endian display hex)
 	PreviousBlockHash string `json:"previousblockhash"`
 	CoinbaseValue     int64  `json:"coinbasevalue"`
 	Bits              string `json:"bits"` // compact target (hex)
