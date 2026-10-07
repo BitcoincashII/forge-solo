@@ -5,7 +5,7 @@
 #
 # The release is fetched in a stage of its own: curl and the CA store are needed for the download
 # only, and the image that runs the node carries neither.
-FROM ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90 AS fetch
+FROM ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7 AS fetch
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
@@ -27,7 +27,7 @@ RUN set -eux; \
     install -m0755 /tmp/elevenseventyfive-${ESF_VERSION}/bin/elevenseventyfive-cli /usr/local/bin/elevenseventyfive-cli; \
     rm -rf /tmp/esf.tar.gz /tmp/elevenseventyfive-${ESF_VERSION}
 
-FROM ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
+FROM ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7
 COPY --from=fetch /usr/local/bin/elevenseventyfived /usr/local/bin/elevenseventyfive-cli /usr/local/bin/
 COPY entrypoint.sh /entrypoint.sh
 COPY peeraddr.sh /peeraddr.sh
