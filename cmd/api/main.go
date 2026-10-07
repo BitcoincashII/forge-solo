@@ -1314,7 +1314,7 @@ func getPoolConfig(c *fiber.Ctx) error {
 		"pool_fee":     0.0,
 		"solo_fee":     0.0,
 		// Always 0: a solo block pays its finder in its own coinbase, so there is no
-		// minimum to cross. Publishing the stored value here reported 1 while /api/stats on
+		// minimum to cross. Publishing the stored value here reported 1 while /api/v1/stats on
 		// the same server reported 0 and the UI said there is no minimum at all.
 		"min_payout":          0.0,
 		"pool_address":        poolAddr,
