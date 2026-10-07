@@ -293,7 +293,6 @@ type ServerStats struct {
 
 type ShareProcessor interface {
 	ProcessShare(ctx context.Context, share *Share) error
-	ProcessBlock(ctx context.Context, block *Block) error
 }
 
 type MinerSettingsStore interface {

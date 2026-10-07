@@ -2402,11 +2402,6 @@ func (p *BlockFindingShareProcessor) submitBlock(share *stratum.Share) {
 	}
 }
 
-func (p *BlockFindingShareProcessor) ProcessBlock(ctx context.Context, block *stratum.Block) error {
-	p.logger.Info("🎉 BLOCK FOUND!", zap.String("hash", block.Hash), zap.Int64("height", block.Height))
-	return nil
-}
-
 // buildCoinbase and buildBlock live in internal/blockbuild, shared with the gateway program so a
 // found block is assembled the same way wherever it is found.
 func buildCoinbase(cb1, extranonce1, extranonce2, cb2 string) ([]byte, error) {

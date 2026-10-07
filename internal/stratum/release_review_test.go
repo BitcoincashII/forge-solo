@@ -303,7 +303,6 @@ func (p *slowProcessor) ProcessShare(context.Context, *Share) error {
 	p.done.Add(1)
 	return nil
 }
-func (p *slowProcessor) ProcessBlock(context.Context, *Block) error { return nil }
 
 // Stop waits for shares still being processed: exiting under one lost the block it carried.
 func TestStopWaitsForSharesBeingProcessed(t *testing.T) {

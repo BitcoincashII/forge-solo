@@ -26,7 +26,6 @@ const (
 type captureProcessor struct{ ch chan *Share }
 
 func (c *captureProcessor) ProcessShare(_ context.Context, sh *Share) error { c.ch <- sh; return nil }
-func (c *captureProcessor) ProcessBlock(context.Context, *Block) error      { return nil }
 
 // soloTestJob is a well-formed job; its shares are real proof of work against it.
 func soloTestJob(id string) *Job {

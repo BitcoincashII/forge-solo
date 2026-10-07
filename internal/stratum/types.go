@@ -199,20 +199,6 @@ type Share struct {
 	SubmittedAt time.Time
 }
 
-type Block struct {
-	ID            int64
-	Hash          string
-	Height        int64
-	MinerID       string
-	WorkerName    string
-	Reward        float64
-	Difficulty    float64
-	Status        string
-	Confirmations int
-	FoundAt       time.Time
-	ConfirmedAt   *time.Time
-}
-
 const (
 	MethodConfigure = "mining.configure"
 )

@@ -56,8 +56,6 @@ func (p *processor) ProcessShare(_ context.Context, sh *stratum.Share) error {
 	return nil
 }
 
-func (p *processor) ProcessBlock(context.Context, *stratum.Block) error { return nil }
-
 // solvesBlock reports whether sh meets its own job's network target. Both ways of asking are
 // used and either is enough: the exact hash-against-target comparison, and the difficulty the
 // stratum computed. An extra submitblock costs one refused RPC call; a missed block costs the
