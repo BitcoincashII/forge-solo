@@ -88,8 +88,8 @@ func prefixToValues(prefix string) []int {
 // isValid1175Address validates a 1175 payout address: a bech32 address with the
 // mainnet HRP "esf" and a valid checksum (esf1...). This is the address a miner
 // supplies to receive merge-mined 1175 rewards.
-// poolNameFromEnv is POOL_NAME, which the Umbrel compose sets and .env.example advertises, else
-// "Forge Solo": the pool_name of /pool/config.
+// poolNameFromEnv is POOL_NAME, which the Umbrel compose sets, else "Forge Solo": the pool_name
+// of /pool/config.
 func poolNameFromEnv() string {
 	if v := strings.TrimSpace(os.Getenv("POOL_NAME")); v != "" {
 		return v
