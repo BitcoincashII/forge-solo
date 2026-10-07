@@ -21,7 +21,7 @@ func newRampTestServer(t *testing.T) *Server {
 		VardiffEnabled:  true,
 		TargetShareTime: 10,
 		RetargetTime:    30,
-	}, zap.NewNop(), nil, nil)
+	}, zap.NewNop(), nil)
 }
 
 // rampClient builds a client sitting at the floor that has just submitted
@@ -208,7 +208,7 @@ func TestVariancePercentIsHonoured(t *testing.T) {
 	wide := NewServer(&ServerConfig{
 		MinDiff: 1024, MaxDiff: 1e12, RentalMinDiff: 500000,
 		VardiffEnabled: true, TargetShareTime: 10, RetargetTime: 30,
-	}, zap.NewNop(), nil, nil) // VariancePercent unset -> default 30%
+	}, zap.NewNop(), nil) // VariancePercent unset -> default 30%
 	c1, done1 := rampClient(t, wide, 4096, interval)
 	defer done1()
 	wide.adjustVardiff(c1)
@@ -223,7 +223,7 @@ func TestVariancePercentIsHonoured(t *testing.T) {
 		MinDiff: 1024, MaxDiff: 1e12, RentalMinDiff: 500000,
 		VardiffEnabled: true, TargetShareTime: 10, RetargetTime: 30,
 		VariancePercent: 0.10,
-	}, zap.NewNop(), nil, nil)
+	}, zap.NewNop(), nil)
 	c2, done2 := rampClient(t, narrow, 4096, interval)
 	defer done2()
 	narrow.adjustVardiff(c2)

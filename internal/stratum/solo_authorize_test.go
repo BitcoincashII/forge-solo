@@ -23,7 +23,7 @@ func newSoloServer(t *testing.T, payout string) *Server {
 		MinDiff: 1024, MaxDiff: 1e12, RentalMinDiff: 500000,
 		VardiffEnabled: true, TargetShareTime: 10, RetargetTime: 30,
 		SoloOnly: true,
-	}, zap.NewNop(), nil, nil)
+	}, zap.NewNop(), nil)
 	s.SetSoloPayoutAddress(payout)
 	return s
 }
@@ -141,7 +141,7 @@ func TestNonSoloStillRejectsNonAddressUsernames(t *testing.T) {
 		MinDiff: 1024, MaxDiff: 1e12, RentalMinDiff: 500000,
 		VardiffEnabled: true, TargetShareTime: 10, RetargetTime: 30,
 		SoloOnly: false,
-	}, zap.NewNop(), nil, nil)
+	}, zap.NewNop(), nil)
 	s.SetSoloPayoutAddress(testPayout)
 
 	_, resp := authorize(t, s, "rig1")
@@ -301,7 +301,7 @@ func TestStopTwiceDoesNotPanic(t *testing.T) {
 func TestStopClosesQuietMinersPromptly(t *testing.T) {
 	s := NewServer(&ServerConfig{Host: "127.0.0.1", Port: 0, MaxConnections: 10, MaxConnectionsPerIP: 10,
 		MinDiff: 1024, MaxDiff: 1e12, VardiffEnabled: true, TargetShareTime: 10, RetargetTime: 30, SoloOnly: true},
-		zap.NewNop(), nil, nil)
+		zap.NewNop(), nil)
 	if err := s.Start(); err != nil {
 		t.Fatal(err)
 	}

@@ -135,7 +135,6 @@ type Client struct {
 	RecentSubmissions     []bool    // true=accepted, false=rejected for last N submissions
 	SoloMining            bool
 	ManualDiff            float64
-	LastSettingsRefresh   time.Time // When settings were last refreshed from API
 
 	// Rental service detection
 	// RentalService drives DIFFICULTY POLICY: the RentalMinDiff floor, vardiffFloor and

@@ -126,7 +126,7 @@ pool:
 	r.cmd = exec.Command(os.Args[0], "-config", config)
 	r.cmd.Env = append(env, stratumMainEnv+"=1", "DB_PATH="+r.db, "INTERNAL_STATS_HOST=127.0.0.1",
 		"INTERNAL_STATS_PORT="+r.statsPort, "INTERNAL_API_TOKEN=t", "RPC_USER=forge", "RPC_PASSWORD=x", "FORGE_STOP_ON_STDIN_EOF=",
-		"API_HOST=127.0.0.1", "API_PORT=9", "DATUM_POOL_URL=http://127.0.0.1:9")
+		"DATUM_POOL_URL=http://127.0.0.1:9")
 	r.cmd.Stdout, r.cmd.Stderr = r.out, r.out
 	if err := r.cmd.Start(); err != nil {
 		t.Fatal(err)

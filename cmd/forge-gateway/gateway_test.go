@@ -173,7 +173,7 @@ func TestMinerStatsHashrate(t *testing.T) {
 // before the first registration, let in after it, and dropped when the pool is lost.
 func TestPoolOnlyDoor(t *testing.T) {
 	srv := stratum.NewServer(&stratum.ServerConfig{Host: "127.0.0.1", Port: 0, MaxConnections: 10,
-		ExtraNonce1Size: 4, ExtraNonce2Size: 8, SoloOnly: true}, zap.NewNop(), nil, nil)
+		ExtraNonce1Size: 4, ExtraNonce2Size: 8, SoloOnly: true}, zap.NewNop(), nil)
 	if err := srv.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestPoolOnlyDoor(t *testing.T) {
 
 	// Without pool_only the door never closes.
 	srv2 := stratum.NewServer(&stratum.ServerConfig{Host: "127.0.0.1", Port: 0, MaxConnections: 10,
-		ExtraNonce1Size: 4, ExtraNonce2Size: 8, SoloOnly: true}, zap.NewNop(), nil, nil)
+		ExtraNonce1Size: 4, ExtraNonce2Size: 8, SoloOnly: true}, zap.NewNop(), nil)
 	if err := srv2.Start(); err != nil {
 		t.Fatal(err)
 	}

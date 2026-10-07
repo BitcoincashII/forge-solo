@@ -56,7 +56,7 @@ func TestMaxDifficultyCountsAMinerBeforeItsFirstShare(t *testing.T) {
 // last of them, as it would connected, so the job registered in that gap is committed to it.
 func TestADisconnectedMinerCountsUntilItsLastShareIsOld(t *testing.T) {
 	s := NewServer(&ServerConfig{Host: "127.0.0.1", Port: 0, MaxConnections: 10, ExtraNonce1Size: 4, ExtraNonce2Size: 8,
-		MinDiff: 500000, MaxDiff: 1e12, SoloOnly: true, CreditPayoutAddress: true}, zap.NewNop(), nil, nil)
+		MinDiff: 500000, MaxDiff: 1e12, SoloOnly: true, CreditPayoutAddress: true}, zap.NewNop(), nil)
 	s.SetSoloPayoutAddress(testPayout)
 	if err := s.Start(); err != nil {
 		t.Fatal(err)

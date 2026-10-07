@@ -56,7 +56,7 @@ func perJobClient(t *testing.T) *Client {
 	t.Cleanup(func() { poolSide.Close(); minerSide.Close() })
 	go io.Copy(io.Discard, minerSide)
 	return &Client{ID: "c", Conn: poolSide, IP: "203.0.113.5:4000", Authorized: true, MinerID: testPayout,
-		WorkerName: "rig", ExtraNonce1: "01000001", ExtraNonce2Size: 8, LastSettingsRefresh: time.Now(), SoloMining: true}
+		WorkerName: "rig", ExtraNonce1: "01000001", ExtraNonce2Size: 8, SoloMining: true}
 }
 
 // toldLowThenRaisedTwice replays what a miner on a lossy link is sent: job "a" under jobLow, then
@@ -364,7 +364,7 @@ func TestJobDifficultyRecordMatchesTheWire(t *testing.T) {
 func TestSuggestRightAfterAuthorizeReachesTheMiner(t *testing.T) {
 	s := NewServer(&ServerConfig{Host: "127.0.0.1", Port: 0, MaxConnections: 10, ExtraNonce1Size: 4, ExtraNonce2Size: 8,
 		MinDiff: 1024, AbsoluteMinDiff: 1024, MaxDiff: 1e12, VardiffEnabled: true, TargetShareTime: 10, RetargetTime: 30,
-		SoloOnly: true}, zap.NewNop(), nil, nil)
+		SoloOnly: true}, zap.NewNop(), nil)
 	s.SetSoloPayoutAddress(testPayout)
 	if err := s.Start(); err != nil {
 		t.Fatal(err)

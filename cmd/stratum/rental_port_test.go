@@ -20,7 +20,7 @@ func rentalConfigOn(host string, port int) *stratum.ServerConfig {
 }
 
 func rentalServerOn(port int) *stratum.Server {
-	return stratum.NewServer(rentalConfigOn("127.0.0.1", port), zap.NewNop(), nil, nil)
+	return stratum.NewServer(rentalConfigOn("127.0.0.1", port), zap.NewNop(), nil)
 }
 
 // The dashboard tells the user to point a NiceHash or MRR order at the rental port only while
@@ -83,7 +83,7 @@ func TestTheRentalPortIsAdvertisedOnlyWhileItListens(t *testing.T) {
 
 	// A listener that fails for another reason is not said to be another program's.
 	rentalPortTaken = 0
-	bad := stratum.NewServer(rentalConfigOn("192.0.2.1", heldPort), zap.NewNop(), nil, nil) // an address this machine does not have
+	bad := stratum.NewServer(rentalConfigOn("192.0.2.1", heldPort), zap.NewNop(), nil) // an address this machine does not have
 	startRentalStratum(bad, rentalConfigOn("192.0.2.1", heldPort))
 	stratumRentalServer = bad
 	if got := buildMiningStatus().RentalTaken; got != 0 {

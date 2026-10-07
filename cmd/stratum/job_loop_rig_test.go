@@ -421,8 +421,8 @@ func newLoopRig(t *testing.T, o loopRigOpts) *loopRig {
 		}
 		return c
 	}
-	stratumServer = stratum.NewServer(cfg(false), zap.NewNop(), nil, nil)
-	stratumRentalServer = stratum.NewServer(cfg(true), zap.NewNop(), nil, nil)
+	stratumServer = stratum.NewServer(cfg(false), zap.NewNop(), nil)
+	stratumRentalServer = stratum.NewServer(cfg(true), zap.NewNop(), nil)
 	for _, srv := range []*stratum.Server{stratumServer, stratumRentalServer} {
 		srv.SetSoloPayoutAddress(r.payout)
 		srv.SetLoginHandler(tidesLoginCheck)

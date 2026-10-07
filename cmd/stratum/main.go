@@ -1698,16 +1698,6 @@ func main() {
 	}
 
 	shareProcessor := &BlockFindingShareProcessor{logger: logger}
-	// Create API-backed miner settings store
-	apiHost := os.Getenv("API_HOST")
-	if apiHost == "" {
-		apiHost = "127.0.0.1"
-	}
-	apiPort := os.Getenv("API_PORT")
-	if apiPort == "" {
-		apiPort = "8080"
-	}
-	minerSettings := stratum.NewAPIMinerSettings(fmt.Sprintf("http://%s:%s", apiHost, apiPort))
 	if got := serverConfig.ExtraNonce1Size + serverConfig.ExtraNonce2Size; got != mining.CoinbaseExtranonceReserve {
 		logger.Fatal("stratum extranonce1_size + extranonce2_size must equal the coinbase reserve, else assembled blocks are malformed and rejected",
 			zap.Int("extranonce1_size", serverConfig.ExtraNonce1Size),
@@ -1715,7 +1705,7 @@ func main() {
 			zap.Int("sum", got),
 			zap.Int("required", mining.CoinbaseExtranonceReserve))
 	}
-	stratumServer = stratum.NewServer(serverConfig, logger, shareProcessor, minerSettings)
+	stratumServer = stratum.NewServer(serverConfig, logger, shareProcessor)
 	stratumServer.SetInvalidShareHandler(recordInvalidShare)
 	stratumServer.SetLoginHandler(tidesLoginCheck)
 
@@ -1754,7 +1744,7 @@ func main() {
 				zap.Int("sum", got),
 				zap.Int("required", mining.CoinbaseExtranonceReserve))
 		}
-		stratumRentalServer = stratum.NewServer(rentalConfig, logger, shareProcessor, minerSettings)
+		stratumRentalServer = stratum.NewServer(rentalConfig, logger, shareProcessor)
 		stratumRentalServer.SetInvalidShareHandler(recordInvalidShare)
 		stratumRentalServer.SetLoginHandler(tidesLoginCheck)
 		if auxClient != nil {

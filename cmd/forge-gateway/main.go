@@ -157,7 +157,7 @@ func run(cfgPath string, stop <-chan struct{}, asService bool) error {
 		// Solo-style logins: a miner's username is its BCH2 address (credited to it at the pool)
 		// or any worker name (credited to the payout address).
 		SoloOnly: true,
-	}, log.Named("stratum"), proc, nil)
+	}, log.Named("stratum"), proc)
 	srv.SetSoloPayoutAddress(cfg.Mining.PayoutAddress)
 	loop := newJobLoop(log, jm, gw, srv, hist, cfg.Mining.PayoutAddress, cfg.Mining.PoolOnly)
 	if err := srv.Start(); err != nil {

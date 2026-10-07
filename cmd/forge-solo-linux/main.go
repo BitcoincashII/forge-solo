@@ -474,12 +474,12 @@ func runCmd(args []string) error {
 	api := &child{name: "api", path: bin("api"), dir: dataDir, grace: apiGrace,
 		env: append(os.Environ(), apiEnv(dataDir, inst, p, sec)...),
 		log: newRotatingLog(filepath.Join(logDir, "api.log"), logMax)}
-	// API_PORT points the stratum at the API for miner settings; INTERNAL_STATS_PORT is the
-	// stratum's own stats listener, which the API reads through STRATUM_INTERNAL_URL.
+	// INTERNAL_STATS_PORT is the stratum's own stats listener, which the API reads through
+	// STRATUM_INTERNAL_URL.
 	stratum := &child{name: "stratum", path: bin("stratum"), dir: dataDir, grace: stratumGrace,
 		args: []string{"-config", filepath.Join(dataDir, "config.yaml")},
 		env: append(os.Environ(), db,
-			"INTERNAL_API_TOKEN="+sec.Token, "API_HOST=127.0.0.1", "API_PORT="+apiPort,
+			"INTERNAL_API_TOKEN="+sec.Token,
 			"INTERNAL_STATS_HOST=127.0.0.1", "INTERNAL_STATS_PORT="+statsPort,
 			"RPC_USER=forge", "RPC_PASSWORD="+sec.RPCPassword, "HOME_APP=1"),
 		log: newRotatingLog(filepath.Join(logDir, "stratum.log"), logMax)}

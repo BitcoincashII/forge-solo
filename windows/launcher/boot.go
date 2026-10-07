@@ -258,10 +258,9 @@ func startNode(key string, extra ...string) error {
 func startStratum() error {
 	c := hidden("stratum.exe", "-config", dpath("config.yaml"))
 	c.Env = append(append(os.Environ(), dbEnv()...),
-		// API_PORT points the stratum at api.exe for miner-settings lookups; INTERNAL_STATS_PORT
-		// is the stratum's own stats listener that api.exe polls via STRATUM_INTERNAL_URL. Two
-		// different services -- swapping them silently zeroes every stratum-sourced dashboard tile.
-		"INTERNAL_API_TOKEN="+sec.Token, "API_HOST=127.0.0.1", "API_PORT="+apiPort,
+		// INTERNAL_STATS_PORT is the stratum's own stats listener that api.exe polls via
+		// STRATUM_INTERNAL_URL.
+		"INTERNAL_API_TOKEN="+sec.Token,
 		"INTERNAL_STATS_HOST=127.0.0.1", "INTERNAL_STATS_PORT="+stratumInt,
 		"RPC_USER=forge", "RPC_PASSWORD="+sec.BCH2Pass, "HOME_APP=1",
 		// Windows cannot signal it, so closing its stdin is how it is asked to stop cleanly: it

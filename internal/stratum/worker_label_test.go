@@ -41,7 +41,7 @@ func TestWorkerLabelsAreKeptToASafeCharset(t *testing.T) {
 			t.Errorf("WEB6-AUTHORIZE: %q was kept as %q (%v), want %q", username, got, resp.Error, want)
 		}
 	}
-	probe := NewServer(&ServerConfig{MinDiff: 1024, MaxDiff: 1e12}, s.logger, nil, nil)
+	probe := NewServer(&ServerConfig{MinDiff: 1024, MaxDiff: 1e12}, s.logger, nil)
 	c, _ := authorize(t, probe, "braiins probe: hi")
 	c.mu.RLock()
 	got := c.WorkerName

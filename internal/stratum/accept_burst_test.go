@@ -105,7 +105,7 @@ func TestConnectionBurstStaysWithinTheLimits(t *testing.T) {
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(1))
 
 	t.Run("internet", func(t *testing.T) {
-		s := NewServer(&ServerConfig{MaxConnections: 16, ExtraNonce1Size: 4, ExtraNonce2Size: 8, SoloOnly: true}, zap.NewNop(), nil, nil)
+		s := NewServer(&ServerConfig{MaxConnections: 16, ExtraNonce1Size: 4, ExtraNonce2Size: 8, SoloOnly: true}, zap.NewNop(), nil)
 		rl := serveOn(t, s)
 		rl.internet.Store(true)
 		burst(t, rl, 300)
@@ -127,7 +127,7 @@ func TestConnectionBurstStaysWithinTheLimits(t *testing.T) {
 	})
 
 	t.Run("total", func(t *testing.T) {
-		s := NewServer(&ServerConfig{MaxConnections: 16, ExtraNonce1Size: 4, ExtraNonce2Size: 8, SoloOnly: true}, zap.NewNop(), nil, nil)
+		s := NewServer(&ServerConfig{MaxConnections: 16, ExtraNonce1Size: 4, ExtraNonce2Size: 8, SoloOnly: true}, zap.NewNop(), nil)
 		rl := serveOn(t, s)
 		burst(t, rl, 300)
 		if n := held(t, s); n > 16 {
@@ -137,7 +137,7 @@ func TestConnectionBurstStaysWithinTheLimits(t *testing.T) {
 
 	// A connection refused by the per-IP cap gives its slot back.
 	t.Run("per IP", func(t *testing.T) {
-		s := NewServer(&ServerConfig{MaxConnections: 16, MaxConnectionsPerIP: 4, ExtraNonce1Size: 4, ExtraNonce2Size: 8, SoloOnly: true}, zap.NewNop(), nil, nil)
+		s := NewServer(&ServerConfig{MaxConnections: 16, MaxConnectionsPerIP: 4, ExtraNonce1Size: 4, ExtraNonce2Size: 8, SoloOnly: true}, zap.NewNop(), nil)
 		rl := serveOn(t, s)
 		rl.internet.Store(true)
 		burst(t, rl, 100)

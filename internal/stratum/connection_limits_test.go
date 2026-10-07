@@ -36,7 +36,7 @@ func TestUnauthorizedConnectionsCloseAndAuthorizedOnesStay(t *testing.T) {
 	old := authTimeout
 	authTimeout = 300 * time.Millisecond
 	t.Cleanup(func() { authTimeout = old })
-	s := NewServer(&ServerConfig{Host: "127.0.0.1", Port: 0, MaxConnections: 10, ExtraNonce1Size: 4, ExtraNonce2Size: 8, SoloOnly: true}, zap.NewNop(), nil, nil)
+	s := NewServer(&ServerConfig{Host: "127.0.0.1", Port: 0, MaxConnections: 10, ExtraNonce1Size: 4, ExtraNonce2Size: 8, SoloOnly: true}, zap.NewNop(), nil)
 	s.SetSoloPayoutAddress(testPayout)
 	if err := s.Start(); err != nil {
 		t.Fatal(err)

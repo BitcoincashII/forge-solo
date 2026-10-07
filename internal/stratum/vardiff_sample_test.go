@@ -177,7 +177,7 @@ func rentalPortServer() *Server {
 	return NewServer(&ServerConfig{
 		MinDiff: v.MinDiff, MaxDiff: v.MaxDiff, VardiffEnabled: v.Enabled, TargetShareTime: v.TargetTime,
 		RetargetTime: v.RetargetTime,
-	}, zap.NewNop(), nil, nil)
+	}, zap.NewNop(), nil)
 }
 
 type rentalVardiff struct {

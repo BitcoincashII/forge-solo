@@ -114,7 +114,7 @@ func login(t *testing.T, addr, ua, user string) net.Conn {
 func TestAJobRegisteredBeforeARentalsFirstShareCreditsItsWork(t *testing.T) {
 	srv := stratum.NewServer(&stratum.ServerConfig{Host: "127.0.0.1", Port: 0, MaxConnections: 16, MaxConnectionsPerIP: 16,
 		ExtraNonce1Size: 4, ExtraNonce2Size: 8, MinDiff: 500000, MaxDiff: 1e12, VardiffEnabled: true, TargetShareTime: 25,
-		RetargetTime: 10, IsRentalPort: true, SoloOnly: true, CreditPayoutAddress: true}, zap.NewNop(), nil, nil)
+		RetargetTime: 10, IsRentalPort: true, SoloOnly: true, CreditPayoutAddress: true}, zap.NewNop(), nil)
 	srv.SetSoloPayoutAddress(me)
 	if err := srv.Start(); err != nil {
 		t.Fatal(err)

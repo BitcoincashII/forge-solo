@@ -31,7 +31,7 @@ func newFloorTestServer(t *testing.T, minDiff, absMinDiff float64) *Server {
 		VardiffEnabled:  true,
 		TargetShareTime: 10,
 		RetargetTime:    1,
-	}, zap.NewNop(), nil, nil)
+	}, zap.NewNop(), nil)
 }
 
 // TestFloorOrderingInvariant checks the one ordering that makes the whole guarantee work:

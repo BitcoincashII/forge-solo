@@ -73,7 +73,6 @@ type Server struct {
 	clientSeq      atomic.Uint64
 	inflight       atomic.Int64 // shares being processed; Stop waits for them (see inflightGrace)
 	shareProcessor ShareProcessor
-	minerSettings  MinerSettingsStore
 	diffMemory     sync.Map // minerID(address) -> diffMem: last vardiff level, reused across reconnects
 	ipConnsMu      sync.Mutex
 	ipConns        map[string]int // remote host -> live connections, for the per-IP cap
@@ -295,19 +294,7 @@ type ShareProcessor interface {
 	ProcessShare(ctx context.Context, share *Share) error
 }
 
-type MinerSettingsStore interface {
-	GetMinerSettings(minerID string) (*MinerSettings, error)
-	SaveMinerSettings(settings *MinerSettings) error // Autosave for new miners
-}
-
-type MinerSettings struct {
-	MinerID    string
-	SoloMining bool
-	ManualDiff float64
-	Exists     bool // Whether settings exist in database
-}
-
-func NewServer(config *ServerConfig, logger *zap.Logger, sp ShareProcessor, ms MinerSettingsStore) *Server {
+func NewServer(config *ServerConfig, logger *zap.Logger, sp ShareProcessor) *Server {
 	if config.HighHashThreshold == 0 {
 		config.HighHashThreshold = 10
 	}
@@ -323,7 +310,6 @@ func NewServer(config *ServerConfig, logger *zap.Logger, sp ShareProcessor, ms M
 		config:         config,
 		logger:         logger,
 		shareProcessor: sp,
-		minerSettings:  ms,
 		shutdownCh:     make(chan struct{}),
 		stats:          &serverCounters{},
 		// Each server's extranonce1 counter starts at a random value. From 0, the first miner
@@ -1986,30 +1972,6 @@ func (s *Server) authorize(client *Client, req *Request) (*Response, authorized)
 		soloMode = true
 	}
 
-	if !s.config.SoloOnly && s.minerSettings != nil {
-		if settings, err := s.minerSettings.GetMinerSettings(minerID); err == nil && settings != nil {
-			soloMode = settings.SoloMining
-			manualDiff = settings.ManualDiff
-
-			// Autosave: Create default settings for new miners
-			// Default to SOLO mode for solo-only pools
-			if !settings.Exists && minerID != "probe" {
-				go func(mid string) {
-					newSettings := &MinerSettings{
-						MinerID:    mid,
-						SoloMining: true,
-						ManualDiff: 0,
-					}
-					if err := s.minerSettings.SaveMinerSettings(newSettings); err != nil {
-						s.logger.Debug("Autosave settings for new miner",
-							zap.String("miner", mid),
-							zap.Error(err))
-					}
-				}(minerID)
-			}
-		}
-	}
-
 	// The stratum password is NOT retained. It used to be hashed and kept as a
 	// proof-of-control secret for settings changes, but that route is gone: the mining
 	// password must never override a settings PIN, or whoever rents the rig inherits the
@@ -2041,7 +2003,6 @@ func (s *Server) authorize(client *Client, req *Request) (*Response, authorized)
 	client.WorkerName = workerName
 	client.SoloMining = soloMode
 	client.ManualDiff = manualDiff
-	client.LastSettingsRefresh = time.Now()
 
 	// Update rental detection if found from worker name (user agent takes priority)
 	if client.DetectedMarketplace == RentalNone && detectedFromWorker != RentalNone {
@@ -2278,29 +2239,8 @@ func (s *Server) handleSubmit(client *Client, req *Request) *Response {
 	manualDiff := client.ManualDiff
 	extranonce1 := client.ExtraNonce1
 	extranonce2Size := client.ExtraNonce2Size
-	lastSettingsRefresh := client.LastSettingsRefresh
 	userAgent := client.UserAgent
 	client.mu.RUnlock()
-
-	// Refresh settings every 15 seconds to allow on-the-fly mode changes.
-	// Solo-only deployments never read a PPLNS setting: mode is locked to SOLO.
-	if !s.config.SoloOnly && s.minerSettings != nil && time.Since(lastSettingsRefresh) > 15*time.Second {
-		if settings, err := s.minerSettings.GetMinerSettings(minerID); err == nil && settings != nil {
-			client.mu.Lock()
-			if client.SoloMining != settings.SoloMining {
-				s.minerLog(client, false, "Miner mode changed on-the-fly",
-					zap.String("miner", minerID),
-					zap.Bool("old_solo", client.SoloMining),
-					zap.Bool("new_solo", settings.SoloMining))
-			}
-			client.SoloMining = settings.SoloMining
-			client.ManualDiff = settings.ManualDiff
-			client.LastSettingsRefresh = time.Now()
-			soloMining = settings.SoloMining
-			manualDiff = settings.ManualDiff
-			client.mu.Unlock()
-		}
-	}
 
 	// Parse params as []interface{} to handle miners that send mixed types
 	var rawParams []interface{}

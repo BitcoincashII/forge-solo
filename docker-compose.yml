@@ -288,15 +288,6 @@ services:
       # constant-time internal-token check is what guards it. Must stay in step with the
       # api's STRATUM_INTERNAL_URL (http://stratum:3337).
       - INTERNAL_STATS_HOST=0.0.0.0
-      # Where the stratum would REACH the api, which is a different thing from the line
-      # above: api.exe listens on 8080 (API_LISTEN_PORT), not on 3337. This pointed at
-      # 0.0.0.0:3337 -- the stratum's own stats port, which serves only /internal/* -- so
-      # every /api/v1/miners/.../settings request would have 404ed. It is inert today
-      # because both call sites are gated on !SoloOnly and this app is payout_scheme
-      # "solo", but a wrong value that only a future change would expose is worth not
-      # leaving in place.
-      - API_HOST=bch2-apps-forge-solo_api_1
-      - API_PORT=8080
       - DB_PATH=/data/forgesolo.db
       - RPC_USER=forge
       - RPC_PASSWORD=${APP_NODE_RPC_PASSWORD}

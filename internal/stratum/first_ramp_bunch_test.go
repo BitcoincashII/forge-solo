@@ -17,7 +17,7 @@ func mainPortServer() *Server {
 	return NewServer(&ServerConfig{
 		MinDiff: 1024, MaxDiff: 1e12, VardiffEnabled: true, TargetShareTime: 5, RetargetTime: 10,
 		VariancePercent: 0.25, SoloOnly: true,
-	}, zap.NewNop(), nil, nil)
+	}, zap.NewNop(), nil)
 }
 
 // rampingClient is a connection at its floor whose first job went out at jobAt, with no shares yet.

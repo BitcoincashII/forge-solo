@@ -23,7 +23,7 @@ func TestABurstFromAReadingMinerIsAllAnswered(t *testing.T) {
 	s := NewServer(&ServerConfig{Host: "127.0.0.1", Port: 0, MaxConnections: 10, MaxConnectionsPerIP: 10,
 		MaxSharesPerSecond: 100, ExtraNonce1Size: 4, ExtraNonce2Size: 8, MinDiff: 1e-6, AbsoluteMinDiff: 1e-6,
 		MaxDiff: 1e12, TargetShareTime: 10, RetargetTime: 30, VardiffEnabled: true, SoloOnly: true},
-		zap.NewNop(), nil, nil)
+		zap.NewNop(), nil)
 	s.SetSoloPayoutAddress(testPayout)
 	if err := s.Start(); err != nil {
 		t.Fatal(err)
@@ -66,7 +66,7 @@ func TestABurstFromAReadingMinerIsAllAnswered(t *testing.T) {
 func TestAPeerThatStopsReadingIsStillDropped(t *testing.T) {
 	s := NewServer(&ServerConfig{Host: "127.0.0.1", Port: 0, MaxConnections: 10, MaxConnectionsPerIP: 10,
 		ExtraNonce1Size: 4, ExtraNonce2Size: 8, MinDiff: 1e-6, AbsoluteMinDiff: 1e-6, MaxDiff: 1e12,
-		TargetShareTime: 10, RetargetTime: 30, VardiffEnabled: true, SoloOnly: true}, zap.NewNop(), nil, nil)
+		TargetShareTime: 10, RetargetTime: 30, VardiffEnabled: true, SoloOnly: true}, zap.NewNop(), nil)
 	s.SetSoloPayoutAddress(testPayout)
 	s.writeWait = 300 * time.Millisecond
 	if err := s.Start(); err != nil {

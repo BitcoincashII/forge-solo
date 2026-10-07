@@ -74,7 +74,7 @@ func newHintTestServer(t *testing.T) *Server {
 		TargetShareTime: 10,
 		RetargetTime:    30,
 		SoloOnly:        true, // the shipped home-app configuration
-	}, zap.NewNop(), nil, nil)
+	}, zap.NewNop(), nil)
 	s.SetSoloPayoutAddress(testPayout)
 	return s
 }

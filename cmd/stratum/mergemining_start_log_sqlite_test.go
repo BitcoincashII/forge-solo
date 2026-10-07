@@ -68,7 +68,7 @@ logging:
 	cmd := exec.Command(os.Args[0], "-config", config)
 	cmd.Env = append(env, stratumMainEnv+"=1", "DB_PATH="+db, "INTERNAL_STATS_HOST=127.0.0.1",
 		"INTERNAL_STATS_PORT="+unusedPort(t), "RPC_USER=forge", "RPC_PASSWORD=x", "FORGE_STOP_ON_STDIN_EOF=",
-		"API_HOST=127.0.0.1", "API_PORT=9", "DATUM_POOL_URL=http://127.0.0.1:9")
+		"DATUM_POOL_URL=http://127.0.0.1:9")
 	out := &outputBuffer{}
 	cmd.Stdout, cmd.Stderr = out, out
 	if err := cmd.Start(); err != nil {

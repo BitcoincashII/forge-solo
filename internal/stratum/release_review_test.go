@@ -73,7 +73,7 @@ func TestDuplicateShareUnderEverySpellingOfOneVersion(t *testing.T) {
 // they search the same headers (and in TIDES mode, so would the first miners of two installs).
 func TestTwoServersHandOutDifferentExtranonce1(t *testing.T) {
 	mk := func() *Server {
-		return NewServer(&ServerConfig{ExtraNonce1Size: 4, ExtraNonce2Size: 8, MinDiff: 1024}, zap.NewNop(), nil, nil)
+		return NewServer(&ServerConfig{ExtraNonce1Size: 4, ExtraNonce2Size: 8, MinDiff: 1024}, zap.NewNop(), nil)
 	}
 	main, rental := mk(), mk()
 	a, b := &Client{ID: "a"}, &Client{ID: "b"}
@@ -195,7 +195,7 @@ func tcpServer(t *testing.T, sp ShareProcessor) *Server {
 	s := NewServer(&ServerConfig{Host: "127.0.0.1", Port: 0, MaxConnections: 10, MaxConnectionsPerIP: 10,
 		ExtraNonce1Size: 4, ExtraNonce2Size: 8, MinDiff: 1e-6, AbsoluteMinDiff: 1e-6, MaxDiff: 1e12,
 		TargetShareTime: 10, RetargetTime: 30, VardiffEnabled: true, SoloOnly: true, CreditPayoutAddress: true},
-		zap.NewNop(), sp, nil)
+		zap.NewNop(), sp)
 	s.SetSoloPayoutAddress(testPayout)
 	if err := s.Start(); err != nil {
 		t.Fatal(err)

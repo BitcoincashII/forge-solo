@@ -19,7 +19,7 @@ func TestMiningStatusLeavesHealthChecksOut(t *testing.T) {
 	logger = zap.NewNop()
 	srv := stratum.NewServer(&stratum.ServerConfig{Host: "127.0.0.1", Port: 0, MaxConnections: 8, ExtraNonce1Size: 4,
 		ExtraNonce2Size: 8, MinDiff: 500000, MaxDiff: 1e12, IsRentalPort: true, SoloOnly: true, CreditPayoutAddress: true},
-		zap.NewNop(), nil, nil)
+		zap.NewNop(), nil)
 	srv.SetSoloPayoutAddress(payout)
 	stratumServer, stratumRentalServer = nil, srv
 	if err := srv.Start(); err != nil {

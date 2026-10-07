@@ -19,7 +19,7 @@ import (
 func observedServer(t *testing.T, cfg *ServerConfig) (*Server, *remoteListener, *observer.ObservedLogs) {
 	t.Helper()
 	core, logs := observer.New(zapcore.InfoLevel)
-	s := NewServer(cfg, zap.New(core), nil, nil)
+	s := NewServer(cfg, zap.New(core), nil)
 	s.SetSoloPayoutAddress(testPayout)
 	rl := serveOn(t, s)
 	rl.internet.Store(true)
