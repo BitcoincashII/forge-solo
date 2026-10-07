@@ -918,9 +918,9 @@ func TestInstallerPostgreSQLOnlyForAMove(t *testing.T) {
 	}
 }
 
-// Defender no longer skips the database folder of 1.0.12 and before, which nothing writes now:
-// only the folders written constantly, both nodes' blocks and chainstate. The install and the
-// uninstall remove the exclusions earlier versions added, the old database folder's among them.
+// Defender skips only the folders written constantly, both nodes' blocks and chainstate, never
+// the old database folder (pgdata). The install and the uninstall remove the whole-folder
+// exclusion earlier versions added; none of them excluded pgdata, so there is none to remove.
 func TestInstallerDefenderExclusions(t *testing.T) {
 	paths := installerFunc(t, "function DefenderPaths(DataDir: String): String;")
 	for _, f := range []string{`bch2\blocks`, `bch2\chainstate`, `elevenseventyfive\blocks`, `elevenseventyfive\chainstate`} {
@@ -931,9 +931,9 @@ func TestInstallerDefenderExclusions(t *testing.T) {
 	if strings.Contains(paths, "pgdata") || strings.Count(paths, "PSQuote(") != 4 {
 		t.Errorf("INST-DEFENDER-NO-PGDATA: DefenderPaths is not the four chain folders alone:\n%s", paths)
 	}
-	if !strings.Contains(installerFunc(t, "function OldDefenderPaths(DataDir: String): String;"),
-		"\n  Result := PSQuote(DataDir) + ', ' + PSQuote(DataDir + '\\pgdata');\n") {
-		t.Error("INST-DEFENDER-OLD: OldDefenderPaths is not the data folder and pgdata")
+	old := installerFunc(t, "function OldDefenderPaths(DataDir: String): String;")
+	if !strings.Contains(old, "\n  Result := PSQuote(DataDir);\n") || strings.Contains(old, "pgdata") {
+		t.Errorf("INST-DEFENDER-OLD: OldDefenderPaths is not the whole data folder alone:\n%s", old)
 	}
 	install := installerFunc(t, "procedure CurStepChanged(CurStep: TSetupStep);")
 	if !strings.Contains(install, `Remove-MpPreference -ExclusionPath ' + OldDefenderPaths(DataDir) + ' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionPath ' + DefenderPaths(DataDir) + ' -ErrorAction SilentlyContinue"';`) {

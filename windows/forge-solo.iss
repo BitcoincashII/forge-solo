@@ -98,8 +98,7 @@ Filename: "{app}\{#MyAppExe}"; Description: "Launch Forge Solo now"; Flags: nowa
 //    so it stops rescanning them on every write, the main cause of disk thrash and freezes on a
 //    laptop. Not the whole data folder: a folder the user can write to and Defender never scans is
 //    a place any other program could hide files. An upgrade removes the whole-folder exclusion
-//    earlier versions added, and the one for the database of 1.0.12 and before (pgdata), which
-//    nothing writes now.
+//    earlier versions added.
 // Mining from THIS PC (127.0.0.1:3333) needs no rule at all.
 //
 // Windows' prompt for that step names Windows Command Processor, not Forge Solo, so the Ready page
@@ -236,11 +235,11 @@ begin
             PSQuote(DataDir + '\elevenseventyfive\chainstate');
 end;
 
-// OldDefenderPaths lists, quoted for PowerShell, the folders earlier versions excluded and this
-// one does not: the whole data folder, and the database of 1.0.12 and before.
+// OldDefenderPaths is, quoted for PowerShell, what earlier versions excluded and this one does
+// not: the whole data folder.
 function OldDefenderPaths(DataDir: String): String;
 begin
-  Result := PSQuote(DataDir) + ', ' + PSQuote(DataDir + '\pgdata');
+  Result := PSQuote(DataDir);
 end;
 
 // HasOldData is whether this account has the data of Forge Solo 1.0.12 or before, which the
