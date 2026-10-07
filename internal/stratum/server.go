@@ -2102,8 +2102,6 @@ func (s *Server) authorize(client *Client, req *Request) (*Response, authorized)
 
 	if soloMode {
 		s.stats.SoloMiners.Add(1)
-	} else {
-		s.stats.PPLNSMiners.Add(1)
 	}
 
 	modeStr := "PPLNS"

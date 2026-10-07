@@ -2011,10 +2011,7 @@ type BlockFindingShareProcessor struct {
 }
 
 func (p *BlockFindingShareProcessor) ProcessShare(ctx context.Context, share *stratum.Share) error {
-	mode := "PPLNS"
-	if share.IsSolo {
-		mode = "SOLO"
-	}
+	mode := "SOLO"
 
 	networkDiff := getNetworkDifficulty()
 
@@ -2213,9 +2210,6 @@ func (p *BlockFindingShareProcessor) submitBlock(share *stratum.Share) {
 		// operator wallet to deduct it into. Deducting here would not take money from the
 		// miner (the chain already paid them in full); it would under-report what they got.
 		mode := "SOLO"
-		if !share.IsSolo {
-			mode = "PPLNS"
-		}
 		payoutAmount := effectiveReward
 		hashStr := hex.EncodeToString(blockHash)
 
@@ -2313,72 +2307,12 @@ func (p *BlockFindingShareProcessor) submitBlock(share *stratum.Share) {
 					zap.String("miner", share.MinerID),
 					zap.Float64("amount", payoutAmount))
 			}
-		} else {
-			// PPLNS MODE: Distribute reward among all PPLNS contributors
-			pplnsShares, totalWork, err := stats.GetPPLNSShares(pplnsWindow)
-			if err != nil || totalWork == 0 {
-				// Fallback to block finder if PPLNS data unavailable
-				p.logger.Warn("PPLNS shares unavailable, paying block finder only",
-					zap.Error(err))
-				stats.AddPendingPayout(share.MinerID, job.Height, payoutAmount)
-				if err := stats.SavePayoutAtomic(share.MinerID, job.Height, payoutAmount, hashStr); err != nil {
-					p.logger.Error("Failed to save payout", zap.Error(err))
-				}
-			} else {
-				// Record the block BEFORE distributing so a reorg re-mine voids the
-				// superseded distribution here, before we credit the new one (recording it
-				// after the loop would wipe the just-credited rows and leave a dropped
-				// contributor payable -- a double-pay).
-				if err := stats.SaveBlock(job.Height, hashStr, share.MinerID, effectiveReward); err != nil {
-					p.logger.Error("Failed to save block record", zap.Error(err))
-				}
-
-				// Distribute proportionally
-				p.logger.Info("📊 Distributing PPLNS rewards",
-					zap.Int("contributors", len(pplnsShares)),
-					zap.Float64("total_work", totalWork),
-					zap.Float64("reward_pool", payoutAmount))
-
-				for minerAddr, work := range pplnsShares {
-					// Calculate proportional share with safety bounds
-					proportion := work / totalWork
-					if proportion > 1.0 {
-						proportion = 1.0 // Cap at 100% due to floating point errors
-					}
-					if proportion <= 0 {
-						continue // Skip invalid proportions
-					}
-					minerPayout := payoutAmount * proportion
-
-					// Skip dust amounts (< 0.00001 BCH2)
-					if minerPayout < 0.00001 {
-						continue
-					}
-
-					stats.AddPendingPayout(minerAddr, job.Height, minerPayout)
-					if err := stats.SavePayout(minerAddr, job.Height, minerPayout); err != nil {
-						p.logger.Error("Failed to save PPLNS payout",
-							zap.String("miner", minerAddr),
-							zap.Error(err))
-					}
-
-					p.logger.Info("💰 PPLNS payout credited",
-						zap.String("miner", minerAddr),
-						zap.Float64("work", work),
-						zap.Float64("proportion", proportion*100),
-						zap.Float64("amount", minerPayout))
-				}
-
-			}
 		}
 
 		// Reset round stats after block found
 		if share.IsSolo {
 			// Solo mode: only reset the block finder's stats
 			stats.GetManager().ResetWorkerRoundStats(share.MinerID)
-		} else {
-			// PPLNS mode: reset all workers (shared round)
-			stats.GetManager().ResetAllWorkerRoundStats()
 		}
 
 		// Cleanup old shares periodically (keep 2x window)
