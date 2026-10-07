@@ -66,8 +66,7 @@ node:
   use_ssl: false
   zmq_endpoint: "${ZMQ_ENDPOINT}"
 
-# Merge-mining 1175 (ESF) via AuxPoW: inert until the 1175 chain activates AuxPoW,
-# then automatically engages. Set your 1175 (esf1...) address in the app settings.
+# Merge-mining 1175 (ESF) via AuxPoW. Set your 1175 (esf1...) address in the app settings.
 mergemining:
   enabled: true
   payout_address: "${PAYOUT_ADDRESS_1175}"
