@@ -31,7 +31,6 @@ func TestPayout1175Accounting(t *testing.T) {
 		t.Fatalf("LEDGER-SETUP: InitDB: %v", err)
 	}
 	t.Cleanup(CloseDB)
-	Init1175Schema()
 
 	// clean slate
 	for _, q := range []string{`DELETE FROM shares`, `DELETE FROM payouts_1175`, `DELETE FROM blocks_1175`, `DELETE FROM miners`} {

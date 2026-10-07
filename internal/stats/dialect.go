@@ -32,17 +32,10 @@ type schemaExecer interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
-// Init1175Schema creates the 1175 merge-mining ledger tables.
+// init1175Schema creates the 1175 merge-mining ledger tables; InitDB runs it.
 //
 // blocks_1175.status:  pending | confirmed | orphaned   (+ distributed bool)
 // payouts_1175.status: pending | sending | paid
-func Init1175Schema() {
-	if db == nil {
-		return
-	}
-	init1175Schema(db)
-}
-
 func init1175Schema(ex schemaExecer) {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS blocks_1175 (
