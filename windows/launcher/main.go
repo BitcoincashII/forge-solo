@@ -135,9 +135,9 @@ func hiddenSystem(name string, args ...string) *exec.Cmd {
 //
 // secrets.env holds both node RPC passwords, the database password and the internal API
 // token, and it is written with mode 0600 -- which Windows ignores, because Go's permission
-// bits do not map to an ACL. Protection therefore comes from whatever %APPDATA% happens to
-// carry, and the installer also adds a Defender exclusion for this same folder. Make the
-// intent explicit instead of inheriting it: break inheritance and grant this user alone.
+// bits do not map to an ACL. Protection would otherwise be whatever %APPDATA% happens to
+// carry. Make the intent explicit instead of inheriting it: break inheritance and grant this
+// user alone.
 //
 // Best effort. If icacls is unavailable or refuses, the app still runs -- the folder is then
 // no worse protected than it was before.
