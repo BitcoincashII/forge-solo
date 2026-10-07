@@ -1140,12 +1140,10 @@ func getMiner(c *fiber.Ctx) error {
 	var totalWork float64
 	var roundEffort float64 // this round in blocks, share by share (1 = 100%)
 	var lastShare time.Time
-	var workerCount int
 	var onlineWorkers int
 
 	for _, w := range workers {
 		if addressMatches(w.MinerID, address) {
-			workerCount++
 			totalShares += w.ValidShares
 			totalRoundShares += w.RoundShares
 			totalRejected += w.InvalidShares
@@ -1234,7 +1232,6 @@ func getMiner(c *fiber.Ctx) error {
 		"address":         address,
 		"hashrate5m":      totalHashrate5m,
 		"hashrate60m":     totalHashrate60m,
-		"workers":         workerCount,
 		"onlineWorkers":   onlineWorkers,
 		"validShares":     totalShares,
 		"roundShares":     totalRoundShares,
@@ -1245,11 +1242,9 @@ func getMiner(c *fiber.Ctx) error {
 		"roundEffort":     roundEffort,
 		"lastShare":       apiTime(lastShare),
 		"soloMining":      hasSettings && settings.SoloMining,
-		"balance":         matureBalance + immatureBalance,
 		"matureBalance":   matureBalance,
 		"immatureBalance": immatureBalance,
 		"balanceKnown":    balanceKnown,
-		"currentHeight":   currentHeight,
 		"paid":            0.0,
 	})
 }
