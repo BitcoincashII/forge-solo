@@ -1281,19 +1281,11 @@ func getMinerWorkers(c *fiber.Ctx) error {
 
 	var result []fiber.Map
 	for _, w := range mine {
-		rejectRate := 0.0
-		if w.ValidShares+w.InvalidShares > 0 {
-			rejectRate = float64(w.InvalidShares) / float64(w.ValidShares+w.InvalidShares) * 100
-		}
-
 		result = append(result, fiber.Map{
 			"name":          w.WorkerName,
 			"online":        w.Online,
 			"hashrate5m":    w.Hashrate5m,
 			"hashrate60m":   w.Hashrate60m,
-			"validShares":   w.ValidShares,
-			"invalidShares": w.InvalidShares,
-			"rejectRate":    rejectRate,
 			"bestDiff":      w.BestDiff,
 			"roundBestDiff": w.RoundBestDiff,
 			"athDiff":       w.ATHDiff,
