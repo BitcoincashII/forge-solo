@@ -381,8 +381,8 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
   came from.
 - **Every platform:** the API no longer lets pages on `localhost:3000` read it.
 - **Windows:** Defender now skips only the nodes' chain data (their blocks and chainstate folders),
-  not the whole data folder; the exclusions earlier versions added for the data folder and the old
-  database are removed. A user name with an apostrophe, straight or curly, no longer breaks this.
+  not the whole data folder; the exclusion earlier versions added for the data folder is removed. A
+  user name with an apostrophe, straight or curly, no longer breaks this.
 - **Windows:** the firewall rules let in only Forge Solo's own programs, not anything on their ports,
   and are named for your Windows account ("Forge Solo Miner (3333) for <account>"), so two accounts
   on one PC each keep their own. Those of earlier versions are removed, and uninstalling removes them

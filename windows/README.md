@@ -269,8 +269,8 @@ The installer is written to `windows/ForgeSolo-Setup-<version>.exe`. CI stamps t
   Windows Command Processor) adds the firewall rules above and Defender exclusions for the folders
   the nodes write constantly (both nodes' blocks and chainstate), which Defender otherwise rescans
   on every write, the main cause of disk thrash on a laptop. The rest of `%APPDATA%\ForgeSolo` is
-  still scanned, and an update removes the whole-folder and `pgdata` exclusions earlier versions
-  added. The Ready page says beforehand what the prompt is for. Afterwards the installer checks that
+  still scanned, and an update removes the whole-folder exclusion earlier versions added. The
+  Ready page says beforehand what the prompt is for. Afterwards the installer checks that
   the four rules exist; if the prompt was refused or a rule is missing, it says so (miners on other
   devices cannot connect; run the installer again and choose Yes) and logs it (`/LOG`). The
   uninstaller's question mentions the prompt too, and if it cannot remove the rules or exclusions it

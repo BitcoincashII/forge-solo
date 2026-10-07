@@ -259,8 +259,8 @@ chain again, and your settings and block history stay.
    update fails. Make it public in the package's settings on GitHub, then run the check again until
    it passes. Run before the pull, the check fails and says to pull: the release commit pins zeros
    for an image new in the release.
-5. Copy `umbrel-app.yml`, `docker-compose.yml`, `exports.sh` and `init-db.sql` from that `main`
-   into `bch2-apps-forge-solo/` of
+5. Copy `umbrel-app.yml`, `docker-compose.yml` and `exports.sh` from that `main` into
+   `bch2-apps-forge-solo/` of
    [BitcoincashII/umbrel-app-store](https://github.com/BitcoincashII/umbrel-app-store), and re-run
    the Tests workflow on `main`: its store check passes once the store matches.
 6. Publish the release page: `gh release edit v<version> --draft=false`. It tells Umbrel users to
