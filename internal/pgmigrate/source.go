@@ -356,19 +356,6 @@ func (m *MemSource) Insert(table string, row map[string]any) {
 	m.tables[table].Rows = append(m.tables[table].Rows, row)
 }
 
-// Update changes the rows of table where col is key, in the live data.
-func (m *MemSource) Update(table, col string, key any, set map[string]any) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, r := range m.tables[table].Rows {
-		if r[col] == key {
-			for k, v := range set {
-				r[k] = v
-			}
-		}
-	}
-}
-
 // SetMissing makes the database not exist, as PostgreSQL's 3D000.
 func (m *MemSource) SetMissing() { m.mu.Lock(); m.missing = true; m.mu.Unlock() }
 

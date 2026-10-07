@@ -29,7 +29,6 @@ const (
 
 // The cluster's state (DBState in pg_control.h). Only StateShutDown is a clean shutdown.
 const (
-	StateStartup      = 0
 	StateShutDown     = 1
 	StateInProduction = 6
 )
