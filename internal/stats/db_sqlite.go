@@ -27,17 +27,9 @@ var (
 // ErrDatabaseNotInitialized is returned when database operations are attempted without initialization
 var ErrDatabaseNotInitialized = fmt.Errorf("database not initialized")
 
-// GetDBPath returns the SQLite database file path.
-//
-// The default file is forgesolo.db, but an existing forgepool.db is adopted in place.
-// DB_PATH is set nowhere in this repo, so the default always wins and there was no legacy
-// fallback: renaming outright would have booted an existing install against an empty
-// database -- no blocks, no payouts, no settings, no payout address, and therefore mining
-// paused -- with the real file sitting intact and unreachable beside it.
-//
-// The fallback makes the rename safe whichever way the Windows build is packaged, which is
-// not something this repo can settle on its own: its own comments claim sqlite is the
-// Windows path, while the shipped installer appears to bundle the postgres build.
+// GetDBPath returns the SQLite database file: DB_PATH, which every platform sets (the Umbrel
+// compose, the Windows launcher and Forge Solo for Linux), else forgesolo.db in a data folder
+// beside the executable, for a run by hand.
 func GetDBPath() string {
 	if dbPath := os.Getenv("DB_PATH"); dbPath != "" {
 		return dbPath
@@ -47,9 +39,6 @@ func GetDBPath() string {
 		dir = filepath.Join(filepath.Dir(exe), "data")
 	} else {
 		log.Printf("Warning: could not get executable path: %v, using current directory", err)
-	}
-	if legacy := filepath.Join(dir, "forgepool.db"); fileExists(legacy) {
-		return legacy
 	}
 	return filepath.Join(dir, "forgesolo.db")
 }
@@ -77,12 +66,6 @@ func parseSQLiteTime(s string) (time.Time, bool) {
 	}
 	t, err := time.ParseInLocation("2006-01-02 15:04:05", strings.Replace(s[:19], "T", " ", 1), time.UTC)
 	return t, err == nil
-}
-
-// fileExists reports whether a path is present. Used only to adopt a pre-rename database.
-func fileExists(p string) bool {
-	_, err := os.Stat(p)
-	return err == nil
 }
 
 // GetDBConnStr returns connection string (for compatibility)
