@@ -904,15 +904,7 @@ func startPayoutProcessor() {
 
 // getRPCCredentials returns RPC credentials from environment variables
 func getRPCCredentials() (string, string) {
-	user := os.Getenv("RPC_USER")
-	if user == "" {
-		user = os.Getenv("FORGE_RPC_USER")
-	}
-	pass := os.Getenv("RPC_PASSWORD")
-	if pass == "" {
-		pass = os.Getenv("FORGE_RPC_PASSWORD")
-	}
-	return user, pass
+	return os.Getenv("RPC_USER"), os.Getenv("RPC_PASSWORD")
 }
 
 func rpcCall(url, method string, params []interface{}) (interface{}, error) {

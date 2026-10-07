@@ -39,9 +39,6 @@ func GetDBConnStr() string {
 		user = "forge"
 	}
 	password := os.Getenv("DB_PASSWORD")
-	if password == "" {
-		password = os.Getenv("FORGE_DB_PASSWORD")
-	}
 	dbname := os.Getenv("DB_NAME")
 	if dbname == "" {
 		// forgesolo, not forgepool. The packaged app always sets DB_NAME, so this default

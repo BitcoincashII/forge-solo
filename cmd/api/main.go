@@ -14,7 +14,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -209,13 +208,7 @@ func init() {
 		rpcURL = "http://127.0.0.1:8342"
 	}
 	rpcUser = os.Getenv("RPC_USER")
-	if rpcUser == "" {
-		rpcUser = os.Getenv("FORGE_RPC_USER")
-	}
 	rpcPass = os.Getenv("RPC_PASSWORD")
-	if rpcPass == "" {
-		rpcPass = os.Getenv("FORGE_RPC_PASSWORD")
-	}
 	stratumURL = os.Getenv("STRATUM_INTERNAL_URL")
 	if stratumURL == "" {
 		stratumURL = "http://127.0.0.1:3337"
@@ -330,14 +323,8 @@ func main() {
 	}
 
 	// Rate limiting: 1000 requests per minute per IP
-	apiRateMax := 6000
-	if v := os.Getenv("API_RATE_LIMIT"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			apiRateMax = n
-		}
-	}
 	app.Use(limiter.New(limiter.Config{
-		Max:          apiRateMax,
+		Max:          6000,
 		Expiration:   1 * time.Minute,
 		KeyGenerator: rateLimitKey,
 		LimitReached: func(c *fiber.Ctx) error {
