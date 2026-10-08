@@ -153,6 +153,7 @@ func run(cfgPath string, stop <-chan struct{}, asService bool) error {
 	// Asked for before anything listens, so the status page's first answer already says whether
 	// the gateway is set up.
 	a.reload(cfg, problem)
+	go a.logStates(quit)
 	failed := func(err error) error {
 		end()
 		<-a.applierDone

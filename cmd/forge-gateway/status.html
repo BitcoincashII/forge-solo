@@ -14,7 +14,7 @@ header{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin-botto
 h1{font-size:22px;margin:0}
 .ver{color:var(--muted);font-size:13px}
 .badge{padding:4px 10px;border-radius:999px;font-weight:600;font-size:13px;border:1px solid currentColor}
-.badge.tides{color:var(--good)}.badge.solo{color:var(--warn)}.badge.waiting,.badge.starting{color:var(--muted)}
+.badge.good{color:var(--good)}.badge.warn{color:var(--warn)}.badge.bad{color:var(--bad)}
 .why{color:var(--muted);font-size:14px;flex-basis:100%}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
@@ -43,7 +43,7 @@ footer a{color:inherit}
 <main>
 <header>
   <h1>Forge Gateway</h1>
-  <span class="badge starting" id="mode">starting</span>
+  <span class="badge warn" id="mode">Starting</span>
   <span class="ver" id="ver"></span>
   <div class="why" id="why">Connecting…</div>
 </header>
@@ -69,23 +69,19 @@ function since(t){return ago((Date.now()-new Date(t).getTime())/1000)}
 function bch2(sats){return sats==null?"—":(sats/1e8).toFixed(8)+" BCH2"}
 function dl(el, rows){el.innerHTML = rows.map(([k,v])=>`<div class="row"><dt>${esc(k)}</dt><dd>${v}</dd></div>`).join("")}
 function short(a){a=String(a||"");return a.length>30?a.slice(0,20)+"…"+a.slice(-6):a}
-const WHY = {
-  tides: "Mining into Forge Pool's TIDES window: every block found through its DATUM gateways pays your share straight from its coinbase.",
-  solo: "Forge Pool cannot be reached, so your miners are mining solo on your node meanwhile: a block found now pays your payout address in full. The gateway tries the pool again every minute.",
-  waiting: "Forge Pool cannot be reached and pool_only is set, so miners are turned away until it is back (they fail over to their backup pool). The gateway tries again every minute.",
-  starting: "Waiting for the first block template from your node and the first job the pool registers."
-};
+// The badge says what the gateway is doing, from the state the API gives: good, warn or bad.
+const BADGE_CLASS = {active:"good", pool_unreachable:"warn", node_syncing:"warn", starting:"warn"};
 async function tick(){
   let s;
   try { const r = await fetch("/api/status",{cache:"no-store"}); s = await r.json(); }
   catch(e){ $("why").textContent = "The gateway is not answering."; return; }
-  $("mode").className = "badge "+s.mode;
-  $("mode").textContent = {tides:"TIDES",solo:"Solo fallback",waiting:"Waiting for pool",starting:"Starting"}[s.mode]||s.mode;
+  $("mode").className = "badge "+(BADGE_CLASS[s.state]||"bad");
+  $("mode").textContent = {unconfigured:"Not set up", node_unreachable:"Node unreachable", node_login:"Node login failed", node_syncing:"Node syncing", pool_unreachable:(s.mode==="waiting"?"Waiting for pool":"Solo fallback"), starting:"Starting", active:"TIDES"}[s.state]||s.state;
   $("ver").textContent = "v"+s.version+" · up "+ago(s.uptime_seconds).replace(" ago","");
-  $("why").textContent = WHY[s.mode]||"";
+  $("why").textContent = s.state_reason||"";
   const p = s.pool;
   dl($("pool"), [
-    ["State", esc(p.state)+(p.reason?` <span class="err">— ${esc(p.reason)}</span>`:"")],
+    ["State", esc(p.state)+(p.reason?`: <span class="err">${esc(p.reason)}</span>`:"")],
     ["Pool", `<span class="mono">${esc(p.url)}</span>`],
     ["Gateway ID", `<span class="mono">${esc(p.gateway)}</span>`],
     ["Share difficulty", diff(p.share_difficulty)],
@@ -95,12 +91,15 @@ async function tick(){
     ["Miners in the window", num(p.window_miners)],
   ]);
   const n = s.node;
+  const nodeErr = n.error||n.template_error;
   dl($("node"), [
     ["RPC", `<span class="mono">${esc(n.rpc_url)}</span>`],
+    ["Chain", n.chain?esc(n.chain):"—"],
+    ["Blocks", n.headers?num(n.blocks)+" of "+num(n.headers)+(n.syncing?" (syncing)":""):"—"],
     ["Template height", n.template_height?num(n.template_height):"—"],
     ["Template age", n.template_age_seconds<0?"—":n.template_age_seconds.toFixed(1)+" s"],
     ["Network difficulty", diff(n.network_difficulty)],
-  ].concat(n.template_error?[["Error",`<span class="err">${esc(n.template_error)}</span>`]]:[]));
+  ].concat(nodeErr?[["Error",`<span class="err">${esc(nodeErr)}</span>`]]:[]));
   const j = s.job;
   dl($("mining"), [
     ["Payout address", `<span class="mono">${esc(s.payout_address)}</span>`],

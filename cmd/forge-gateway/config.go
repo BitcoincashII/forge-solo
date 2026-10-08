@@ -316,7 +316,14 @@ func (c *Config) rpcLogin() (user, pass string, err error) {
 	}
 	user, pass, ok := strings.Cut(strings.TrimSpace(string(raw)), ":")
 	if !ok || user == "" || pass == "" {
-		return "", "", fmt.Errorf("node.rpc_cookie_file %s is not a user:password cookie", c.Node.RPCCookieFile)
+		return "", "", &notCookieError{c.Node.RPCCookieFile}
 	}
 	return user, pass, nil
+}
+
+// notCookieError is a cookie file that holds something else than user:password.
+type notCookieError struct{ path string }
+
+func (e *notCookieError) Error() string {
+	return fmt.Sprintf("node.rpc_cookie_file %s is not a user:password cookie", e.path)
 }

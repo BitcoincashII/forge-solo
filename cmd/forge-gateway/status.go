@@ -17,15 +17,20 @@ var statusPage []byte
 
 // statusView is GET /api/status.
 type statusView struct {
-	Version  string   `json:"version"`
-	Uptime   int64    `json:"uptime_seconds"`
-	Payout   string   `json:"payout_address"`
-	PoolOnly bool     `json:"pool_only"`
-	Mode     string   `json:"mode"` // "tides", "solo" (fallen back), "waiting" (pool_only, pool unreachable), "starting"
-	Pool     poolView `json:"pool"`
-	Node     nodeView `json:"node"`
-	Job      *jobView `json:"job,omitempty"`
-	Stratum  struct {
+	Version     string `json:"version"`
+	Uptime      int64  `json:"uptime_seconds"`
+	Configured  bool   `json:"configured"` // the settings are complete and right
+	State       string `json:"state"`      // stateOf
+	StateReason string `json:"state_reason"`
+	Payout      string `json:"payout_address"`
+	PoolOnly    bool   `json:"pool_only"`
+	// "tides", "solo" (fallen back), "waiting" (pool_only, pool unreachable), "starting", "off" (no job
+	// loop: not set up, or no node login)
+	Mode    string   `json:"mode"`
+	Pool    poolView `json:"pool"`
+	Node    nodeView `json:"node"`
+	Job     *jobView `json:"job,omitempty"`
+	Stratum struct {
 		Listen      string `json:"listen"`
 		Connections int64  `json:"connections"`
 		Authorized  int64  `json:"authorized"`
@@ -47,6 +52,12 @@ type nodeView struct {
 	TemplateAge   float64 `json:"template_age_seconds"` // -1 before the first template
 	NetworkDiff   float64 `json:"network_difficulty"`
 	TemplateError string  `json:"template_error,omitempty"`
+	// From the last node check that worked; zero before one.
+	Chain   string `json:"chain"`
+	Blocks  int64  `json:"blocks"`
+	Headers int64  `json:"headers"`
+	Syncing bool   `json:"syncing"`
+	Error   string `json:"error"` // why the last node check failed; "" when it worked or none has run
 }
 
 type jobView struct {
@@ -70,12 +81,24 @@ func (a *app) settingsNow() (e *engine, cfg *Config, problem string) {
 }
 
 func (a *app) view(now time.Time) statusView {
-	_, cfg, _ := a.settingsNow()
+	e, cfg, _ := a.settingsNow()
 	v := statusView{Version: version, Uptime: int64(now.Sub(a.started).Seconds()), Payout: cfg.Mining.PayoutAddress,
 		PoolOnly: cfg.Mining.PoolOnly}
+	v.Configured, v.State, v.StateReason, v.Mode = a.stateNow()
 	v.Pool = poolView{Status: a.gw.Status(), URL: a.start.Pool.URL}
 	v.Node = nodeView{RPCURL: cfg.Node.RPCURL, TemplateAge: -1}
-	loop := a.currentLoop()
+	if e != nil && e.health != nil {
+		if r := e.health.last.Load(); r != nil && r.err != nil {
+			v.Node.Error = briefNodeError(r.err)
+		}
+		if ci := e.health.good.Load(); ci != nil {
+			v.Node.Chain, v.Node.Blocks, v.Node.Headers, v.Node.Syncing = ci.Chain, ci.Blocks, ci.Headers, ci.InitialBlockDownload
+		}
+	}
+	var loop *jobLoop
+	if e != nil {
+		loop = e.loop.Load()
+	}
 	if loop != nil {
 		if t := loop.template.Load(); t != nil {
 			v.Node.Height = t.Height
@@ -88,16 +111,6 @@ func (a *app) view(now time.Time) statusView {
 		if j := loop.current.Load(); j != nil {
 			v.Job = &jobView{ID: j.ID, Height: j.Height, Tides: j.Tides, FinderSats: j.TidesFinderSats, Coinbase: j.CoinbaseValue}
 		}
-	}
-	switch {
-	case v.Job == nil && v.Pool.State == tidesgw.StateStarting:
-		v.Mode = "starting"
-	case loop != nil && cfg.Mining.PoolOnly && !loop.door.Load():
-		v.Mode = "waiting"
-	case v.Job != nil && v.Job.Tides:
-		v.Mode = "tides"
-	default:
-		v.Mode = "solo"
 	}
 	st := a.srv.GetStats()
 	v.Stratum.Listen = a.start.Stratum.Listen

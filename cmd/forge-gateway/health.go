@@ -2,7 +2,9 @@ package main
 
 import (
 	"errors"
+	"net"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -78,6 +80,32 @@ func (h *nodeHealth) once() {
 		}
 	}
 }
+
+// briefNodeError is why a check of the node failed, in a few words for the status page. The
+// system's own texts differ (Windows says WSAECONNREFUSED where Linux says ECONNREFUSED), so the
+// kind of error decides, not its text.
+func briefNodeError(err error) string {
+	var dns *net.DNSError
+	var op *net.OpError
+	var ne net.Error
+	switch {
+	case errors.As(err, &dns):
+		return "the name " + dns.Name + " does not resolve"
+	case errors.As(err, &op) && op.Op == "dial":
+		return "nothing answers at that address"
+	case errors.As(err, &ne) && ne.Timeout():
+		return "it did not answer in time"
+	case errors.Is(err, errNotJSONRPC):
+		return "what answers there is not a BCH2 node"
+	}
+	s := strings.Join(strings.Fields(err.Error()), " ")
+	if r := []rune(s); len(r) > maxNodeError {
+		s = string(r[:maxNodeError]) + "…"
+	}
+	return s
+}
+
+const maxNodeError = 200
 
 // beforeReapply is called by a check about to apply the settings again; a test holds it there.
 var beforeReapply = func() {}

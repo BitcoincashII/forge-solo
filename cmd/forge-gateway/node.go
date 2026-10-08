@@ -32,6 +32,9 @@ func newNode(url, user, pass string) *node {
 // errUnauthorized is the node refusing the login.
 var errUnauthorized = errors.New("the node refused the RPC login: check node.rpc_user and node.rpc_password")
 
+// errNotJSONRPC is an answer that is not a node's: something else listens at the RPC address.
+var errNotJSONRPC = errors.New("not JSON-RPC")
+
 func (n *node) call(method string, params []interface{}, out interface{}) error {
 	if params == nil {
 		params = []interface{}{}
@@ -66,7 +69,7 @@ func (n *node) call(method string, params []interface{}, out interface{}) error 
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(raw, &r); err != nil {
-		return fmt.Errorf("%s: HTTP %d, not JSON-RPC: %.200s", method, resp.StatusCode, raw)
+		return fmt.Errorf("%s: HTTP %d, %w: %.200s", method, resp.StatusCode, errNotJSONRPC, raw)
 	}
 	if r.Error != nil {
 		return fmt.Errorf("%s: %s (code %d)", method, r.Error.Message, r.Error.Code)
