@@ -39,6 +39,12 @@ func TestTheFirstRunOpensOnePage(t *testing.T) {
 	saved := alreadyRuns
 	t.Cleanup(func() { alreadyRuns = saved })
 	boot() // Setup's launch
+	// The second copy is another process, which shares nothing with the first: here the first
+	// copy's watch of the gateway's state ends before the second reads the config's ports.
+	mu.Lock()
+	stopping = true
+	mu.Unlock()
+	stateWatch.Wait()
 	alreadyRuns = func() bool { return true }
 	args := signInArgs(t)
 	if !secondLaunch(args) { // Windows' sign-in start
