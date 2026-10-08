@@ -18,8 +18,16 @@ updates:
       - "/docker/api"
       - "/docker/stratum"
       - "/docker/web"
-      - "/docker/migrate"
       - "/docker/node"
       - "/docker/node1175"
     schedule:
       interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/docker/migrate"
+    schedule:
+      interval: "weekly"
+    # The image's PostgreSQL only reads the database 1.0.12 wrote (PostgreSQL 16 data): a newer major
+    # cannot open it, so only 16.x updates are offered.
+    ignore:
+      - dependency-name: "postgres"
+        update-types: ["version-update:semver-major"]
