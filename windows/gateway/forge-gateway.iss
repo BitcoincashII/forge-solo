@@ -735,6 +735,12 @@ begin
   end;
 end;
 
+const
+  // Forge Solo's uninstall entry for this account (the AppId of windows/forge-solo.iss) and the
+  // mutex its launcher holds while it runs, for any account.
+  ForgeSoloUninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{9F2C7A31-4B6E-4D8A-9C1F-3E5A7B0D2C64}_is1';
+  ForgeSoloMutex = 'Global\ForgeSoloRunning';
+
 // MemoPart is one part of the Ready page's summary, and the blank line after it, if it has one.
 function MemoPart(S, NewLine: String): String;
 begin
@@ -743,14 +749,20 @@ begin
     Result := S + NewLine + NewLine;
 end;
 
-// The Ready page says what Windows' prompt for the elevated step is for, just before it comes.
-// Running as administrator, Setup gets no prompt.
+// The Ready page says, when Forge Solo is installed for this account or runs on this PC, that only
+// one of the two can have port 3333; and what Windows' prompt for the elevated step is for, just
+// before it comes. Running as administrator, Setup gets no prompt.
 function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo,
   MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
 begin
   Result := MemoPart(MemoUserInfoInfo, NewLine) + MemoPart(MemoDirInfo, NewLine) +
     MemoPart(MemoTypeInfo, NewLine) + MemoPart(MemoComponentsInfo, NewLine) +
     MemoPart(MemoGroupInfo, NewLine) + MemoPart(MemoTasksInfo, NewLine);
+  if RegKeyExists(HKCU, ForgeSoloUninstallKey) or MutexHeld(ForgeSoloMutex) then
+    Result := Result + 'Forge Solo:' + NewLine +
+      Space + 'Forge Solo is on this PC too. Both use port 3333, so only' + NewLine +
+      Space + 'one of the two can run at a time; Forge Solo''s TIDES mode is' + NewLine +
+      Space + 'the same gateway, built in.' + NewLine + NewLine;
   if not IsAdmin() then
     Result := Result + 'Permission:' + NewLine +
       Space + 'Windows will ask whether Windows Command Processor may make' + NewLine +

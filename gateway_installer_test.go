@@ -742,6 +742,39 @@ func TestGatewayInstallerOldRule(t *testing.T) {
 	}
 }
 
+// Forge Solo also takes port 3333, and its TIDES mode is this gateway: the Ready page says so when
+// Forge Solo is installed for this account (its uninstall entry, by windows/forge-solo.iss's AppId)
+// or runs on this PC (its launcher's mutex). It only says so: Setup goes on.
+func TestGatewayInstallerSoloNote(t *testing.T) {
+	id := regexp.MustCompile(`(?m)^AppId=\{(\{[0-9A-F-]+\})\r?$`).FindStringSubmatch(installerSection(t, "Setup"))
+	mutex := regexp.MustCompile(`(?m)^  RunningMutex = ('[^']*');$`).FindStringSubmatch(pascalCode(installerSection(t, "Code")))
+	if id == nil || mutex == nil {
+		t.Fatal("GWI-SOLO-NOTE: windows/forge-solo.iss has no AppId or RunningMutex this test can read")
+	}
+	code := gwInstCode(t)
+	for _, want := range []string{
+		"\n  ForgeSoloUninstallKey = 'Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" + id[1] + "_is1';\n",
+		"\n  ForgeSoloMutex = " + mutex[1] + ";\n",
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("GWI-SOLO-NOTE-WHICH: [Code] lacks %q, from windows/forge-solo.iss", want)
+		}
+	}
+	memo := gwInstFunc(t, "function UpdateReadyMemo(")
+	if !strings.Contains(memo, `
+  if RegKeyExists(HKCU, ForgeSoloUninstallKey) or MutexHeld(ForgeSoloMutex) then
+    Result := Result + 'Forge Solo:' + NewLine +
+      Space + 'Forge Solo is on this PC too. Both use port 3333, so only' + NewLine +
+      Space + 'one of the two can run at a time; Forge Solo''s TIDES mode is' + NewLine +
+      Space + 'the same gateway, built in.' + NewLine + NewLine;
+`) {
+		t.Errorf("GWI-SOLO-NOTE: the Ready page does not say that Forge Solo is on this PC too:\n%s", memo)
+	}
+	if strings.Count(code, "ForgeSoloUninstallKey") != 2 || strings.Count(code, "ForgeSoloMutex") != 2 || regexp.MustCompile(`\b(Abort|exit)\b`).MatchString(memo) {
+		t.Error("GWI-SOLO-NOTE-GOES-ON: Forge Solo is looked for elsewhere than on the Ready page, or stops Setup")
+	}
+}
+
 // The code that finds, closes and waits for the programs, the firewall rule's commands and the
 // account name's check are Forge Solo's, whose tests pin them statement by statement, with its
 // name changed. A fix to one installer is a fix to both.
