@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -232,6 +233,25 @@ func TestSettingsNeedThePassword(t *testing.T) {
 	code, v, _ = h.call("POST", "/api/settings", good, map[string]string{"Content-Type": "application/json", "X-Forge-Password": " " + testPassword + " "})
 	if code != 200 || v["success"] != true {
 		t.Fatalf("GW-SET-PW: right: HTTP %d %v", code, v)
+	}
+}
+
+// A save's body is read up to 64 KiB, no further: the form is a few hundred bytes, and a program
+// with the password must not make the gateway read without end. The same form, padded with
+// spaces past the limit, is refused and changes nothing; padded up to just under it, it is saved.
+func TestSettingsBodyIsBounded(t *testing.T) {
+	n := newFakeNode(t, "u", "p")
+	h := startGatewayPW(t, freshTestConfig(t), testPassword)
+	padded := func(pad int) string {
+		return `{"node":` + strings.Repeat(" ", pad) + `{"rpc_url":"` + n.url() + `","rpc_user":"u","rpc_password":"p"},"mining":{"payout_address":"` + testPayout + `"}}`
+	}
+	before := h.fileNow()
+	code, v := h.save(padded(64 << 10))
+	if code != 400 || !strings.Contains(fmt.Sprint(v["error"]), "too large") || h.fileNow() != before {
+		t.Fatalf("GW-SET-BODY-LIMIT: a body past 64 KiB: HTTP %d %v", code, v)
+	}
+	if code, v := h.save(padded(64<<10 - 1024)); code != 200 {
+		t.Fatalf("GW-SET-BODY-UNDER: a body under 64 KiB: HTTP %d %v", code, v)
 	}
 }
 
