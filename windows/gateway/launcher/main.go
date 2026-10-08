@@ -238,13 +238,32 @@ func pageToOpen() string {
 // alreadyRuns is alreadyRunning (a stand-in in the tests).
 var alreadyRuns = alreadyRunning
 
+// signInArg is what the sign-in start (the installer's Run value) passes: Windows started this
+// copy on its own, and no one asked for a page.
+const signInArg = "--at-sign-in"
+
+// launchedAtSignIn reports whether the arguments are the sign-in start's.
+func launchedAtSignIn(args []string) bool {
+	for _, a := range args {
+		if a == signInArg {
+			return true
+		}
+	}
+	return false
+}
+
 // secondLaunch reports whether Forge Gateway already runs on this PC, and if so opens its status
-// page: a second launch (the sign-in start, then the shortcut) opens the page of the one running
-// instead of starting another, which would only find the ports taken. It writes nothing: this copy
-// holds no mutex, and launcher.log is the running copy's.
-func secondLaunch() bool {
+// page: a second launch (the shortcut, the Start menu) opens the page of the one running instead of
+// starting another, which would only find the ports taken. The sign-in start (args) opens nothing:
+// Windows runs it a while after sign-in, and right after an install that is after Setup's own
+// launch, which has opened the page already. It writes nothing: this copy holds no mutex, and
+// launcher.log is the running copy's.
+func secondLaunch(args []string) bool {
 	if !alreadyRuns() {
 		return false
+	}
+	if launchedAtSignIn(args) {
+		return true
 	}
 	_ = configPorts()
 	openBrowser(statusURL())
@@ -257,7 +276,7 @@ func main() {
 		return
 	}
 	dataDir = filepath.Join(os.Getenv("APPDATA"), "ForgeGateway")
-	if secondLaunch() {
+	if secondLaunch(os.Args[1:]) {
 		return
 	}
 	exe, _ := os.Executable()

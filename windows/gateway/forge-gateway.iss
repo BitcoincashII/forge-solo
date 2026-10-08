@@ -53,7 +53,9 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Name: "startup"; Description: "Start Forge Gateway when I sign in"; GroupDescription: "Startup:"; Flags: unchecked
 
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "ForgeGateway"; ValueData: """{app}\{#MyAppExe}"""; Flags: uninsdeletevalue; Tasks: startup
+; The sign-in start says it is one: a copy Windows starts while Forge Gateway runs (right after an
+; install, Setup's own launch) then opens no second status page.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "ForgeGateway"; ValueData: """{app}\{#MyAppExe}"" --at-sign-in"; Flags: uninsdeletevalue; Tasks: startup
 ; An update with the box unticked turns the sign-in start off.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "ForgeGateway"; Flags: deletevalue; Tasks: not startup
 

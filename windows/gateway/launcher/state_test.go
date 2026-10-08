@@ -160,7 +160,7 @@ func TestASecondLaunchOpensTheStatusPage(t *testing.T) {
 	writeFile(t, dpath(configName), `{"status":{"listen":"127.0.0.1:4090"}}`)
 	stratumPort, statusHost, statusPort = "1", "1", "1"
 	alreadyRuns = func() bool { return true }
-	if !secondLaunch() {
+	if !secondLaunch(nil) {
 		t.Fatal("GWL-SECOND: a second launch went on to start")
 	}
 	if got := w.opened.all(); len(got) != 1 || got[0] != "http://127.0.0.1:4090/" {
@@ -170,7 +170,7 @@ func TestASecondLaunchOpensTheStatusPage(t *testing.T) {
 		t.Errorf("GWL-SECOND: a second launch wrote launcher.log (%v) or started the gateway (%d)", err, w.starts())
 	}
 	alreadyRuns = func() bool { return false }
-	if secondLaunch() || len(w.opened.all()) != 1 {
+	if secondLaunch(nil) || secondLaunch([]string{signInArg}) || len(w.opened.all()) != 1 {
 		t.Error("GWL-SECOND-FIRST: the first launch was taken for a second")
 	}
 }

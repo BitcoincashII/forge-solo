@@ -171,6 +171,16 @@ func TestGatewayContractPrograms(t *testing.T) {
 	}
 }
 
+// The sign-in start the installer writes passes the argument by which the tray tells it from a
+// launch someone asked for: a copy Windows starts while Forge Gateway runs opens no second page.
+func TestGatewayContractSignIn(t *testing.T) {
+	data := gwContractISSValue(t, "GWC-SIGNIN", `ValueName: "ForgeGateway"; ValueData: "((?:[^"]|"")*)";`)
+	arg := gwContractValue(t, "GWC-SIGNIN", "signInArg", gwContractTray+"main.go")
+	if data != `""{app}\{#MyAppExe}"" `+arg {
+		t.Errorf("GWC-SIGNIN: the sign-in start runs %s; the tray takes %s for it", data, arg)
+	}
+}
+
 // The installer's data folder (the one the uninstaller offers to delete) is the tray's.
 func TestGatewayContractDataFolder(t *testing.T) {
 	m := regexp.MustCompile(`dataDir = filepath\.Join\(os\.Getenv\("APPDATA"\), "([^"]+)"\)`).FindSubmatch(

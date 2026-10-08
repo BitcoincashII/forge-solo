@@ -157,7 +157,8 @@ func TestGatewayInstallerFiles(t *testing.T) {
 
 // "Start Forge Gateway when I sign in" is the installer's, unticked unless the user ticks it, and
 // an update with it unticked turns the sign-in start off. Inno Setup keeps the choice for the next
-// install, a silent one included.
+// install, a silent one included. The sign-in start passes --at-sign-in, so that a copy Windows
+// starts while Forge Gateway runs opens no second status page.
 func TestGatewayInstallerStartup(t *testing.T) {
 	want := map[string][]string{
 		"Tasks": {
@@ -165,7 +166,7 @@ func TestGatewayInstallerStartup(t *testing.T) {
 			`Name: "startup"; Description: "Start Forge Gateway when I sign in"; GroupDescription: "Startup:"; Flags: unchecked`,
 		},
 		"Registry": {
-			`Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "ForgeGateway"; ValueData: """{app}\{#MyAppExe}"""; Flags: uninsdeletevalue; Tasks: startup`,
+			`Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "ForgeGateway"; ValueData: """{app}\{#MyAppExe}"" --at-sign-in"; Flags: uninsdeletevalue; Tasks: startup`,
 			`Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "ForgeGateway"; Flags: deletevalue; Tasks: not startup`,
 		},
 	}
