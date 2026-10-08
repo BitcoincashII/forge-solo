@@ -22,6 +22,8 @@ address. There is no pool wallet, no fee, and no minimum payout.
   CI runs its tests with stand-ins for the Windows parts.
 - `forge-solo.iss`: Inno Setup installer script. It takes the dashboard (`../web/dist`) straight
   from this repository, so there is no copy to drift.
+- `gateway/`: Forge Gateway's tray app (its own Go module) and installer script; Forge Gateway is
+  released from its own repository.
 - *(not tracked)* `bin/`: compiled exes + prebuilt node binaries; `pgsql/`: PostgreSQL, for moving
   the data of 1.0.12 and earlier
 
