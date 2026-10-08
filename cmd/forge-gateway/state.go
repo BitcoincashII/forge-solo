@@ -6,6 +6,9 @@ import (
 	"io/fs"
 	"net"
 	"net/url"
+	"regexp"
+	"runtime"
+	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -21,6 +24,7 @@ const (
 	stateNodeForbidden   = "node_forbidden"
 	stateNodeSyncing     = "node_syncing"
 	statePoolUnreachable = "pool_unreachable"
+	stateClockOff        = "clock_off"
 	stateStarting        = "starting"
 	stateActive          = "active"
 )
@@ -37,6 +41,7 @@ type stateInput struct {
 	pool       tidesgw.Status
 	mode       string // statusView.Mode
 	poolOnly   bool
+	windows    bool // the gateway runs on Windows: the clock's texts say where to set it there
 }
 
 const startingReason = "Waiting for the first block template from your node and the first job Forge Pool registers."
@@ -74,6 +79,9 @@ func stateOf(in stateInput) (state, reason string) {
 			why = "Your node is not on Forge Pool's block yet"
 		}
 		return stateNodeSyncing, why + ". " + then
+	case (in.mode == "solo" || in.mode == "waiting") && poolRefusesClock(in.pool.Reason):
+		off, _ := poolClockOff(in.pool.Reason)
+		return stateClockOff, clockReason(off, in.windows, in.mode)
 	case in.mode == "solo":
 		return statePoolUnreachable, "Forge Pool cannot be reached" + inBrackets(in.pool.Reason) +
 			". Your miners mine solo on your node meanwhile: a block found now pays your payout address in full. Forge Gateway tries the pool again every minute."
@@ -113,6 +121,87 @@ func nodeErrorShown(err error, cookie bool) string {
 	return briefNodeError(err)
 }
 
+// Forge Pool refuses a signed request whose time is more than 2 minutes off its own clock: it
+// answers 401 {"error":"request time is <how far> off the pool's clock"} (internal/datum/wire,
+// Verify), and the pool gateway's reason carries that answer. The pool was reached: only setting
+// this computer's clock right helps.
+var poolClockText = regexp.MustCompile(`request time is (-?[0-9][0-9a-zµ.]*) off the pool's clock`)
+
+// poolRefusesClock reports whether the pool gateway's reason is that refusal.
+func poolRefusesClock(reason string) bool {
+	return strings.Contains(reason, " 401 ") && strings.Contains(reason, "off the pool's clock")
+}
+
+// poolClockOff is how far off the pool found this computer's clock, from the pool gateway's reason;
+// 0 when it does not say.
+func poolClockOff(reason string) (time.Duration, bool) {
+	if !poolRefusesClock(reason) {
+		return 0, false
+	}
+	m := poolClockText.FindStringSubmatch(reason)
+	if m == nil {
+		return 0, true
+	}
+	d, err := time.ParseDuration(m[1])
+	if err != nil {
+		return 0, true
+	}
+	if d < 0 {
+		d = -d
+	}
+	return d, true
+}
+
+// howFar is d in round words: about 7 hours, about 3 minutes, about 2 days; "" when it is not known.
+func howFar(d time.Duration) string {
+	about := func(n time.Duration, one, many string) string {
+		if n <= 1 {
+			return "about " + one
+		}
+		return fmt.Sprintf("about %d %s", int64(n), many)
+	}
+	switch {
+	case d <= 0:
+		return ""
+	case d >= 36*time.Hour:
+		return about(d.Round(24*time.Hour)/(24*time.Hour), "a day", "days")
+	case d >= 50*time.Minute:
+		return about(d.Round(time.Hour)/time.Hour, "an hour", "hours")
+	}
+	return about(d.Round(time.Minute)/time.Minute, "a minute", "minutes")
+}
+
+// clockWhose is whose clock is off, as the texts say it.
+func clockWhose(windows bool) string {
+	if windows {
+		return "this PC's clock"
+	}
+	return "this computer's clock"
+}
+
+// clockShort is the Forge Pool card's reason while the pool refuses this computer's clock.
+func clockShort(off time.Duration, windows bool) string {
+	if far := howFar(off); far != "" {
+		return clockWhose(windows) + " is " + far + " off"
+	}
+	return clockWhose(windows) + " is off"
+}
+
+// clockReason is the state's reason while the pool refuses this computer's clock: how far off it
+// is, where to set it right, and what the miners do meanwhile.
+func clockReason(off time.Duration, windows bool, mode string) string {
+	fix := "set it right, for example by turning on network time (timedatectl set-ntp true)"
+	if windows {
+		fix = "turn on Set time automatically in Windows Settings, Time & language"
+	}
+	then := "Your miners mine solo on your node meanwhile: a block found now pays your payout address in full."
+	if mode == "waiting" {
+		then = "Pool only is on, so miners are turned away meanwhile, and fail over to their backup pool."
+	}
+	return upperFirst(clockShort(off, windows)) + ". Forge Pool refuses requests until it is right: " + fix + ". " + then +
+		" Forge Gateway goes back to the pool by itself once the clock is right."
+}
+
 func upperFirst(s string) string {
 	r, n := utf8.DecodeRuneInString(s)
 	if n == 0 {
@@ -149,7 +238,7 @@ func (a *app) stateNow() (configured bool, state, reason, mode string) {
 	e, cfg, problem := a.settingsNow()
 	mode = a.mode(e, cfg, problem, pool)
 	in := stateInput{engine: e != nil, problem: problem, pool: pool, mode: mode, poolOnly: cfg.Mining.PoolOnly,
-		cookie: cfg.Node.RPCUser == "", cookiePath: cfg.Node.RPCCookieFile, rpcURL: cfg.Node.RPCURL}
+		cookie: cfg.Node.RPCUser == "", cookiePath: cfg.Node.RPCCookieFile, rpcURL: cfg.Node.RPCURL, windows: runtime.GOOS == "windows"}
 	if e != nil {
 		in.loginErr = e.loginErr
 		if e.health != nil {
@@ -199,7 +288,7 @@ func (a *app) logStates(stop <-chan struct{}) {
 			last = state
 			msg := "state: " + state + ": " + reason
 			switch state {
-			case stateUnconfigured, stateNodeUnreachable, stateNodeLogin, stateNodeForbidden, stateNodeSyncing, statePoolUnreachable:
+			case stateUnconfigured, stateNodeUnreachable, stateNodeLogin, stateNodeForbidden, stateNodeSyncing, statePoolUnreachable, stateClockOff:
 				a.log.Warn(msg)
 			default:
 				a.log.Info(msg)

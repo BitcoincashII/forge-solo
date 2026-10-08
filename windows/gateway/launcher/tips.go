@@ -18,6 +18,8 @@ const (
 	tipActive          = "Forge Gateway: mining into Forge Pool's TIDES window"
 	tipPoolSolo        = "Forge Gateway: Forge Pool unreachable, mining solo meanwhile"
 	tipPoolWaiting     = "Forge Gateway: Forge Pool unreachable, miners turned away"
+	tipClockSolo       = "Forge Gateway: this PC's clock is off, mining solo meanwhile"
+	tipClockWaiting    = "Forge Gateway: this PC's clock is off, miners turned away"
 	tipWaitingForWork  = "Forge Gateway: waiting for work from your node and the pool"
 	tipNodeUnreachable = "Forge Gateway: cannot reach your node: see the status page"
 	tipNodeLogin       = "Forge Gateway: cannot log in to your node: see Settings"
@@ -43,10 +45,16 @@ func tipRestarting(what string) string {
 	return "Forge Gateway: " + what + " stopped; starting it again"
 }
 
-// tipForState is what the tray says for a state and mode of the gateway (stateTips).
+// tipForState is what the tray says for a state and mode of the gateway (stateTips). With pool only
+// on, the miners are turned away rather than mining solo.
 func tipForState(state, mode string) string {
-	if state == "pool_unreachable" && mode == "waiting" {
-		return tipPoolWaiting
+	if mode == "waiting" {
+		switch state {
+		case "pool_unreachable":
+			return tipPoolWaiting
+		case "clock_off":
+			return tipClockWaiting
+		}
 	}
 	if tip, ok := stateTips[state]; ok {
 		return tip

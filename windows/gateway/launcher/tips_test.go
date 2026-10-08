@@ -288,7 +288,8 @@ func TestTheTrayCutsALongText(t *testing.T) {
 // two tips share would hide which it is.
 func TestEveryStateHasItsTip(t *testing.T) {
 	want := map[string]string{"unconfigured": tipSetUp, "node_unreachable": tipNodeUnreachable, "node_login": tipNodeLogin,
-		"node_forbidden": tipNodeForbidden, "node_syncing": tipNodeSyncing, "pool_unreachable": tipPoolSolo, "starting": tipWaitingForWork, "active": tipActive}
+		"node_forbidden": tipNodeForbidden, "node_syncing": tipNodeSyncing, "pool_unreachable": tipPoolSolo, "clock_off": tipClockSolo,
+		"starting": tipWaitingForWork, "active": tipActive}
 	if len(stateTips) != len(want) {
 		t.Errorf("GWL-STATE-TABLE: stateTips has %d states, want the gateway's %d", len(stateTips), len(want))
 	}
@@ -299,6 +300,9 @@ func TestEveryStateHasItsTip(t *testing.T) {
 	}
 	if tipForState("pool_unreachable", "waiting") != tipPoolWaiting || tipForState("pool_unreachable", "solo") != tipPoolSolo {
 		t.Error("GWL-STATE-TABLE: a pool out of reach is not said as the gateway's mode has it")
+	}
+	if tipForState("clock_off", "waiting") != tipClockWaiting || tipForState("clock_off", "solo") != tipClockSolo {
+		t.Error("GWL-STATE-CLOCK: a clock the pool refuses is not said as the gateway's mode has it")
 	}
 	// A node that refuses this PC is not a wrong login: the tray does not send the user to retype
 	// the password in Settings.

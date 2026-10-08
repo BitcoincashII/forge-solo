@@ -28,6 +28,8 @@ func TestTheTrayFollowsTheGatewaysState(t *testing.T) {
 		{"node_syncing", "starting", tipNodeSyncing},
 		{"pool_unreachable", "solo", tipPoolSolo},
 		{"pool_unreachable", "waiting", tipPoolWaiting},
+		{"clock_off", "solo", tipClockSolo},
+		{"clock_off", "waiting", tipClockWaiting},
 		{"starting", "starting", tipWaitingForWork},
 		{"active", "tides", tipActive},
 		{"a_state_to_come", "tides", tipRunning},

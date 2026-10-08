@@ -17,8 +17,8 @@ var statePollEvery = 10 * time.Second
 var stateAskTimeout = 3 * time.Second
 
 // stateTips is what the tray says for each state the gateway's /api/status gives. A pool that
-// cannot be reached is said as the gateway's mode has it: mining solo meanwhile, or, with pool only
-// on, miners turned away (tipForState).
+// cannot be reached, or that refuses this PC's clock, is said as the gateway's mode has it: mining
+// solo meanwhile, or, with pool only on, miners turned away (tipForState).
 var stateTips = map[string]string{
 	"unconfigured":     tipSetUp,
 	"node_unreachable": tipNodeUnreachable,
@@ -26,6 +26,7 @@ var stateTips = map[string]string{
 	"node_forbidden":   tipNodeForbidden,
 	"node_syncing":     tipNodeSyncing,
 	"pool_unreachable": tipPoolSolo,
+	"clock_off":        tipClockSolo,
 	"starting":         tipWaitingForWork,
 	"active":           tipActive,
 }

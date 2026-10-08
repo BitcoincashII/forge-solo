@@ -131,7 +131,7 @@ async function tick(){
   try { const r = await fetch("/api/status",{cache:"no-store"}); s = await r.json(); }
   catch(e){ $("why").textContent = "The gateway is not answering."; return; }
   $("mode").className = "badge "+(BADGE_CLASS[s.state]||"bad");
-  $("mode").textContent = {unconfigured:"Not set up", node_unreachable:"Node unreachable", node_login:"Node login failed", node_forbidden:"Node refuses this computer", node_syncing:"Node syncing", pool_unreachable:(s.mode==="waiting"?"Waiting for pool":"Solo fallback"), starting:"Starting", active:"TIDES"}[s.state]||s.state;
+  $("mode").textContent = {unconfigured:"Not set up", node_unreachable:"Node unreachable", node_login:"Node login failed", node_forbidden:"Node refuses this computer", node_syncing:"Node syncing", pool_unreachable:(s.mode==="waiting"?"Waiting for pool":"Solo fallback"), clock_off:"Clock off", starting:"Starting", active:"TIDES"}[s.state]||s.state;
   $("ver").textContent = "v"+s.version+" · up "+ago(s.uptime_seconds).replace(" ago","");
   $("why").textContent = s.state_reason||"";
   $("setupBanner").hidden = s.configured !== false;

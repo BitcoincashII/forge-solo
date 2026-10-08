@@ -97,6 +97,8 @@ var (
 	statusStopWait = 5 * time.Second
 	// engineStopWait is how long the stop waits for the engine to end.
 	engineStopWait = 5 * time.Second
+	// poolRetryEvery is how often a gateway mining solo meanwhile tries Forge Pool again.
+	poolRetryEvery = time.Minute
 )
 
 // newApp builds the gateway's long-lived parts from cfg, as 1.0.0 built them at start, and starts
@@ -105,6 +107,7 @@ func newApp(log *zap.Logger, cfgPath, password string, key ed25519.PrivateKey, c
 	a := &app{log: log, cfgPath: cfgPath, password: password, started: time.Now(), start: cfg, hist: newJobHistory(),
 		kick: make(chan struct{}, 1), stop: stop, applierDone: make(chan struct{})}
 	a.gw = tidesgw.New(tidesgw.Config{PoolURL: cfg.Pool.URL, Key: key, Logger: log.Named("pool"), PoolOnly: cfg.Mining.PoolOnly,
+		RetryEvery: poolRetryEvery,
 		// Each job commits to a share difficulty above the busiest miner's, so the pool credits
 		// every share in full (srv is set before any job loop, which alone calls this, starts).
 		MaxDifficulty: func() float64 { return a.srv.MaxDifficulty() }})

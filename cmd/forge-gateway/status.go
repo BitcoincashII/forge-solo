@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"runtime"
 	"time"
 
 	"github.com/BitcoincashII/forge-solo/internal/netlisten"
@@ -86,6 +87,11 @@ func (a *app) view(now time.Time) statusView {
 		PoolOnly: cfg.Mining.PoolOnly}
 	v.Configured, v.State, v.StateReason, v.Mode = a.stateNow()
 	v.Pool = poolView{Status: a.gw.Status(), URL: a.start.Pool.URL}
+	// The pool's refusal of this computer's clock is said in words on the Forge Pool card, not as
+	// the pool's JSON answer.
+	if off, refused := poolClockOff(v.Pool.Reason); refused {
+		v.Pool.Reason = clockShort(off, runtime.GOOS == "windows")
+	}
 	v.Node = nodeView{RPCURL: cfg.Node.RPCURL, TemplateAge: -1}
 	if e != nil && e.health != nil {
 		if r := e.health.last.Load(); r != nil && r.err != nil {

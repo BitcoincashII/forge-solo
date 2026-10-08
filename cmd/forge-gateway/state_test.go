@@ -28,6 +28,8 @@ func TestStateTable(t *testing.T) {
 	missing := &fs.PathError{Op: "open", Path: "/n/.cookie", Err: fs.ErrNotExist}
 	behind := tidesgw.Status{NodeBehind: true, Reason: "this BCH2 node is catching up with the chain: it is at block 99, Forge Pool at 101"}
 	unreachable := tidesgw.Status{State: tidesgw.StateFallback, Reason: "the pool did not answer"}
+	// What the pool gateway said on the Windows 11 test PC whose clock was 7 hours fast.
+	clockRefused := tidesgw.Status{State: tidesgw.StateFallback, Reason: `/datum/v1/jobs: 401 Unauthorized: {"error":"request time is -6h59m59s off the pool's clock"}`}
 	setUp := func(f func(in *stateInput)) stateInput {
 		in := stateInput{engine: true, rpcURL: url, health: synced, mode: "tides"}
 		f(&in)
@@ -84,6 +86,24 @@ func TestStateTable(t *testing.T) {
 			setUp(func(in *stateInput) { in.mode = "solo" })},
 		{"9 waiting", statePoolUnreachable, "Forge Pool cannot be reached (the pool did not answer). Pool only is on, so miners are turned away until it is back, and fail over to their backup pool.",
 			setUp(func(in *stateInput) { in.pool, in.mode, in.poolOnly = unreachable, "waiting", true })},
+		{"7b clock off, Windows", stateClockOff, "This PC's clock is about 7 hours off. Forge Pool refuses requests until it is right: " +
+			"turn on Set time automatically in Windows Settings, Time & language. Your miners mine solo on your node meanwhile: " +
+			"a block found now pays your payout address in full. Forge Gateway goes back to the pool by itself once the clock is right.",
+			setUp(func(in *stateInput) { in.pool, in.mode, in.windows = clockRefused, "solo", true })},
+		{"7b clock off, Linux", stateClockOff, "This computer's clock is about 7 hours off. Forge Pool refuses requests until it is right: " +
+			"set it right, for example by turning on network time (timedatectl set-ntp true). Your miners mine solo on your node meanwhile: " +
+			"a block found now pays your payout address in full. Forge Gateway goes back to the pool by itself once the clock is right.",
+			setUp(func(in *stateInput) { in.pool, in.mode = clockRefused, "solo" })},
+		{"7b clock off, pool only", stateClockOff, "This PC's clock is about 7 hours off. Forge Pool refuses requests until it is right: " +
+			"turn on Set time automatically in Windows Settings, Time & language. Pool only is on, so miners are turned away meanwhile, " +
+			"and fail over to their backup pool. Forge Gateway goes back to the pool by itself once the clock is right.",
+			setUp(func(in *stateInput) { in.pool, in.mode, in.poolOnly, in.windows = clockRefused, "waiting", true, true })},
+		{"7b node over clock", stateNodeLogin, "",
+			setUp(func(in *stateInput) { in.pool, in.mode, in.health = clockRefused, "solo", refused })},
+		{"7b a refresh refused while on TIDES work", stateActive, "",
+			setUp(func(in *stateInput) {
+				in.pool = tidesgw.Status{State: tidesgw.StateActive, Reason: "last refresh failed: " + clockRefused.Reason}
+			})},
 		{"10 starting", stateStarting, "Waiting for the first block template from your node and the first job Forge Pool registers.",
 			setUp(func(in *stateInput) { in.mode = "starting" })},
 		{"10 before the first check", stateStarting, "Waiting for the first block template from your node and the first job Forge Pool registers.",
@@ -162,6 +182,36 @@ func TestNodeRefusals(t *testing.T) {
 	}
 	if got := nodeErrorShown(&net.OpError{Op: "dial", Net: "tcp", Err: errors.New("refused")}, false); got != "nothing answers at that address" {
 		t.Errorf("GW-NODE-ERROR-ROW: a closed port: %q", got)
+	}
+}
+
+// Forge Pool's refusal of a request whose time is off its clock is read from the pool gateway's
+// reason, with how far off, in round words; nothing else is taken for it.
+func TestPoolClockRefusal(t *testing.T) {
+	for _, tc := range []struct {
+		reason  string
+		refused bool
+		far     string
+	}{
+		{`/datum/v1/jobs: 401 Unauthorized: {"error":"request time is -6h59m59s off the pool's clock"}`, true, "about 7 hours"},
+		{`/datum/v1/jobs: 401 Unauthorized: {"error":"request time is 3m5s off the pool's clock"}`, true, "about 3 minutes"},
+		{`/datum/v1/jobs: 401 Unauthorized: {"error":"request time is 49h0m0s off the pool's clock"}`, true, "about 2 days"},
+		{`/datum/v1/jobs: 401 Unauthorized: {"error":"request time is 1h2m0s off the pool's clock"}`, true, "about an hour"},
+		{`/datum/v1/jobs: 401 Unauthorized: {"error":"request time is soon off the pool's clock"}`, true, ""},
+		{`/datum/v1/jobs: 401 Unauthorized: {"error":"bad signature"}`, false, ""},
+		{`/datum/v1/jobs: 502 Bad Gateway: request time is 7h0m0s off the pool's clock`, false, ""},
+		{"the pool did not answer", false, ""},
+	} {
+		off, refused := poolClockOff(tc.reason)
+		if refused != tc.refused || howFar(off) != tc.far || poolRefusesClock(tc.reason) != tc.refused {
+			t.Errorf("GW-CLOCK-READ: %q: refused %v, %q", tc.reason, refused, howFar(off))
+		}
+	}
+	if got := clockShort(7*time.Hour, true); got != "this PC's clock is about 7 hours off" {
+		t.Errorf("GW-CLOCK-CARD: %q", got)
+	}
+	if got := clockShort(0, false); got != "this computer's clock is off" {
+		t.Errorf("GW-CLOCK-CARD: %q", got)
 	}
 }
 
@@ -265,7 +315,7 @@ func TestStatusPageShowsTheState(t *testing.T) {
 	}
 	s := string(page)
 	for _, want := range []string{
-		`{unconfigured:"Not set up", node_unreachable:"Node unreachable", node_login:"Node login failed", node_forbidden:"Node refuses this computer", node_syncing:"Node syncing", pool_unreachable:(s.mode==="waiting"?"Waiting for pool":"Solo fallback"), starting:"Starting", active:"TIDES"}[s.state]`,
+		`{unconfigured:"Not set up", node_unreachable:"Node unreachable", node_login:"Node login failed", node_forbidden:"Node refuses this computer", node_syncing:"Node syncing", pool_unreachable:(s.mode==="waiting"?"Waiting for pool":"Solo fallback"), clock_off:"Clock off", starting:"Starting", active:"TIDES"}[s.state]`,
 		`$("why").textContent = s.state_reason`,
 		`.badge.bad{color:var(--bad)}`,
 		"esc(p.state)+(p.reason?`: <span class=\"err\">${esc(p.reason)}</span>`:\"\")",

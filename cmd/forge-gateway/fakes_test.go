@@ -5,16 +5,19 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/BitcoincashII/forge-solo/internal/cashaddr"
+	"github.com/BitcoincashII/forge-solo/internal/datum/wire"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 )
@@ -160,6 +163,53 @@ func (n *fakeNode) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		rpcErr = map[string]interface{}{"code": -32601, "message": "Method not found"}
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{"result": result, "error": rpcErr, "id": "forge-gateway"})
+}
+
+// fakePool is Forge Pool's DATUM API as far as the gateway uses it: the TIDES snapshot, and the jobs
+// and shares it takes, each request checked with wire.Verify, the pool's own check, against the
+// pool's clock, which a test can set off this computer's.
+type fakePool struct {
+	srv  *httptest.Server
+	skew atomic.Int64 // the pool's clock is this many nanoseconds ahead of this computer's
+	jobs atomic.Int64 // jobs registered
+}
+
+// newFakePool is a pool mining the block after the fake node's.
+func newFakePool(t *testing.T, n *fakeNode) *fakePool {
+	p := &fakePool{}
+	blocks := int64(n.get(func(n *fakeNode) int { return int(n.blocks) }))
+	snap := wire.Snapshot{Version: 1, Height: blocks + 1, PrevHash: fakeHash(blocks), Dust: 546,
+		Work: map[string]float64{}, Carry: map[string]int64{}, At: time.Now()}
+	p.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet && r.URL.Path == "/datum/v1/tides" {
+			json.NewEncoder(w).Encode(snap)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		// As the pool's intake answers a request it cannot verify (forge-pool internal/datum/http.go).
+		if _, err := wire.Verify(r, body, time.Now().Add(time.Duration(p.skew.Load()))); err != nil {
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		switch r.URL.Path {
+		case "/datum/v1/jobs":
+			k := p.jobs.Add(1)
+			json.NewEncoder(w).Encode(wire.JobResponse{JobID: fmt.Sprintf("pj%d", k), ShareDifficulty: 1024})
+		case "/datum/v1/shares":
+			json.NewEncoder(w).Encode(wire.ShareBatchResponse{ShareDifficulty: 1024})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(p.srv.Close)
+	return p
+}
+
+// poolConfig is nodeConfig with Forge Pool at p.
+func poolConfig(t *testing.T, n *fakeNode, p *fakePool) string {
+	return strings.Replace(nodeConfig(t, n), `"url":"`+unreachablePool+`"`, `"url":"`+p.srv.URL+`"`, 1)
 }
 
 // freeAddr is a 127.0.0.1 address with a port the system has just given out and taken back: the
