@@ -329,3 +329,32 @@ func TestStatusPageShowsTheState(t *testing.T) {
 		t.Error("GW-PAGE-STATE: the page still says why from the mode, or puts an em-dash before the pool's reason")
 	}
 }
+
+// A page left open on a gateway that stopped says so in its badge, and greys out what it showed
+// last: on the Windows 11 test PC it kept a green TIDES badge and the old cards after Quit, with
+// only a short line under the header saying the gateway was not answering.
+func TestThePageSaysWhenTheGatewayIsNotAnswering(t *testing.T) {
+	page, err := os.ReadFile("status.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(page)
+	failed := between(s, "catch(e){", "return; }")
+	for _, want := range []string{
+		`$("mode").className = "badge bad";`,
+		`$("mode").textContent = "Not answering";`,
+		`$("why").textContent = "Forge Gateway is not answering: it has stopped, or it is starting again. What is below is from its last answer.";`,
+		`document.body.classList.add("stale");`,
+	} {
+		if !strings.Contains(failed, want) {
+			t.Errorf("GW-PAGE-STALE: when the gateway does not answer, the page does not run %s", want)
+		}
+	}
+	answered := between(s, "async function tick(){", "const p = s.pool;")
+	if !strings.Contains(answered, `document.body.classList.remove("stale");`) {
+		t.Error("GW-PAGE-STALE-BACK: once the gateway answers again, the page stays greyed out")
+	}
+	if !strings.Contains(s, `body.stale .grid,body.stale .tablewrap{opacity:.45}`) {
+		t.Error("GW-PAGE-STALE-STYLE: the page has no greyed-out style for what it showed last")
+	}
+}

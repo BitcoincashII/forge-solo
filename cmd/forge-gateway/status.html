@@ -52,6 +52,7 @@ input.txt:disabled{opacity:.7}
 .actions{margin-top:16px}
 .status{margin-left:12px;font-size:13px}
 [hidden]{display:none!important}
+body.stale .grid,body.stale .tablewrap{opacity:.45}
 </style>
 </head>
 <body>
@@ -129,7 +130,14 @@ const BADGE_CLASS = {active:"good", pool_unreachable:"warn", node_syncing:"warn"
 async function tick(){
   let s;
   try { const r = await fetch("/api/status",{cache:"no-store"}); s = await r.json(); }
-  catch(e){ $("why").textContent = "The gateway is not answering."; return; }
+  catch(e){
+    // A page left open on a gateway that stopped must not go on showing it at work.
+    $("mode").className = "badge bad";
+    $("mode").textContent = "Not answering";
+    $("why").textContent = "Forge Gateway is not answering: it has stopped, or it is starting again. What is below is from its last answer.";
+    document.body.classList.add("stale");
+    return; }
+  document.body.classList.remove("stale");
   $("mode").className = "badge "+(BADGE_CLASS[s.state]||"bad");
   $("mode").textContent = {unconfigured:"Not set up", node_unreachable:"Node unreachable", node_login:"Node login failed", node_forbidden:"Node refuses this computer", node_syncing:"Node syncing", pool_unreachable:(s.mode==="waiting"?"Waiting for pool":"Solo fallback"), clock_off:"Clock off", starting:"Starting", active:"TIDES"}[s.state]||s.state;
   $("ver").textContent = "v"+s.version+" · up "+ago(s.uptime_seconds).replace(" ago","");
