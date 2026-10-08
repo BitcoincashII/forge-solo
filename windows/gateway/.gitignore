@@ -1,0 +1,4 @@
+# Compiled / built artifacts
+bin/
+ForgeGateway-Setup-*.exe
+launcher/rsrc.syso
