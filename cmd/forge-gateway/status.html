@@ -34,9 +34,24 @@ th{color:var(--muted);font-weight:600;font-size:13px}
 tr:last-child td{border-bottom:0}
 td.num,th.num{text-align:right}
 .err{color:var(--bad)}
+.ok{color:var(--good)}
 .empty{color:var(--muted);padding:12px}
 footer{margin-top:24px;color:var(--muted);font-size:12px}
 footer a{color:inherit}
+.banner{background:var(--card);border:1px solid var(--warn);color:var(--warn);border-radius:10px;padding:12px 14px;margin-bottom:12px;font-weight:600}
+.banner a{color:inherit}
+.form{max-width:760px}
+label.fld{display:block;margin:14px 0 6px;font-size:13px;color:var(--muted)}
+input.txt{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:9px 11px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px}
+input.txt:disabled{opacity:.7}
+#gwPw{-webkit-text-security:disc}
+.choice{display:flex;gap:8px;align-items:center;margin:8px 0;font-size:14px}
+.note{color:var(--muted);font-size:13px;line-height:1.55;margin:8px 0 0}
+.cta{background:var(--accent);color:var(--card);border:0;border-radius:8px;padding:10px 18px;font-weight:700;font-size:14px;cursor:pointer}
+.cta:disabled{opacity:.5;cursor:default}
+.actions{margin-top:16px}
+.status{margin-left:12px;font-size:13px}
+[hidden]{display:none!important}
 </style>
 </head>
 <body>
@@ -47,6 +62,7 @@ footer a{color:inherit}
   <span class="ver" id="ver"></span>
   <div class="why" id="why">Connecting…</div>
 </header>
+<div class="banner" id="setupBanner" hidden>Forge Gateway is not set up yet: enter your node's RPC address and login and your BCH2 payout address in <a href="#settings">Settings</a> below, then save. It starts mining as soon as they are saved.</div>
 <div class="grid">
   <div class="card"><h2>Forge Pool</h2><dl id="pool"></dl></div>
   <div class="card"><h2>Your node</h2><dl id="node"></dl></div>
@@ -55,6 +71,45 @@ footer a{color:inherit}
 </div>
 <section><h2>Workers</h2><div class="tablewrap" id="workers"></div></section>
 <section><h2>Blocks found</h2><div class="tablewrap" id="blocks"></div></section>
+<section id="settings"><h2>Settings</h2>
+<div class="card form">
+  <p class="note err" id="settingsLoadError" hidden>Forge Gateway's saved settings could not be loaded, so nothing can be saved yet. Reload the page in a minute.</p>
+  <p class="note" id="settingsReadOnly" hidden></p>
+  <label class="fld" for="rpcUrl">Your node's RPC address</label>
+  <input class="txt" id="rpcUrl" type="text" spellcheck="false" autocapitalize="none" autocomplete="off" placeholder="http://127.0.0.1:8342">
+  <label class="choice"><input type="radio" name="login" id="loginUser" value="user" checked> Log in with the RPC user and password</label>
+  <label class="choice"><input type="radio" name="login" id="loginCookie" value="cookie"> Log in with the node's cookie file</label>
+  <div id="userLogin">
+    <label class="fld" for="rpcUser">RPC user</label>
+    <input class="txt" id="rpcUser" type="text" spellcheck="false" autocapitalize="none" autocomplete="off">
+    <label class="fld" for="rpcPass">RPC password</label>
+    <input class="txt" id="rpcPass" type="password" autocomplete="new-password" placeholder="the node's rpcpassword">
+  </div>
+  <div id="cookieLogin" hidden>
+    <label class="fld" for="cookieFile">Cookie file</label>
+    <input class="txt" id="cookieFile" type="text" spellcheck="false" autocapitalize="none" autocomplete="off" placeholder="C:\...\.cookie">
+    <p class="note">The node writes a new cookie each time it starts; Forge Gateway reads the new one by itself.</p>
+  </div>
+  <p class="note">Forge Gateway builds every block from your own BCH2 node. In the node's config file set server=1 and rpcuser and rpcpassword (or use its .cookie file), then restart the node. A node on this computer answers at http://127.0.0.1:8342.</p>
+  <label class="fld" for="payout">BCH2 payout address (required)</label>
+  <input class="txt" id="payout" type="text" spellcheck="false" autocapitalize="none" autocomplete="off" placeholder="bitcoincashii:q...">
+  <label class="fld" for="cbTag">Coinbase tag (optional, up to 24 characters)</label>
+  <input class="txt" id="cbTag" type="text" maxlength="24" spellcheck="false" autocomplete="off">
+  <label class="choice"><input type="checkbox" id="poolOnly"> Pool only</label>
+  <p class="note">Turn miners away while Forge Pool cannot be reached, instead of mining solo, so they fail over to their backup pool. Set it on a gateway that serves other people's addresses: a solo block pays only your payout address.</p>
+  <div id="pwBlock">
+    <label class="fld" for="gwPw">Forge Gateway's settings password (needed to save)</label>
+    <!-- A text box, not a password box, so browsers do not offer their saved passwords here. It is masked all the same. -->
+    <input class="txt" id="gwPw" type="text" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" spellcheck="false" autocapitalize="none" autocorrect="off">
+    <p class="note" id="pwNote">Other programs and accounts on this computer can reach Forge Gateway, so a change here needs its settings password. With the Windows tray app: right-click the Forge Gateway icon in the notification area of the taskbar (if it is not there, click the ^ arrow beside it first) and choose <strong>Copy Settings Password</strong>, then paste it here. Otherwise it is the SETTINGS_PASSWORD Forge Gateway was started with. This browser remembers it once a save succeeds.</p>
+  </div>
+  <div class="actions" id="saveRow">
+    <button class="cta" id="saveBtn" type="button" disabled>Save settings</button>
+    <span class="status" id="saveStatus"></span>
+  </div>
+  <p class="note">Saved settings take effect at once: Forge Gateway reconnects to your node and to Forge Pool, and your miners get new work within seconds. A new payout address makes your miners reconnect once. Shares already credited to a wrong but valid payout address stay with it, so check it.</p>
+</div>
+</section>
 <footer>A DATUM-style gateway: your node builds the block, and every block pays Forge Pool's TIDES split straight from its coinbase, with no pool fee.
 DATUM and TIDES were designed by <a href="https://ocean.xyz" rel="noopener">OCEAN</a>; this project is not affiliated with OCEAN. See LICENSE.</footer>
 </main>
@@ -79,6 +134,7 @@ async function tick(){
   $("mode").textContent = {unconfigured:"Not set up", node_unreachable:"Node unreachable", node_login:"Node login failed", node_syncing:"Node syncing", pool_unreachable:(s.mode==="waiting"?"Waiting for pool":"Solo fallback"), starting:"Starting", active:"TIDES"}[s.state]||s.state;
   $("ver").textContent = "v"+s.version+" · up "+ago(s.uptime_seconds).replace(" ago","");
   $("why").textContent = s.state_reason||"";
+  $("setupBanner").hidden = s.configured !== false;
   const p = s.pool;
   dl($("pool"), [
     ["State", esc(p.state)+(p.reason?`: <span class="err">${esc(p.reason)}</span>`:"")],
@@ -125,7 +181,99 @@ async function tick(){
     b.map(x=>`<tr><td class="num">${num(x.height)}</td><td class="mono">${esc(x.hash.slice(0,16))}…</td><td>${x.tides?"TIDES split":"solo"}</td><td class="${x.result==="accepted"?"":"err"}">${esc(x.result)}</td><td>${esc(x.worker)}</td><td>${since(x.at)}</td></tr>`).join("")+"</tbody></table>"
     : `<div class="empty">None yet.</div>`;
 }
-tick(); setInterval(tick, 5000);
+
+// Settings. The form is filled from the saved settings when the page opens and after a save, never
+// while someone types; until it has been, nothing can be saved, so a save never sends boxes that
+// were not filled from what is saved.
+const PW_KEY = "forgeGatewayPassword";
+const PW_WHERE = "Copy it again: right-click the Forge Gateway icon in the notification area, then Copy Settings Password.";
+const FIELD = {"node.rpc_url":"rpcUrl", "node.rpc_user":"rpcUser", "node.rpc_password":"rpcPass", "node.rpc_cookie_file":"cookieFile", "mining.payout_address":"payout", "mining.coinbase_tag":"cbTag"};
+const INPUTS = ["rpcUrl","loginUser","loginCookie","rpcUser","rpcPass","cookieFile","payout","cbTag","poolOnly"];
+let settingsLoaded = false, pwLength = 64;
+function rememberedPw(){ try{ return localStorage.getItem(PW_KEY)||""; }catch(e){ return ""; } }
+function rememberPw(v){ try{ if(v){ localStorage.setItem(PW_KEY,v); } else { localStorage.removeItem(PW_KEY); } }catch(e){} }
+function showLogin(){ const cookie = $("loginCookie").checked; $("userLogin").hidden = cookie; $("cookieLogin").hidden = !cookie; }
+function saveSays(cls, text){ const st = $("saveStatus"); st.className = "status "+cls; st.textContent = text; }
+async function loadSettings(){
+  let d = null;
+  try { const r = await fetch("/api/settings",{cache:"no-store"}); if(r.ok) d = await r.json(); } catch(e){}
+  if(!d || typeof d!=="object" || !d.node || !d.mining){
+    settingsLoaded = false;
+    $("settingsLoadError").hidden = false;
+    $("saveBtn").disabled = true;
+    return;
+  }
+  $("settingsLoadError").hidden = true;
+  if(d.password_length>0) pwLength = d.password_length;
+  $("rpcUrl").value = d.node.rpc_url||"";
+  const cookie = !d.node.rpc_user && !!d.node.rpc_cookie_file;
+  $("loginCookie").checked = cookie; $("loginUser").checked = !cookie;
+  $("rpcUser").value = d.node.rpc_user||"";
+  $("rpcPass").value = "";
+  $("rpcPass").placeholder = d.node.rpc_password_set ? "saved: leave empty to keep it" : "the node's rpcpassword";
+  $("cookieFile").value = d.node.rpc_cookie_file||"";
+  $("payout").value = d.mining.payout_address||"";
+  $("cbTag").value = d.mining.coinbase_tag||"";
+  $("poolOnly").checked = d.mining.pool_only===true;
+  showLogin();
+  const readOnly = d.editable!==true;
+  $("settingsReadOnly").hidden = !readOnly;
+  $("settingsReadOnly").textContent = "This Forge Gateway was started without a settings password, so these settings can only be read here. To change them, edit "+(d.config_path||"its config file")+", then restart Forge Gateway.";
+  INPUTS.forEach(id => { $(id).disabled = readOnly; });
+  $("pwBlock").hidden = readOnly; $("saveRow").hidden = readOnly;
+  if(!$("gwPw").value) $("gwPw").value = rememberedPw();
+  settingsLoaded = true;
+  $("saveBtn").disabled = readOnly;
+}
+async function saveSettings(){
+  if(!settingsLoaded) return;
+  const pw = $("gwPw").value.trim();
+  if(!pw){ saveSays("err", "Enter Forge Gateway's settings password above the Save button first. Nothing was saved."); $("gwPw").focus(); return; }
+  // The likeliest slip: copying the payout address after the password puts the address here.
+  if(/^(bitcoincashii:|bitcoincash:)/i.test(pw)){ saveSays("err", "That is an address, not Forge Gateway's settings password. Nothing was saved. "+PW_WHERE); $("gwPw").focus(); return; }
+  const cookie = $("loginCookie").checked;
+  const body = {node:{rpc_url:$("rpcUrl").value, rpc_user:cookie?"":$("rpcUser").value, rpc_password:cookie?"":$("rpcPass").value, rpc_cookie_file:cookie?$("cookieFile").value:""},
+    mining:{payout_address:$("payout").value, coinbase_tag:$("cbTag").value, pool_only:$("poolOnly").checked}};
+  saveSays("", "Saving…");
+  let status = 0, d = null;
+  try {
+    const r = await fetch("/api/settings",{method:"POST", headers:{"Content-Type":"application/json","X-Forge-Password":pw}, body:JSON.stringify(body)});
+    status = r.status;
+    try { d = await r.json(); } catch(e){ d = null; }
+  } catch(e){ status = 0; }
+  const said = d && typeof d==="object" && typeof d.error==="string";
+  if(d && d.success===true){
+    rememberPw(pw);
+    saveSays("ok", d.message||"Saved.");
+    loadSettings();
+    tick();
+  } else if(said && d.password_wrong){
+    rememberPw(""); $("gwPw").value = "";
+    let m = "That is not Forge Gateway's settings password. Nothing was saved. ";
+    // How long it is shows a cut-off copy or extra text, without showing the entry itself.
+    if(!new RegExp("^[0-9a-fA-F]{"+pwLength+"}$").test(pw)) m += "It is "+pwLength+" characters, only 0–9 and a–f; what was entered was "+pw.length+" characters. ";
+    saveSays("err", m+PW_WHERE);
+    $("gwPw").focus();
+  } else if(said && ((status>=400 && status<500) || status===500 || status===503)){
+    const e = String(d.error);
+    saveSays("err", "Error: "+e+(/nothing was (saved|changed)/i.test(e)?"":" Nothing was saved."));
+    if(d.field && FIELD[d.field]) $(FIELD[d.field]).focus();
+  } else if(status===0 || status===502 || status===503){
+    saveSays("err", "Forge Gateway is not answering right now (it may be restarting), so nothing was saved. Your entries are still here: press Save again in a minute.");
+  } else {
+    saveSays("err", "Forge Gateway did not answer properly (HTTP "+status+"), so this save may or may not have gone through. Reload the page in a minute to see what is saved.");
+  }
+}
+$("loginUser").addEventListener("change", showLogin);
+$("loginCookie").addEventListener("change", showLogin);
+$("saveBtn").addEventListener("click", saveSettings);
+$("gwPw").addEventListener("keydown", e => { if(e.key==="Enter") saveSettings(); });
+loadSettings();
+
+// Opened at #settings (the tray app opens a fresh install there): the cards above fill in after
+// the page opens, so the card is brought into view again once they have.
+tick().then(() => { if(location.hash==="#settings") $("settings").scrollIntoView(); });
+setInterval(tick, 5000);
 </script>
 </body>
 </html>

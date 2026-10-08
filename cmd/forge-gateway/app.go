@@ -20,16 +20,17 @@ import (
 // shares, the status page. The node, its job loop and its health check are an engine, which
 // re-read settings replace without a restart.
 type app struct {
-	log     *zap.Logger
-	cfgPath string
-	started time.Time
-	start   *Config // the pool, the stratum and the status page are this config's until a restart
-	gw      *tidesgw.Gateway
-	srv     *stratum.Server
-	hist    *jobHistory
-	proc    *processor
-	jobIDs  atomic.Uint64 // every engine's jobs are numbered from this one count
-	eng     atomic.Pointer[engine]
+	log      *zap.Logger
+	cfgPath  string
+	password string // SETTINGS_PASSWORD; "" when Settings can only be read
+	started  time.Time
+	start    *Config // the pool, the stratum and the status page are this config's until a restart
+	gw       *tidesgw.Gateway
+	srv      *stratum.Server
+	hist     *jobHistory
+	proc     *processor
+	jobIDs   atomic.Uint64 // every engine's jobs are numbered from this one count
+	eng      atomic.Pointer[engine]
 
 	saveMu sync.Mutex // one change of the config file, or one re-read of it, at a time
 	pendMu sync.Mutex
@@ -100,16 +101,25 @@ var (
 
 // newApp builds the gateway's long-lived parts from cfg, as 1.0.0 built them at start, and starts
 // the applier. Nothing listens yet.
-func newApp(log *zap.Logger, cfgPath string, key ed25519.PrivateKey, cfg *Config, stop <-chan struct{}) *app {
-	a := &app{log: log, cfgPath: cfgPath, started: time.Now(), start: cfg, hist: newJobHistory(),
+func newApp(log *zap.Logger, cfgPath, password string, key ed25519.PrivateKey, cfg *Config, stop <-chan struct{}) *app {
+	a := &app{log: log, cfgPath: cfgPath, password: password, started: time.Now(), start: cfg, hist: newJobHistory(),
 		kick: make(chan struct{}, 1), stop: stop, applierDone: make(chan struct{})}
 	a.gw = tidesgw.New(tidesgw.Config{PoolURL: cfg.Pool.URL, Key: key, Logger: log.Named("pool"), PoolOnly: cfg.Mining.PoolOnly,
 		// Each job commits to a share difficulty above the busiest miner's, so the pool credits
 		// every share in full (srv is set before any job loop, which alone calls this, starts).
 		MaxDifficulty: func() float64 { return a.srv.MaxDifficulty() }})
 	a.proc = &processor{log: log, gw: a.gw, hist: a.hist, stats: newMinerStats()}
+	a.srv = newStratum(cfg, log, a.proc)
+	// No miner is let in before there is work for it: the first engine's job loop opens the door.
+	a.srv.SetAcceptGate(func() bool { return false })
+	go a.applier()
+	return a
+}
+
+// newStratum is the stratum server the miners connect to, as 1.0.0 made it.
+func newStratum(cfg *Config, log *zap.Logger, proc *processor) *stratum.Server {
 	host, port, _ := hostPort(cfg.Stratum.Listen)
-	a.srv = stratum.NewServer(&stratum.ServerConfig{
+	return stratum.NewServer(&stratum.ServerConfig{
 		Host:                host,
 		Port:                port,
 		MaxConnections:      cfg.Stratum.MaxConnections,
@@ -129,11 +139,7 @@ func newApp(log *zap.Logger, cfgPath string, key ed25519.PrivateKey, cfg *Config
 		// Solo-style logins: a miner's username is its BCH2 address (credited to it at the pool)
 		// or any worker name (credited to the payout address).
 		SoloOnly: true,
-	}, log.Named("stratum"), a.proc)
-	// No miner is let in before there is work for it: the first engine's job loop opens the door.
-	a.srv.SetAcceptGate(func() bool { return false })
-	go a.applier()
-	return a
+	}, log.Named("stratum"), proc)
 }
 
 // reload asks for cfg to be applied. The newest request wins; the applier applies it.
@@ -278,6 +284,7 @@ func (a *app) apply(cfg *Config, problem string) {
 	if a.stopped() {
 		return
 	}
+	before := a.srv.SoloPayoutAddress()
 	a.srv.SetSoloPayoutAddress(payout)
 	a.gw.SetPoolOnly(cfg.Mining.PoolOnly)
 	a.gw.Reset() // the new loop registers with the pool at once
@@ -292,6 +299,14 @@ func (a *app) apply(cfg *Config, problem string) {
 	}
 	a.log.Info(fmt.Sprintf("using the settings: node %s, login %s, payout %s, coinbase tag %s, pool_only %t",
 		cfg.Node.RPCURL, login, payout, cfg.Mining.CoinbaseTag, cfg.Mining.PoolOnly))
+	// A miner that logged in with a worker name was credited, at its login, to the payout address
+	// of then, and only a new login moves it to this one (a miner with its own address stays
+	// credited to it). The listener stays up, so the miners reconnect at once.
+	if before != "" && before != payout {
+		if k := a.srv.DisconnectAll("the payout address changed"); k > 0 {
+			a.log.Info(fmt.Sprintf("the payout address changed: %d miners reconnect, so that those logged in with a worker name are credited to %s", k, payout))
+		}
+	}
 }
 
 // serveStatus starts the status page at addr.

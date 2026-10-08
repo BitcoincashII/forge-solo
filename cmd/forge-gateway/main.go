@@ -177,7 +177,7 @@ func run(cfgPath string, stop <-chan struct{}, asService bool) error {
 		case <-quit:
 		}
 	}()
-	a := newApp(log, cfgPath, key, cfg, quit)
+	a := newApp(log, cfgPath, password, key, cfg, quit)
 	// Asked for before anything listens, so the status page's first answer already says whether
 	// the gateway is set up.
 	a.reload(cfg, problem)

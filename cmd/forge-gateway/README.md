@@ -6,3 +6,5 @@ where it shares the stratum and TIDES code with Forge Solo's TIDES mode; each re
 the commit named in that repository's `FORGE_SOLO_COMMIT`.
 
 To build it (Go as in `go.mod`): `go build -trimpath -o forge-gateway ./cmd/forge-gateway`
+
+Its Windows tray app and installer are in windows/gateway.

@@ -152,7 +152,8 @@ func (a *app) statusHandler() http.Handler {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
-	return mux
+	mux.Handle("/api/settings", a.settingsHandler())
+	return securityHeaders(mux)
 }
 
 // listenStatus is the status page's listener, with exclusive address use on Windows: no other
