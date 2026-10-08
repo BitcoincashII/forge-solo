@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // gwCILines is a step's script as its commands: each line trimmed, without blank lines and
@@ -142,4 +144,47 @@ func TestGatewayCINative(t *testing.T) {
 		`(cd windows/gateway/launcher && go test -count=1 -v ./...) | tee -a "$RUNNER_TEMP/gateway.log"`,
 		`if grep -- '--- SKIP' "$RUNNER_TEMP/gateway.log"; then echo "::error::a test skipped"; exit 1; fi`,
 	)
+}
+
+// Forge Solo's and Forge Gateway's Windows launchers share code and must build with the same module
+// versions (windows/gateway/launcher's drift test). Dependabot updates each folder of an entry in a
+// pull request of its own unless the entry groups them by dependency name: a pull request that
+// updated one launcher alone failed CI until the other was updated too. One entry holds both
+// launchers, grouped by dependency name, so one pull request updates a module in both.
+func TestGatewayCIDependabotUpdatesBothLaunchersTogether(t *testing.T) {
+	var c struct {
+		Updates []struct {
+			Ecosystem   string   `yaml:"package-ecosystem"`
+			Directory   string   `yaml:"directory"`
+			Directories []string `yaml:"directories"`
+			Groups      map[string]struct {
+				GroupBy string `yaml:"group-by"`
+			} `yaml:"groups"`
+		} `yaml:"updates"`
+	}
+	if err := yaml.Unmarshal(mustRead(t, ".github/dependabot.yml"), &c); err != nil {
+		t.Fatal(err)
+	}
+	found := 0
+	for _, u := range c.Updates {
+		dirs := map[string]bool{u.Directory: true}
+		for _, d := range u.Directories {
+			dirs[d] = true
+		}
+		if u.Ecosystem != "gomod" || (!dirs["/windows/launcher"] && !dirs["/windows/gateway/launcher"]) {
+			continue
+		}
+		found++
+		grouped := false
+		for _, g := range u.Groups {
+			grouped = grouped || g.GroupBy == "dependency-name"
+		}
+		if !dirs["/windows/launcher"] || !dirs["/windows/gateway/launcher"] || !grouped {
+			t.Errorf("GW-CI-DEPENDABOT-GROUP: a gomod entry has the directories %v and groups %v: both launchers must be in one entry with a group whose group-by is dependency-name",
+				u.Directories, u.Groups)
+		}
+	}
+	if found != 1 {
+		t.Errorf("GW-CI-DEPENDABOT-GROUP: %d gomod entries name a Windows launcher, want one for both", found)
+	}
 }

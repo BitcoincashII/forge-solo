@@ -5,15 +5,24 @@ updates:
     schedule:
       interval: "weekly"
   # The Go modules and the images the app is built on: fasthttp sat at a version two years and
-  # one advisory old with nothing proposing the update. The Windows launcher is a module of its
+  # one advisory old with nothing proposing the update. The Windows launchers are modules of their
   # own, and Dependabot reads only the directories listed here.
   - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  # Forge Solo's and Forge Gateway's Windows launchers share code and must build with the same
+  # versions (windows/gateway/launcher/drift_test.go). Without the group, Dependabot updates each
+  # folder in a pull request of its own, which fails that test until the other one is updated too.
+  - package-ecosystem: "gomod"
     directories:
-      - "/"
       - "/windows/launcher"
       - "/windows/gateway/launcher"
     schedule:
       interval: "weekly"
+    groups:
+      windows-launchers:
+        group-by: dependency-name
   - package-ecosystem: "docker"
     directories:
       - "/docker/api"
