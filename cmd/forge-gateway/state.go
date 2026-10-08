@@ -238,7 +238,7 @@ func (a *app) stateNow() (configured bool, state, reason, mode string) {
 	e, cfg, problem := a.settingsNow()
 	mode = a.mode(e, cfg, problem, pool)
 	in := stateInput{engine: e != nil, problem: problem, pool: pool, mode: mode, poolOnly: cfg.Mining.PoolOnly,
-		cookie: cfg.Node.RPCUser == "", cookiePath: cfg.Node.RPCCookieFile, rpcURL: cfg.Node.RPCURL, windows: runtime.GOOS == "windows"}
+		cookie: cfg.Node.RPCUser == "", cookiePath: cfg.Node.RPCCookieFile, rpcURL: shownURL(cfg.Node.RPCURL), windows: runtime.GOOS == "windows"}
 	if e != nil {
 		in.loginErr = e.loginErr
 		if e.health != nil {

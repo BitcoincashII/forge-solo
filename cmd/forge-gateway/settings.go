@@ -208,7 +208,7 @@ func (a *app) getSettings(w http.ResponseWriter) {
 	problem := cfg.setupProblem()
 	v := settingsView{Editable: a.password != "", PasswordRequired: a.password != "", PasswordLength: len(a.password),
 		ConfigPath: a.configPath(), Configured: problem == "", Problem: problem}
-	v.Node.RPCURL = cfg.Node.RPCURL
+	v.Node.RPCURL = shownURL(cfg.Node.RPCURL)
 	v.Node.RPCUser = cfg.Node.RPCUser
 	v.Node.RPCPasswordSet = cfg.Node.RPCPassword != ""
 	v.Node.RPCCookieFile = cfg.Node.RPCCookieFile
@@ -294,7 +294,7 @@ func (a *app) postSettings(w http.ResponseWriter, r *http.Request) {
 	if node.RPCUser == "" {
 		login = "cookie file " + node.RPCCookieFile
 	}
-	a.log.Info("settings saved from the status page", zap.String("node", node.RPCURL), zap.String("login", login),
+	a.log.Info("settings saved from the status page", zap.String("node", shownURL(node.RPCURL)), zap.String("login", login),
 		zap.String("payout_address", mining.PayoutAddress), zap.String("coinbase_tag", mining.CoinbaseTag), zap.Bool("pool_only", mining.PoolOnly))
 	message := "Saved. Forge Gateway now works with these settings: your miners get new work from them within seconds."
 	if before, err := tidesgw.CanonicalAddress(cur.Mining.PayoutAddress); err == nil && before != mining.PayoutAddress {
@@ -392,17 +392,37 @@ func checkSettingsForm(f settingsForm, cur *Config) (node nodeSettings, mining m
 	return node, miningSettings{PayoutAddress: canon, CoinbaseTag: tag, PoolOnly: f.Mining.PoolOnly}, "", ""
 }
 
-// goodRPCURL: http or https, a host and a port, nothing that is not printable.
+// goodRPCURL: http or https, a host and a port, nothing that is not printable, and no login written
+// into it (http://user:password@...): the login has boxes of its own, and a password in the address
+// would be shown and logged with it.
 func goodRPCURL(s string) bool {
 	if len(s) > 2048 || hasControl(s) {
 		return false
 	}
 	u, err := url.Parse(s)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil {
 		return false
 	}
 	port, err := strconv.Atoi(u.Port())
 	return err == nil && port >= 1 && port <= 65535
+}
+
+// shownURL is an RPC address as the gateway shows and logs it: without a login written into it
+// (http://user:password@host:port), which a hand-written config may have. The node is logged in to
+// with node.rpc_user and node.rpc_password, or the cookie, never with that.
+func shownURL(s string) string {
+	u, err := url.Parse(s)
+	if err == nil {
+		if u.User == nil {
+			return s
+		}
+		u.User = nil
+		return u.String()
+	}
+	if i, j := strings.Index(s, "//"), strings.LastIndex(s, "@"); i >= 0 && j > i {
+		return s[:i+2] + s[j+1:]
+	}
+	return s
 }
 
 func hasControl(s string) bool {

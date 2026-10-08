@@ -149,7 +149,7 @@ func run(cfgPath string, stop <-chan struct{}, asService bool) error {
 		defer undo()
 	}
 	log.Info("Forge Gateway starting", zap.String("version", version), zap.String("payout_address", cfg.Mining.PayoutAddress),
-		zap.String("pool", cfg.Pool.URL), zap.String("node", cfg.Node.RPCURL), zap.String("stratum", cfg.Stratum.Listen),
+		zap.String("pool", cfg.Pool.URL), zap.String("node", shownURL(cfg.Node.RPCURL)), zap.String("stratum", cfg.Stratum.Listen),
 		zap.Bool("pool_only", cfg.Mining.PoolOnly))
 
 	key, created, err := loadOrCreateKey(cfg.Pool.KeyFile)
@@ -277,10 +277,10 @@ func runCheck(cfgPath string) int {
 		return 1
 	}
 	if ci, err := newNode(cfg.Node.RPCURL, user, pass).chainInfo(); err != nil {
-		fmt.Println("✗ node", cfg.Node.RPCURL+":", err)
+		fmt.Println("✗ node", shownURL(cfg.Node.RPCURL)+":", err)
 		ok = false
 	} else {
-		fmt.Printf("✓ node %s: chain %s, block %d of %d headers", cfg.Node.RPCURL, ci.Chain, ci.Blocks, ci.Headers)
+		fmt.Printf("✓ node %s: chain %s, block %d of %d headers", shownURL(cfg.Node.RPCURL), ci.Chain, ci.Blocks, ci.Headers)
 		if ci.InitialBlockDownload {
 			fmt.Print(" (still syncing: no work until it is done)")
 		}

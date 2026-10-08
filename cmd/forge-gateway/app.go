@@ -301,7 +301,7 @@ func (a *app) apply(cfg *Config, problem string) {
 		login = "cookie file " + cfg.Node.RPCCookieFile
 	}
 	a.log.Info(fmt.Sprintf("using the settings: node %s, login %s, payout %s, coinbase tag %s, pool_only %t",
-		cfg.Node.RPCURL, login, payout, cfg.Mining.CoinbaseTag, cfg.Mining.PoolOnly))
+		shownURL(cfg.Node.RPCURL), login, payout, cfg.Mining.CoinbaseTag, cfg.Mining.PoolOnly))
 	// A miner that logged in with a worker name was credited, at its login, to the payout address
 	// of then, and only a new login moves it to this one (a miner with its own address stays
 	// credited to it). The listener stays up, so the miners reconnect at once.

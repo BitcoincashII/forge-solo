@@ -92,7 +92,7 @@ func (a *app) view(now time.Time) statusView {
 	if off, refused := poolClockOff(v.Pool.Reason); refused {
 		v.Pool.Reason = clockShort(off, runtime.GOOS == "windows")
 	}
-	v.Node = nodeView{RPCURL: cfg.Node.RPCURL, TemplateAge: -1}
+	v.Node = nodeView{RPCURL: shownURL(cfg.Node.RPCURL), TemplateAge: -1}
 	if e != nil && e.health != nil {
 		if r := e.health.last.Load(); r != nil && r.err != nil {
 			v.Node.Error = nodeErrorShown(r.err, e.cfg.Node.RPCUser == "")
