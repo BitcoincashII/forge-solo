@@ -481,7 +481,7 @@ end;`) {
     if Missing <> '' then
       SuppressibleMsgBox(Missing, mbError, MB_OK, IDOK);
   end;
-end;`) || pascalAssignments(install, "Missing") != 4 || !strings.Contains(install, "\n    Missing := '';\n") {
+end;`) || pascalAssignments(install, "Missing") != 5 || !strings.Contains(install, "\n    Missing := '';\n") {
 		t.Errorf("GWI-TELL: a missing rule is not said, with what it means and what to do, in one box with one button:\n%s", install)
 	}
 
@@ -505,7 +505,7 @@ end;`) || pascalAssignments(install, "Missing") != 4 || !strings.Contains(instal
 		t.Errorf("GWI-TELL-UNINSTALL: what the uninstaller leaves is not said, with how to remove it:\n%s", uninstall)
 	}
 	if !strings.Contains(uninstall, "\n  if CurUninstallStep = usPostUninstall then\n  begin\n    if LeftBehind <> '' then\n      SuppressibleMsgBox(LeftBehind, mbError, MB_OK, IDOK);") ||
-		pascalAssignments(gwInstCode(t), "LeftBehind") != 3 {
+		pascalAssignments(gwInstCode(t), "LeftBehind") != 4 {
 		t.Error("GWI-TELL-UNINSTALL-SHOWN: what the uninstaller leaves is not shown once it has finished, in a box with one button")
 	}
 
@@ -518,11 +518,227 @@ end;`) || pascalAssignments(install, "Missing") != 4 || !strings.Contains(instal
 			t.Errorf("GWI-TELL-SILENT: a question with %s answers %s when message boxes are suppressed", m[2], m[3])
 		}
 	}
-	if len(boxes) != strings.Count(code, "SuppressibleMsgBox(") || len(boxes) != 5 {
-		t.Errorf("GWI-TELL-SILENT: %d of the %d message boxes are read here, want 5", len(boxes), strings.Count(code, "SuppressibleMsgBox("))
+	if len(boxes) != strings.Count(code, "SuppressibleMsgBox(") || len(boxes) != 6 {
+		t.Errorf("GWI-TELL-SILENT: %d of the %d message boxes are read here, want 6", len(boxes), strings.Count(code, "SuppressibleMsgBox("))
 	}
 	if regexp.MustCompile(`(^|[^A-Za-z])MsgBox\(`).MatchString(code) {
 		t.Error("GWI-TELL-SILENT: [Code] has a MsgBox, which waits for an answer also when message boxes are suppressed")
+	}
+}
+
+// Forge Gateway 1.0.0 on Windows was a service (forge-gateway.exe install): it starts with Windows
+// as LocalSystem and holds port 3333, so the installed Forge Gateway could not start beside it.
+// Setup looks for it before it closes or replaces anything. One that runs a program in this
+// install's folder is refused: Setup cannot replace it. Otherwise Setup asks, No the default and the
+// answer of a silent run, which changes nothing; Yes stops it through Windows (its own clean stop),
+// then deletes it, in the one elevated step, before the firewall commands, and Setup waits for it
+// to stop and says if it could not be removed. The uninstaller does the same for a service that
+// runs a program from the install's folder.
+func TestGatewayInstallerService(t *testing.T) {
+	code := gwInstCode(t)
+	if !strings.Contains(code, "\n  ServiceName = 'ForgeGateway';\n  ServiceKey = 'SYSTEM\\CurrentControlSet\\Services\\ForgeGateway';\n") {
+		t.Error("GWI-SERVICE-NAME: [Code] does not name the service ForgeGateway, with its key under SYSTEM\\CurrentControlSet\\Services")
+	}
+	for _, c := range []struct{ code, decl, want string }{
+		{"GWI-SERVICE-INSTALLED", "function ServiceInstalled: Boolean;", "\nbegin\n  Result := RegKeyExists(HKLM, ServiceKey);\nend;"},
+		{"GWI-SERVICE-PROGRAM", "function ServiceProgram: String;", "\n  Result := '';\n  if RegQueryStringValue(HKLM, ServiceKey, 'ImagePath', Image) then\n    Result := Image;\nend;"},
+		{"GWI-SERVICE-IN-FOLDER", "function ServiceInThisFolder(Image: String): Boolean;", "\nbegin\n  Result := Pos(InstallFolder, LongPath(ServiceExe(Image))) = 1;\nend;"},
+		{"GWI-SERVICE-EXE", "function ServiceExe(Image: String): String;", `
+begin
+  Image := Trim(Image);
+  if Copy(Image, 1, 1) = '"' then
+  begin
+    Image := Copy(Image, 2, Length(Image));
+    I := Pos('"', Image);
+  end else
+  begin
+    I := Pos('.exe', Lowercase(Image));
+    if I > 0 then
+      I := I + 4;
+  end;
+  if I > 0 then
+    Image := Copy(Image, 1, I - 1);
+  Result := Image;
+end;`},
+		{"GWI-SERVICE-STOPPED", "function ServiceStopped: Boolean;", `
+begin
+  Result := False;
+  Manager := OpenSCManager('', 'ServicesActive', SC_MANAGER_CONNECT);
+  if Manager = 0 then
+  begin
+    Log('Cannot ask Windows about the ForgeGateway service: ' + SysErrorMessage(DLLGetLastError));
+    exit;
+  end;
+  Service := OpenService(Manager, ServiceName, SERVICE_QUERY_STATUS);
+  if Service = 0 then
+    Result := DLLGetLastError = ERROR_SERVICE_DOES_NOT_EXIST
+  else
+  begin
+    if QueryServiceStatus(Service, Status) then
+      Result := Status.CurrentState = SERVICE_STOPPED;
+    CloseServiceHandle(Service);
+  end;
+  CloseServiceHandle(Manager);
+end;`},
+		{"GWI-SERVICE-MARKED", "function ServiceMarkedForDeletion: Boolean;", "\nbegin\n  Result := RegQueryDWordValue(HKLM, ServiceKey, 'DeleteFlag', Flag) and (Flag = 1);\nend;"},
+		{"GWI-SERVICE-ORDER", "function ServiceRemoval: String;", "\nbegin\n  Result := 'sc.exe stop ' + ServiceName + ' >nul 2>&1 & sc.exe delete ' + ServiceName + ' >nul 2>&1 & ';\nend;"},
+		{"GWI-SERVICE-WAIT", "function ServiceRemoved(Ran: Boolean): Boolean;", `
+begin
+  Seconds := 0;
+  Stopped := ServiceStopped;
+  while Ran and not Stopped and (Seconds < StopWait) do
+  begin
+    Waiting;
+    Seconds := Seconds + 1;
+    Stopped := ServiceStopped;
+  end;
+  Result := False;
+  if not Stopped then
+    Log('The Forge Gateway service still runs after ' + IntToStr(Seconds) + ' s')
+  else if ServiceInstalled and not ServiceMarkedForDeletion then
+    Log('The Forge Gateway service is still installed')
+  else
+  begin
+    Log('The Forge Gateway service stopped within ' + IntToStr(Seconds) + ' s');
+    Result := True;
+  end;
+end;`},
+	} {
+		if body := gwInstFunc(t, c.decl); !strings.HasSuffix(body, c.want) {
+			t.Errorf("%s: %s is not as pinned:\n%s", c.code, c.decl, body)
+		}
+	}
+	// The Windows calls as Windows declares them, the Unicode one where there are two, and
+	// SERVICE_STATUS's seven DWORDs with the state second.
+	for _, decl := range []string{
+		"function OpenSCManager(Machine, Database: String; Access: Cardinal): Cardinal;\n  external 'OpenSCManagerW@advapi32.dll stdcall';",
+		"function OpenService(Manager: Cardinal; Name: String; Access: Cardinal): Cardinal;\n  external 'OpenServiceW@advapi32.dll stdcall';",
+		"function QueryServiceStatus(Service: Cardinal; var Status: TServiceStatus): Bool;\n  external 'QueryServiceStatus@advapi32.dll stdcall';",
+		"function CloseServiceHandle(Handle: Cardinal): Bool;\n  external 'CloseServiceHandle@advapi32.dll stdcall';",
+		"\n  TServiceStatus = record\n    ServiceType, CurrentState, ControlsAccepted, Win32ExitCode, ServiceSpecificExitCode, CheckPoint, WaitHint: Cardinal;\n  end;\n",
+		"\n  SC_MANAGER_CONNECT = $0001;\n  SERVICE_QUERY_STATUS = $0004;\n  SERVICE_STOPPED = 1;\n  ERROR_SERVICE_DOES_NOT_EXIST = 1060;\n",
+	} {
+		if !strings.Contains(code, decl) {
+			t.Errorf("GWI-SERVICE-CALLS: [Code] lacks, as Windows declares it:\n%s", decl)
+		}
+	}
+
+	// Setup: before anything is closed; its own folder refused; Yes alone removes it.
+	prepare := gwInstFunc(t, "function PrepareToInstall(var NeedsRestart: Boolean): String;")
+	if i, j := strings.Index(prepare, "\n  if ServiceInstalled then\n"), strings.Index(prepare, "StopForgeGateway"); i < 0 || j < 0 || i > j {
+		t.Errorf("GWI-SERVICE-FIRST: Setup does not look at the service before it closes Forge Gateway:\n%s", prepare)
+	}
+	if !strings.Contains(prepare, `
+  Result := '';
+  RemoveService := False;
+  if ServiceInstalled then
+  begin
+    Image := ServiceProgram;
+    Log('A ForgeGateway Windows service is installed: ' + Image);
+    if ServiceInThisFolder(Image) then
+    begin
+      Result := 'Forge Gateway runs as a Windows service from this install''s folder, so Setup ' +
+        'changed nothing. Remove the service first: in a Command Prompt run as administrator, run ' +
+        'sc stop ForgeGateway, then sc delete ForgeGateway. Then run Setup again.';
+      exit;
+    end;
+`) {
+		t.Errorf("GWI-SERVICE-OWN-FOLDER: a service that runs a program in this install's folder is not refused first, with what to do:\n%s", prepare)
+	}
+	if !strings.Contains(prepare, `
+    if SuppressibleMsgBox('Forge Gateway is installed on this PC as a Windows service (ForgeGateway):' + #13#10 +
+      Image + #13#10#13#10 +
+      'It starts with Windows and uses port 3333, so the Forge Gateway you are installing could not ' +
+      'start beside it. Setup can stop it cleanly and remove it, in the step that adds the firewall ' +
+      'rule, so Windows asks only once. Its config file and its key stay where they are; enter the ' +
+      'same node and payout address in Settings afterwards.' + #13#10#13#10 +
+      'Stop and remove the service? No changes nothing.',
+      mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES then
+    begin
+      RemoveService := True;
+      Log('The ForgeGateway service is stopped and removed in the elevated step');
+    end else
+    begin
+      Log('The ForgeGateway service stays: Setup changes nothing');
+      Result := 'Forge Gateway''s Windows service is still installed, so Setup changed nothing. Run ' +
+        'Setup again and choose Yes to remove it, or remove it yourself: in a Command Prompt run as ' +
+        'administrator, run sc stop ForgeGateway, then sc delete ForgeGateway.';
+      exit;
+    end;
+  end;
+`) {
+		t.Errorf("GWI-SERVICE-ASK: Setup does not ask, No the default and the silent answer, and change nothing on No:\n%s", prepare)
+	}
+	if n := pascalAssignments(code, "RemoveService"); n != 2 {
+		t.Errorf("GWI-SERVICE-ONLY-YES: RemoveService is set %d times, want 2 (False, then True on Yes)", n)
+	}
+
+	// Install: removed only with the Yes, before any netsh command, then waited for.
+	install := gwInstFunc(t, "procedure CurStepChanged(CurStep: TSetupStep);")
+	if !strings.Contains(install, `
+    Cmd := '/c ';
+    if RemoveService then
+      Cmd := Cmd + ServiceRemoval;
+    Cmd := Cmd +
+      'netsh advfirewall firewall delete rule name="Forge Gateway" >nul 2>&1 & ' +
+      FirewallRule('Forge Gateway Miner (3333)', 'forge-gateway.exe', '3333', 'private,domain');
+    Ran := Elevated(Cmd);
+    Missing := '';
+    if RemoveService then
+      if not ServiceRemoved(Ran) then
+        Missing := 'Forge Gateway is installed, but Setup could not remove the ForgeGateway Windows ' +
+          'service, which keeps port 3333, so Forge Gateway cannot start until it is gone. In a ' +
+          'Command Prompt run as administrator, run sc stop ForgeGateway, then sc delete ForgeGateway.' + #13#10#13#10;
+    InPlace := RulesInPlace;
+`) {
+		t.Errorf("GWI-SERVICE-INSTALL: the install's elevated step does not stop, then delete, the service before its firewall commands only when the user said Yes, or does not wait for it and say when it could not be removed:\n%s", install)
+	}
+	// Uninstall: only a service whose program is in this install's folder.
+	uninstall := gwInstFunc(t, "procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);")
+	if !strings.Contains(uninstall, `
+    OwnService := ServiceInstalled and ServiceInThisFolder(ServiceProgram);
+    Cmd := '/c ';
+    if OwnService then
+      Cmd := Cmd + ServiceRemoval;
+    Cmd := Cmd +
+      FirewallRemove('Forge Gateway Miner (3333)') +
+      'netsh advfirewall firewall delete rule name="Forge Gateway" & ';
+    Ran := Elevated(Cmd);
+    if OwnService then
+      if not ServiceRemoved(Ran) then
+        LeftBehind := 'Forge Gateway is removed, but the uninstaller could not remove the ForgeGateway ' +
+          'Windows service, which runs forge-gateway.exe from its folder. In a Command Prompt run as ' +
+          'administrator, run sc stop ForgeGateway, then sc delete ForgeGateway.' + #13#10#13#10;
+`) {
+		t.Errorf("GWI-SERVICE-UNINSTALL: the uninstaller does not remove, before the rules, a service that runs a program from this install's folder, or does not say when it could not:\n%s", uninstall)
+	}
+	if n := strings.Count(code, "ServiceRemoval"); n != 3 {
+		t.Errorf("GWI-SERVICE-ONLY-HERE: ServiceRemoval appears %d times, want its declaration and the two steps", n)
+	}
+	// Every command the texts give names the service by ServiceName.
+	for _, m := range regexp.MustCompile(`sc (?:stop|delete) (\w+)`).FindAllStringSubmatch(pascalLiterals(code), -1) {
+		if m[1] != "ForgeGateway" {
+			t.Errorf("GWI-SERVICE-TEXT-NAME: a text says %q; the service is ForgeGateway", m[0])
+		}
+	}
+}
+
+// Forge Gateway 1.0.0's guide had users add a rule named "Forge Gateway": TCP 3333 for any program.
+// The installer's rule lets in only forge-gateway.exe, and the install and the uninstall both delete
+// the old one; nothing adds it.
+func TestGatewayInstallerOldRule(t *testing.T) {
+	install := gwInstFunc(t, "procedure CurStepChanged(CurStep: TSetupStep);")
+	uninstall := gwInstFunc(t, "procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);")
+	if strings.Count(install, `'netsh advfirewall firewall delete rule name="Forge Gateway" >nul 2>&1 & '`) != 1 {
+		t.Error("GWI-OLD-RULE-INSTALL: the install does not delete the rule named Forge Gateway")
+	}
+	if strings.Count(uninstall, `'netsh advfirewall firewall delete rule name="Forge Gateway" & '`) != 1 {
+		t.Error("GWI-OLD-RULE-UNINSTALL: the uninstall does not delete the rule named Forge Gateway")
+	}
+	code := gwInstCode(t)
+	if strings.Contains(code, `add rule name="Forge Gateway"`) || strings.Count(code, "add rule name=") != 1 ||
+		regexp.MustCompile(`Firewall(?:Rule|Remove)\('Forge Gateway'`).MatchString(code) {
+		t.Error("GWI-OLD-RULE-NOT-ADDED: the installer adds a rule other than its own, or one named Forge Gateway")
 	}
 }
 

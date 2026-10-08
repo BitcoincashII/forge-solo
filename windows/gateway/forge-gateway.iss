@@ -73,11 +73,15 @@ Filename: "{app}\{#MyAppExe}"; Description: "Launch Forge Gateway now"; Flags: n
 // One elevated step (a single UAC prompt) at install:
 //  - inbound TCP 3333 for forge-gateway.exe: a miner on the network can reach the gateway
 //    (private/domain only). Mining from THIS PC (127.0.0.1:3333) needs no rule at all.
+//  - the rule named "Forge Gateway" goes: the guide of Forge Gateway 1.0.0 had users add it, and it
+//    let any program in on port 3333.
+//  - with the user's Yes, a Forge Gateway Windows service (1.0.0's, say) is stopped and removed:
+//    it starts with Windows and holds port 3333, so the tray's gateway could not start beside it.
 //
 // Windows' prompt for that step names Windows Command Processor, not Forge Gateway, so the Ready
-// page and the uninstaller's question say beforehand what it is for. Afterwards the rule is
-// checked: if the prompt was refused, or the step failed, Setup says what is missing, what that
-// means and how to put it right, and logs it.
+// page and the uninstaller's question say beforehand what it is for. Afterwards the rule and the
+// service are checked: if the prompt was refused, or the step failed, Setup says what is missing,
+// what that means and how to put it right, and logs it.
 
 // RuleName is the name of the firewall rule of the install for the Windows account called Account:
 // the base name, for that account. Two accounts on one PC can each install Forge Gateway, and each
@@ -516,11 +520,191 @@ begin
     'changes nothing.', mbError, MB_RETRYCANCEL, IDCANCEL) <> IDRETRY;
 end;
 
-// Setup closes Forge Gateway before Windows' Restart Manager looks for programs that use the files
-// it replaces: Inno Setup calls PrepareToInstall first.
-function PrepareToInstall(var NeedsRestart: Boolean): String;
+// A Forge Gateway Windows service.
+//
+// forge-gateway.exe install (the zip's way, Forge Gateway 1.0.0's only one on Windows) makes a
+// service that starts with Windows as LocalSystem and holds port 3333 and the status page's port,
+// so the tray's gateway could not start beside it. Setup says so and asks; with a Yes the elevated
+// step stops it through Windows, which is its own clean stop (its miners closed, its queued shares
+// sent), and deletes it. No, or a silent run, changes nothing. Its config file and its key stay
+// where they are. Its key in the registry and its state can be read without administrator rights.
+
+const
+  // serviceName in cmd/forge-gateway/service_windows.go.
+  ServiceName = 'ForgeGateway';
+  ServiceKey = 'SYSTEM\CurrentControlSet\Services\ForgeGateway';
+  SC_MANAGER_CONNECT = $0001;
+  SERVICE_QUERY_STATUS = $0004;
+  SERVICE_STOPPED = 1;
+  ERROR_SERVICE_DOES_NOT_EXIST = 1060;
+
+type
+  // SERVICE_STATUS: seven DWORDs, the state the second.
+  TServiceStatus = record
+    ServiceType, CurrentState, ControlsAccepted, Win32ExitCode, ServiceSpecificExitCode, CheckPoint, WaitHint: Cardinal;
+  end;
+
+function OpenSCManager(Machine, Database: String; Access: Cardinal): Cardinal;
+  external 'OpenSCManagerW@advapi32.dll stdcall';
+function OpenService(Manager: Cardinal; Name: String; Access: Cardinal): Cardinal;
+  external 'OpenServiceW@advapi32.dll stdcall';
+function QueryServiceStatus(Service: Cardinal; var Status: TServiceStatus): Bool;
+  external 'QueryServiceStatus@advapi32.dll stdcall';
+function CloseServiceHandle(Handle: Cardinal): Bool;
+  external 'CloseServiceHandle@advapi32.dll stdcall';
+
+var
+  // Set in PrepareToInstall when the user said Yes to removing the service.
+  RemoveService: Boolean;
+
+// ServiceInstalled is whether a ForgeGateway Windows service is installed on this PC.
+function ServiceInstalled: Boolean;
+begin
+  Result := RegKeyExists(HKLM, ServiceKey);
+end;
+
+// ServiceProgram is the service's command line (ImagePath), or '' if it has none.
+function ServiceProgram: String;
+var Image: String;
 begin
   Result := '';
+  if RegQueryStringValue(HKLM, ServiceKey, 'ImagePath', Image) then
+    Result := Image;
+end;
+
+// ServiceExe is the program in the command line Image: the quoted part at its start, or, unquoted,
+// up to the end of its .exe.
+function ServiceExe(Image: String): String;
+var I: Integer;
+begin
+  Image := Trim(Image);
+  if Copy(Image, 1, 1) = '"' then
+  begin
+    Image := Copy(Image, 2, Length(Image));
+    I := Pos('"', Image);
+  end else
+  begin
+    I := Pos('.exe', Lowercase(Image));
+    if I > 0 then
+      I := I + 4;
+  end;
+  if I > 0 then
+    Image := Copy(Image, 1, I - 1);
+  Result := Image;
+end;
+
+// ServiceInThisFolder is whether the service with the command line Image runs a program in this
+// install's folder.
+function ServiceInThisFolder(Image: String): Boolean;
+begin
+  Result := Pos(InstallFolder, LongPath(ServiceExe(Image))) = 1;
+end;
+
+// ServiceStopped is whether the ForgeGateway service is stopped, or gone.
+function ServiceStopped: Boolean;
+var Manager, Service: Cardinal; Status: TServiceStatus;
+begin
+  Result := False;
+  Manager := OpenSCManager('', 'ServicesActive', SC_MANAGER_CONNECT);
+  if Manager = 0 then
+  begin
+    Log('Cannot ask Windows about the ForgeGateway service: ' + SysErrorMessage(DLLGetLastError));
+    exit;
+  end;
+  Service := OpenService(Manager, ServiceName, SERVICE_QUERY_STATUS);
+  if Service = 0 then
+    Result := DLLGetLastError = ERROR_SERVICE_DOES_NOT_EXIST
+  else
+  begin
+    if QueryServiceStatus(Service, Status) then
+      Result := Status.CurrentState = SERVICE_STOPPED;
+    CloseServiceHandle(Service);
+  end;
+  CloseServiceHandle(Manager);
+end;
+
+// ServiceMarkedForDeletion is whether Windows deletes the service once nothing holds it open any
+// more (the Services window, say).
+function ServiceMarkedForDeletion: Boolean;
+var Flag: Cardinal;
+begin
+  Result := RegQueryDWordValue(HKLM, ServiceKey, 'DeleteFlag', Flag) and (Flag = 1);
+end;
+
+// ServiceRemoval is the commands that stop the service through Windows, then delete it.
+function ServiceRemoval: String;
+begin
+  Result := 'sc.exe stop ' + ServiceName + ' >nul 2>&1 & sc.exe delete ' + ServiceName + ' >nul 2>&1 & ';
+end;
+
+// ServiceRemoved waits, StopWait seconds at most, for the service the elevated step stopped and
+// deleted to stop, logs what it finds, and reports whether the service is gone: stopped, and deleted
+// or marked for deletion. When the elevated step did not run (Ran False), nothing stopped it, and
+// it is not waited for.
+function ServiceRemoved(Ran: Boolean): Boolean;
+var Seconds: Integer; Stopped: Boolean;
+begin
+  Seconds := 0;
+  Stopped := ServiceStopped;
+  while Ran and not Stopped and (Seconds < StopWait) do
+  begin
+    Waiting;
+    Seconds := Seconds + 1;
+    Stopped := ServiceStopped;
+  end;
+  Result := False;
+  if not Stopped then
+    Log('The Forge Gateway service still runs after ' + IntToStr(Seconds) + ' s')
+  else if ServiceInstalled and not ServiceMarkedForDeletion then
+    Log('The Forge Gateway service is still installed')
+  else
+  begin
+    Log('The Forge Gateway service stopped within ' + IntToStr(Seconds) + ' s');
+    Result := True;
+  end;
+end;
+
+// Setup closes Forge Gateway before Windows' Restart Manager looks for programs that use the files
+// it replaces: Inno Setup calls PrepareToInstall first. A ForgeGateway service is looked at before
+// anything is closed: No to removing it changes nothing.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var Image: String;
+begin
+  Result := '';
+  RemoveService := False;
+  if ServiceInstalled then
+  begin
+    Image := ServiceProgram;
+    Log('A ForgeGateway Windows service is installed: ' + Image);
+    // Setup cannot replace a program a service runs.
+    if ServiceInThisFolder(Image) then
+    begin
+      Result := 'Forge Gateway runs as a Windows service from this install''s folder, so Setup ' +
+        'changed nothing. Remove the service first: in a Command Prompt run as administrator, run ' +
+        'sc stop ForgeGateway, then sc delete ForgeGateway. Then run Setup again.';
+      exit;
+    end;
+    // No is the default, and the answer of a silent run (/SUPPRESSMSGBOXES).
+    if SuppressibleMsgBox('Forge Gateway is installed on this PC as a Windows service (ForgeGateway):' + #13#10 +
+      Image + #13#10#13#10 +
+      'It starts with Windows and uses port 3333, so the Forge Gateway you are installing could not ' +
+      'start beside it. Setup can stop it cleanly and remove it, in the step that adds the firewall ' +
+      'rule, so Windows asks only once. Its config file and its key stay where they are; enter the ' +
+      'same node and payout address in Settings afterwards.' + #13#10#13#10 +
+      'Stop and remove the service? No changes nothing.',
+      mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES then
+    begin
+      RemoveService := True;
+      Log('The ForgeGateway service is stopped and removed in the elevated step');
+    end else
+    begin
+      Log('The ForgeGateway service stays: Setup changes nothing');
+      Result := 'Forge Gateway''s Windows service is still installed, so Setup changed nothing. Run ' +
+        'Setup again and choose Yes to remove it, or remove it yourself: in a Command Prompt run as ' +
+        'administrator, run sc stop ForgeGateway, then sc delete ForgeGateway.';
+      exit;
+    end;
+  end;
   if not StopForgeGateway then
     Result := 'Forge Gateway did not stop, so Setup changed nothing. Run Setup again once it has stopped.'
   else if not NoOtherForgeGateway then
@@ -581,12 +765,23 @@ begin
   begin
     RulesAccount := ExpandConstant('{username}');
     PreviousRulesAccount := KeptRulesAccount;
+    Cmd := '/c ';
+    // The service is stopped first: it holds port 3333 until it has closed its miners' connections.
+    if RemoveService then
+      Cmd := Cmd + ServiceRemoval;
     // The rule lets in only forge-gateway.exe. With the port alone, any program could take the port
-    // while Forge Gateway is not running and be reached through the rule.
-    Cmd := '/c ' +
+    // while Forge Gateway is not running and be reached through the rule, as through the one the
+    // guide of 1.0.0 had users add.
+    Cmd := Cmd +
+      'netsh advfirewall firewall delete rule name="Forge Gateway" >nul 2>&1 & ' +
       FirewallRule('Forge Gateway Miner (3333)', 'forge-gateway.exe', '3333', 'private,domain');
     Ran := Elevated(Cmd);
     Missing := '';
+    if RemoveService then
+      if not ServiceRemoved(Ran) then
+        Missing := 'Forge Gateway is installed, but Setup could not remove the ForgeGateway Windows ' +
+          'service, which keeps port 3333, so Forge Gateway cannot start until it is gone. In a ' +
+          'Command Prompt run as administrator, run sc stop ForgeGateway, then sc delete ForgeGateway.' + #13#10#13#10;
     // The rule itself says whether the step worked: cmd's exit code is only that of its last
     // command, and with UAC off a standard account's netsh fails without a prompt.
     InPlace := RulesInPlace;
@@ -618,7 +813,7 @@ var
   LeftBehind: String;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
-var InPlace: Integer; DataDir, Cmd: String; Ran: Boolean;
+var InPlace: Integer; DataDir, Cmd: String; Ran, OwnService: Boolean;
 begin
   if CurUninstallStep = usUninstall then
   begin
@@ -637,9 +832,21 @@ begin
     RulesAccount := KeptRulesAccount;
     if RulesAccount = '' then
       RulesAccount := ExpandConstant('{username}');
-    Cmd := '/c ' +
-      FirewallRemove('Forge Gateway Miner (3333)');
+    // A ForgeGateway service installed from this install's folder (forge-gateway.exe install, run
+    // from it) would keep its program running and point at nothing once the files are gone.
+    OwnService := ServiceInstalled and ServiceInThisFolder(ServiceProgram);
+    Cmd := '/c ';
+    if OwnService then
+      Cmd := Cmd + ServiceRemoval;
+    Cmd := Cmd +
+      FirewallRemove('Forge Gateway Miner (3333)') +
+      'netsh advfirewall firewall delete rule name="Forge Gateway" & ';
     Ran := Elevated(Cmd);
+    if OwnService then
+      if not ServiceRemoved(Ran) then
+        LeftBehind := 'Forge Gateway is removed, but the uninstaller could not remove the ForgeGateway ' +
+          'Windows service, which runs forge-gateway.exe from its folder. In a Command Prompt run as ' +
+          'administrator, run sc stop ForgeGateway, then sc delete ForgeGateway.' + #13#10#13#10;
     InPlace := RulesInPlace;
     Log('Firewall rules left for ' + RulesAccount + ': ' + IntToStr(InPlace) + ' of ' + IntToStr(RuleCount));
     if not Ran or (InPlace > 0) then
