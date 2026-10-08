@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/BitcoincashII/forge-solo/internal/cashaddr"
 	"github.com/BitcoincashII/forge-solo/internal/tidesgw"
 )
 
@@ -81,13 +82,52 @@ const (
 	maxCoinbaseTag      = 32 // the DATUM coinbase layout's limit
 )
 
-// loadConfig reads, defaults and checks the config at path. Unknown keys are an error: a
-// misspelt key would otherwise be silently ignored and its default used.
+// loadConfig reads, defaults and checks the config at path, the payout address and the node
+// login included. Unknown keys are an error: a misspelt key would otherwise be silently ignored
+// and its default used.
 func loadConfig(path string) (*Config, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
+	c, err := decodeConfig(raw, path)
+	if err != nil {
+		return nil, err
+	}
+	// The settings first, then the rest: the order, and so the message, of 1.0.0.
+	if err := c.checkSettings(); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if err := c.checkBase(); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return c, nil
+}
+
+// readConfig is loadConfig without the checks of what Settings sets: a config with no payout
+// address or no node login yet is read, and setupProblem says what it lacks.
+func readConfig(path string) (*Config, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return parseConfig(raw, path)
+}
+
+// parseConfig is readConfig on the bytes of a config at path, whose folder relative paths in it
+// resolve against.
+func parseConfig(raw []byte, path string) (*Config, error) {
+	c, err := decodeConfig(raw, path)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.checkBase(); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return c, nil
+}
+
+func decodeConfig(raw []byte, path string) (*Config, error) {
 	var c Config
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
@@ -100,9 +140,6 @@ func loadConfig(path string) (*Config, error) {
 	}
 	c.dir = filepath.Dir(abs)
 	c.defaults()
-	if err := c.check(); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
 	return &c, nil
 }
 
@@ -164,7 +201,9 @@ func (c *Config) resolve(p string) string {
 	return filepath.Join(c.dir, p)
 }
 
-func (c *Config) check() error {
+// checkSettings checks what the status page's Settings sets: the payout address, the coinbase tag
+// and the node. It puts the payout address in its canonical form.
+func (c *Config) checkSettings() error {
 	if c.Mining.PayoutAddress == "" {
 		return errors.New("mining.payout_address is required: the BCH2 address your shares are credited to")
 	}
@@ -173,6 +212,11 @@ func (c *Config) check() error {
 		return fmt.Errorf("mining.payout_address %q is not a BCH2 address: %w", c.Mining.PayoutAddress, err)
 	}
 	c.Mining.PayoutAddress = canon
+	// The job manager builds a coinbase for a P2PKH address only: with a P2SH one it paused, and
+	// the gateway got no work at all.
+	if isP2SH(canon) {
+		return fmt.Errorf("mining.payout_address %q is a P2SH address (bitcoincashii:p...): the gateway pays only a bitcoincashii:q... address", canon)
+	}
 	if len(c.Mining.CoinbaseTag) > maxCoinbaseTag {
 		return fmt.Errorf("mining.coinbase_tag is %d bytes; at most %d fit", len(c.Mining.CoinbaseTag), maxCoinbaseTag)
 	}
@@ -190,6 +234,11 @@ func (c *Config) check() error {
 	if !strings.HasPrefix(c.Node.RPCURL, "http://") && !strings.HasPrefix(c.Node.RPCURL, "https://") {
 		return fmt.Errorf("node.rpc_url %q must start with http:// or https://", c.Node.RPCURL)
 	}
+	return nil
+}
+
+// checkBase checks everything else: what Settings never writes.
+func (c *Config) checkBase() error {
 	if _, _, err := hostPort(c.Stratum.Listen); err != nil {
 		return fmt.Errorf("stratum.listen: %w", err)
 	}
@@ -227,6 +276,32 @@ func hostPort(addr string) (string, int, error) {
 		return "", 0, fmt.Errorf("%q: bad port", addr)
 	}
 	return host, port, nil
+}
+
+// isP2SH reports whether a canonical BCH2 address is a P2SH one.
+func isP2SH(addr string) bool {
+	a, err := cashaddr.Decode(addr, cashaddr.MainnetPrefix)
+	return err == nil && a.Type == cashaddr.P2SH
+}
+
+// setupProblem is "" when the settings are complete and right, else what the status page and the
+// tray say is missing or wrong.
+func (c *Config) setupProblem() string {
+	err := c.checkSettings()
+	if err == nil {
+		return ""
+	}
+	noPayout := c.Mining.PayoutAddress == ""
+	noLogin := c.Node.RPCUser == "" && c.Node.RPCCookieFile == ""
+	switch {
+	case noPayout && noLogin:
+		return "Set your node and payout address in Settings."
+	case noPayout:
+		return "Set your payout address in Settings."
+	case noLogin:
+		return "Set your node's RPC login in Settings."
+	}
+	return "Settings has a mistake: " + err.Error() + ". Correct it in Settings."
 }
 
 // rpcLogin is the node login: the configured user, or the node's cookie file, read now. A
