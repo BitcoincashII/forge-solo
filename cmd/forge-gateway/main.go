@@ -73,13 +73,18 @@ func main() {
 	stop := make(chan struct{})
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	// The Windows tray app cannot send this program a signal: it asks for the same clean stop by
+	// closing its stdin. Opt-in: a stdin that is /dev/null ends at once.
+	if os.Getenv("FORGE_STOP_ON_STDIN_EOF") == "1" {
+		go stopOnEOF(os.Stdin, sig)
+	}
 	go func() {
 		<-sig
 		close(stop)
 	}()
 	if err := run(*cfgPath, stop, false); err != nil {
 		fmt.Fprintln(os.Stderr, "forge-gateway:", err)
-		os.Exit(1)
+		os.Exit(exitCode(err))
 	}
 }
 
@@ -88,7 +93,7 @@ func main() {
 func run(cfgPath string, stop <-chan struct{}, asService bool) error {
 	cfg, err := loadConfig(cfgPath)
 	if err != nil {
-		return err
+		return &exitError{exitConfig, err}
 	}
 	if asService && cfg.LogFile == "" {
 		cfg.LogFile = filepath.Join(cfg.dir, "forge-gateway.log")
@@ -161,7 +166,7 @@ func run(cfgPath string, stop <-chan struct{}, asService bool) error {
 	srv.SetSoloPayoutAddress(cfg.Mining.PayoutAddress)
 	loop := newJobLoop(log, jm, gw, srv, hist, cfg.Mining.PayoutAddress, cfg.Mining.PoolOnly)
 	if err := srv.Start(); err != nil {
-		return fmt.Errorf("stratum %s: %w", cfg.Stratum.Listen, err)
+		return &exitError{exitPort, fmt.Errorf("stratum %s: %w", cfg.Stratum.Listen, err)}
 	}
 	defer srv.Stop()
 	go gw.Run(stop)
@@ -169,7 +174,7 @@ func run(cfgPath string, stop <-chan struct{}, asService bool) error {
 	if cfg.Status.Listen != "off" {
 		state := &gatewayState{cfg: cfg, started: time.Now(), gw: gw, loop: loop, srv: srv, proc: proc}
 		if _, err := serveStatus(cfg.Status.Listen, state.statusHandler(), stop); err != nil {
-			return fmt.Errorf("status %s: %w", cfg.Status.Listen, err)
+			return &exitError{exitPort, fmt.Errorf("status %s: %w", cfg.Status.Listen, err)}
 		}
 		log.Info("status page", zap.String("url", "http://"+cfg.Status.Listen+"/"))
 	}

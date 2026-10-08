@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/BitcoincashII/forge-solo/internal/netlisten"
 	"github.com/BitcoincashII/forge-solo/internal/stratum"
 	"github.com/BitcoincashII/forge-solo/internal/tidesgw"
 )
@@ -133,9 +134,15 @@ func (g *gatewayState) statusHandler() http.Handler {
 	return mux
 }
 
+// listenStatus is the status page's listener, with exclusive address use on Windows: no other
+// program can bind its port beside it and answer the page, and ask for the password, in its place.
+func listenStatus(addr string) (net.Listener, error) {
+	return netlisten.Listen("tcp", addr)
+}
+
 // serveStatus runs the status server until stop closes.
 func serveStatus(addr string, h http.Handler, stop <-chan struct{}) (*http.Server, error) {
-	ln, err := net.Listen("tcp", addr)
+	ln, err := listenStatus(addr)
 	if err != nil {
 		return nil, err
 	}
