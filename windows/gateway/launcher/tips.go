@@ -21,6 +21,7 @@ const (
 	tipWaitingForWork  = "Forge Gateway: waiting for work from your node and the pool"
 	tipNodeUnreachable = "Forge Gateway: cannot reach your node: see the status page"
 	tipNodeLogin       = "Forge Gateway: cannot log in to your node: see Settings"
+	tipNodeForbidden   = "Forge Gateway: your node refuses this PC: see the status page"
 	tipNodeSyncing     = "Forge Gateway: your node is still syncing"
 	tipRunning         = "Forge Gateway: running"
 	tipRestartingGW    = "Forge Gateway: restarting…"

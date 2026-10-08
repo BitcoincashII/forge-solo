@@ -24,6 +24,7 @@ func TestTheTrayFollowsTheGatewaysState(t *testing.T) {
 		{"unconfigured", "off", tipSetUp},
 		{"node_unreachable", "off", tipNodeUnreachable},
 		{"node_login", "off", tipNodeLogin},
+		{"node_forbidden", "off", tipNodeForbidden},
 		{"node_syncing", "starting", tipNodeSyncing},
 		{"pool_unreachable", "solo", tipPoolSolo},
 		{"pool_unreachable", "waiting", tipPoolWaiting},

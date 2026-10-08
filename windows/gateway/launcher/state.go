@@ -23,6 +23,7 @@ var stateTips = map[string]string{
 	"unconfigured":     tipSetUp,
 	"node_unreachable": tipNodeUnreachable,
 	"node_login":       tipNodeLogin,
+	"node_forbidden":   tipNodeForbidden,
 	"node_syncing":     tipNodeSyncing,
 	"pool_unreachable": tipPoolSolo,
 	"starting":         tipWaitingForWork,

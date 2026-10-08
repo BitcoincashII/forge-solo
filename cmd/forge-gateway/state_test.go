@@ -21,6 +21,9 @@ func TestStateTable(t *testing.T) {
 	const url = "http://127.0.0.1:8342"
 	synced := &healthResult{ci: &chainInfo{Chain: "main", Blocks: 100, Headers: 100}}
 	refused := &healthResult{err: errUnauthorized, unauthorized: true}
+	forbidden := &healthResult{err: errForbidden, forbidden: true}
+	const forbiddenWhy = "Your node refuses this computer (HTTP 403): it answers RPC only from the addresses in the rpcallowip lines of its config file. " +
+		"For a node on another computer, add rpcallowip=<this computer's address> and rpcbind=<the node's address> to that file and restart the node."
 	down := &healthResult{err: &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}}
 	missing := &fs.PathError{Op: "open", Path: "/n/.cookie", Err: fs.ErrNotExist}
 	behind := tidesgw.Status{NodeBehind: true, Reason: "this BCH2 node is catching up with the chain: it is at block 99, Forge Pool at 101"}
@@ -55,6 +58,14 @@ func TestStateTable(t *testing.T) {
 			setUp(func(in *stateInput) { in.cookie, in.health = true, refused })},
 		{"4 node over pool", stateNodeLogin, "",
 			setUp(func(in *stateInput) { in.health, in.mode, in.pool = refused, "solo", unreachable })},
+		{"4c refuses this computer", stateNodeForbidden, forbiddenWhy, setUp(func(in *stateInput) { in.health = forbidden })},
+		{"4c refuses this computer, cookie login", stateNodeForbidden, forbiddenWhy,
+			setUp(func(in *stateInput) { in.cookie, in.health = true, forbidden })},
+		{"4c refuses an address by name", stateNodeForbidden, forbiddenWhy +
+			" A node with no rpcallowip line also refuses an address given by name, such as localhost: for a node on this computer, enter http://127.0.0.1:8342 in Settings.",
+			setUp(func(in *stateInput) { in.health, in.rpcURL = forbidden, "http://localhost:8342" })},
+		{"4c node over pool", stateNodeForbidden, "",
+			setUp(func(in *stateInput) { in.health, in.mode, in.pool = forbidden, "solo", unreachable })},
 		{"5 unreachable", stateNodeUnreachable, "Forge Gateway cannot reach your node at " + url + ": nothing answers at that address. Check that the node is running with server=1 and that the RPC address in Settings is right.",
 			setUp(func(in *stateInput) { in.health = down })},
 		{"5 unreachable over syncing", stateNodeUnreachable, "",
@@ -121,6 +132,36 @@ func TestBriefNodeError(t *testing.T) {
 	long := briefNodeError(errors.New(strings.Repeat("x", 150) + "\n  " + strings.Repeat("y", 150)))
 	if want := strings.Repeat("x", 150) + " " + strings.Repeat("y", 49) + "…"; long != want {
 		t.Errorf("GW-NODE-BRIEF-LONG: %q", long)
+	}
+}
+
+// A node answering 401 refuses the login; one answering 403 refuses this computer, whatever the
+// login. The node card says which, in words with no key of the config file in them.
+func TestNodeRefusals(t *testing.T) {
+	for _, tc := range []struct {
+		code   int
+		want   error
+		user   string // the node card with a user login
+		cookie string // with a cookie login
+	}{
+		{http.StatusUnauthorized, errUnauthorized, "it refused the login: check the RPC user and password in Settings", "it refused the login from its cookie file"},
+		{http.StatusForbidden, errForbidden, "it refuses this computer (HTTP 403)", "it refuses this computer (HTTP 403)"},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(tc.code) }))
+		_, err := newNode(srv.URL, "u", "p").chainInfo()
+		srv.Close()
+		if !errors.Is(err, tc.want) {
+			t.Errorf("GW-NODE-%d: the node's %d is %v, want %v", tc.code, tc.code, err, tc.want)
+		}
+		if got := nodeErrorShown(err, false); got != tc.user {
+			t.Errorf("GW-NODE-ERROR-ROW: %d with a user login: %q", tc.code, got)
+		}
+		if got := nodeErrorShown(err, true); got != tc.cookie {
+			t.Errorf("GW-NODE-ERROR-ROW: %d with a cookie login: %q", tc.code, got)
+		}
+	}
+	if got := nodeErrorShown(&net.OpError{Op: "dial", Net: "tcp", Err: errors.New("refused")}, false); got != "nothing answers at that address" {
+		t.Errorf("GW-NODE-ERROR-ROW: a closed port: %q", got)
 	}
 }
 
@@ -224,7 +265,7 @@ func TestStatusPageShowsTheState(t *testing.T) {
 	}
 	s := string(page)
 	for _, want := range []string{
-		`{unconfigured:"Not set up", node_unreachable:"Node unreachable", node_login:"Node login failed", node_syncing:"Node syncing", pool_unreachable:(s.mode==="waiting"?"Waiting for pool":"Solo fallback"), starting:"Starting", active:"TIDES"}[s.state]`,
+		`{unconfigured:"Not set up", node_unreachable:"Node unreachable", node_login:"Node login failed", node_forbidden:"Node refuses this computer", node_syncing:"Node syncing", pool_unreachable:(s.mode==="waiting"?"Waiting for pool":"Solo fallback"), starting:"Starting", active:"TIDES"}[s.state]`,
 		`$("why").textContent = s.state_reason`,
 		`.badge.bad{color:var(--bad)}`,
 		"esc(p.state)+(p.reason?`: <span class=\"err\">${esc(p.reason)}</span>`:\"\")",

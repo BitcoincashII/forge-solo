@@ -29,8 +29,15 @@ func newNode(url, user, pass string) *node {
 	return &node{url: url, user: user, pass: pass, http: &http.Client{Timeout: 30 * time.Second}}
 }
 
-// errUnauthorized is the node refusing the login.
+// errUnauthorized is the node refusing the login (HTTP 401).
 var errUnauthorized = errors.New("the node refused the RPC login: check node.rpc_user and node.rpc_password")
+
+// errForbidden is the node refusing this computer whatever the login (HTTP 403): it lets RPC in only
+// from the addresses in its rpcallowip lines, and with none of them only at an address given as a
+// number. A new password would never fix it.
+var errForbidden = errors.New("the node refuses this computer (HTTP 403): add rpcallowip=<this computer's address> and " +
+	"rpcbind=<the node's address> to the node's config file and restart it; for a node on this computer, set node.rpc_url " +
+	"to http://127.0.0.1:8342 (a node with no rpcallowip line refuses a name such as localhost)")
 
 // errNotJSONRPC is an answer that is not a node's: something else listens at the RPC address.
 var errNotJSONRPC = errors.New("not JSON-RPC")
@@ -54,8 +61,11 @@ func (n *node) call(method string, params []interface{}, out interface{}) error 
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+	switch resp.StatusCode {
+	case http.StatusUnauthorized:
 		return errUnauthorized
+	case http.StatusForbidden:
+		return errForbidden
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
 	if err != nil {

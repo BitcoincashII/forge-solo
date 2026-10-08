@@ -209,7 +209,8 @@ func run(cfgPath string, stop <-chan struct{}, asService bool) error {
 }
 
 // firstNodeCheck is the console's and the service's start, as 1.0.0's: a node login that cannot be
-// read or that the node refuses ends the gateway; a node that does not answer yet does not.
+// read, or a node that refuses the login or this computer, ends the gateway; a node that does not
+// answer yet does not.
 func firstNodeCheck(log *zap.Logger, cfg *Config) error {
 	user, pass, err := cfg.rpcLogin()
 	if err != nil {
@@ -217,7 +218,7 @@ func firstNodeCheck(log *zap.Logger, cfg *Config) error {
 	}
 	ci, err := newNode(cfg.Node.RPCURL, user, pass).chainInfo()
 	if err != nil {
-		if errors.Is(err, errUnauthorized) {
+		if errors.Is(err, errUnauthorized) || errors.Is(err, errForbidden) {
 			return err
 		}
 		log.Warn("the node is not answering yet; the gateway keeps trying", zap.Error(err))

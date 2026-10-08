@@ -40,6 +40,7 @@ type fakeNode struct {
 	calls    map[string]int
 	notJSON  bool // answers an HTML page, as something that is not a node would
 	hangInfo bool // getblockchaininfo never answers
+	forbid   bool // answers 403 to everything, as a node does to an address its rpcallowip leaves out
 }
 
 func newFakeNode(t *testing.T, user, pass string) *fakeNode {
@@ -83,8 +84,13 @@ func (n *fakeNode) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	u, p, _ := r.BasicAuth()
 	n.mu.Lock()
 	want, known := n.logins[u]
-	notJSON, hang := n.notJSON, n.hangInfo
+	notJSON, hang, forbid := n.notJSON, n.hangInfo, n.forbid
 	n.mu.Unlock()
+	// The node checks the address a request comes from before the login (httpserver.cpp).
+	if forbid {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
 	if !known || p != want {
 		w.WriteHeader(http.StatusUnauthorized)
 		return

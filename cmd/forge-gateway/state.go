@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
+	"net/url"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -16,6 +18,7 @@ const (
 	stateUnconfigured    = "unconfigured"
 	stateNodeUnreachable = "node_unreachable"
 	stateNodeLogin       = "node_login"
+	stateNodeForbidden   = "node_forbidden"
 	stateNodeSyncing     = "node_syncing"
 	statePoolUnreachable = "pool_unreachable"
 	stateStarting        = "starting"
@@ -54,6 +57,8 @@ func stateOf(in stateInput) (state, reason string) {
 		return stateNodeLogin, "Your node refused the RPC login. Check the RPC user and password in Settings: they must be the rpcuser and rpcpassword in the node's config file."
 	case h != nil && h.unauthorized:
 		return stateNodeLogin, "Your node refused the login from its cookie file. Check that the cookie file in Settings is the running node's."
+	case h != nil && h.forbidden:
+		return stateNodeForbidden, forbiddenReason(in.rpcURL)
 	case h != nil && h.err != nil:
 		return stateNodeUnreachable, "Forge Gateway cannot reach your node at " + in.rpcURL + ": " + briefNodeError(h.err) +
 			". Check that the node is running with server=1 and that the RPC address in Settings is right."
@@ -79,6 +84,33 @@ func stateOf(in stateInput) (state, reason string) {
 		return stateActive, "Mining into Forge Pool's TIDES window."
 	}
 	return stateStarting, startingReason
+}
+
+// forbiddenReason is why a node answers 403, whatever the login: it lets RPC in only from the
+// addresses in its rpcallowip lines, and when it has none of them, only at an address given as a
+// number (its guard against DNS rebinding refuses a name such as localhost).
+func forbiddenReason(rpcURL string) string {
+	why := "Your node refuses this computer (HTTP 403): it answers RPC only from the addresses in the rpcallowip lines of its config file. " +
+		"For a node on another computer, add rpcallowip=<this computer's address> and rpcbind=<the node's address> to that file and restart the node."
+	if u, err := url.Parse(rpcURL); err == nil && u.Hostname() != "" && net.ParseIP(u.Hostname()) == nil {
+		why += " A node with no rpcallowip line also refuses an address given by name, such as " + u.Hostname() +
+			": for a node on this computer, enter http://127.0.0.1:8342 in Settings."
+	}
+	return why
+}
+
+// nodeErrorShown is what the status page's node card says of the last node check that failed: in a
+// few words, and with no key of the config file, which the tray app's user never sees.
+func nodeErrorShown(err error, cookie bool) string {
+	switch {
+	case errors.Is(err, errForbidden):
+		return "it refuses this computer (HTTP 403)"
+	case errors.Is(err, errUnauthorized) && cookie:
+		return "it refused the login from its cookie file"
+	case errors.Is(err, errUnauthorized):
+		return "it refused the login: check the RPC user and password in Settings"
+	}
+	return briefNodeError(err)
 }
 
 func upperFirst(s string) string {
@@ -167,7 +199,7 @@ func (a *app) logStates(stop <-chan struct{}) {
 			last = state
 			msg := "state: " + state + ": " + reason
 			switch state {
-			case stateUnconfigured, stateNodeUnreachable, stateNodeLogin, stateNodeSyncing, statePoolUnreachable:
+			case stateUnconfigured, stateNodeUnreachable, stateNodeLogin, stateNodeForbidden, stateNodeSyncing, statePoolUnreachable:
 				a.log.Warn(msg)
 			default:
 				a.log.Info(msg)

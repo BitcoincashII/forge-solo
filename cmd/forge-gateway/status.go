@@ -89,7 +89,7 @@ func (a *app) view(now time.Time) statusView {
 	v.Node = nodeView{RPCURL: cfg.Node.RPCURL, TemplateAge: -1}
 	if e != nil && e.health != nil {
 		if r := e.health.last.Load(); r != nil && r.err != nil {
-			v.Node.Error = briefNodeError(r.err)
+			v.Node.Error = nodeErrorShown(r.err, e.cfg.Node.RPCUser == "")
 		}
 		if ci := e.health.good.Load(); ci != nil {
 			v.Node.Chain, v.Node.Blocks, v.Node.Headers, v.Node.Syncing = ci.Chain, ci.Blocks, ci.Headers, ci.InitialBlockDownload

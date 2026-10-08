@@ -112,10 +112,61 @@ func TestWithAPasswordARefusedLoginStays(t *testing.T) {
 	if v.StateReason != "Your node refused the RPC login. Check the RPC user and password in Settings: they must be the rpcuser and rpcpassword in the node's config file." {
 		t.Fatalf("GW-LOGIN-STAYS: %q", v.StateReason)
 	}
+	// The node card's Error row names no key of the config file, which the tray's user never sees.
+	if v.Node.Error != "it refused the login: check the RPC user and password in Settings" {
+		t.Errorf("GW-LOGIN-ERROR-ROW: the node card says %q", v.Node.Error)
+	}
 	select {
 	case <-h.ended:
 		t.Fatalf("GW-LOGIN-STAYS: the gateway stopped: %v", h.err)
 	default:
+	}
+}
+
+// A node that refuses this computer (HTTP 403: its rpcallowip leaves it out, or it was given a name
+// such as localhost) is told apart from a wrong login: typing the password again would never fix
+// it. Once the node lets it in, the gateway goes on by itself.
+func TestANodeThatRefusesThisComputerIsSaidSo(t *testing.T) {
+	setVar(t, &nodeCheckEvery, 50*time.Millisecond)
+	n := newFakeNode(t, "u", "p")
+	n.set(func(n *fakeNode) { n.forbid = true })
+	h := startAs(t, "GW-FORBIDDEN-STAYS", gwConfig(t, `"rpc_url":"`+n.url()+`","rpc_user":"u","rpc_password":"p"`, `"payout_address":"`+testPayout+`"`), testPassword)
+	var v statusView
+	if !eventually(10*time.Second, func() bool { v = h.a.view(time.Now()); return v.State == stateNodeForbidden }) {
+		t.Fatalf("GW-FORBIDDEN-STAYS: the state is %s %q, node error %q", v.State, v.StateReason, v.Node.Error)
+	}
+	if want := "Your node refuses this computer (HTTP 403): it answers RPC only from the addresses in the rpcallowip lines of its config file. " +
+		"For a node on another computer, add rpcallowip=<this computer's address> and rpcbind=<the node's address> to that file and restart the node."; v.StateReason != want {
+		t.Errorf("GW-FORBIDDEN-REASON: %q\nwant %q", v.StateReason, want)
+	}
+	if v.Node.Error != "it refuses this computer (HTTP 403)" {
+		t.Errorf("GW-FORBIDDEN-ERROR-ROW: the node card says %q", v.Node.Error)
+	}
+	n.set(func(n *fakeNode) { n.forbid = false })
+	if !eventually(5*time.Second, func() bool {
+		v = h.a.view(time.Now())
+		return v.State != stateNodeForbidden && v.State != stateNodeLogin
+	}) {
+		t.Fatalf("GW-FORBIDDEN-RECOVERS: the node lets this computer in, and the state is still %s %q", v.State, v.StateReason)
+	}
+	select {
+	case <-h.ended:
+		t.Fatalf("GW-FORBIDDEN-STAYS: the gateway stopped: %v", h.err)
+	default:
+	}
+}
+
+// In the console a node that refuses this computer ends the gateway, as a refused login does, with
+// what to change in the node's config file rather than a wrong login.
+func TestInTheConsoleANodeThatRefusesThisComputerEndsIt(t *testing.T) {
+	t.Setenv("SETTINGS_PASSWORD", "")
+	n := newFakeNode(t, "u", "p")
+	n.set(func(n *fakeNode) { n.forbid = true })
+	cfg := gwConfig(t, `"rpc_url":"`+n.url()+`","rpc_user":"u","rpc_password":"p"`, `"payout_address":"`+testPayout+`"`)
+	err := runBriefly(t, "GW-FORBIDDEN-CONSOLE", writeConfig(t, cfg))
+	if err == nil || exitCode(err) != 1 || !strings.Contains(err.Error(), "HTTP 403") || !strings.Contains(err.Error(), "rpcallowip") ||
+		strings.Contains(err.Error(), "rpc_user") || strings.Contains(err.Error(), "rpc_password") {
+		t.Fatalf("GW-FORBIDDEN-CONSOLE: %v (exit %d)", err, exitCode(err))
 	}
 }
 

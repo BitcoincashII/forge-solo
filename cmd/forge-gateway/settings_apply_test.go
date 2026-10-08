@@ -292,7 +292,7 @@ func between(s, from, to string) string {
 
 // Every text the states and Settings give is plain: no em-dash, and an en-dash only in 0–9 and a–f.
 func TestTextsArePlain(t *testing.T) {
-	for _, file := range []string{"state.go", "settings.go"} {
+	for _, file := range []string{"state.go", "settings.go", "node.go"} {
 		f, err := parser.ParseFile(token.NewFileSet(), file, nil, 0)
 		if err != nil {
 			t.Fatal(err)

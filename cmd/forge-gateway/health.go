@@ -23,6 +23,7 @@ type healthResult struct {
 	ci           *chainInfo // nil when the check failed
 	err          error
 	unauthorized bool // the node refused the login
+	forbidden    bool // the node refused this computer
 }
 
 // nodeHealth checks an engine's node every nodeCheckEvery. With a cookie login it follows the node:
@@ -67,7 +68,7 @@ func (h *nodeHealth) once() {
 		return
 	}
 	ci, err := h.check.chainInfo()
-	r := &healthResult{at: time.Now(), ci: ci, err: err, unauthorized: errors.Is(err, errUnauthorized)}
+	r := &healthResult{at: time.Now(), ci: ci, err: err, unauthorized: errors.Is(err, errUnauthorized), forbidden: errors.Is(err, errForbidden)}
 	h.last.Store(r)
 	if err == nil {
 		h.good.Store(ci)
