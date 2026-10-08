@@ -57,57 +57,63 @@ type jobView struct {
 	Coinbase   int64  `json:"coinbase_sats"`
 }
 
-// gatewayState is what the status page needs from the running gateway.
-type gatewayState struct {
-	cfg     *Config
-	started time.Time
-	gw      *tidesgw.Gateway
-	loop    *jobLoop
-	srv     *stratum.Server
-	proc    *processor
+// settingsNow is the config in use, and its setup problem: the engine's, or before the first apply
+// the one asked for, which run gives before anything listens.
+func (a *app) settingsNow() (e *engine, cfg *Config, problem string) {
+	if e = a.eng.Load(); e != nil {
+		return e, e.cfg, e.problem
+	}
+	if w := a.want.Load(); w != nil {
+		return nil, w.cfg, w.problem
+	}
+	return nil, a.start, ""
 }
 
-func (g *gatewayState) view(now time.Time) statusView {
-	v := statusView{Version: version, Uptime: int64(now.Sub(g.started).Seconds()), Payout: g.cfg.Mining.PayoutAddress,
-		PoolOnly: g.cfg.Mining.PoolOnly}
-	v.Pool = poolView{Status: g.gw.Status(), URL: g.cfg.Pool.URL}
-	v.Node = nodeView{RPCURL: g.cfg.Node.RPCURL, TemplateAge: -1}
-	if t := g.loop.template.Load(); t != nil {
-		v.Node.Height = t.Height
-		v.Node.NetworkDiff = stratum.BitsToDifficulty(t.Bits)
-		v.Node.TemplateAge = now.Sub(time.Unix(0, g.loop.templateAt.Load())).Seconds()
-	}
-	if e, _ := g.loop.lastErr.Load().(string); e != "" {
-		v.Node.TemplateError = e
-	}
-	if j := g.loop.current.Load(); j != nil {
-		v.Job = &jobView{ID: j.ID, Height: j.Height, Tides: j.Tides, FinderSats: j.TidesFinderSats, Coinbase: j.CoinbaseValue}
+func (a *app) view(now time.Time) statusView {
+	_, cfg, _ := a.settingsNow()
+	v := statusView{Version: version, Uptime: int64(now.Sub(a.started).Seconds()), Payout: cfg.Mining.PayoutAddress,
+		PoolOnly: cfg.Mining.PoolOnly}
+	v.Pool = poolView{Status: a.gw.Status(), URL: a.start.Pool.URL}
+	v.Node = nodeView{RPCURL: cfg.Node.RPCURL, TemplateAge: -1}
+	loop := a.currentLoop()
+	if loop != nil {
+		if t := loop.template.Load(); t != nil {
+			v.Node.Height = t.Height
+			v.Node.NetworkDiff = stratum.BitsToDifficulty(t.Bits)
+			v.Node.TemplateAge = now.Sub(time.Unix(0, loop.templateAt.Load())).Seconds()
+		}
+		if e, _ := loop.lastErr.Load().(string); e != "" {
+			v.Node.TemplateError = e
+		}
+		if j := loop.current.Load(); j != nil {
+			v.Job = &jobView{ID: j.ID, Height: j.Height, Tides: j.Tides, FinderSats: j.TidesFinderSats, Coinbase: j.CoinbaseValue}
+		}
 	}
 	switch {
 	case v.Job == nil && v.Pool.State == tidesgw.StateStarting:
 		v.Mode = "starting"
-	case g.cfg.Mining.PoolOnly && !g.loop.door.Load():
+	case loop != nil && cfg.Mining.PoolOnly && !loop.door.Load():
 		v.Mode = "waiting"
 	case v.Job != nil && v.Job.Tides:
 		v.Mode = "tides"
 	default:
 		v.Mode = "solo"
 	}
-	st := g.srv.GetStats()
-	v.Stratum.Listen = g.cfg.Stratum.Listen
+	st := a.srv.GetStats()
+	v.Stratum.Listen = a.start.Stratum.Listen
 	v.Stratum.Connections = st.ActiveConnections
-	v.Stratum.Authorized = g.srv.CountAuthorized()
+	v.Stratum.Authorized = a.srv.CountAuthorized()
 	v.Stratum.Accepted = st.ValidShares
 	v.Stratum.Rejected = st.InvalidShares
 	// Empty lists, not null, when there is nothing yet: the API's shape does not change.
-	v.Workers = append([]workerView{}, g.proc.stats.view(now)...)
-	v.Blocks = append([]foundBlock{}, g.proc.foundBlocks()...)
+	v.Workers = append([]workerView{}, a.proc.stats.view(now)...)
+	v.Blocks = append([]foundBlock{}, a.proc.foundBlocks()...)
 	return v
 }
 
 // statusHandler serves the page, its JSON, and /notify -- the target for the node's blocknotify,
 // e.g. blocknotify=curl -s -X POST http://127.0.0.1:3090/notify
-func (g *gatewayState) statusHandler() http.Handler {
+func (a *app) statusHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -121,14 +127,16 @@ func (g *gatewayState) statusHandler() http.Handler {
 	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
-		json.NewEncoder(w).Encode(g.view(time.Now()))
+		json.NewEncoder(w).Encode(a.view(time.Now()))
 	})
 	mux.HandleFunc("/notify", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost && r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		g.loop.wake()
+		if l := a.currentLoop(); l != nil {
+			l.wake()
+		}
 		w.WriteHeader(http.StatusNoContent)
 	})
 	return mux
@@ -138,19 +146,4 @@ func (g *gatewayState) statusHandler() http.Handler {
 // program can bind its port beside it and answer the page, and ask for the password, in its place.
 func listenStatus(addr string) (net.Listener, error) {
 	return netlisten.Listen("tcp", addr)
-}
-
-// serveStatus runs the status server until stop closes.
-func serveStatus(addr string, h http.Handler, stop <-chan struct{}) (*http.Server, error) {
-	ln, err := listenStatus(addr)
-	if err != nil {
-		return nil, err
-	}
-	srv := &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second}
-	go srv.Serve(ln)
-	go func() {
-		<-stop
-		srv.Close()
-	}()
-	return srv, nil
 }

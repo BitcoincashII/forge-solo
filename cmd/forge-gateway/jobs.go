@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -59,6 +60,8 @@ type jobLoop struct {
 	payout   string
 	poolOnly bool
 	notify   chan struct{} // a new block: fetch a template now rather than at the next tick
+	// ids, when set, numbers every job: one count for every job loop the program runs (number).
+	ids *atomic.Uint64
 
 	door       atomic.Bool // pool_only: miners are let in only while the pool takes this gateway's work
 	current    atomic.Pointer[mining.Job]
@@ -135,6 +138,13 @@ func (l *jobLoop) run(stop <-chan struct{}) {
 		l.hist.put(job)
 		clean := isNew || (cur != nil && cur.Tides != job.Tides)
 		l.current.Store(job)
+		// A loop told to stop (saved settings replaced it, or the gateway is stopping) hands out
+		// no more work, even one it was building when it was told.
+		select {
+		case <-stop:
+			return
+		default:
+		}
 		l.srv.BroadcastJob(toStratumJob(job, clean))
 		if isNew {
 			l.log.Info("new work", zap.Int64("height", job.Height), zap.Bool("tides", job.Tides), zap.String("job", job.ID))
@@ -153,6 +163,7 @@ func (l *jobLoop) next(t *mining.BlockTemplate, isNew bool, cur *mining.Job) (jo
 	reg, err := l.gw.Register(t, l.payout, l.jm.CoinbaseTag())
 	if err == nil {
 		job = l.jm.CreateJobWithCoinbase(t, reg.Coinb1, reg.Coinb2, reg.Txs, reg.CoinbaseSats)
+		l.number(job)
 		job.TidesFinderSats = reg.FinderSats
 		l.gw.Track(job.ID, reg, job.Version)
 		l.openDoor()
@@ -175,7 +186,19 @@ func (l *jobLoop) solo(t *mining.BlockTemplate) *mining.Job {
 		l.closeDoor()
 		return nil
 	}
-	return l.jm.CreateJob(t)
+	job := l.jm.CreateJob(t)
+	l.number(job)
+	return job
+}
+
+// number gives job the program's next job ID. Saved settings start a new job loop with a job
+// manager of its own, whose IDs start at 1 again, while the stratum, the pool gateway and the job
+// history still hold the jobs before it by ID, and the stratum drops the lowest IDs first: an ID
+// must never repeat or go back.
+func (l *jobLoop) number(job *mining.Job) {
+	if job != nil && l.ids != nil {
+		job.ID = strconv.FormatUint(l.ids.Add(1), 16)
+	}
 }
 
 func (l *jobLoop) openDoor() {

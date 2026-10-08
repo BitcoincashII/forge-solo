@@ -14,13 +14,10 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
-	"time"
 
 	"github.com/BitcoincashII/forge-solo/internal/datum/gateway"
-	"github.com/BitcoincashII/forge-solo/internal/mining"
-	"github.com/BitcoincashII/forge-solo/internal/stratum"
-	"github.com/BitcoincashII/forge-solo/internal/tidesgw"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -98,11 +95,19 @@ func run(cfgPath string, stop <-chan struct{}, asService bool) error {
 	if asService && cfg.LogFile == "" {
 		cfg.LogFile = filepath.Join(cfg.dir, "forge-gateway.log")
 	}
+	problem := ""
 	log, err := newLogger(cfg.LogFile, cfg.LogLevel)
 	if err != nil {
 		return err
 	}
+	log = wrapLog(log)
 	defer log.Sync()
+	// The job manager says what it does with the standard library's log, on stderr; its "no
+	// payout address configured" (it is given the address after it is made) is not true here.
+	// Only the gateway's own log speaks, and what that one says is kept at debug.
+	if undo, err := zap.RedirectStdLogAt(log.Named("mining"), zapcore.DebugLevel); err == nil {
+		defer undo()
+	}
 	log.Info("Forge Gateway starting", zap.String("version", version), zap.String("payout_address", cfg.Mining.PayoutAddress),
 		zap.String("pool", cfg.Pool.URL), zap.String("node", cfg.Node.RPCURL), zap.String("stratum", cfg.Stratum.Listen),
 		zap.Bool("pool_only", cfg.Mining.PoolOnly))
@@ -133,63 +138,53 @@ func run(cfgPath string, stop <-chan struct{}, asService bool) error {
 		}
 	}
 
-	jm := mining.NewJobManager(cfg.Node.RPCURL, user, pass, cfg.Mining.PayoutAddress, cfg.Mining.CoinbaseTag)
-	var srv *stratum.Server
-	gw := tidesgw.New(tidesgw.Config{PoolURL: cfg.Pool.URL, Key: key, Logger: log.Named("pool"), PoolOnly: cfg.Mining.PoolOnly,
-		// Each job commits to a share difficulty above the busiest miner's, so the pool credits
-		// every share in full (srv is set before the job loop, which alone calls this, starts).
-		MaxDifficulty: func() float64 { return srv.MaxDifficulty() }})
-	hist := newJobHistory()
-	proc := &processor{log: log, gw: gw, hist: hist, node: n, stats: newMinerStats()}
-	host, port, _ := hostPort(cfg.Stratum.Listen)
-	srv = stratum.NewServer(&stratum.ServerConfig{
-		Host:                host,
-		Port:                port,
-		MaxConnections:      cfg.Stratum.MaxConnections,
-		MaxConnectionsPerIP: cfg.Stratum.MaxConnectionsPerIP,
-		MaxSharesPerSecond:  100,
-		VardiffEnabled:      true,
-		MinDiff:             cfg.Stratum.MinDifficulty,
-		AbsoluteMinDiff:     cfg.Stratum.MinDifficulty,
-		MaxDiff:             cfg.Stratum.MaxDifficulty,
-		VariancePercent:     0.25,
-		TargetShareTime:     cfg.Stratum.TargetShareSeconds,
-		RetargetTime:        cfg.Stratum.RetargetSeconds,
-		// The DATUM coinbase reserves 12 extranonce bytes: 4 per connection, 8 for the miner.
-		ExtraNonce1Size: 4,
-		ExtraNonce2Size: 8,
-		ServerName:      "gateway",
-		// Solo-style logins: a miner's username is its BCH2 address (credited to it at the pool)
-		// or any worker name (credited to the payout address).
-		SoloOnly: true,
-	}, log.Named("stratum"), proc)
-	srv.SetSoloPayoutAddress(cfg.Mining.PayoutAddress)
-	loop := newJobLoop(log, jm, gw, srv, hist, cfg.Mining.PayoutAddress, cfg.Mining.PoolOnly)
-	if err := srv.Start(); err != nil {
-		return &exitError{exitPort, fmt.Errorf("stratum %s: %w", cfg.Stratum.Listen, err)}
+	// The app's own stop: the process stop, or a start that failed.
+	quit := make(chan struct{})
+	var quitOnce sync.Once
+	end := func() { quitOnce.Do(func() { close(quit) }) }
+	go func() {
+		select {
+		case <-stop:
+			end()
+		case <-quit:
+		}
+	}()
+	a := newApp(log, cfgPath, key, cfg, quit)
+	// Asked for before anything listens, so the status page's first answer already says whether
+	// the gateway is set up.
+	a.reload(cfg, problem)
+	failed := func(err error) error {
+		end()
+		<-a.applierDone
+		a.endEngine()
+		a.srv.Stop()
+		return &exitError{exitPort, err}
 	}
-	defer srv.Stop()
-	go gw.Run(stop)
-	go loop.run(stop)
+	if err := a.srv.Start(); err != nil {
+		return failed(fmt.Errorf("stratum %s: %w", cfg.Stratum.Listen, err))
+	}
 	if cfg.Status.Listen != "off" {
-		state := &gatewayState{cfg: cfg, started: time.Now(), gw: gw, loop: loop, srv: srv, proc: proc}
-		if _, err := serveStatus(cfg.Status.Listen, state.statusHandler(), stop); err != nil {
-			return &exitError{exitPort, fmt.Errorf("status %s: %w", cfg.Status.Listen, err)}
+		if err := a.serveStatus(cfg.Status.Listen); err != nil {
+			return failed(fmt.Errorf("status %s: %w", cfg.Status.Listen, err))
 		}
 		log.Info("status page", zap.String("url", "http://"+cfg.Status.Listen+"/"))
 	}
+	started(a)
+	go a.gw.Run(stop)
 	log.Info("⛏️  ready: point your miners here", zap.String("stratum", "stratum+tcp://"+cfg.Stratum.Listen),
-		zap.String("gateway_id", gw.ID()))
+		zap.String("gateway_id", a.gw.ID()))
 
 	<-stop
-	// The miners first: Stop handles what they send in its grace and waits for shares, a block
-	// among them, still being processed. Flushing before it (with Stop deferred) left the shares
-	// accepted in the last seconds queued after the flush, and lost.
-	log.Info("stopping: closing the miners' connections, then sending the pool the shares still queued")
-	srv.Stop()
-	gw.Flush()
+	a.shutdown()
 	return nil
 }
+
+// started is told of the running gateway once it listens, and wrapLog may add to its log: the
+// tests' way in.
+var (
+	started = func(*app) {}
+	wrapLog = func(l *zap.Logger) *zap.Logger { return l }
+)
 
 func newLogger(file, level string) (*zap.Logger, error) {
 	var lvl zapcore.Level

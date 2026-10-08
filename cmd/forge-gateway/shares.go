@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/BitcoincashII/forge-solo/internal/blockbuild"
@@ -23,7 +24,7 @@ type processor struct {
 	log   *zap.Logger
 	gw    *tidesgw.Gateway
 	hist  *jobHistory
-	node  *node
+	node  atomic.Pointer[node] // the node blocks go to: saved settings can change it (setNode)
 	stats *minerStats
 
 	mu     sync.Mutex
@@ -42,6 +43,9 @@ type foundBlock struct {
 }
 
 const keepBlocks = 50
+
+// setNode makes n the node found blocks are submitted to.
+func (p *processor) setNode(n *node) { p.node.Store(n) }
 
 func (p *processor) ProcessShare(_ context.Context, sh *stratum.Share) error {
 	p.stats.add(sh, time.Now())
@@ -107,7 +111,8 @@ func (p *processor) takeBlock(sh *stratum.Share, job *mining.Job) {
 			p.log.Warn("the pool is slow to answer the block share; submitting to this node now")
 		}
 	}
-	result := p.submit(sh, job)
+	// One node for the whole submit, its retries included, even if saved settings change it.
+	result := p.submit(p.node.Load(), sh, job)
 	p.mu.Lock()
 	p.blocks = append(p.blocks, foundBlock{Height: job.Height, Hash: sh.BlockHash, At: time.Now(), Tides: job.Tides,
 		Result: result, Miner: sh.MinerID, Worker: sh.WorkerName})
@@ -121,7 +126,11 @@ func (p *processor) takeBlock(sh *stratum.Share, job *mining.Job) {
 // than a clean accept may still be an accepted block -- a timeout after the node took and relayed
 // it, or a duplicate from the pool's copy arriving first -- so the chain decides: the block counts
 // as accepted when its hash is the one at its height.
-func (p *processor) submit(sh *stratum.Share, job *mining.Job) string {
+func (p *processor) submit(n *node, sh *stratum.Share, job *mining.Job) string {
+	if n == nil {
+		p.log.Error("CRITICAL: a block was found before the gateway had a node to submit it to", zap.Int64("height", job.Height))
+		return "no node to submit it to"
+	}
 	coinbase, err := blockbuild.Coinbase(job.CoinBase1, sh.ExtraNonce1, sh.ExtraNonce2, job.CoinBase2)
 	if err != nil {
 		p.log.Error("CRITICAL: cannot build the coinbase of a found block", zap.Error(err))
@@ -133,7 +142,7 @@ func (p *processor) submit(sh *stratum.Share, job *mining.Job) string {
 		return err.Error()
 	}
 	ourHash, _ := blockbuild.Hash(blockHex)
-	reason, err := p.node.submitBlock(blockHex)
+	reason, err := n.submitBlock(blockHex)
 	if err == nil && reason == "" {
 		p.log.Info("✅ block accepted by the node", zap.Int64("height", job.Height), zap.String("hash", ourHash))
 		return "accepted"
@@ -143,11 +152,11 @@ func (p *processor) submit(sh *stratum.Share, job *mining.Job) string {
 	}
 	p.log.Warn("submitblock was not a clean accept; checking the chain", zap.String("reason", reason), zap.String("hash", ourHash))
 	for attempt := 1; attempt <= 3; attempt++ {
-		if h, e := p.node.blockHash(job.Height); e == nil && strings.EqualFold(h, ourHash) {
+		if h, e := n.blockHash(job.Height); e == nil && strings.EqualFold(h, ourHash) {
 			p.log.Info("✅ block is on the chain", zap.Int64("height", job.Height), zap.String("hash", ourHash))
 			return "accepted"
 		}
-		if r, e := p.node.submitBlock(blockHex); e == nil && r == "" {
+		if r, e := n.submitBlock(blockHex); e == nil && r == "" {
 			p.log.Info("✅ block accepted by the node on a retry", zap.Int64("height", job.Height), zap.String("hash", ourHash))
 			return "accepted"
 		}

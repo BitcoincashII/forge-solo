@@ -304,9 +304,8 @@ func (c *Config) setupProblem() string {
 	return "Settings has a mistake: " + err.Error() + ". Correct it in Settings."
 }
 
-// rpcLogin is the node login: the configured user, or the node's cookie file, read now. A
-// node that restarts writes a new cookie, so with a cookie the gateway must restart too;
-// rpcauth credentials (rpc_user/rpc_password) do not have that problem.
+// rpcLogin is the node login: the configured user, or the node's cookie file, read now. A node
+// that restarts writes a new cookie; the gateway's node check reads it again (nodeHealth).
 func (c *Config) rpcLogin() (user, pass string, err error) {
 	if c.Node.RPCUser != "" {
 		return c.Node.RPCUser, c.Node.RPCPassword, nil

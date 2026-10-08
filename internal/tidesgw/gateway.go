@@ -659,6 +659,14 @@ func (g *Gateway) Note(err error) {
 	}
 }
 
+// SetPoolOnly changes Config.PoolOnly: the gateway program's settings can turn pool_only on and off
+// while it runs. It only changes what Fallback says.
+func (g *Gateway) SetPoolOnly(on bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.cfg.PoolOnly = on
+}
+
 // Reset starts the gateway over, as when TIDES has just been chosen: the next job loop tries the
 // pool at once.
 func (g *Gateway) Reset() {
