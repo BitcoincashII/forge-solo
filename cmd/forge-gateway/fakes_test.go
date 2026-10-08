@@ -182,6 +182,15 @@ func nodeConfigAt(n *fakeNode, stratum, status string) string {
 		`"status":{"listen":"` + status + `"},"pool":{"url":"` + unreachablePool + `"}}`
 }
 
+// freshTestConfig is the tray app's fresh config with the miners and the status page on free ports
+// and an unreachable pool.
+func freshTestConfig(t *testing.T) string {
+	s := freshConfig(t)
+	s = strings.Replace(s, `"listen": "0.0.0.0:3333"`, `"listen": "`+freeAddr(t)+`"`, 1)
+	s = strings.Replace(s, `"listen": "127.0.0.1:3090"`, `"listen": "`+freeAddr(t)+`"`, 1)
+	return strings.Replace(s, `"log_level": "info"`, `"pool": {"url": "`+unreachablePool+`"},`+"\n"+`  "log_level": "info"`, 1)
+}
+
 // gwConfig is a config for the fake node with every part given: node is the node section's body,
 // mining the mining section's.
 func gwConfig(t *testing.T, node, mining string) string {
@@ -201,9 +210,44 @@ type harness struct {
 	stopped sync.Once
 }
 
-// startGateway runs the gateway with the config cfg until the test ends.
+// testPassword is the settings password the tests start the gateway with: 64 hex characters, as
+// the Windows tray app makes.
+const testPassword = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+// startGateway runs the gateway with the config cfg until the test ends, as the console does.
 func startGateway(t *testing.T, cfg string) *harness {
 	t.Helper()
+	return startGatewayPW(t, cfg, "")
+}
+
+// startGatewayPW is startGateway with SETTINGS_PASSWORD set to password, as the tray app starts it.
+func startGatewayPW(t *testing.T, cfg, password string) *harness {
+	t.Helper()
+	return startAs(t, "GW-START", cfg, password)
+}
+
+// runBriefly is run with the config at path, which is to end at once: an error that ends the
+// gateway. It fails with code when the gateway runs instead.
+func runBriefly(t *testing.T, code, path string) error {
+	t.Helper()
+	stop := make(chan struct{})
+	done := make(chan error, 1)
+	go func() { done <- run(path, stop, false) }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(15 * time.Second):
+		close(stop)
+		<-done
+		t.Fatalf("%s: the gateway started and ran", code)
+		return nil
+	}
+}
+
+// startAs is startGatewayPW, failing with code when the gateway does not start.
+func startAs(t *testing.T, code, cfg, password string) *harness {
+	t.Helper()
+	t.Setenv("SETTINGS_PASSWORD", password)
 	h := &harness{t: t, path: writeConfig(t, cfg), stop: make(chan struct{}), ended: make(chan struct{})}
 	core, logs := observer.New(zap.DebugLevel)
 	h.logs = logs
@@ -219,9 +263,9 @@ func startGateway(t *testing.T, cfg string) *harness {
 	select {
 	case h.a = <-got:
 	case <-h.ended:
-		t.Fatalf("the gateway did not start: %v", h.err)
+		t.Fatalf("%s: the gateway did not start: %v", code, h.err)
 	case <-time.After(30 * time.Second):
-		t.Fatal("the gateway did not start within 30s")
+		t.Fatalf("%s: the gateway did not start within 30s", code)
 	}
 	t.Cleanup(func() { h.close(60 * time.Second) })
 	return h

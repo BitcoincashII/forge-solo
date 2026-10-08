@@ -184,6 +184,7 @@ func (a *app) applier() {
 		if a.stopped() {
 			return
 		}
+		beforeApply()
 		a.pendMu.Lock()
 		r := a.pend
 		a.pend = nil
@@ -193,6 +194,9 @@ func (a *app) applier() {
 		}
 	}
 }
+
+// beforeApply is called before each apply; a test holds it there.
+var beforeApply = func() {}
 
 // waitEngine waits up to d for e's loop and health check to end. It reports false when the process
 // stop came first.

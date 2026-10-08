@@ -14,8 +14,10 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
+	"unicode/utf8"
 
 	"github.com/BitcoincashII/forge-solo/internal/datum/gateway"
 	"go.uber.org/zap"
@@ -38,6 +40,9 @@ Usage:
   forge-gateway uninstall                                        remove the Windows service
 `)
 	}
+	fmt.Fprintf(os.Stderr, `
+With SETTINGS_PASSWORD set (16 characters or more), the status page's Settings can change the node, the payout address, the coinbase tag and pool_only. The Windows tray app sets it.
+`)
 }
 
 func main() {
@@ -85,17 +90,52 @@ func main() {
 	}
 }
 
+// settingsPasswordFromEnv is SETTINGS_PASSWORD, which turns the status page's Settings on: "" when
+// it is not set.
+func settingsPasswordFromEnv() (string, error) {
+	pw := strings.TrimSpace(os.Getenv("SETTINGS_PASSWORD"))
+	if pw != "" && utf8.RuneCountInString(pw) < 16 {
+		return "", errors.New("SETTINGS_PASSWORD is shorter than 16 characters: use a long random one (the Windows tray app makes 64 hex characters)")
+	}
+	return pw, nil
+}
+
 // run is the gateway until stop closes. A service logs to a file next to its config unless the
 // config names one: it has no console.
+//
+// Started with SETTINGS_PASSWORD (the Windows tray app does that), the status page's Settings can
+// change the node, the payout address, the coinbase tag and pool_only, and the gateway runs until
+// they are right: a config that lacks them, a node that refuses the login or does not answer are
+// shown on the status page, never a reason to exit. Without it (the console, the service) the
+// start is 1.0.0's.
 func run(cfgPath string, stop <-chan struct{}, asService bool) error {
-	cfg, err := loadConfig(cfgPath)
-	if err != nil {
-		return &exitError{exitConfig, err}
+	password := ""
+	if !asService {
+		pw, err := settingsPasswordFromEnv()
+		if err != nil {
+			return &exitError{exitConfig, err}
+		}
+		password = pw
+	}
+	var cfg *Config
+	var err error
+	problem := ""
+	if password == "" {
+		if cfg, err = loadConfig(cfgPath); err != nil {
+			return &exitError{exitConfig, err}
+		}
+	} else {
+		if cfg, err = readConfig(cfgPath); err != nil {
+			return &exitError{exitConfig, err}
+		}
+		if cfg.Status.Listen == "off" {
+			return &exitError{exitConfig, errors.New("status.listen is off, but Settings needs the status page: set it to 127.0.0.1:3090")}
+		}
+		problem = cfg.setupProblem()
 	}
 	if asService && cfg.LogFile == "" {
 		cfg.LogFile = filepath.Join(cfg.dir, "forge-gateway.log")
 	}
-	problem := ""
 	log, err := newLogger(cfg.LogFile, cfg.LogLevel)
 	if err != nil {
 		return err
@@ -120,22 +160,10 @@ func run(cfgPath string, stop <-chan struct{}, asService bool) error {
 		log.Info("created this gateway's identity key; keep the file to keep the same identity at the pool",
 			zap.String("key_file", cfg.Pool.KeyFile))
 	}
-	user, pass, err := cfg.rpcLogin()
-	if err != nil {
+	if password != "" {
+		log.Info("the status page's Settings can change the node, the payout address, the coinbase tag and pool_only, with the settings password")
+	} else if err := firstNodeCheck(log, cfg); err != nil {
 		return err
-	}
-	n := newNode(cfg.Node.RPCURL, user, pass)
-	if ci, err := n.chainInfo(); err != nil {
-		if errors.Is(err, errUnauthorized) {
-			return err
-		}
-		log.Warn("the node is not answering yet; the gateway keeps trying", zap.Error(err))
-	} else {
-		log.Info("node", zap.String("chain", ci.Chain), zap.Int64("blocks", ci.Blocks), zap.Int64("headers", ci.Headers),
-			zap.Bool("syncing", ci.InitialBlockDownload))
-		if ci.Chain != "main" {
-			log.Warn("the node is not on mainnet; Forge Pool takes mainnet work only, so this gateway will mine solo", zap.String("chain", ci.Chain))
-		}
 	}
 
 	// The app's own stop: the process stop, or a start that failed.
@@ -177,6 +205,29 @@ func run(cfgPath string, stop <-chan struct{}, asService bool) error {
 
 	<-stop
 	a.shutdown()
+	return nil
+}
+
+// firstNodeCheck is the console's and the service's start, as 1.0.0's: a node login that cannot be
+// read or that the node refuses ends the gateway; a node that does not answer yet does not.
+func firstNodeCheck(log *zap.Logger, cfg *Config) error {
+	user, pass, err := cfg.rpcLogin()
+	if err != nil {
+		return err
+	}
+	ci, err := newNode(cfg.Node.RPCURL, user, pass).chainInfo()
+	if err != nil {
+		if errors.Is(err, errUnauthorized) {
+			return err
+		}
+		log.Warn("the node is not answering yet; the gateway keeps trying", zap.Error(err))
+		return nil
+	}
+	log.Info("node", zap.String("chain", ci.Chain), zap.Int64("blocks", ci.Blocks), zap.Int64("headers", ci.Headers),
+		zap.Bool("syncing", ci.InitialBlockDownload))
+	if ci.Chain != "main" {
+		log.Warn("the node is not on mainnet; Forge Pool takes mainnet work only, so this gateway will mine solo", zap.String("chain", ci.Chain))
+	}
 	return nil
 }
 

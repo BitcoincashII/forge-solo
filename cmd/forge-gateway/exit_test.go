@@ -207,11 +207,10 @@ func TestStopOnEOFDoesNotBlockOnAPendingStop(t *testing.T) {
 	}
 }
 
-// With FORGE_STOP_ON_STDIN_EOF=1, as the tray app starts it, closing the gateway's stdin stops it
-// cleanly: exit 0, with the stop logged.
+// Started as the tray app starts it (FORGE_STOP_ON_STDIN_EOF=1 and a settings password), closing
+// the gateway's stdin stops it cleanly: exit 0, with the stop logged.
 func TestClosingStdinStopsTheGateway(t *testing.T) {
-	n := newFakeNode(t, "u", "p")
-	c := startChild(t, []string{"FORGE_STOP_ON_STDIN_EOF=1"}, "-config", writeConfig(t, nodeConfig(t, n)))
+	c := startChild(t, []string{"FORGE_STOP_ON_STDIN_EOF=1", "SETTINGS_PASSWORD=" + testPassword}, "-config", writeConfig(t, freshTestConfig(t)))
 	c.waitLine(t, "ready: point your miners here", 30*time.Second)
 	c.stdin.Close()
 	code, rest := c.exit(t, 10*time.Second)
