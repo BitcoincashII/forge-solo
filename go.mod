@@ -1,6 +1,6 @@
 module github.com/BitcoincashII/forge-solo
 
-go 1.25.0
+go 1.26.0
 
 // Built with Go 1.26.8: Go 1.25 left support when Go 1.27 came out
 // (2026-08-19), so its security fixes stopped. The language version stays
@@ -15,7 +15,7 @@ require (
 	github.com/lib/pq v1.12.3
 	github.com/spf13/viper v1.21.0
 	go.uber.org/zap v1.28.0
-	golang.org/x/sys v0.47.0
+	golang.org/x/sys v0.48.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.57.0
 )
