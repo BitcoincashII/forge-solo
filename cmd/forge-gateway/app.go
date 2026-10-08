@@ -286,7 +286,7 @@ func (a *app) apply(cfg *Config, problem string) {
 	}
 	before := a.srv.SoloPayoutAddress()
 	a.srv.SetSoloPayoutAddress(payout)
-	a.gw.SetPoolOnly(cfg.Mining.PoolOnly)
+	tidesgw.SetPoolOnly(a.gw, cfg.Mining.PoolOnly)
 	a.gw.Reset() // the new loop registers with the pool at once
 	a.proc.setNode(n)
 	loop := newJobLoop(a.log, jm, a.gw, a.srv, a.hist, payout, cfg.Mining.PoolOnly)
