@@ -526,6 +526,34 @@ end;`) || pascalAssignments(install, "Missing") != 5 || !strings.Contains(instal
 	}
 }
 
+// windows/gateway/README.md builds the installer with the Inno Setup image the release pins, with
+// no network, as CI does.
+func TestGatewayInstallerImage(t *testing.T) {
+	release := mustRead(t, ".github/workflows/release.yml")
+	m := regexp.MustCompile(`(?m)^  INNOSETUP_IMAGE: '([^']+)'$`).FindSubmatch(release)
+	if m == nil {
+		t.Fatal("GWI-IMAGE: release.yml has no INNOSETUP_IMAGE")
+	}
+	readme := string(mustRead(t, "windows/gateway/README.md"))
+	if !strings.Contains(readme, "\ndocker run --rm --network none -v \"$PWD\":/work "+string(m[1])+" /DMyAppVersion=<version> windows/gateway/forge-gateway.iss\n") {
+		t.Errorf("GWI-IMAGE: windows/gateway/README.md does not compile the installer in %s with --network none", m[1])
+	}
+	for _, u := range regexp.MustCompile(`amake/innosetup\S*`).FindAllString(readme, -1) {
+		if u != string(m[1]) {
+			t.Errorf("GWI-IMAGE-SAME: windows/gateway/README.md runs %s, not the pinned %s", u, m[1])
+		}
+	}
+	for _, want := range []string{
+		`CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=<version>" -o windows/gateway/bin/forge-gateway.exe ./cmd/forge-gateway`,
+		`(cd windows/gateway/launcher && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-H=windowsgui -s -w -X main.version=<version>" -o ../bin/forge-gateway-tray.exe .)`,
+		`cp <forge-gateway repository>/LICENSE windows/gateway/bin/LICENSE.txt`,
+	} {
+		if !strings.Contains(readme, "\n"+want+"\n") {
+			t.Errorf("GWI-IMAGE-BUILD: windows/gateway/README.md does not build bin as the installer takes it:\n%s", want)
+		}
+	}
+}
+
 // Forge Gateway 1.0.0 on Windows was a service (forge-gateway.exe install): it starts with Windows
 // as LocalSystem and holds port 3333, so the installed Forge Gateway could not start beside it.
 // Setup looks for it before it closes or replaces anything. One that runs a program in this
@@ -819,10 +847,11 @@ func TestGatewayInstallerSharesForgeSolosCode(t *testing.T) {
 	}
 }
 
-// The installer's texts use plain punctuation, as Forge Solo's do.
+// The installer's texts and its build notes use plain punctuation, as Forge Solo's do.
 func TestGatewayInstallerPlainText(t *testing.T) {
 	docs := []docText{
 		{"windows/gateway/forge-gateway.iss", gwInstScript(t)},
+		{"windows/gateway/README.md", string(mustRead(t, "windows/gateway/README.md"))},
 	}
 	checkPlainPunctuation(t, docs)
 	for _, d := range docs {
