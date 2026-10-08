@@ -217,6 +217,28 @@ jobs:
           go test -race -count=1 ./...
           GOOS=windows GOARCH=amd64 go test -c -o /tmp/launcher-test.exe .
 
+      # Forge Gateway's tray app is Windows code and a module of its own, like Forge Solo's launcher,
+      # so the unit job's ./... skips it.
+      - name: Vet, staticcheck, build and test Forge Gateway's tray app
+        working-directory: windows/gateway/launcher
+        run: |
+          GOOS=windows GOARCH=amd64 go vet ./...
+          go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
+          GOOS=windows GOARCH=amd64 "$(go env GOPATH)/bin/staticcheck" ./...
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui -s -w" -o /tmp/forge-gateway-tray.exe .
+          go test -race -count=1 ./...
+          GOOS=windows GOARCH=amd64 go test -c -o /tmp/gateway-tray-test.exe .
+
+      # Its Windows-only files (the service) are read by staticcheck only here: the unit job reads
+      # the Linux build. staticcheck is the one the step before installed.
+      - name: Vet, build and test Forge Gateway for Windows
+        run: |
+          GOOS=windows GOARCH=amd64 go vet ./cmd/forge-gateway
+          GOOS=windows GOARCH=amd64 "$(go env GOPATH)/bin/staticcheck" ./cmd/forge-gateway
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o /dev/null ./cmd/forge-gateway
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go test -c -o /dev/null ./cmd/forge-gateway
+          go test -race -count=1 ./cmd/forge-gateway ./internal/tidesgw
+
       # The services and forge-solo-migrate.exe as the release builds them for Windows. The tests of
       # the packages whose locking, renaming and paths differ on Windows are compiled for it too.
       # cmd/forge-solo-linux is Linux's alone.
@@ -256,6 +278,19 @@ jobs:
           grep -q 'pgsql\\bin\\placeholder.txt' /tmp/iscc.log || { echo "::error::PostgreSQL is not in the installer"; exit 1; }
           if grep -q 'init-db.sql' /tmp/iscc.log; then echo "::error::the installer still installs the PostgreSQL schema"; exit 1; fi
 
+      # Forge Gateway's installer, with placeholders for its programs, as its release builds it.
+      - name: Forge Gateway's installer script compiles
+        env:
+          INNOSETUP_IMAGE: 'amake/innosetup:innosetup6@sha256:81713b854eb12278021045dcb57701fe35312030b2dc1d37710184f294a23f81' # as in release.yml
+        run: |
+          mkdir -p windows/gateway/bin
+          : > windows/gateway/bin/forge-gateway.exe; : > windows/gateway/bin/forge-gateway-tray.exe; : > windows/gateway/bin/LICENSE.txt
+          chmod a+w windows/gateway
+          docker run --rm --network none -v "$PWD":/work "$INNOSETUP_IMAGE" /DMyAppVersion=0.0.0-check windows/gateway/forge-gateway.iss | tee /tmp/iscc-gw.log
+          test -f windows/gateway/ForgeGateway-Setup-0.0.0-check.exe
+          grep -q 'bin\\forge-gateway.exe' /tmp/iscc-gw.log || { echo "::error::forge-gateway.exe is not in Forge Gateway's installer"; exit 1; }
+          grep -q 'bin\\forge-gateway-tray.exe' /tmp/iscc-gw.log || { echo "::error::the tray app is not in Forge Gateway's installer"; exit 1; }
+
   # What only Windows can show: its file locks and renames under a program that has the file open,
   # its code pages, its junctions, and a whole move from a data folder named in a script the code
   # page lacks, with the PostgreSQL and Visual C++ runtime the release ships. The jobs above run on
@@ -290,6 +325,12 @@ jobs:
         run: |
           go test -count=1 -v -run 'ACP|Junction|PgReachable|FastPath' . | tee "$RUNNER_TEMP/launcher.log"
           if grep -- '--- SKIP' "$RUNNER_TEMP/launcher.log" | grep -v TestMoveThroughAJunctionOnWindows; then echo "::error::a test skipped"; exit 1; fi
+
+      - name: Forge Gateway and its tray app, on Windows
+        run: |
+          go test -count=1 -v ./cmd/forge-gateway | tee "$RUNNER_TEMP/gateway.log"
+          (cd windows/gateway/launcher && go test -count=1 -v ./...) | tee -a "$RUNNER_TEMP/gateway.log"
+          if grep -- '--- SKIP' "$RUNNER_TEMP/gateway.log"; then echo "::error::a test skipped"; exit 1; fi
 
       # With release.yml's own pins and script.
       - name: PostgreSQL and its Visual C++ runtime, as the release fetches them
