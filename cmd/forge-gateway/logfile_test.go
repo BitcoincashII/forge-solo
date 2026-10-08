@@ -18,6 +18,9 @@ func TestLogFileIsCapped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Closed before the TempDir is removed (cleanups run last first): Windows does not delete a
+	// file that is open.
+	t.Cleanup(func() { r.f.Close() })
 	line := bytes.Repeat([]byte("x"), 99)
 	for i := 0; i < 50; i++ {
 		if _, err := r.Write(append(line, '\n')); err != nil {
@@ -44,6 +47,7 @@ func TestLogFileIsCapped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { r2.f.Close() })
 	if st, _ := os.Stat(path); r2.size != st.Size() {
 		t.Errorf("reopened size %d, file is %d", r2.size, st.Size())
 	}
