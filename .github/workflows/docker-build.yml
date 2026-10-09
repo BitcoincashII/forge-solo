@@ -82,7 +82,7 @@ jobs:
 
       - name: Build and push Node image (BCH2 v27.0.2)
         id: node
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ./docker/node
           file: ./docker/node/Dockerfile
@@ -98,7 +98,7 @@ jobs:
 
       - name: Build and push Node1175 image (ESF v29.1.0)
         id: node1175
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ./docker/node1175
           file: ./docker/node1175/Dockerfile
@@ -114,7 +114,7 @@ jobs:
 
       - name: Build and push API image
         id: api
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ./docker/api/Dockerfile
@@ -130,7 +130,7 @@ jobs:
 
       - name: Build and push Stratum image
         id: stratum
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ./docker/stratum/Dockerfile
@@ -146,7 +146,7 @@ jobs:
 
       - name: Build and push Web image
         id: web
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ./docker/web/Dockerfile
@@ -164,7 +164,7 @@ jobs:
       # it always knows the schema of the release it ships with.
       - name: Build and push Migrate image (forge-solo-migrate, PostgreSQL 16.15)
         id: migrate
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ./docker/migrate/Dockerfile
