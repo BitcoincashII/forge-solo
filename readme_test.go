@@ -1,9 +1,11 @@
 package forgesolo
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -162,6 +164,133 @@ func TestReadmesDoNotOverstateThePassword(t *testing.T) {
 		docs = append(docs, docText{f, string(mustRead(t, f))})
 	}
 	checkPasswordScope(t, docs)
+}
+
+// codeLines are the commands in text's fenced code blocks: a line ending in a backslash goes on
+// on the next one, and a comment (" # ") and the spaces around are left out.
+func codeLines(text string) []string {
+	var out []string
+	fenced, cont := false, ""
+	for _, l := range strings.Split(text, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(l), "```") {
+			fenced = !fenced
+			continue
+		}
+		if !fenced {
+			continue
+		}
+		l, _, _ = strings.Cut(cont+l, " # ")
+		cont = ""
+		if strings.HasSuffix(l, `\`) {
+			cont = strings.TrimSuffix(l, `\`)
+			continue
+		}
+		out = append(out, strings.TrimSpace(l))
+	}
+	return out
+}
+
+// The root README says how to build each part from source and run the tests, with the commands CI
+// runs: the Go that go.mod names; each program with no build tag, and with -X main.version where it
+// has a version to stamp; each Umbrel image with the Dockerfile, context and build argument
+// docker-build.yml gives it; the Linux downloads for the architectures build-release.sh builds; and
+// the unit and integration jobs' commands as test.yml runs them. It had no build instructions.
+func TestReadmeBuildsAsCIDoes(t *testing.T) {
+	readme := string(mustRead(t, "README.md"))
+	at, rel := strings.Index(readme, "\n## Build from source\n"), strings.Index(readme, "\n## Releasing\n")
+	if at < 0 || rel < 0 || at > rel {
+		t.Fatalf("DOCS-BUILD-SECTION: README.md has no section ## Build from source before ## Releasing (at %d and %d)", at, rel)
+	}
+	_, sec, _ := strings.Cut(readme, "\n## Build from source\n")
+	sec, _, _ = strings.Cut(sec, "\n## ")
+	code := codeLines(sec)
+	has := func(cmd string) bool { return slices.Contains(code, cmd) }
+
+	m := regexp.MustCompile(`(?m)^toolchain (go\S+)$`).FindStringSubmatch(string(mustRead(t, "go.mod")))
+	if m == nil || !strings.Contains(flat(sec), "toolchain "+m[1]+":") || !strings.Contains(sec, "GOTOOLCHAIN="+m[1]) {
+		t.Errorf("DOCS-BUILD-GO: README.md's Build from source does not name the Go of go.mod's toolchain line (%v)", m)
+	}
+
+	goBuild := regexp.MustCompile(`\bgo build\b.*\./cmd/([\w-]+)$`)
+	built := map[string]bool{}
+	for _, l := range code {
+		c := goBuild.FindStringSubmatch(l)
+		if c == nil {
+			continue
+		}
+		built[c[1]] = true
+		if buildTags.MatchString(l) {
+			t.Errorf("DOCS-BUILD-TAG: README.md builds %s with a build tag; there is one build: %q", c[1], l)
+		}
+		versioned := regexp.MustCompile(`(?m)^var version = `).Match(mustRead(t, "cmd/"+c[1]+"/main.go"))
+		if stamps := strings.Contains(l, "-X main.version="); stamps != versioned {
+			t.Errorf("DOCS-BUILD-VERSION: README.md stamps a version into %s: %v; cmd/%s/main.go has a version to stamp: %v: %q", c[1], stamps, c[1], versioned, l)
+		}
+	}
+	for _, c := range []string{"stratum", "api", "forge-solo-migrate", "forge-solo-linux", "forge-gateway"} {
+		if !built[c] {
+			t.Errorf("DOCS-BUILD-PROGRAMS: README.md's Build from source does not build cmd/%s", c)
+		}
+	}
+
+	images := 0
+	for _, s := range loadWorkflow(t, ".github/workflows/docker-build.yml").Jobs["build"].Steps {
+		if !strings.HasPrefix(s.Uses, "docker/build-push-action@") {
+			continue
+		}
+		images++
+		file := strings.TrimPrefix(fmt.Sprint(s.With["file"]), "./")
+		ctx := strings.TrimPrefix(fmt.Sprint(s.With["context"]), "./")
+		args, _ := s.With["build-args"].(string)
+		found := false
+		for _, l := range code {
+			f := strings.Fields(l)
+			if len(f) < 4 || f[0] != "docker" || f[1] != "build" || !strings.Contains(l, " -f "+file+" ") || f[len(f)-1] != ctx {
+				continue
+			}
+			found = true
+			if strings.Contains(l, "--build-arg VERSION=") != strings.Contains(args, "VERSION=") {
+				t.Errorf("DOCS-BUILD-IMAGE-ARG: README.md builds %s with build arguments other than docker-build.yml's (%q): %q", file, args, l)
+			}
+		}
+		if !found {
+			t.Errorf("DOCS-BUILD-IMAGE: README.md does not build %s with the context %s, as docker-build.yml does", file, ctx)
+		}
+	}
+	if images == 0 {
+		t.Error("DOCS-BUILD-IMAGE: docker-build.yml builds no image with docker/build-push-action")
+	}
+
+	if a := regexp.MustCompile(`(?m)^ARCHES=\$\{\*:-([^}]+)\}$`).FindStringSubmatch(string(mustRead(t, "scripts/linux/build-release.sh"))); a == nil ||
+		!has("for a in "+a[1]+"; do") {
+		t.Errorf("DOCS-BUILD-LINUX-ARCHES: README.md does not take the nodes for the architectures build-release.sh builds (%v)", a)
+	}
+
+	w := loadWorkflow(t, ".github/workflows/test.yml")
+	for _, step := range []string{"Vet", "Test", "Test as 32-bit (386)", "Test with race detector"} {
+		if run := strings.TrimSpace(stepRun(t, w, "unit", step)); !has(run) {
+			t.Errorf("DOCS-BUILD-UNIT: README.md's Build from source does not run %q, as the unit job does", run)
+		}
+	}
+	if !strings.Contains(stepRun(t, w, "unit", "gofmt (whole tree)"), "$(gofmt -l .)") || !has("gofmt -l .") {
+		t.Error("DOCS-BUILD-GOFMT: README.md's Build from source does not run gofmt -l ., as the unit job does")
+	}
+	if s := regexp.MustCompile(`go install honnef\.co/go/tools/cmd/staticcheck@\S+`).FindString(stepRun(t, w, "unit", "staticcheck")); s == "" ||
+		!has(s+` && "$(go env GOPATH)/bin/staticcheck" ./...`) {
+		t.Errorf("DOCS-BUILD-STATICCHECK: README.md's Build from source does not run the staticcheck the unit job installs (%q)", s)
+	}
+	its := 0
+	for _, s := range w.Jobs["integration"].Steps {
+		if run := strings.TrimSpace(s.Run); run != "" {
+			its++
+			if !has(run) {
+				t.Errorf("DOCS-BUILD-IT: README.md's Build from source does not run %q, as the integration job does", run)
+			}
+		}
+	}
+	if its == 0 {
+		t.Error("DOCS-BUILD-IT: the integration job runs nothing")
+	}
 }
 
 // The Windows README describes the build as it is: the services and the migrator as the one build,

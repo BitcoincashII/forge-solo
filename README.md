@@ -5,7 +5,8 @@ or **TIDES**, where blocks are shared through Forge Pool's TIDES window. In solo
 and Windows it also **merge-mines 1175 (ESF)** at no extra hashrate cost. Built on the hardened
 Forge Pool engine, packaged for a single household: **no PPLNS, no pool fee**.
 
-It runs on **Umbrel**, **Windows** and **Linux**, all built from this repository.
+It runs on **Umbrel**, **Windows** and **Linux**, all built from this repository
+([Build from source](#build-from-source)).
 
 ## Install on Umbrel
 
@@ -237,6 +238,183 @@ chain again, and your settings and block history stay.
 - Internal API fails **closed** without its token.
 - 1175 node binary is **checksum-verified**; images are pinned by digest.
 - Share work is credited as `min(assigned, proven)`, so credit cannot be inflated.
+
+## Build from source
+
+Every release is built from this repository: the Umbrel images and the Windows installer by CI
+(`.github/workflows/docker-build.yml` and `release.yml`), the Linux downloads by
+`scripts/linux/build-release.sh`, run by hand (see [Releasing](#releasing)). The commands below are
+theirs, for a Linux shell.
+
+You need Git, Go 1.21 or newer, and Docker for the images, the installers, the Linux downloads and
+the integration tests. `go.mod` names the Go the releases are built with, `toolchain go1.26.8`: an
+older Go downloads go1.26.8 the first time it runs in the clone and builds with it (unless
+`GOTOOLCHAIN` is `local`), and a newer one builds with itself. `GOTOOLCHAIN=go1.26.8` makes any of
+them build with go1.26.8.
+
+```sh
+git clone https://github.com/BitcoincashII/forge-solo
+cd forge-solo
+go version        # go1.26.8, or the newer Go you have
+```
+
+### The programs
+
+Each program has one build, with no build tags. They are static (`CGO_ENABLED=0`: the SQLite driver
+is pure Go), so one machine builds them for every platform. The releases stamp the version into the
+three that have one, with `-X main.version`.
+
+| Program | Source | What it is |
+|---|---|---|
+| `stratum` | `cmd/stratum` | the mining service |
+| `api` | `cmd/api` | the dashboard's API |
+| `forge-solo-migrate` | `cmd/forge-solo-migrate` | moves the data of 1.0.12 and earlier into `forgesolo.db` |
+| `forge-solo` | `cmd/forge-solo-linux` | Forge Solo for Linux: runs the node, the stratum, the api and the dashboard |
+| `forge-gateway` | `cmd/forge-gateway` | [Forge Gateway](https://github.com/BitcoincashII/forge-gateway) |
+
+On Linux, for this machine, into `dist/`, which Git ignores:
+
+```sh
+V=1.0.13
+CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o dist/stratum ./cmd/stratum
+CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o dist/api ./cmd/api
+CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$V" -o dist/forge-solo-migrate ./cmd/forge-solo-migrate
+CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$V" -o dist/forge-solo ./cmd/forge-solo-linux
+CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$V" -o dist/forge-gateway ./cmd/forge-gateway
+```
+
+For another platform, add `GOOS` and `GOARCH`, and `GOARM` for 32-bit ARM. Forge Solo for Linux
+ships for `amd64`, `arm64`, `arm` with `GOARM=7` and with `GOARM=6`, `386` and `riscv64` (what
+`uname -m` calls x86_64, aarch64, armv7l, armv6l, i686 and riscv64); the migrator for `linux/amd64`,
+`linux/arm64` and `windows/amd64`; Forge Gateway for `linux/amd64`, `linux/arm64` and
+`windows/amd64`. `go build ./...` checks that everything builds, as CI's last unit step does.
+
+```sh
+CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags "-s -w -X main.version=$V" -o dist/armv7l/forge-solo ./cmd/forge-solo-linux
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=$V" -o dist/forge-gateway.exe ./cmd/forge-gateway
+```
+
+### The Umbrel images
+
+`docker-build.yml` builds six images, each for `linux/amd64` and `linux/arm64`, and pushes them to
+GHCR. For this machine, with the same Dockerfiles, contexts and build argument:
+
+```sh
+docker build -f docker/api/Dockerfile -t forge-solo-api:dev .
+docker build -f docker/stratum/Dockerfile -t forge-solo-stratum:dev .
+docker build -f docker/web/Dockerfile -t forge-solo-web:dev .
+docker build -f docker/migrate/Dockerfile --build-arg VERSION=$V -t forge-solo-migrate:dev .
+docker build -f docker/node/Dockerfile -t forge-solo-node:dev docker/node
+docker build -f docker/node1175/Dockerfile -t forge-solo-node1175:dev docker/node1175
+```
+
+The migrate image refuses to build without `VERSION`, which the migrator records in what it writes.
+The node images download the node release for the platform they are built for, which BuildKit
+(Docker's builder since Docker 23) tells them, and check its SHA-256. For `linux/arm64` on an x86
+machine, register QEMU once, as CI does, and name the platform; the api and stratum images then
+compile under QEMU, which is slow:
+
+```sh
+docker run --privileged --rm tonistiigi/binfmt --install arm64
+docker buildx build --platform linux/arm64 --load -f docker/api/Dockerfile -t forge-solo-api:dev-arm64 .
+```
+
+CI builds both platforms in one step and pushes them: that needs a builder of its own
+(`docker buildx create --use`) and a registry.
+
+### The Windows installers
+
+Forge Solo's: [Building locally](windows/README.md#building-locally) in windows/README.md has the
+commands. They build `stratum.exe`, `api.exe`, `forge-solo-migrate.exe` and the launcher
+`forge-solo.exe` (`windows/launcher`, a module of its own) into `windows/bin` with
+`GOOS=windows GOARCH=amd64`, and compile `windows/forge-solo.iss` with Inno Setup in Docker, in the
+image `release.yml` pins (`INNOSETUP_IMAGE`). The two nodes go in `windows/bin` first, and
+PostgreSQL 16.15 with the Visual C++ runtime it needs in `windows/pgsql`, as windows/README.md's
+[External binaries](windows/README.md#external-binaries-place-in-bin-before-building-the-installer)
+says. The installer job of `release.yml` fetches each at a pinned URL and checks its SHA-256; its
+fetch steps run as they are on Linux, with `curl`, `7z`, `msiextract`, `python3` and the versions
+and hashes of its `env:`.
+
+Forge Gateway's: [Building locally](windows/gateway/README.md#building-locally) in
+windows/gateway/README.md. It puts `forge-gateway.exe`, the tray app `forge-gateway-tray.exe`
+(`windows/gateway/launcher`) and the forge-gateway repository's LICENSE in `windows/gateway/bin`,
+and compiles `windows/gateway/forge-gateway.iss` the same way. Forge Gateway's releases are built by
+[its repository](https://github.com/BitcoincashII/forge-gateway), from the forge-solo commit its
+`FORGE_SOLO_COMMIT` names; its README's Source section has the commands.
+
+### The Linux downloads
+
+`scripts/linux/build-release.sh <version> [arch...]` builds them on Linux, with Go and Docker, into
+`dist/forge-solo-<version>-linux-<arch>.tar.gz` and `dist/SHA256SUMS-linux`, for all six
+architectures unless you name some. It builds only a clean checkout of the tag `v<version>`: it
+refuses uncommitted or untracked changes, any other commit, and a version `umbrel-app.yml` does not
+give.
+
+Each download holds a BCH2 node built fully static from bitcoincashII-core v27.0.2, and the script
+packages a node only if its SHA-256 is the one it pins: the node the releases ship. It takes the
+nodes from `.linux-build/out/<arch>/`, and builds a missing one from source with
+`scripts/linux/build-node.sh` in an Alpine container of that platform: under QEMU for ARM and
+RISC-V (`docker run --privileged --rm tonistiigi/binfmt --install arm64,arm,riscv64`), which takes
+hours. A node built from source has other bytes, which the script refuses until they are checked
+and pinned. To build with the nodes the releases ship, take them from a release's downloads first:
+
+```sh
+V=1.0.13
+git checkout v$V
+for a in x86_64 aarch64 armv7l armv6l i686 riscv64; do
+  mkdir -p .linux-build/out/$a
+  curl -fsSL https://github.com/BitcoincashII/forge-solo/releases/download/v$V/forge-solo-$V-linux-$a.tar.gz |
+    tar -xzf - -C .linux-build/out/$a --strip-components=2 \
+      forge-solo-$V-linux-$a/bin/bitcoincashIId forge-solo-$V-linux-$a/bin/bitcoincashII-cli
+done
+scripts/linux/build-release.sh $V
+```
+
+To try a change on Linux without all that, put your programs into an unpacked download, which has
+the node, and run `./forge-solo` there as [packaging/linux/README.md](packaging/linux/README.md)
+says. For another machine, add `GOOS=linux GOARCH=...` as above.
+
+```sh
+d=~/forge-solo-1.0.13-linux-x86_64        # the unpacked download
+CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o $d/bin/stratum ./cmd/stratum
+CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o $d/bin/api ./cmd/api
+CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=dev" -o $d/forge-solo ./cmd/forge-solo-linux
+rm -rf $d/web && cp -r web/dist $d/web
+```
+
+### Tests
+
+The unit job of `test.yml` takes a few minutes. The 32-bit run, there because three of the Linux
+downloads are 32-bit, needs an x86-64 machine.
+
+```sh
+gofmt -l .        # lists nothing
+go vet ./...
+go install honnef.co/go/tools/cmd/staticcheck@v0.7.0 && "$(go env GOPATH)/bin/staticcheck" ./...
+go test -count=1 ./...
+CGO_ENABLED=0 GOARCH=386 go test -count=1 ./...
+go test -count=1 -race ./internal/stratum/ ./cmd/stratum/ ./cmd/api/ ./internal/mining/ ./internal/stats/ ./internal/dblock/ ./internal/pgmigrate/ ./internal/migstatus/ ./cmd/forge-solo-migrate/
+```
+
+The two Windows tray apps are modules of their own, which `./...` leaves out: CI runs
+`go test -race -count=1 ./...` in `windows/launcher` and in `windows/gateway/launcher`. The rest of
+its Windows job (vet, staticcheck and builds with `GOOS=windows`, both installer scripts compiled
+with placeholders) and the job that runs on Windows itself are in `test.yml`.
+
+The integration job runs two scripts, each of which fails when a test it runs is skipped:
+
+```sh
+./scripts/it-pg-to-sqlite.sh
+./scripts/it-1175.sh
+```
+
+`it-pg-to-sqlite.sh` makes a 1.0.12 database with 1.0.12's own code (the `v1.0.12` tag, which a
+full clone has), moves it into `forgesolo.db` with the migrate, api and stratum images it builds
+from this tree and the compose as umbrelOS runs it, and checks every row; then going back to
+1.0.12 and forward again, a move cut short or refused, and the Windows shape. It needs Docker with
+compose and buildx, Go, python3 and curl, takes about 12 minutes on a CI runner, and removes what it
+made; its first lines list its options, such as `IT_CASES` and `KEEP=1`. `it-1175.sh` downloads the
+1175 node (x86_64 or aarch64), checks its SHA-256, and merge-mines a block on a regtest chain.
 
 ## Releasing
 
