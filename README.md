@@ -246,11 +246,11 @@ Every release is built from this repository: the Umbrel images and the Windows i
 `scripts/linux/build-release.sh`, run by hand (see [Releasing](#releasing)). The commands below are
 theirs, for a Linux shell.
 
-You need Git, Go 1.21 or newer, and Docker for the images, the installers, the Linux downloads and
-the integration tests. `go.mod` names the Go the releases are built with, `toolchain go1.26.8`: an
-older Go downloads go1.26.8 the first time it runs in the clone and builds with it (unless
-`GOTOOLCHAIN` is `local`), and a newer one builds with itself. `GOTOOLCHAIN=go1.26.8` makes any of
-them build with go1.26.8.
+You need Git, Go 1.21 or newer, a C compiler for the race tests (gcc, which `-race` needs on Linux),
+and Docker for the images, the installers, the Linux downloads and the integration tests. `go.mod`
+names the Go the releases are built with, `toolchain go1.26.8`: an older Go downloads go1.26.8 the
+first time it runs in the clone and builds with it (unless `GOTOOLCHAIN` is `local`), and a newer
+one builds with itself. `GOTOOLCHAIN=go1.26.8` makes any of them build with go1.26.8.
 
 ```sh
 git clone https://github.com/BitcoincashII/forge-solo
@@ -333,7 +333,8 @@ PostgreSQL 16.15 with the Visual C++ runtime it needs in `windows/pgsql`, as win
 [External binaries](windows/README.md#external-binaries-place-in-bin-before-building-the-installer)
 says. The installer job of `release.yml` fetches each at a pinned URL and checks its SHA-256; its
 fetch steps run as they are on Linux, with `curl`, `7z`, `msiextract`, `python3` and the versions
-and hashes of its `env:`.
+and hashes of its `env:`, once `mkdir -p windows/bin` has made the folder (a clone does not have
+it; in `release.yml` the build step makes it first).
 
 Forge Gateway's: [Building locally](windows/gateway/README.md#building-locally) in
 windows/gateway/README.md. It puts `forge-gateway.exe`, the tray app `forge-gateway-tray.exe`
@@ -388,6 +389,7 @@ The unit job of `test.yml` takes a few minutes. The 32-bit run, there because th
 downloads are 32-bit, needs an x86-64 machine.
 
 ```sh
+export GOTOOLCHAIN=go1.26.8   # staticcheck v0.7.0 does not build with a newer Go
 gofmt -l .        # lists nothing
 go vet ./...
 go install honnef.co/go/tools/cmd/staticcheck@v0.7.0 && "$(go env GOPATH)/bin/staticcheck" ./...
@@ -412,8 +414,9 @@ The integration job runs two scripts, each of which fails when a test it runs is
 full clone has), moves it into `forgesolo.db` with the migrate, api and stratum images it builds
 from this tree and the compose as umbrelOS runs it, and checks every row; then going back to
 1.0.12 and forward again, a move cut short or refused, and the Windows shape. It needs Docker with
-compose and buildx, Go, python3 and curl, takes about 12 minutes on a CI runner, and removes what it
-made; its first lines list its options, such as `IT_CASES` and `KEEP=1`. `it-1175.sh` downloads the
+compose and buildx, Go, python3 and curl, takes about 12 minutes on a CI runner, and removes its
+containers and work folder; the `forge-it-*` images it builds stay, for `IT_REUSE_IMAGES=1`. Its
+first lines list its options, such as `IT_CASES` and `KEEP=1`. `it-1175.sh` downloads the
 1175 node (x86_64 or aarch64), checks its SHA-256, and merge-mines a block on a regtest chain.
 
 ## Releasing
