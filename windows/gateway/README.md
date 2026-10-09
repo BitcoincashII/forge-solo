@@ -31,7 +31,8 @@ Inno Setup, which has no native Linux build). The image is pinned by digest, the
 ```sh
 # From the repository root.
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=<version>" -o windows/gateway/bin/forge-gateway.exe ./cmd/forge-gateway
-(cd windows/gateway/launcher && rsrc -ico forge-gateway.ico -arch amd64 -o rsrc.syso)
+go install github.com/akavel/rsrc@v0.10.2
+(cd windows/gateway/launcher && "$(go env GOPATH)/bin/rsrc" -ico forge-gateway.ico -arch amd64 -o rsrc.syso)
 (cd windows/gateway/launcher && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-H=windowsgui -s -w -X main.version=<version>" -o ../bin/forge-gateway-tray.exe .)
 cp <forge-gateway repository>/LICENSE windows/gateway/bin/LICENSE.txt
 docker run --rm --network none -v "$PWD":/work amake/innosetup:innosetup6@sha256:81713b854eb12278021045dcb57701fe35312030b2dc1d37710184f294a23f81 /DMyAppVersion=<version> windows/gateway/forge-gateway.iss

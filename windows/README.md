@@ -147,7 +147,9 @@ Only the installer is signed, and with a self-signed certificate: see
 
 ## Building locally
 Only needed to test a change before tagging; releases come from CI. Requires Go and Docker
-(Docker only to run Inno Setup, which has no native Linux build).
+(Docker only to run Inno Setup, which has no native Linux build). Put the
+[external binaries](#external-binaries-place-in-bin-before-building-the-installer) in place first:
+without `pgsql/` the installer does not compile.
 
 ```sh
 # From the repository root.
@@ -156,8 +158,9 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags '-s -w' -o windows/bin
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags '-s -w' -o windows/bin/api.exe     ./cmd/api
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -X main.version=<version>" -o windows/bin/forge-solo-migrate.exe ./cmd/forge-solo-migrate
 
-# 2) exe icon resource (regenerate only if the icon changes):
-(cd windows/launcher && rsrc -ico forge-solo.ico -arch amd64 -o rsrc.syso)
+# 2) exe icon resource, with the rsrc the release uses:
+go install github.com/akavel/rsrc@v0.10.2
+(cd windows/launcher && "$(go env GOPATH)/bin/rsrc" -ico forge-solo.ico -arch amd64 -o rsrc.syso)
 
 # 3) launcher:
 (cd windows/launcher && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui -s -w -X main.version=<version>" -o ../bin/forge-solo.exe .)
@@ -169,7 +172,8 @@ docker run --rm -v "$PWD":/work amake/innosetup:innosetup6@sha256:81713b854eb122
 ```
 
 The installer is written to `windows/ForgeSolo-Setup-<version>.exe`. CI stamps the tag's version;
-`MyAppVersion` in `forge-solo.iss` is only the default for a local build.
+`MyAppVersion` in `forge-solo.iss` is only the default for a local build. The image runs as uid
+1000: if that is not you, make `windows` writable for it first (`chmod a+w windows`), as CI does.
 
 ## Design notes
 - **Graceful shutdown:** the launcher stops both nodes via RPC `stop` so they flush the
