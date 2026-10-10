@@ -1160,8 +1160,10 @@ func startZMQListener(zmqEndpoint string, logger *zap.Logger) {
 				topic := string(msg.Frames[0])
 				if topic == "hashblock" {
 					blockHash := hex.EncodeToString(msg.Frames[1])
-					logger.Info("⚡ ZMQ block notification received",
-						zap.String("hash", blockHash))
+					if !quietNotices.Load() { // left out while the node catches up (jobLoop.notice)
+						logger.Info("⚡ ZMQ block notification received",
+							zap.String("hash", blockHash))
+					}
 
 					// Non-blocking send to trigger immediate job update
 					select {

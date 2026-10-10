@@ -393,6 +393,7 @@ func newLoopRig(t *testing.T, o loopRigOpts) *loopRig {
 		tidesGWPtr.Store(savedGW)
 		payoutModeVal.Store(savedMode)
 		tidesRefreshWanted.Store(false)
+		quietNotices.Store(false)
 		rpcURL, rpcUser, rpcPass = savedURL, savedUser, savedPass
 		setNetworkDifficulty(savedDiff)
 		jobHistoryMu.Lock()
@@ -509,6 +510,13 @@ func waitUntil(t *testing.T, d time.Duration, code string, cond func() bool) {
 // block is a new block reaching the node, and ZMQ telling the loop.
 func (r *loopRig) block(tip int64) {
 	r.node.setTip(tip)
+	r.step(true)
+}
+
+// notice is block with the ZMQ notice logged as run logs it.
+func (r *loopRig) notice(tip int64) {
+	r.node.setTip(tip)
+	r.loop.notice(chainHash(tip))
 	r.step(true)
 }
 

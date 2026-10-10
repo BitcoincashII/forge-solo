@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/BitcoincashII/forge-solo/internal/mining"
@@ -40,6 +41,31 @@ const (
 	catchUpQuiet = time.Minute
 )
 
+// Each block the node connects while it catches up is a ZMQ notice, and each notice was two info
+// lines, "ZMQ block notification received" from the listener and "ZMQ triggered job refresh" from
+// the loop: a 14,000-block sync on Windows wrote 28,000 of them in under three minutes, and the
+// warnings said once a minute were lost among them. A notice that comes within catchUpEvery of the
+// one before has the node asked, at most once every noticeAskEvery, how far behind its headers it
+// is. While it is catchUpGap or more blocks behind, the two lines are left out and its progress is
+// said once every noticeProgressEvery instead; once it is level, or catchUpEvery passes without a
+// notice, each notice is logged again. At the tip, where blocks come minutes apart, the node is not
+// asked and every notice is logged as before.
+const (
+	noticeAskEvery      = time.Second
+	noticeProgressEvery = time.Minute
+)
+
+// quietNotices is set while the ZMQ notices are left out of the log. The loop sets it; the ZMQ
+// listener reads it too.
+var quietNotices atomic.Bool
+
+// sayNotices logs each ZMQ notice again.
+func sayNotices() {
+	if quietNotices.Swap(false) {
+		logger.Info("✅ The ZMQ lines of each new block are logged again")
+	}
+}
+
 // jobLoop builds work from the BCH2 node's block templates and hands it to both stratum ports.
 // Miners expect periodic job updates to confirm the pool is alive. It sends new jobs on:
 //  1. a new block detected via ZMQ (CleanJobs=true), at once;
@@ -62,6 +88,13 @@ type jobLoop struct {
 	lastNewBlockAt time.Time
 	behindSince    time.Time
 	lastBehind     time.Time
+
+	// lastNotice is when the last ZMQ notice came, and lastNoticeAsk when one last had the node
+	// asked about its chain. progressSaid is when the node's progress was last said while the
+	// notices are left out.
+	lastNotice    time.Time
+	lastNoticeAsk time.Time
+	progressSaid  time.Time
 
 	lastHeight      int64
 	lastPrevHash    string
@@ -91,14 +124,55 @@ func (l *jobLoop) run() {
 			return
 		case blockHash := <-l.blocks:
 			// ZMQ notification - immediate block template fetch
-			logger.Info("⚡ ZMQ triggered job refresh", zap.String("block_hash", blockHash))
+			l.notice(blockHash)
 			l.turn(true)
 		case <-l.tick:
 			// Regular polling (fallback)
+			l.noticesAfterQuiet()
 			l.turn(false)
 		case answer := <-l.pendingAnswer():
 			l.finish(answer)
 		}
+	}
+}
+
+// notice logs a ZMQ notice, unless the node is catching up with the chain. A node that does not
+// answer changes nothing.
+func (l *jobLoop) notice(blockHash string) {
+	now := l.now()
+	if now.Sub(l.lastNotice) < catchUpEvery && now.Sub(l.lastNoticeAsk) >= noticeAskEvery {
+		l.lastNoticeAsk = now
+		if blocks, headers, ok := bch2ChainState(); ok && headers-blocks < catchUpGap {
+			sayNotices()
+		} else if ok {
+			l.quiet(now, blocks, headers)
+		}
+	}
+	l.lastNotice = now
+	if !quietNotices.Load() {
+		logger.Info("⚡ ZMQ triggered job refresh", zap.String("block_hash", blockHash))
+	}
+}
+
+// quiet leaves the ZMQ notices out of the log while the node is behind its headers, and says its
+// progress once every noticeProgressEvery.
+func (l *jobLoop) quiet(now time.Time, blocks, headers int64) {
+	if !quietNotices.Swap(true) {
+		logger.Info("⏳ The BCH2 node is catching up with the chain: the ZMQ lines of each new block are left out of the log until it has, and its progress said once a minute",
+			zap.Int64("block", blocks), zap.Int64("headers", headers))
+	} else if now.Sub(l.progressSaid) >= noticeProgressEvery {
+		logger.Info("⏳ The BCH2 node is still catching up with the chain", zap.Int64("block", blocks), zap.Int64("headers", headers))
+	} else {
+		return
+	}
+	l.progressSaid = now
+}
+
+// noticesAfterQuiet logs each ZMQ notice again once catchUpEvery has passed without one: the
+// catch-up is over, or the node waits for blocks.
+func (l *jobLoop) noticesAfterQuiet() {
+	if l.now().Sub(l.lastNotice) >= catchUpEvery {
+		sayNotices()
 	}
 }
 

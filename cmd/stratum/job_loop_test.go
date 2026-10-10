@@ -89,7 +89,8 @@ func TestJobLoopTIDESWithAHealthyPool(t *testing.T) {
 	}
 }
 
-// main runs the loop as run: it takes ZMQ notices and the poll until shutdown.
+// main runs the loop as run: it takes ZMQ notices and the poll until shutdown, logs each notice, and
+// logs them again on the poll once a catch-up's quiet is over.
 func TestJobLoopRunsOnZMQAndThePoll(t *testing.T) {
 	r := newLoopRig(t, loopRigOpts{tip: 1000})
 	tick, blocks, stop, done := make(chan time.Time), make(chan string, 10), make(chan struct{}), make(chan struct{})
@@ -110,6 +111,13 @@ func TestJobLoopRunsOnZMQAndThePoll(t *testing.T) {
 	if !r.logged("New block job broadcast") || r.logs.FilterField(zap.String("source", "ZMQ")).Len() != 1 {
 		t.Fatal("JOBLOOP-RUN-SOURCE: the new block's job is not logged as coming from ZMQ")
 	}
+	if r.logs.FilterMessage("⚡ ZMQ triggered job refresh").Len() != 1 {
+		t.Fatal("JOBLOOP-RUN-ZMQ-LOGGED: the ZMQ notice is not logged")
+	}
+	quietNotices.Store(true) // as a catch-up leaves it
+	r.clock.Add(catchUpEvery)
+	tick <- time.Now()
+	waitUntil(t, 2*time.Second, "JOBLOOP-RUN-ZMQ-AGAIN", func() bool { return !quietNotices.Load() })
 	close(stop)
 	select {
 	case <-done:

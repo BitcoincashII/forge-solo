@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BitcoincashII/forge-solo/internal/mining"
 	"github.com/BitcoincashII/forge-solo/internal/stats"
 )
 
@@ -300,5 +301,103 @@ func TestJobLoopTIDESWhileTheNodeCatchesUp(t *testing.T) {
 	r.block(84189)
 	if n := r.sent("JOBLOOP-CATCHUP-TIDES-LEVEL", 4*time.Second); !n.job.Tides || !n.clean || n.job.Height != 84190 {
 		t.Fatalf("JOBLOOP-CATCHUP-TIDES-LEVEL: %+v (clean %v), gateway %s (%s)", n.job, n.clean, r.gw.Status().State, r.gw.Status().Reason)
+	}
+}
+
+// Each block the node connects while it catches up is a ZMQ notice, and each notice was two info
+// lines. On Windows, with mining paused until a payout address was set, a 14,000-block sync wrote
+// 28,000 of them in under three minutes, and the warnings said once a minute were lost among them.
+// Now a catch-up's notices are left out of the log from its second, the node's progress is said
+// once a minute, and each notice is logged again once the node is level or 5 s pass without one. A
+// node that fails to answer once ends nothing. At the tip every notice is logged, and the node is
+// not asked about its headers for it.
+func TestJobLoopZMQNoticesWhileTheNodeCatchesUp(t *testing.T) {
+	for _, paused := range []bool{true, false} {
+		name := "mining"
+		if paused {
+			name = "mining paused"
+		}
+		t.Run(name, func(t *testing.T) {
+			r := newLoopRig(t, loopRigOpts{tip: 70000})
+			if paused {
+				jobManager = mining.NewJobManager(r.node.srv.URL, "u", "p", "", "/jobloop/")
+			}
+			logged := func() int { return r.logs.FilterMessage("⚡ ZMQ triggered job refresh").Len() }
+			starts := func() int { return r.logs.FilterMessageSnippet("left out of the log until it has").Len() }
+			ends := func() int { return r.logs.FilterMessageSnippet("are logged again").Len() }
+			poll := func() { r.loop.noticesAfterQuiet(); r.step(false) }
+
+			r.node.setHeaders(84189)
+			r.notice(70001)
+			r.clock.Add(100 * time.Millisecond)
+			r.notice(70002)
+			if logged() != 1 || starts() != 1 || !quietNotices.Load() {
+				t.Fatalf("ZMQ-CATCHUP-QUIET: after a second quick notice 14,000 blocks behind, %d notices are logged, the catch-up said %d times, left out %v",
+					logged(), starts(), quietNotices.Load())
+			}
+
+			// 65 s at ten blocks a second, the node not answering for a while in the middle.
+			asked := r.node.count("getblockchaininfo")
+			tip := int64(70002)
+			for i := 0; i < 650; i++ {
+				r.node.set(func(n *loopNode) { n.chainDown = i >= 300 && i < 320 })
+				r.clock.Add(100 * time.Millisecond)
+				tip++
+				r.notice(tip)
+			}
+			progress := r.logs.FilterMessage("⏳ The BCH2 node is still catching up with the chain").All()
+			if logged() != 1 || ends() != 0 || len(progress) != 1 {
+				t.Fatalf("ZMQ-CATCHUP-PROGRESS: 65 s of notices logged %d of them, ended the catch-up %d times and said the progress %d times, want none, none and once",
+					logged()-1, ends(), len(progress))
+			}
+			if f := progress[0].ContextMap(); f["headers"] != int64(84189) || f["block"] == nil || f["block"].(int64) < 70500 {
+				t.Errorf("ZMQ-CATCHUP-PROGRESS-FIGURES: %v", f)
+			}
+			if n := r.node.count("getblockchaininfo") - asked; paused && (n < 60 || n > 70) {
+				t.Errorf("ZMQ-CATCHUP-ASKS: the node was asked about its headers %d times in 65 s, want about once a second", n)
+			}
+
+			// The block that brings it level is logged, and every one after it.
+			tip++
+			r.node.setHeaders(tip)
+			r.clock.Add(time.Second)
+			r.notice(tip)
+			if logged() != 2 || ends() != 1 || quietNotices.Load() {
+				t.Fatalf("ZMQ-CATCHUP-LEVEL: the node level, its notice logged %v, the end said %d times, left out %v", logged() == 2, ends(), quietNotices.Load())
+			}
+
+			// Another catch-up, then the node waiting for blocks: 5 s without a notice ends it.
+			r.node.setHeaders(90000)
+			r.clock.Add(time.Minute)
+			tip++
+			r.notice(tip)
+			r.clock.Add(time.Second)
+			tip++
+			r.notice(tip)
+			if logged() != 3 || starts() != 2 || !quietNotices.Load() {
+				t.Fatalf("ZMQ-CATCHUP-AGAIN: %d notices logged, the catch-up said %d times, left out %v", logged(), starts(), quietNotices.Load())
+			}
+			r.clock.Add(4 * time.Second)
+			poll()
+			if !quietNotices.Load() {
+				t.Fatal("ZMQ-CATCHUP-WAIT: 4 s without a notice ended the catch-up's quiet")
+			}
+			r.clock.Add(time.Second)
+			poll()
+			if quietNotices.Load() || ends() != 2 {
+				t.Fatalf("ZMQ-CATCHUP-WAITED: 5 s without a notice, left out %v, the end said %d times", quietNotices.Load(), ends())
+			}
+
+			r.node.setHeaders(tip)
+			asked = r.node.count("getblockchaininfo")
+			for i := 0; i < 3; i++ {
+				r.clock.Add(10 * time.Minute)
+				tip++
+				r.notice(tip)
+			}
+			if logged() != 6 || r.node.count("getblockchaininfo") != asked {
+				t.Fatalf("ZMQ-TIP: 3 blocks at the tip logged %d notices and the node was asked about its headers %d times", logged()-3, r.node.count("getblockchaininfo")-asked)
+			}
+		})
 	}
 }
