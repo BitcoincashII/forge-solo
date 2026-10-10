@@ -15,9 +15,13 @@ name: Release
 # and manual runs -- even a manual run started on a tag -- never see the certificate or publish.
 # The release page is created as a draft; it is published by hand once the Umbrel store and the
 # Linux downloads have the same version (README, "Releasing").
+#
+# A pull request and a manual run build the installer too, unsigned, and the carry-over job takes it
+# back as the publish job would, so the way it reaches that job is tested before a tag.
 on:
   push:
     tags: ['v*']
+  pull_request:
   workflow_dispatch:
     inputs:
       version:
@@ -291,3 +295,36 @@ jobs:
           } > /tmp/notes.md
           gh release create "${GITHUB_REF_NAME}" "$SETUP" SHA256SUMS-windows --verify-tag --draft \
             --title "Forge Solo ${V}" --notes-file /tmp/notes.md
+
+  # The publish job runs on a tag only, so a change in how the installer is kept and taken back (the
+  # artifact actions and their settings) would first show on a release. This job takes it back as the
+  # publish job does, on a pull request or a manual run, never on a tag, and checks that the installer
+  # the publish job signs is where it reads it, and that nothing else came with it.
+  carry-over:
+    name: The installer carries over
+    if: (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && github.ref_type != 'tag'
+    needs: installer
+    runs-on: ubuntu-latest
+    env:
+      V: ${{ needs.installer.outputs.version }}
+    steps:
+      - name: Take the installer from the build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: installer
+
+      # The publish job signs ForgeSolo-Setup-<version>.exe in its working directory, where the step
+      # before has put it.
+      - name: The installer is where the publish job reads it
+        run: |
+          SETUP="ForgeSolo-Setup-${V}.exe"
+          echo "What arrived (mode, size, path):"
+          find . -type f -printf '%m %s %p\n'
+          if [ "$(find . -type f)" != "./$SETUP" ]; then
+            echo "::error::what arrived is not ./$SETUP alone, which the publish job reads"
+            exit 1
+          fi
+          if [ "$(head -c 2 "$SETUP")" != MZ ]; then
+            echo "::error::$SETUP is not a Windows program"
+            exit 1
+          fi

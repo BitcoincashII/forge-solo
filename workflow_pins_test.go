@@ -170,6 +170,56 @@ func TestReleasePublishing(t *testing.T) {
 	}
 }
 
+// The publish job runs on a tag only, so the way the installer reaches it would first be used by a
+// release. A pull request or a manual run, never a tag, takes it back in the carry-over job, with the
+// publish job's own step, and checks that it is where that job reads it.
+func TestReleaseInstallerCarriesOver(t *testing.T) {
+	b, err := os.ReadFile(".github/workflows/release.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw struct {
+		On   map[string]any `yaml:"on"`
+		Jobs map[string]struct {
+			Needs string            `yaml:"needs"`
+			Env   map[string]string `yaml:"env"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(b, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := raw.On["pull_request"]; !ok {
+		t.Error("CARRY-OVER-PR: release.yml does not run on a pull request")
+	}
+	w := loadWorkflow(t, ".github/workflows/release.yml")
+	job, ok := w.Jobs["carry-over"]
+	if !ok {
+		t.Fatal("CARRY-OVER: release.yml has no carry-over job")
+	}
+	if job.If != "(github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && github.ref_type != 'tag'" {
+		t.Errorf("CARRY-OVER-WHEN: the carry-over job runs when %q, not on a pull request or a manual run alone", job.If)
+	}
+	if c := raw.Jobs["carry-over"]; c.Needs != "installer" || c.Env["V"] == "" || c.Env["V"] != raw.Jobs["publish"].Env["V"] {
+		t.Errorf("CARRY-OVER-BUILD: the carry-over job needs %q with V %q, not the installer job with the publish job's V", c.Needs, c.Env["V"])
+	}
+	take := func(job string) string {
+		for _, s := range w.Jobs[job].Steps {
+			if strings.HasPrefix(s.Uses, "actions/download-artifact@") {
+				return s.Uses + " " + fmt.Sprint(s.With)
+			}
+		}
+		return ""
+	}
+	if got, want := take("carry-over"), take("publish"); want == "" || got != want {
+		t.Errorf("CARRY-OVER-SAME-STEP: the carry-over job takes the installer back with %q, the publish job with %q", got, want)
+	}
+	const setup = `SETUP="ForgeSolo-Setup-${V}.exe"`
+	if !strings.Contains(stepRun(t, w, "carry-over", "The installer is where the publish job reads it"), setup) ||
+		!strings.Contains(stepRun(t, w, "publish", "Sign the installer"), setup) {
+		t.Errorf("CARRY-OVER-NAME: the carry-over job does not check for the file the publish job signs (%s)", setup)
+	}
+}
+
 // No checkout keeps the job's GitHub token in .git/config: the release and the installer check
 // mount the checkout into a third-party image, and the image build runs third-party actions and a
 // privileged emulator image. The one exception is the re-pin, which pushes its commit to main.

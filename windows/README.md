@@ -138,9 +138,9 @@ certificate never reaches an ordinary test run, a manual run or a pull request:
 A tag build **fails** rather than publishing unsigned if the secret is missing, and it publishes
 nothing that does not verify as signed by the Forge Solo certificate with a valid timestamp. The
 release page it makes is a draft until the owner publishes it (the root README, "Releasing"). A
-manual `workflow_dispatch` run builds the installer unsigned and publishes nothing, so the build
-itself can be tested; its installer is kept for a day. To encode the certificate:
-`base64 -w0 signing.pfx`.
+pull request and a manual `workflow_dispatch` run build the installer unsigned and publish nothing,
+so the build itself can be tested, and take the installer back as the publish job would; it is kept
+for a day. To encode the certificate: `base64 -w0 signing.pfx`.
 
 Only the installer is signed, and with a self-signed certificate: see
 [Smart App Control and SmartScreen](#smart-app-control-and-smartscreen).
