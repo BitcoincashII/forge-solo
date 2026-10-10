@@ -1,10 +1,14 @@
 package mining
 
 import (
+	"bytes"
 	"encoding/hex"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -62,5 +66,39 @@ func TestTheStartingAddressIsTheOneJobsPay(t *testing.T) {
 		Height: 83470, CurTime: 1_700_000_000, CoinbaseValue: 50_0000_0000}
 	if got, job := jm.PayoutAddress(), jm.CreateJob(tmpl); got != a || job == nil || job.PayTo != a {
 		t.Fatalf("PAY3-START: started with %s, the manager says %q and its first job %+v", a, got, job)
+	}
+}
+
+// What the job manager says goes to the standard library's log, not to stdout. Forge Gateway keeps
+// that log in its own, at debug; the payout address's pubkey hash, printed to stdout at every
+// settings apply, went raw into forge-gateway.log, which the Windows tray app fills from the
+// gateway's stdout.
+func TestTheJobManagerSaysNothingOnStdout(t *testing.T) {
+	a, ha := addrFor(4)
+	node := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `{"result":{"isvalid":true,"scriptPubKey":"76a914%s88ac"},"error":null}`, hex.EncodeToString(ha))
+	}))
+	defer node.Close()
+	var logged bytes.Buffer
+	defer log.SetOutput(log.Writer())
+	log.SetOutput(&logged)
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout := os.Stdout
+	os.Stdout = w
+	setErr := NewJobManager(node.URL, "u", "p", "", "").SetPoolAddress(a)
+	os.Stdout = stdout
+	w.Close()
+	printed, _ := io.ReadAll(r)
+	if setErr != nil {
+		t.Fatal(setErr)
+	}
+	if len(printed) != 0 {
+		t.Errorf("PAY3-STDOUT: the job manager printed on stdout: %q", printed)
+	}
+	if want := "Payout address pubkey hash (from node): " + hex.EncodeToString(ha); !strings.Contains(logged.String(), want) {
+		t.Errorf("PAY3-STDOUT-LOG: the log does not say %q:\n%s", want, logged.String())
 	}
 }

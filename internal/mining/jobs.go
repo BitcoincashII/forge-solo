@@ -183,7 +183,7 @@ func (jm *JobManager) EnableMergeMining(nodeURL, user, pass, payoutAddr string) 
 	if start {
 		go jm.auxRefreshLoop()
 	}
-	fmt.Printf("Merge mining ENABLED: aux node %s, payout %s\n", nodeURL, payoutAddr)
+	log.Printf("Merge mining ENABLED: aux node %s, payout %s", nodeURL, payoutAddr)
 }
 
 // fetchAuxWork returns current aux work + its coinbase commitment, or (nil,nil)
@@ -345,7 +345,7 @@ func NewJobManager(rpcURL, rpcUser, rpcPassword, poolAddress, coinbaseTag string
 				break
 			}
 			if i < 9 {
-				fmt.Printf("Waiting for node RPC to be ready... (attempt %d/10)\n", i+1)
+				log.Printf("Waiting for node RPC to be ready... (attempt %d/10)", i+1)
 				time.Sleep(2 * time.Second)
 			}
 		}
@@ -353,7 +353,7 @@ func NewJobManager(rpcURL, rpcUser, rpcPassword, poolAddress, coinbaseTag string
 			// Fallback to local parsing if RPC fails
 			pkh = parseAddressToPubkeyHash(poolAddress)
 			if pkh != nil {
-				fmt.Printf("Payout address pubkey hash (from local parser): %s\n", hex.EncodeToString(pkh))
+				log.Printf("Payout address pubkey hash (from local parser): %s", hex.EncodeToString(pkh))
 			}
 		}
 		if pkh == nil {
@@ -496,7 +496,7 @@ func getPubkeyHashFromNode(rpcURL, rpcUser, rpcPassword, address string) []byte 
 	if len(spk) == 50 && spk[:6] == "76a914" && spk[46:] == "88ac" {
 		pkh, err := hex.DecodeString(spk[6:46])
 		if err == nil && len(pkh) == 20 {
-			fmt.Printf("Payout address pubkey hash (from node): %s\n", spk[6:46])
+			log.Printf("Payout address pubkey hash (from node): %s", spk[6:46])
 			return pkh
 		}
 	}
