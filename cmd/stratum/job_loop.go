@@ -44,19 +44,20 @@ const (
 // Each block the node connects while it catches up is a ZMQ notice, and each notice was two info
 // lines, "ZMQ block notification received" from the listener and "ZMQ triggered job refresh" from
 // the loop: a 14,000-block sync on Windows wrote 28,000 of them in under three minutes, and the
-// warnings said once a minute were lost among them. A notice that comes within catchUpEvery of the
-// one before has the node asked, at most once every noticeAskEvery, how far behind its headers it
-// is. While it is catchUpGap or more blocks behind, the two lines are left out and its progress is
-// said once every noticeProgressEvery instead; once it is level, or catchUpEvery passes without a
-// notice, each notice is logged again. At the tip, where blocks come minutes apart, the node is not
-// asked and every notice is logged as before.
+// warnings said once a minute were lost among them. While mining, each block brought a third,
+// "Network difficulty updated from template": BCH2's difficulty changes at nearly every block. A
+// notice that comes within catchUpEvery of the one before has the node asked, at most once every
+// noticeAskEvery, how far behind its headers it is. While it is catchUpGap or more blocks behind,
+// these lines are left out and its progress is said once every noticeProgressEvery instead; once it
+// is level, or catchUpEvery passes without a notice, each notice is logged again. At the tip, where
+// blocks come minutes apart, the node is not asked and every notice is logged as before.
 const (
 	noticeAskEvery      = time.Second
 	noticeProgressEvery = time.Minute
 )
 
-// quietNotices is set while the ZMQ notices are left out of the log. The loop sets it; the ZMQ
-// listener reads it too.
+// quietNotices is set while the ZMQ notices, and the network difficulty line, are left out of the
+// log. The loop sets it; the ZMQ listener reads it too.
 var quietNotices atomic.Bool
 
 // sayNotices logs each ZMQ notice again.
@@ -214,10 +215,11 @@ func (l *jobLoop) turn(zmqTriggered bool) {
 		return
 	}
 
-	// Update network difficulty from block template bits (actual next-block target)
+	// Update network difficulty from block template bits (actual next-block target). Its line is
+	// left out with the ZMQ notices while the node catches up (quietNotices).
 	if templateDiff := bitsToDifficulty(template.Bits); templateDiff > 0 {
 		oldDiff := getNetworkDifficulty()
-		if templateDiff != oldDiff {
+		if templateDiff != oldDiff && !quietNotices.Load() {
 			logger.Info("Network difficulty updated from template",
 				zap.Float64("old_diff", oldDiff),
 				zap.Float64("new_diff", templateDiff),

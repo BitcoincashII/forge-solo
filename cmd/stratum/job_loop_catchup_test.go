@@ -310,7 +310,9 @@ func TestJobLoopTIDESWhileTheNodeCatchesUp(t *testing.T) {
 // Now a catch-up's notices are left out of the log from its second, the node's progress is said
 // once a minute, and each notice is logged again once the node is level or 5 s pass without one. A
 // node that fails to answer once ends nothing. At the tip every notice is logged, and the node is
-// not asked about its headers for it.
+// not asked about its headers for it. While mining, each block also brought the network difficulty
+// line, BCH2's difficulty changing at nearly every block: it is left out with the notices, and
+// logged at the tip.
 func TestJobLoopZMQNoticesWhileTheNodeCatchesUp(t *testing.T) {
 	for _, paused := range []bool{true, false} {
 		name := "mining"
@@ -325,6 +327,7 @@ func TestJobLoopZMQNoticesWhileTheNodeCatchesUp(t *testing.T) {
 			logged := func() int { return r.logs.FilterMessage("⚡ ZMQ triggered job refresh").Len() }
 			starts := func() int { return r.logs.FilterMessageSnippet("left out of the log until it has").Len() }
 			ends := func() int { return r.logs.FilterMessageSnippet("are logged again").Len() }
+			diffs := func() int { return r.logs.FilterMessage("Network difficulty updated from template").Len() }
 			poll := func() { r.loop.noticesAfterQuiet(); r.step(false) }
 
 			r.node.setHeaders(84189)
@@ -337,13 +340,16 @@ func TestJobLoopZMQNoticesWhileTheNodeCatchesUp(t *testing.T) {
 			}
 
 			// 65 s at ten blocks a second, the node not answering for a while in the middle.
-			asked := r.node.count("getblockchaininfo")
+			asked, said := r.node.count("getblockchaininfo"), diffs()
 			tip := int64(70002)
 			for i := 0; i < 650; i++ {
 				r.node.set(func(n *loopNode) { n.chainDown = i >= 300 && i < 320 })
 				r.clock.Add(100 * time.Millisecond)
 				tip++
 				r.notice(tip)
+			}
+			if n := diffs() - said; n != 0 {
+				t.Errorf("ZMQ-CATCHUP-DIFFICULTY: 65 s of notices logged the network difficulty %d times, want none", n)
 			}
 			progress := r.logs.FilterMessage("⏳ The BCH2 node is still catching up with the chain").All()
 			if logged() != 1 || ends() != 0 || len(progress) != 1 {
@@ -389,7 +395,7 @@ func TestJobLoopZMQNoticesWhileTheNodeCatchesUp(t *testing.T) {
 			}
 
 			r.node.setHeaders(tip)
-			asked = r.node.count("getblockchaininfo")
+			asked, said = r.node.count("getblockchaininfo"), diffs()
 			for i := 0; i < 3; i++ {
 				r.clock.Add(10 * time.Minute)
 				tip++
@@ -397,6 +403,13 @@ func TestJobLoopZMQNoticesWhileTheNodeCatchesUp(t *testing.T) {
 			}
 			if logged() != 6 || r.node.count("getblockchaininfo") != asked {
 				t.Fatalf("ZMQ-TIP: 3 blocks at the tip logged %d notices and the node was asked about its headers %d times", logged()-3, r.node.count("getblockchaininfo")-asked)
+			}
+			want := 3
+			if paused {
+				want = 0 // no template is fetched while mining waits for a payout address
+			}
+			if n := diffs() - said; n != want {
+				t.Errorf("ZMQ-TIP-DIFFICULTY: 3 blocks at the tip logged the network difficulty %d times, want %d", n, want)
 			}
 		})
 	}

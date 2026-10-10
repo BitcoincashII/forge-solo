@@ -106,8 +106,9 @@ func (n *loopNode) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var rpcErr interface{}
 	switch req.Method {
 	case "getblocktemplate":
+		// The bits change from one block to the next, as BCH2's difficulty does.
 		result = map[string]interface{}{"version": 0x20000000, "previousblockhash": hash, "transactions": []interface{}{},
-			"coinbasevalue": int64(50_0000_0000), "bits": "1902c9b9", "height": tip + 1, "curtime": time.Now().Unix(),
+			"coinbasevalue": int64(50_0000_0000), "bits": fmt.Sprintf("1902c9%02x", 0xb9+tip%2), "height": tip + 1, "curtime": time.Now().Unix(),
 			"target": "0000000000000002c9b900000000000000000000000000000000000000000000"}
 	case "getblockchaininfo":
 		if down {
