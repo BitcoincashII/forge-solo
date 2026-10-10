@@ -145,6 +145,10 @@ func TestDisconnectReasonsFromTheStratumsSide(t *testing.T) {
 func TestLoginBeforeTheFirstJobIsNoWarning(t *testing.T) {
 	s, logs := reasonServer(t)
 	loggedIn(t, s)
+	// The line follows the answer to mining.authorize, which the miner may read before it is written.
+	for end := time.Now().Add(3 * time.Second); logs.FilterMessageSnippet("No job yet").Len() == 0 && time.Now().Before(end); {
+		time.Sleep(20 * time.Millisecond)
+	}
 	if logs.FilterMessageSnippet("No job yet").Len() != 1 {
 		t.Fatal("LOGIN-BEFORE-JOB-SAID: the log does not say the miner gets the first job when it is made")
 	}
