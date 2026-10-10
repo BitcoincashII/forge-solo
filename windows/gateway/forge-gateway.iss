@@ -752,8 +752,10 @@ begin
 end;
 
 // The Ready page says, when Forge Solo is installed for this account or runs on this PC, that only
-// one of the two can have port 3333; and what Windows' prompt for the elevated step is for, just
-// before it comes. Running as administrator, Setup gets no prompt.
+// one of the two can have port 3333; that the firewall rule leaves out Public networks, which keep
+// miners on other devices out without the tray or the status page being able to tell; and what
+// Windows' prompt for the elevated step is for, just before it comes. Running as administrator,
+// Setup gets no prompt.
 function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo,
   MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
 begin
@@ -765,6 +767,11 @@ begin
       Space + 'Forge Solo is on this PC too. Both use port 3333, so only' + NewLine +
       Space + 'one of the two can run at a time; Forge Solo''s TIDES mode is' + NewLine +
       Space + 'the same gateway, built in.' + NewLine + NewLine;
+  Result := Result + 'Miners on other devices:' + NewLine +
+    Space + 'The firewall rule lets them in on Private and domain networks,' + NewLine +
+    Space + 'not on Public ones. Windows 11 makes new networks Public: set' + NewLine +
+    Space + 'yours to Private in Windows Settings, Network & internet, in' + NewLine +
+    Space + 'your connection''s properties.' + NewLine + NewLine;
   if not IsAdmin() then
     Result := Result + 'Permission:' + NewLine +
       Space + 'Windows will ask whether Windows Command Processor may make' + NewLine +

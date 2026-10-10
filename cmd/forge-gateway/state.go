@@ -46,6 +46,11 @@ type stateInput struct {
 
 const startingReason = "Waiting for the first block template from your node and the first job Forge Pool registers."
 
+// poolNotTaking is why the miners mine solo, or are turned away, when it is not this node or this
+// computer's clock: the pool did not answer, or answered with a refusal (a job it would not take, a
+// gateway it has blocked), which "cannot be reached" alone did not cover.
+const poolNotTaking = "Forge Pool cannot be reached, or will not take your node's work"
+
 // stateOf is the state and the reason the status page gives for it. The first that applies wins:
 // a setup problem before the node, the node before the pool.
 func stateOf(in stateInput) (state, reason string) {
@@ -83,11 +88,11 @@ func stateOf(in stateInput) (state, reason string) {
 		off, _ := poolClockOff(in.pool.Reason)
 		return stateClockOff, clockReason(off, in.windows, in.mode)
 	case in.mode == "solo":
-		return statePoolUnreachable, "Forge Pool cannot be reached" + inBrackets(in.pool.Reason) +
+		return statePoolUnreachable, poolNotTaking + inBrackets(in.pool.Reason) +
 			". Your miners mine solo on your node meanwhile: a block found now pays your payout address in full. Forge Gateway tries the pool again every minute."
 	case in.mode == "waiting":
-		return statePoolUnreachable, "Forge Pool cannot be reached" + inBrackets(in.pool.Reason) +
-			". Pool only is on, so miners are turned away until it is back, and fail over to their backup pool."
+		return statePoolUnreachable, poolNotTaking + inBrackets(in.pool.Reason) +
+			". Pool only is on, so miners are turned away meanwhile, and fail over to their backup pool."
 	case in.mode == "tides":
 		return stateActive, "Mining into Forge Pool's TIDES window."
 	}
@@ -249,9 +254,9 @@ func (a *app) stateNow() (configured bool, state, reason, mode string) {
 	return problem == "", state, reason, mode
 }
 
-// mode is what the miners are doing: "tides", "solo" (the pool cannot be reached), "waiting"
-// (pool_only, the pool cannot be reached), "starting", or "off" (no job loop: not set up, or no
-// node login).
+// mode is what the miners are doing: "tides", "solo" (the pool is not taking this gateway's work),
+// "waiting" (the same, with pool_only), "starting", or "off" (no job loop: not set up, or no node
+// login).
 func (a *app) mode(e *engine, cfg *Config, problem string, pool tidesgw.Status) string {
 	var loop *jobLoop
 	if e != nil {

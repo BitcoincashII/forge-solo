@@ -28,6 +28,8 @@ func TestStateTable(t *testing.T) {
 	missing := &fs.PathError{Op: "open", Path: "/n/.cookie", Err: fs.ErrNotExist}
 	behind := tidesgw.Status{NodeBehind: true, Reason: "this BCH2 node is catching up with the chain: it is at block 99, Forge Pool at 101"}
 	unreachable := tidesgw.Status{State: tidesgw.StateFallback, Reason: "the pool did not answer"}
+	// A pool that answers, with a refusal: it was reached.
+	poolRefused := tidesgw.Status{State: tidesgw.StateFallback, Reason: "/datum/v1/jobs: 403 Forbidden"}
 	// What the pool gateway said on the Windows 11 test PC whose clock was 7 hours fast.
 	clockRefused := tidesgw.Status{State: tidesgw.StateFallback, Reason: `/datum/v1/jobs: 401 Unauthorized: {"error":"request time is -6h59m59s off the pool's clock"}`}
 	setUp := func(f func(in *stateInput)) stateInput {
@@ -80,11 +82,13 @@ func TestStateTable(t *testing.T) {
 			setUp(func(in *stateInput) { in.pool, in.mode = behind, "solo" })},
 		{"7 behind the pool, pool only", stateNodeSyncing, "This BCH2 node is catching up with the chain: it is at block 99, Forge Pool at 101. Miners are turned away until your node is on Forge Pool's block.",
 			setUp(func(in *stateInput) { in.pool, in.mode, in.poolOnly = behind, "waiting", true })},
-		{"8 solo", statePoolUnreachable, "Forge Pool cannot be reached (the pool did not answer). Your miners mine solo on your node meanwhile: a block found now pays your payout address in full. Forge Gateway tries the pool again every minute.",
+		{"8 solo", statePoolUnreachable, "Forge Pool cannot be reached, or will not take your node's work (the pool did not answer). Your miners mine solo on your node meanwhile: a block found now pays your payout address in full. Forge Gateway tries the pool again every minute.",
 			setUp(func(in *stateInput) { in.pool, in.mode = unreachable, "solo" })},
-		{"8 solo, no reason", statePoolUnreachable, "Forge Pool cannot be reached. Your miners mine solo on your node meanwhile: a block found now pays your payout address in full. Forge Gateway tries the pool again every minute.",
+		{"8 solo, refused", statePoolUnreachable, "Forge Pool cannot be reached, or will not take your node's work (/datum/v1/jobs: 403 Forbidden). Your miners mine solo on your node meanwhile: a block found now pays your payout address in full. Forge Gateway tries the pool again every minute.",
+			setUp(func(in *stateInput) { in.pool, in.mode = poolRefused, "solo" })},
+		{"8 solo, no reason", statePoolUnreachable, "Forge Pool cannot be reached, or will not take your node's work. Your miners mine solo on your node meanwhile: a block found now pays your payout address in full. Forge Gateway tries the pool again every minute.",
 			setUp(func(in *stateInput) { in.mode = "solo" })},
-		{"9 waiting", statePoolUnreachable, "Forge Pool cannot be reached (the pool did not answer). Pool only is on, so miners are turned away until it is back, and fail over to their backup pool.",
+		{"9 waiting", statePoolUnreachable, "Forge Pool cannot be reached, or will not take your node's work (the pool did not answer). Pool only is on, so miners are turned away meanwhile, and fail over to their backup pool.",
 			setUp(func(in *stateInput) { in.pool, in.mode, in.poolOnly = unreachable, "waiting", true })},
 		{"7b clock off, Windows", stateClockOff, "This PC's clock is about 7 hours off. Forge Pool refuses requests until it is right: " +
 			"turn on Set time automatically in Windows Settings, Time & language. Your miners mine solo on your node meanwhile: " +
@@ -327,6 +331,30 @@ func TestStatusPageShowsTheState(t *testing.T) {
 	}
 	if strings.Contains(s, "WHY[") || strings.Contains(s, "— ${esc(p.reason)}") {
 		t.Error("GW-PAGE-STATE: the page still says why from the mode, or puts an em-dash before the pool's reason")
+	}
+}
+
+// The page says no more than is so: a block pays the TIDES split only when it is found on work the
+// pool registered, which solo work is not. With no shares yet it says whom a username is credited
+// to, and how to avoid what it cannot see: a Windows network profile that keeps miners on other
+// devices out.
+func TestStatusPageSaysWhatIsSo(t *testing.T) {
+	page, err := os.ReadFile("status.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(page)
+	for _, want := range []string{
+		"A DATUM-style gateway: your node builds the block. A block found on work Forge Pool registered pays Forge Pool's TIDES split straight from its coinbase, with no pool fee; one found while mining solo pays your payout address in full.",
+		"A username that is a BCH2 address (bitcoincashii:q…, with or without .workername after it) is credited to that address; any other username, a mistyped or legacy 1… address included, is credited to the payout address.",
+		"On Windows, miners on other devices can connect only while this PC's network profile is Private (Windows Settings, Network &amp; internet, your connection's properties); Windows 11 makes new networks Public.",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("GW-PAGE-SO: status.html does not say %q", want)
+		}
+	}
+	if strings.Contains(s, "every block pays") {
+		t.Error("GW-PAGE-SO: status.html says every block pays the TIDES split; a solo block pays the payout address")
 	}
 }
 

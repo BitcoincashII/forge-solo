@@ -209,8 +209,8 @@ func (l *jobLoop) openDoor() {
 
 func (l *jobLoop) closeDoor() {
 	wasOpen := l.door.Swap(false)
-	if n := l.srv.DisconnectAll("pool_only: Forge Pool cannot be reached"); wasOpen || n > 0 {
-		l.log.Warn("Forge Pool cannot be reached and pool_only is set: miners are turned away until it is back, so they fail over to their backup pool",
+	if n := l.srv.DisconnectAll("pool_only: Forge Pool is not taking this gateway's work"); wasOpen || n > 0 {
+		l.log.Warn("Forge Pool is not taking this gateway's work and pool_only is set: miners are turned away meanwhile, so they fail over to their backup pool",
 			zap.Int("disconnected", n))
 	}
 }

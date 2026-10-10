@@ -437,19 +437,26 @@ func TestGatewayInstallerKeepsData(t *testing.T) {
 }
 
 // The elevated step shows Windows' prompt, which names Windows Command Processor, not Forge
-// Gateway: the Ready page and the uninstaller's question say what it is for. Afterwards the rule
-// itself is checked, and what is missing is logged and said, with what it means and how to put it
-// right, in one box with one button, which an install run with /SUPPRESSMSGBOXES goes past.
+// Gateway: the Ready page and the uninstaller's question say what it is for, and the Ready page says
+// before it that the rule leaves out Public networks, which neither the tray nor the status page
+// can see. Afterwards the rule itself is checked, and what is missing is logged and said, with what
+// it means and how to put it right, in one box with one button, which an install run with
+// /SUPPRESSMSGBOXES goes past.
 func TestGatewayInstallerTells(t *testing.T) {
 	memo := gwInstFunc(t, "function UpdateReadyMemo(")
 	if !strings.HasSuffix(memo, `
+  Result := Result + 'Miners on other devices:' + NewLine +
+    Space + 'The firewall rule lets them in on Private and domain networks,' + NewLine +
+    Space + 'not on Public ones. Windows 11 makes new networks Public: set' + NewLine +
+    Space + 'yours to Private in Windows Settings, Network & internet, in' + NewLine +
+    Space + 'your connection''s properties.' + NewLine + NewLine;
   if not IsAdmin() then
     Result := Result + 'Permission:' + NewLine +
       Space + 'Windows will ask whether Windows Command Processor may make' + NewLine +
       Space + 'changes to your device. Choose Yes: Setup uses it to add the' + NewLine +
       Space + 'firewall rule that lets miners on your network connect.';
 end;`) {
-		t.Errorf("GWI-TELL-READY: the Ready page does not end with what Windows' prompt is for:\n%s", memo)
+		t.Errorf("GWI-TELL-READY: the Ready page does not end with the networks the rule covers and what Windows' prompt is for:\n%s", memo)
 	}
 	if m := regexp.MustCompile(`(?m)^ConfirmUninstall=(.*?)\r?$`).FindStringSubmatch(gwInstSection(t, "Messages")); m == nil ||
 		m[1] != "Are you sure you want to completely remove %1 and all of its components?%n%nIf Windows then asks whether Windows Command Processor may make changes to your device, choose Yes: that lets the uninstaller remove Forge Gateway's firewall rule." {

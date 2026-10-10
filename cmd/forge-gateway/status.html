@@ -97,7 +97,7 @@ body.stale .grid,body.stale .tablewrap{opacity:.45}
   <label class="fld" for="cbTag">Coinbase tag (optional, up to 24 characters)</label>
   <input class="txt" id="cbTag" type="text" maxlength="24" spellcheck="false" autocomplete="off">
   <label class="choice"><input type="checkbox" id="poolOnly"> Pool only</label>
-  <p class="note">Turn miners away while Forge Pool cannot be reached, instead of mining solo, so they fail over to their backup pool. Set it on a gateway that serves other people's addresses: a solo block pays only your payout address.</p>
+  <p class="note">Turn miners away while Forge Pool cannot be reached or will not take your node's work, instead of mining solo, so they fail over to their backup pool. Set it on a gateway that serves other people's addresses: a solo block pays only your payout address.</p>
   <div id="pwBlock">
     <label class="fld" for="gwPw">Forge Gateway's settings password (needed to save)</label>
     <!-- A text box, not a password box, so browsers do not offer their saved passwords here. It is masked all the same. -->
@@ -111,7 +111,7 @@ body.stale .grid,body.stale .tablewrap{opacity:.45}
   <p class="note">Saved settings take effect at once: Forge Gateway reconnects to your node and to Forge Pool, and your miners get new work within seconds. A new payout address makes your miners reconnect once. Shares already credited to a wrong but valid payout address stay with it, so check it.</p>
 </div>
 </section>
-<footer>A DATUM-style gateway: your node builds the block, and every block pays Forge Pool's TIDES split straight from its coinbase, with no pool fee.
+<footer>A DATUM-style gateway: your node builds the block. A block found on work Forge Pool registered pays Forge Pool's TIDES split straight from its coinbase, with no pool fee; one found while mining solo pays your payout address in full.
 DATUM and TIDES were designed by <a href="https://ocean.xyz" rel="noopener">OCEAN</a>; this project is not affiliated with OCEAN. See LICENSE.</footer>
 </main>
 <script>
@@ -183,7 +183,7 @@ async function tick(){
   const w = s.workers||[];
   $("workers").innerHTML = w.length ? `<table><thead><tr><th>Worker</th><th>Credited to</th><th class="num">Hashrate (10 min)</th><th class="num">Shares</th><th>Last share</th></tr></thead><tbody>`+
     w.map(x=>`<tr><td>${esc(x.worker)}</td><td class="mono" title="${esc(x.miner)}">${esc(short(x.miner))}</td><td class="num">${rate(x.hashrate)}</td><td class="num">${num(x.shares)}</td><td>${since(x.last_share)}</td></tr>`).join("")+"</tbody></table>"
-    : `<div class="empty">No shares yet. Point your miners at this machine's port ${esc((st.listen||"").split(":").pop())} with your BCH2 address (or any worker name) as the username.</div>`;
+    : `<div class="empty">No shares yet. Point your miners at this machine's port ${esc((st.listen||"").split(":").pop())}. A username that is a BCH2 address (bitcoincashii:q…, with or without .workername after it) is credited to that address; any other username, a mistyped or legacy 1… address included, is credited to the payout address. On Windows, miners on other devices can connect only while this PC's network profile is Private (Windows Settings, Network &amp; internet, your connection's properties); Windows 11 makes new networks Public.</div>`;
   const b = (s.blocks||[]).slice().reverse();
   $("blocks").innerHTML = b.length ? `<table><thead><tr><th class="num">Height</th><th>Hash</th><th>Paid</th><th>Result</th><th>Worker</th><th>When</th></tr></thead><tbody>`+
     b.map(x=>`<tr><td class="num">${num(x.height)}</td><td class="mono">${esc(x.hash.slice(0,16))}…</td><td>${x.tides?"TIDES split":"solo"}</td><td class="${x.result==="accepted"?"":"err"}">${esc(x.result)}</td><td>${esc(x.worker)}</td><td>${since(x.at)}</td></tr>`).join("")+"</tbody></table>"
