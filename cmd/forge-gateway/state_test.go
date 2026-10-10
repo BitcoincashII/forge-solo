@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -269,6 +270,59 @@ func TestAHungNodeShowsSoon(t *testing.T) {
 		return h.logs.FilterLevelExact(zap.WarnLevel).FilterMessageSnippet("state: node_unreachable: Forge Gateway cannot reach your node at").Len() == 1
 	}) {
 		t.Fatal("GW-STATE-LOG: the change of state was not logged once, at Warn")
+	}
+}
+
+// The node closes a connection that has been idle for 30 s, and a call sent on one it is just
+// closing fails with EOF: the gateway's clients for its node drop an idle connection after
+// nodeIdleTimeout, before the node does, and the next call opens a new one; one used again
+// sooner is kept.
+func TestNodeIdleConnectionIsDroppedFirst(t *testing.T) {
+	setVar(t, &nodeIdleTimeout, 100*time.Millisecond)
+	const idle = 250 * time.Millisecond
+	for _, tc := range []struct {
+		name   string
+		client func(url string) *node
+	}{
+		{"newNode", func(url string) *node { return newNode(url, "u", "p") }},
+		{"the health check", func(url string) *node {
+			cfg := &Config{}
+			cfg.Node.RPCURL = url
+			return newNodeHealth(nil, newEngine(cfg, ""), "u", "p").check
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var conns atomic.Int32
+			srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Write([]byte(`{"result":{"chain":"main","blocks":1,"headers":1},"error":null,"id":"forge-gateway"}`))
+			}))
+			srv.Config.IdleTimeout = time.Hour // this node never closes an idle connection: only the client may
+			srv.Config.ConnState = func(_ net.Conn, s http.ConnState) {
+				if s == http.StateNew {
+					conns.Add(1)
+				}
+			}
+			srv.Start()
+			defer srv.Close()
+			n := tc.client(srv.URL)
+			call := func() {
+				t.Helper()
+				if _, err := n.chainInfo(); err != nil {
+					t.Fatalf("GW-NODE-IDLE: %v", err)
+				}
+			}
+			call()
+			call()
+			if got := conns.Load(); got != 1 {
+				t.Fatalf("GW-NODE-IDLE: two calls in a row opened %d connections, want 1: the first is kept for the next call", got)
+			}
+			time.Sleep(idle)
+			call()
+			if got := conns.Load(); got != 2 {
+				t.Fatalf("GW-NODE-IDLE: a call after %s idle opened %d connections in all, want 2: the idle one was kept past nodeIdleTimeout (%s)",
+					idle, got, nodeIdleTimeout)
+			}
+		})
 	}
 }
 

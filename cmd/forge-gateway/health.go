@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"net"
-	"net/http"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -15,6 +14,9 @@ var (
 	// nodeCheckTimeout bounds one check: a node that takes the connection and never answers shows
 	// as unreachable within one check, not after the 30 s a block submit may wait.
 	nodeCheckTimeout = 5 * time.Second
+	// nodeIdleTimeout is how long a connection to the node is kept unused for the next call
+	// (nodeClient): less than the 30 s after which the node closes it.
+	nodeIdleTimeout = 20 * time.Second
 )
 
 // healthResult is one check of the node.
@@ -40,7 +42,7 @@ type nodeHealth struct {
 func newNodeHealth(a *app, e *engine, user, pass string) *nodeHealth {
 	h := &nodeHealth{a: a, e: e}
 	if e.loginErr == nil {
-		h.check = &node{url: e.cfg.Node.RPCURL, user: user, pass: pass, http: &http.Client{Timeout: nodeCheckTimeout}}
+		h.check = &node{url: e.cfg.Node.RPCURL, user: user, pass: pass, http: nodeClient(nodeCheckTimeout)}
 	}
 	return h
 }

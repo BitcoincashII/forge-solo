@@ -26,7 +26,19 @@ type node struct {
 }
 
 func newNode(url, user, pass string) *node {
-	return &node{url: url, user: user, pass: pass, http: &http.Client{Timeout: 30 * time.Second}}
+	return &node{url: url, user: user, pass: pass, http: nodeClient(30 * time.Second)}
+}
+
+// nodeClient is an HTTP client for the gateway's calls to its node, with connections of its own.
+// The node closes a connection that has been idle for 30 s (its -rpcservertimeout), and Go's
+// default transport keeps one for 90 s: a call sent on a connection the node is just closing
+// fails with EOF, and Go does not send a POST again, so the status page said for one check that
+// the node could not be reached. This client drops an idle connection after nodeIdleTimeout,
+// before the node does.
+func nodeClient(timeout time.Duration) *http.Client {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.IdleConnTimeout = nodeIdleTimeout
+	return &http.Client{Timeout: timeout, Transport: t}
 }
 
 // errUnauthorized is the node refusing the login (HTTP 401).
