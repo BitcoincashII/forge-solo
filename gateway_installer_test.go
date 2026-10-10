@@ -110,7 +110,7 @@ func TestGatewayInstallerSetup(t *testing.T) {
 	script := gwInstScript(t)
 	for _, c := range []struct{ code, want string }{
 		{"GWI-SETUP-EXE", "\n#define MyAppExe \"forge-gateway-tray.exe\"\n"},
-		{"GWI-SETUP-VERSION", "\n#ifndef MyAppVersion\n  #define MyAppVersion \"1.1.0\"\n#endif\n"},
+		{"GWI-SETUP-VERSION", "\n#ifndef MyAppVersion\n  #define MyAppVersion \"1.1.1\"\n#endif\n"},
 		{"GWI-SETUP-APPNAME", "\n#define MyAppName \"Forge Gateway\"\n"},
 		{"GWI-SETUP-URL", "\n#define MyAppURL \"https://github.com/BitcoincashII/forge-gateway\"\n"},
 	} {

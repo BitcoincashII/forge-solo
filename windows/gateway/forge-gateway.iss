@@ -2,9 +2,9 @@
 ; Windows account (no admin), and with one elevated step a firewall rule for miners on port 3333.
 #define MyAppName "Forge Gateway"
 ; Overridable from the command line so CI can stamp the tag it is building:
-;   iscc /DMyAppVersion=1.1.0 forge-gateway.iss
+;   iscc /DMyAppVersion=1.1.1 forge-gateway.iss
 #ifndef MyAppVersion
-  #define MyAppVersion "1.1.0"
+  #define MyAppVersion "1.1.1"
 #endif
 #define MyAppPublisher "BCH2 Team"
 #define MyAppURL "https://github.com/BitcoincashII/forge-gateway"
