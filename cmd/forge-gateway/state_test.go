@@ -336,8 +336,9 @@ func TestStatusPageShowsTheState(t *testing.T) {
 
 // The page says no more than is so: a block pays the TIDES split only when it is found on work the
 // pool registered, which solo work is not. With no shares yet it says whom a username is credited
-// to, and how to avoid what it cannot see: a Windows network profile that keeps miners on other
-// devices out.
+// to, a worker name after the address with or without a dot, and how to avoid what it cannot see:
+// a Windows network profile that keeps miners on other devices out (the firewall rule lets them in
+// on Private and Domain networks).
 func TestStatusPageSaysWhatIsSo(t *testing.T) {
 	page, err := os.ReadFile("status.html")
 	if err != nil {
@@ -346,8 +347,8 @@ func TestStatusPageSaysWhatIsSo(t *testing.T) {
 	s := string(page)
 	for _, want := range []string{
 		"A DATUM-style gateway: your node builds the block. A block found on work Forge Pool registered pays Forge Pool's TIDES split straight from its coinbase, with no pool fee; one found while mining solo pays your payout address in full.",
-		"A username that is a BCH2 address (bitcoincashii:q…, with or without .workername after it) is credited to that address; any other username, a mistyped or legacy 1… address included, is credited to the payout address.",
-		"On Windows, miners on other devices can connect only while this PC's network profile is Private (Windows Settings, Network &amp; internet, your connection's properties); Windows 11 makes new networks Public.",
+		"A username that is a BCH2 address (bitcoincashii:q…), with or without a worker name after it, is credited to that address; any other username, a mistyped or legacy 1… address included, is credited to the payout address.",
+		"On Windows, miners on other devices can connect only while this PC's network profile is Private (Windows Settings, Network &amp; internet, your connection's properties) or Domain; Windows 11 makes new networks Public.",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("GW-PAGE-SO: status.html does not say %q", want)
