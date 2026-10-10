@@ -35,7 +35,7 @@ func TestSQLiteRoundTripsPerMinerAddress1175(t *testing.T) {
 		t.Fatalf("GetMinerSettingsDB: %v", err)
 	}
 	if got.Address1175 != esf {
-		t.Errorf("single-miner read returned Address1175=%q, want %q — the address was "+
+		t.Errorf("single-miner read returned Address1175=%q, want %q: the address was "+
 			"never persisted, or is not selected back", got.Address1175, esf)
 	}
 
@@ -47,7 +47,7 @@ func TestSQLiteRoundTripsPerMinerAddress1175(t *testing.T) {
 		t.Fatalf("LoadAllMinerSettings lost the miner entirely")
 	}
 	if s.Address1175 != esf {
-		t.Errorf("bulk read returned Address1175=%q, want %q — the 10s settings reload "+
+		t.Errorf("bulk read returned Address1175=%q, want %q: the 10s settings reload "+
 			"blanks the address in memory", s.Address1175, esf)
 	}
 	if !s.SoloMining {
