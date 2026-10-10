@@ -1,5 +1,5 @@
 # nginx 1.30, the stable branch: 1.27 reached its end, with fixes no longer made for it.
-FROM nginx:1.30.5-alpine@sha256:0985e772fb9f729e6fa0980da05fca5d9c468e870eed43071545afa9d2e27d94
+FROM nginx:1.31.0-alpine@sha256:2f07d83bf561b506400dc183b1b2003803e39efbd22451f848adaba14d28c7c7
 # A template: the image's entrypoint renders it into conf.d at start, substituting API_UPSTREAM
 # only (NGINX_ENVSUBST_FILTER), so nginx's own $host and $uri stay as they are. On Umbrel the
 # compose sets the api container's unique name; elsewhere the default service name applies.
