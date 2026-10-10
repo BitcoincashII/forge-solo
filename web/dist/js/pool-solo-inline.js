@@ -91,10 +91,10 @@
         }
 
         // In TIDES mode the balance card's amounts, the Blocks table and Payout History count solo
-        // blocks only (found in Solo mode, or while TIDES was paused): a TIDES block pays the TIDES
-        // window, and what it paid you is in the TIDES card. Each says so. "Your Blocks Found" counts
-        // TIDES blocks too: it sat over "Total: 0 BCH2", and the table below had the same heading,
-        // while the TIDES card showed the same address being paid.
+        // blocks only (found in Solo mode, or on solo work in TIDES mode): a TIDES block pays the
+        // TIDES window, and what it paid you is in the TIDES card. Each says so. "Your Blocks Found"
+        // counts TIDES blocks too: it sat over "Total: 0 BCH2", and the table below had the same
+        // heading, while the TIDES card showed the same address being paid.
         function soloFiguresOnly() {
             return tidesInEffect(lastMiningStatus);
         }
@@ -340,9 +340,10 @@
         // ---- TIDES mode ---------------------------------------------------------------
         //
         // In TIDES mode this install is a DATUM gateway to Forge Pool: its miners' work goes
-        // into the pool's TIDES window, and every block any TIDES miner finds pays everyone in
-        // the window from its coinbase. The stratum reports what it is doing (mining-status);
-        // the window, payouts and recent pool blocks come from Forge Pool through the api.
+        // into the pool's TIDES window, and every block found on work the pool registered pays
+        // everyone in the window from its coinbase. The stratum reports what it is doing
+        // (mining-status); the window, payouts and recent pool blocks come from Forge Pool through
+        // the api.
         function tidesInEffect(ms) {
             // Only a status fetched recently counts: while the node resyncs the banner stops
             // asking, and a stale copy would keep claiming whatever TIDES was doing then.
@@ -425,7 +426,7 @@
                 : t.state === 'fallback'
                 ? 'Forge Pool is not taking this install\'s work right now' + (t.reason ? ' (' + t.reason + ')' : '')
                   + ', so it is mining solo until the pool answers again. The figures below are the pool\'s.'
-                : 'This install builds its own blocks from its own node; their coinbase pays the TIDES split, and your shares are credited to your payout address.';
+                : 'This install builds its own blocks from its own node; a block found on work Forge Pool registered pays the TIDES split from its coinbase, and your shares are credited to your payout address.';
             // An http(s) address only: the link must not run anything when clicked.
             if (t.pool && /^https?:\/\//i.test(String(t.pool))) document.getElementById('tidesLink').href = String(t.pool).replace(/\/+$/, '') + '/tides';
             const gw = [];

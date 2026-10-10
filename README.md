@@ -116,12 +116,15 @@ on a computer, do not have:
 Then point your miner at `stratum+tcp://<forge-solo-ip>:3333`, the address of the Umbrel, PC or
 Linux machine on your network. The dashboard shows it.
 
-There is no minimum payout and no payout schedule. A block you find pays you **directly in
-that block's coinbase**: the reward is yours on-chain as soon as the block is accepted,
-spendable after the usual 100-block coinbase maturity.
+There is no payout schedule. In solo mode a block you find pays you **directly in that block's
+coinbase**: the reward is yours on-chain as soon as the block is accepted, spendable after the
+usual 100-block coinbase maturity. In TIDES mode every TIDES block (a block found on work Forge
+Pool registered) pays you the same way, in proportion to your work in the window, and an amount
+under 546 satoshis is carried forward to a later one. The dashboard's TIDES page explains it.
 
 The worker username is **just a label**: `rig1`, `bitaxe`, anything. It has no payout
-role: every block's reward is paid to your configured BCH2 address. Supplying
+role: every solo block pays your configured BCH2 address, and in TIDES mode every share is
+credited to it. Supplying
 `<your-address>.<label>` also works. Give each device its own label (`rig1`, `rig2`): the
 difficulty Forge Solo remembers across reconnects belongs to the label and the address the miner
 connects from, so devices that share both share it.

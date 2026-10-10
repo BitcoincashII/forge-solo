@@ -160,7 +160,7 @@
                 <div class="tides-note" id="tidesNote"></div>
                 <div class="tides-grid">
                     <div><div class="tv" id="tidesShare">--</div><div class="tl">Your share of the window</div></div>
-                    <div><div class="tv" id="tidesNext">--</div><div class="tl">The next pool block pays you</div></div>
+                    <div><div class="tv" id="tidesNext">--</div><div class="tl">The next pool block pays you</div><div class="ts">if found now</div></div>
                     <div><div class="tv" id="tidesPending">--</div><div class="tl">Pending (under 2 confirmations)</div></div>
                     <div><div class="tv" id="tidesPaid">--</div><div class="tl">Paid to you (2+ confirmations)</div><div class="ts">each spendable 100 blocks after its block</div></div>
                     <div><div class="tv" id="tidesMiners">--</div><div class="tl">Miners in the window</div></div>
@@ -185,7 +185,7 @@
                         </tbody>
                     </table>
                 </div>
-                <p class="tides-note" style="margin-top:12px">Every block found through a Forge Pool gateway pays everyone with work in the window (the most recent eight network-difficulties of credited share work) straight from its coinbase: no pool wallet, no fee. Amounts under 546 satoshis carry over to a later block in which you have work in the window. <a href="/tides" style="color:#38bdf8">How TIDES mode works</a> · <a id="tidesLink" href="https://pool.bch2.org/tides" target="_blank" rel="noopener noreferrer" style="color:#38bdf8">Full TIDES dashboard on Forge Pool ↗</a></p>
+                <p class="tides-note" style="margin-top:12px">Every TIDES block (found on work Forge Pool registered, through any of its gateways) pays everyone with work in the window (up to 8 × the network difficulty of the block being mined, in the most recent credited share work) straight from its coinbase: no pool wallet, no fee. Amounts under 546 satoshis carry over to a later TIDES block in which you have work in the window and are due at least 546 satoshis. <a href="/tides" style="color:#38bdf8">How TIDES mode works</a> · <a id="tidesLink" href="https://pool.bch2.org/tides" target="_blank" rel="noopener noreferrer" style="color:#38bdf8">Full TIDES dashboard on Forge Pool ↗</a></p>
             </div>
 
             <div class="stats-row" role="region" aria-label="Mining statistics">
@@ -371,6 +371,6 @@
     </footer>
 
     <script src="/js/common.js?v=20261007a"></script>
-    <script src="/js/pool-solo-inline.js?v=20261007d"></script>
+    <script src="/js/pool-solo-inline.js?v=20261010a"></script>
 </body>
 </html>

@@ -5,10 +5,13 @@ node, a mining service your miners connect to, and a dashboard, all from this on
 
 - **Solo:** every block your miners find pays your BCH2 address in full, straight from the
   block's coinbase.
-- **TIDES pool:** your node still builds every block, and each block found through Forge Pool's
-  gateways pays everyone with work in Forge Pool's TIDES window, straight from its coinbase. You
-  are paid from every such block found while you have work in the window. There is no pool wallet
-  and no pool fee. The dashboard's TIDES page (`/tides`) explains it in full.
+- **TIDES pool:** your node still builds every block, and each block found on work Forge Pool
+  registered, through any of its gateways (Forge Solo in TIDES mode and Forge Gateway), pays
+  everyone with work in Forge Pool's TIDES window, straight from its coinbase. You are paid from
+  every such block found while you have work in the window. A block your miners find on solo work,
+  while Forge Pool cannot be reached or is slow to take a new block's work, pays your address in
+  full. There is no pool wallet and no pool fee. The dashboard's TIDES page (`/tides`) explains it
+  in full.
 
 This version is BCH2 only. 1175 (ESF) merge-mining is not part of it; the Umbrel app and the
 Windows version have it.
@@ -52,9 +55,10 @@ the foreground; Ctrl-C stops it (see **Stopping**). Then:
    (`cat ~/.local/share/forge-solo/secrets.env`): other accounts on this machine can reach the
    dashboard too. The browser remembers it after that.
 3. Point your miners at **stratum+tcp://THIS-MACHINE:3333**. The worker name is only a label for
-   the dashboard, and the password can be anything (`x`). Every block pays the payout address in
-   Settings, whatever the worker name. NiceHash and MiningRigRentals, which put a whole order
-   behind one connection, use port **3335**.
+   the dashboard, and the password can be anything (`x`). Whatever the worker name, every solo
+   block pays the payout address in Settings, and in TIDES mode every share is credited to it.
+   NiceHash and MiningRigRentals, which put a whole order behind one connection, use port
+   **3335**.
 
 The node syncs the chain first, about a quarter of an hour on a PC and longer on a small board;
 the dashboard shows its progress, and mining starts once it is done. Everything is kept in the data directory:

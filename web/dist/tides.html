@@ -31,9 +31,10 @@
 
   <div class="card">
     <h2>What TIDES mode does</h2>
-    <p>Your install still builds every block from its own node. In TIDES mode it mines for Forge Pool's TIDES window instead of for itself alone: every block found through a Forge Pool gateway (every Forge Solo in TIDES mode, and every Forge Gateway) pays the miners with work in the window, in proportion to that work, straight from the block's own coinbase.</p>
+    <p>Your install still builds every block from its own node. In TIDES mode it mines for Forge Pool's TIDES window instead of for itself alone: every TIDES block pays the miners with work in the window, in proportion to that work, straight from the block's own coinbase.</p>
+    <p>A <strong>TIDES block</strong> (a DATUM block on Forge Pool's pages) is a block found on a job Forge Pool registered, through any of its gateways: every Forge Solo in TIDES mode, and every Forge Gateway. A block found on solo work is not one: it pays the payout address of the install or gateway that found it, in full.</p>
     <ul>
-      <li>You are paid from every such block found while you have work in the window, not only from blocks you find.</li>
+      <li>You are paid from every TIDES block found while you have work in the window, not only from blocks you find.</li>
       <li>There is no pool wallet and no pool fee: your payout is an output of the block, paid to your address.</li>
       <li>In Solo mode, by contrast, a block you find pays your address its whole reward, and you are paid nothing otherwise.</li>
       <li class="mm">TIDES mode is BCH2 only: 1175 (ESF) merge-mining is off while it is on.</li>
@@ -52,45 +53,46 @@
 
   <div class="card">
     <h2>How your shares count</h2>
-    <p>Your install sends Forge Pool every share that meets the job's share difficulty, and the pool credits each one <strong>at that difficulty</strong>: not at the higher difficulty the share's hash may happen to reach.</p>
+    <p>Your install sends Forge Pool every share that meets the job's share difficulty, except one on a block that has since been superseded, which the pool would refuse, and one it could not deliver for 10 minutes. Each share the pool credits counts <strong>at that difficulty</strong>: not at the higher difficulty the share's hash may happen to reach.</p>
     <p>A job's share difficulty is the higher of two numbers, up to 2<sup>40</sup>:</p>
     <ul>
-      <li><strong>The pool's difficulty for your install.</strong> It starts at 16,384 and doubles or halves (at most once every 2 minutes) to keep you near 12 credited shares a minute, but never below 1,024.</li>
-      <li><strong>The difficulty your install commits to.</strong> While miners are connected, each job's coinbase carries a share difficulty: the power of two at or above twice the difficulty of your busiest miner. For example, a rental at difficulty 500,000 gets jobs committed to 1,048,576 (2<sup>20</sup>). About half its shares reach that, and each one is credited 1,048,576, so its work is counted in full on average.</li>
+      <li><strong>The pool's difficulty for your install.</strong> It starts at 16,384. It doubles when more than 24 credited shares a minute arrive from your install, and halves when fewer than 6 do (it aims at 12), at most once every 2 minutes, but never below 1,024. When the committed difficulty below is the higher number, that sets the pace instead.</li>
+      <li><strong>The difficulty your install commits to.</strong> While miners are connected, each job's coinbase carries a share difficulty: the power of two at or above twice the highest difficulty your miners work at, but never above the network difficulty. A difficulty a miner sets itself (d= in its password) counts once it has sent a share at it. For example, a rental at difficulty 500,000 gets jobs committed to 1,048,576 (2<sup>20</sup>). About half its shares reach that, and each one is credited 1,048,576, so its work is counted in full on average.</li>
     </ul>
-    <p>Your install registers a fresh job every 15 seconds and at every new block, so a miner that connects, or whose difficulty rises, is covered within 15 seconds.</p>
+    <p>Your install registers a fresh job about every 15 seconds and at every new block, so a miner that connects, or whose difficulty rises, is covered from the next job, within about 15 seconds.</p>
   </div>
 
   <div class="card">
     <h2>How you are paid</h2>
     <ul>
-      <li>The window is the most recent <strong>8 × the network difficulty</strong> of credited share work, from every gateway together. It slides: new shares push the oldest out, and a block found does not reset it.</li>
-      <li>Each gateway block pays each address its share of the window times the block's value (its subsidy plus the fees of its transactions), plus any amount carried for it. The paid amounts are scaled slightly so the coinbase pays out exactly the block's value.</li>
-      <li>An amount under <strong>546 satoshis</strong> gets no output. It is carried forward and paid in a later block in which you have work in the window and are due at least 546 satoshis.</li>
+      <li>The window holds up to <strong>8 × the network difficulty</strong> of the block being mined, in the most recent credited share work from every gateway together. It slides: once it is full, new shares push the oldest out, and a block found does not reset it.</li>
+      <li>Each TIDES block pays each address its share of the window times the block's value (its subsidy plus the fees of its transactions), plus any amount carried for it. The paid amounts are scaled slightly so the coinbase pays out exactly the block's value. The split is the one from the window snapshot the block's job was registered with, so it can lag the live window.</li>
+      <li>An amount under <strong>546 satoshis</strong> gets no output. It is carried forward and paid in a later TIDES block in which you have work in the window and are due at least 546 satoshis.</li>
       <li>Your payout is an output of the block's coinbase to your payout address. Like every mined coin, it can be spent 100 blocks after the block that paid it.</li>
-      <li>While the window is empty, a block pays the install that found it in full.</li>
+      <li>While the window is empty, a TIDES block pays the payout address of the install or gateway that found it, in full.</li>
       <li>Blocks found by miners on Forge Pool's own stratum ports do not pay the TIDES window.</li>
     </ul>
   </div>
 
   <div class="card">
-    <h2>When Forge Pool cannot be reached</h2>
-    <p>If Forge Pool cannot be reached, or will not take a job, your install mines <strong>solo</strong> in the meantime: a block found then pays your payout address in full. It tries the pool again every minute and returns to TIDES as soon as the pool takes a job. A job the pool already took stays in use for up to 45 seconds while it cannot be refreshed. The TIDES card on the dashboard shows <strong>paused, mining solo</strong> while this lasts.</p>
+    <h2>When your install mines solo</h2>
+    <p>If Forge Pool cannot be reached, or will not take a job, your install mines <strong>solo</strong> in the meantime: a block found then pays your payout address in full. It tries the pool again every minute and returns to TIDES as soon as the pool takes a job. A job the pool already took stays in use while it cannot be refreshed, until it is 45 seconds to about a minute old. The TIDES card on the dashboard shows <strong>paused, mining solo</strong> while this lasts.</p>
+    <p>At a new block, if the pool has not taken the new work within 2 seconds, your miners get solo work for that block until it does. A block found on it pays your payout address in full too; the card stays <strong>active</strong>.</p>
   </div>
 
   <div class="card">
     <h2>The TIDES card on your dashboard</h2>
     <dl class="fields">
       <dt>Your share of the window</dt><dd>Your payout address's credited work divided by all the work in the window.</dd>
-      <dt>The next pool block pays you</dt><dd>What a gateway block found right now would pay your payout address.</dd>
-      <dt>Pending (under 2 confirmations)</dt><dd>Your payouts in gateway blocks that do not have 2 confirmations yet.</dd>
-      <dt>Paid to you (2+ confirmations)</dt><dd>Your payouts in gateway blocks with 2 or more confirmations, among the pool's last 500 blocks. Each can be spent 100 blocks after the block that paid it, so your wallet shows the newest as still maturing.</dd>
+      <dt>The next pool block pays you</dt><dd>What a TIDES block found now would pay your payout address: your part of the split of the pool's newest window snapshot, at the pool's current block value. A block found on a job registered earlier pays that job's snapshot, so it can pay a little differently.</dd>
+      <dt>Pending (under 2 confirmations)</dt><dd>Your payouts in TIDES blocks that do not have 2 confirmations yet.</dd>
+      <dt>Paid to you (2+ confirmations)</dt><dd>Your payouts in TIDES blocks with 2 or more confirmations, among the pool's last 500 TIDES blocks. Each can be spent 100 blocks after the block that paid it, so your wallet shows the newest as still maturing. Until then the pool keeps checking the block, and a payout leaves this figure if its block drops off the chain.</dd>
       <dt>Miners in the window</dt><dd>How many addresses have work in the window.</dd>
       <dt>Window filled</dt><dd>The work in the window so far, as a part of its full size.</dd>
-      <dt>Pool share difficulty · shares sent · credited · refused</dt><dd>This install's current share difficulty at the pool, and its share counts since the mining service last started.</dd>
-      <dt>TIDES blocks</dt><dd>The pool's recent gateway blocks: who found each (<strong>You</strong> when your payout address did), its coinbase value, what it paid you, and whether it is pending, confirmed (2 confirmations) or orphaned (not on the chain 6 blocks later).</dd>
+      <dt>Pool share difficulty · shares sent · credited · refused</dt><dd>The share difficulty the pool credits your current job's shares at, and this install's share counts since the mining service last started.</dd>
+      <dt>TIDES blocks</dt><dd>The pool's recent TIDES blocks: who found each (<strong>You</strong> when your payout address did), its coinbase value, what it paid you, and whether it is pending (under 2 confirmations), confirmed (2 or more) or orphaned. A pending block not on the chain 6 blocks later is orphaned. The pool keeps checking a confirmed block until its coinbase can be spent (100 blocks), and one that drops off the chain in that time is marked orphaned too. An orphaned block paid nothing, and its effect on carried amounts is undone.</dd>
     </dl>
-    <p style="margin-top:12px">In TIDES mode the amounts in the balance card at the top of the dashboard (matured, still maturing and the total), the Your Solo Blocks table and Payout History are solo, and say so: they count only the blocks that paid your address in full, found in Solo mode or while TIDES was paused. Your Blocks Found counts your TIDES blocks too. Your TIDES payouts are in this card.</p>
+    <p style="margin-top:12px">In TIDES mode the amounts in the balance card at the top of the dashboard (matured, still maturing and the total), the Your Solo Blocks table and Payout History are solo, and say so: they count only the blocks that paid your address in full, found in Solo mode or on solo work in TIDES mode. Your Blocks Found counts your TIDES blocks too. Your TIDES payouts are in this card.</p>
     <p>The full window, with every miner's share, is on <a href="https://pool.bch2.org/tides" target="_blank" rel="noopener noreferrer">pool.bch2.org/tides</a>.</p>
   </div>
 

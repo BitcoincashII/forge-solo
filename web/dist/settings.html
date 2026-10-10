@@ -62,8 +62,8 @@
         <span><strong>Solo</strong>: every block you find pays your address in full.
         <small>The lottery: nothing until you find a block, then all of it.<span class="mm"> Merge-mines 1175 when a 1175 address is set.</span></small></span></label>
       <label class="mode"><input type="radio" name="payoutMode" value="tides">
-        <span><strong>TIDES pool</strong>: share blocks with other Forge Solo miners through Forge Pool.
-        <small>Your node still builds its own blocks, but each one pays everyone with work in the pool's TIDES window, straight from its coinbase, and you are paid from every TIDES block found while you have work in the window. Steadier payouts for the same expected amount; no pool wallet, no fee.<span class="mm"> BCH2 only: 1175 merge-mining is off in this mode.</span> If Forge Pool cannot be reached, this app mines solo until it can. <a href="/tides" style="color:var(--bch-green,#0ac18e)">How TIDES mode works</a></small></span></label>
+        <span><strong>TIDES pool</strong>: share blocks with other Forge Pool gateway miners (Forge Solo in TIDES mode and Forge Gateway).
+        <small>Your node still builds its own blocks, but each one found on work Forge Pool registered (a TIDES block) pays everyone with work in the pool's TIDES window, straight from its coinbase, and you are paid from every TIDES block found while you have work in the window. Steadier payouts for the same expected amount; no pool wallet, no fee.<span class="mm"> BCH2 only: 1175 merge-mining is off in this mode.</span> If Forge Pool cannot be reached, or is slow to take a new block's work, this app mines solo meanwhile: a block found then pays your address in full. <a href="/tides" style="color:var(--bch-green,#0ac18e)">How TIDES mode works</a></small></span></label>
     </div>
     <label class="fld" for="poolAddr">BCH2 payout address (required)</label>
     <input class="txt" id="poolAddr" type="text" spellcheck="false" autocapitalize="none" placeholder="bitcoincashii:q…">
