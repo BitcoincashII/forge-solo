@@ -129,7 +129,7 @@ services:
   # move below. Without a service of this name the old server would go on running on the old
   # data beside the move's own. This one does nothing and exits.
   postgres:
-    image: ghcr.io/bitcoincashii/forge-solo-migrate:1.0.14@sha256:4e16af24c96c071b3342fa734a7739b071d2ef38cd3ed439d7644acef85a93f0
+    image: ghcr.io/bitcoincashii/forge-solo-migrate:1.0.15@sha256:4e16af24c96c071b3342fa734a7739b071d2ef38cd3ed439d7644acef85a93f0
     command: ["noop"]
     restart: "no"
     network_mode: none
@@ -156,7 +156,7 @@ services:
   # and stop it (KILL), to read that data (DAC_OVERRIDE), and to give the database's files to
   # 10001:10001, the api's and the stratum's user (CHOWN, FOWNER).
   migrate:
-    image: ghcr.io/bitcoincashii/forge-solo-migrate:1.0.14@sha256:4e16af24c96c071b3342fa734a7739b071d2ef38cd3ed439d7644acef85a93f0
+    image: ghcr.io/bitcoincashii/forge-solo-migrate:1.0.15@sha256:4e16af24c96c071b3342fa734a7739b071d2ef38cd3ed439d7644acef85a93f0
     command: ["run", "--db=/data/forgesolo.db", "--pgdata=/pg", "--owner=10001:10001"]
     restart: "no"
     network_mode: none

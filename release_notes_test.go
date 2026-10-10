@@ -225,7 +225,7 @@ func TestReleaseNotesTellWhenANewBlocksWorkWaits(t *testing.T) {
 
 // While the BCH2 node catches up with the chain, the two ZMQ lines of each block are left out of
 // the log and the node's progress is said every noticeProgressEvery; each block's lines come back
-// once the node is level, or catchUpEvery after the last block. 1.0.14's release page gives the
+// once the node is level, or catchUpEvery after the last block. 1.0.15's release page gives the
 // figures job_loop.go has, and names the two lines as the stratum logs them.
 func TestReleaseNotesTellTheQuietCatchUp(t *testing.T) {
 	src := string(mustRead(t, "cmd/stratum/job_loop.go")) + string(mustRead(t, "cmd/stratum/main.go"))
@@ -233,14 +233,14 @@ func TestReleaseNotesTellTheQuietCatchUp(t *testing.T) {
 	if every == nil || !regexp.MustCompile(`(?m)^\s*noticeProgressEvery\s*=\s*time\.Minute$`).MatchString(src) {
 		t.Fatal("DOCS-QUIET-CODE: cmd/stratum/job_loop.go no longer gives catchUpEvery in seconds, or no longer says the progress once a minute")
 	}
-	sec := flat(releaseSection(t, "1.0.14"))
+	sec := flat(releaseSection(t, "1.0.15"))
 	for _, c := range []struct{ code, want string }{
 		{"DOCS-QUIET-LINES", `("ZMQ block notification received" and "ZMQ triggered job refresh")`},
 		{"DOCS-QUIET-PROGRESS", "then gives its block and headers once a minute"},
 		{"DOCS-QUIET-BACK", "or " + every[1] + " seconds after the last block"},
 	} {
 		if !strings.Contains(sec, c.want) {
-			t.Errorf("%s: RELEASE_NOTES.md ## 1.0.14 does not say %q", c.code, c.want)
+			t.Errorf("%s: RELEASE_NOTES.md ## 1.0.15 does not say %q", c.code, c.want)
 		}
 	}
 	for _, line := range []string{`"⚡ ZMQ block notification received"`, `"⚡ ZMQ triggered job refresh"`} {
@@ -390,7 +390,7 @@ func TestRentalPortDocsGiveTheShippedShareTime(t *testing.T) {
 // which count a payout at 2 confirmations, and the heading of the Blocks table in TIDES mode. "Paid
 // to you (confirmed)" was the card's name, while the same page calls a solo block confirmed after
 // 100. The page says which API times are in UTC now. A slow pool still holds up a new block's work
-// for seconds, so no text says it no longer can. 1.0.14's page names the line the card now has
+// for seconds, so no text says it no longer can. 1.0.15's page names the line the card now has
 // under "The next pool block pays you".
 func TestReleaseNotesNameTheDashboardAsItShows(t *testing.T) {
 	sec := flat(releaseSection(t, "1.0.13"))
@@ -400,9 +400,9 @@ func TestReleaseNotesNameTheDashboardAsItShows(t *testing.T) {
 		{"DOCS-TIDES-PENDING", "1.0.13", "Pending (under 2 confirmations)", "web/dist/solo.html", solo},
 		{"DOCS-TIDES-PAID", "1.0.13", "Paid to you (2+ confirmations)", "web/dist/solo.html", solo},
 		{"DOCS-SOLO-BLOCKS", "1.0.13", "Your Solo Blocks", "web/dist/js/pool-solo-inline.js", js},
-		{"DOCS-TIDES-NEXT", "1.0.14", "The next pool block pays you", "web/dist/solo.html", solo},
-		{"DOCS-TIDES-NEXT-NOW", "1.0.14", "if found now", "web/dist/solo.html", solo},
-		{"DOCS-TIDES-PAID", "1.0.14", "Paid to you (2+ confirmations)", "web/dist/solo.html", solo},
+		{"DOCS-TIDES-NEXT", "1.0.15", "The next pool block pays you", "web/dist/solo.html", solo},
+		{"DOCS-TIDES-NEXT-NOW", "1.0.15", "if found now", "web/dist/solo.html", solo},
+		{"DOCS-TIDES-PAID", "1.0.15", "Paid to you (2+ confirmations)", "web/dist/solo.html", solo},
 	} {
 		if !strings.Contains(flat(releaseSection(t, c.version)), `"`+c.label+`"`) {
 			t.Errorf("%s: RELEASE_NOTES.md ## %s does not name %q", c.code, c.version, c.label)
@@ -436,8 +436,8 @@ func TestReleaseNotesNameTheDashboardAsItShows(t *testing.T) {
 // blank line. The update screen is short.
 func TestUmbrelStoreTextReadsAsWritten(t *testing.T) {
 	m := readUmbrelManifest(t)
-	if m.Version != "1.0.14" {
-		t.Errorf("DOCS-UMBREL-VERSION: umbrel-app.yml is version %q, not 1.0.14", m.Version)
+	if m.Version != "1.0.15" {
+		t.Errorf("DOCS-UMBREL-VERSION: umbrel-app.yml is version %q, not 1.0.15", m.Version)
 	}
 	joined := regexp.MustCompile(`\S[ \t]+-[ \t]+[A-Z]`)
 	item := regexp.MustCompile(`(?m)^[ \t]*- \S`)
@@ -495,7 +495,7 @@ func TestReleaseTextsDoNotOverstateThePassword(t *testing.T) {
 
 // 1.0.13 is the first Windows release on this repository's release page. A Windows user who lands
 // there learns before the download what Windows asks: Smart App Control off on Windows 11, and
-// More info, then Run anyway, at SmartScreen's warning; and where the steps are. From 1.0.14 the
+// More info, then Run anyway, at SmartScreen's warning; and where the steps are. From 1.0.15 the
 // page says, in the README's words, to turn Smart App Control off only if it blocks Forge Solo: on
 // a Windows 11 PC with it On, the 1.0.13 installer installed and Forge Solo ran. A page resolves a
 // relative link against its own address, under /releases/tag/, where no file of the repository
@@ -503,7 +503,7 @@ func TestReleaseTextsDoNotOverstateThePassword(t *testing.T) {
 func TestReleaseNotesTellWindowsUsersHowToInstall(t *testing.T) {
 	for _, c := range []struct{ version, sac string }{
 		{"1.0.13", "on Windows 11, Smart App Control must be Off"},
-		{"1.0.14", "If Smart App Control on Windows 11 blocks the installer or Forge Solo, turn Smart App Control off"},
+		{"1.0.15", "If Smart App Control on Windows 11 blocks the installer or Forge Solo, turn Smart App Control off"},
 	} {
 		sec := releaseSection(t, c.version)
 		text := flat(sec)

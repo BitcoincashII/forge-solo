@@ -8,7 +8,10 @@ screen shows `releaseNotes` from `umbrel-app.yml` instead, so write that too.
 Up to 1.0.12 each platform kept its own notes: [windows/RELEASE_NOTES.md](windows/RELEASE_NOTES.md)
 and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
 
-## 1.0.14
+## 1.0.15
+
+1.0.14 was tagged but not released. 1.0.15 has all of its changes, and newer versions of some of
+the parts it is built on: coming from 1.0.13, this page lists everything that changed.
 
 **Installing and updating.**
 - **Windows:** you no longer have to turn Smart App Control off before you install. Forge Solo is
@@ -77,10 +80,16 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
   works while mining waits for a payout address.
 
 **Up to date.** Built with Go 1.27.2 (was 1.26.8), which has the fixes for security problems in
-Go's standard library (net/http, net/textproto and crypto/tls) that 1.0.13's programs reach.
-SQLite 3.53.4 (was 3.53.3), through the modernc.org/sqlite 1.60.1 driver. **Umbrel:** the migrate
-step's image is based on Alpine 3.24 (was 3.23); it still reads 1.0.12's data with PostgreSQL
-16.15.
+Go's standard library (net/http, net/textproto and crypto/tls) that 1.0.13's programs reach, and
+with golang.org/x/sys 0.49.0 (was 0.47.0). SQLite 3.53.4 (was 3.53.3), through the
+modernc.org/sqlite 1.60.1 driver. **Umbrel:** the BCH2 and 1175 node images are based on Ubuntu
+24.04.5 (was 24.04.4), and the API's and the miner's on Debian 12 with its latest updates (xz,
+PCRE2 and the time zone data). The migrate step's image is based on Alpine 3.24 (was 3.23); it
+still reads 1.0.12's data with PostgreSQL 16.15.
+
+## 1.0.14
+
+1.0.14 was tagged but not released: its changes are in 1.0.15.
 
 ## 1.0.13
 

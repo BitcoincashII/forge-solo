@@ -277,7 +277,7 @@ three that have one, with `-X main.version`.
 On Linux, for this machine, into `dist/`, which Git ignores:
 
 ```sh
-V=1.0.14
+V=1.0.15
 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o dist/stratum ./cmd/stratum
 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o dist/api ./cmd/api
 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$V" -o dist/forge-solo-migrate ./cmd/forge-solo-migrate
@@ -362,7 +362,7 @@ hours. A node built from source has other bytes, which the script refuses until 
 and pinned. To build with the nodes the releases ship, take them from a release's downloads first:
 
 ```sh
-V=1.0.14
+V=1.0.15
 git checkout v$V
 for a in x86_64 aarch64 armv7l armv6l i686 riscv64; do
   mkdir -p .linux-build/out/$a
@@ -378,7 +378,7 @@ the node, and run `./forge-solo` there as [packaging/linux/README.md](packaging/
 says. For another machine, add `GOOS=linux GOARCH=...` as above.
 
 ```sh
-d=~/forge-solo-1.0.14-linux-x86_64        # the unpacked download
+d=~/forge-solo-1.0.15-linux-x86_64        # the unpacked download
 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o $d/bin/stratum ./cmd/stratum
 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o $d/bin/api ./cmd/api
 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=dev" -o $d/forge-solo ./cmd/forge-solo-linux
