@@ -49,8 +49,10 @@ func (s *service) Execute(_ []string, req <-chan svc.ChangeRequest, status chan<
 			}
 		case err := <-done:
 			if err != nil {
-				// A config or login problem: the service-specific exit code makes Windows'
-				// recovery actions restart it, and the reason is in the log file.
+				// A config, node login or port problem: the service stops with a service-specific
+				// exit code. Windows' recovery actions restart only a crash, and the reason is not
+				// in the log file (a config problem comes before it is opened): run the program in
+				// a Command Prompt to see it, as the README says.
 				return true, 1
 			}
 			return false, 0
