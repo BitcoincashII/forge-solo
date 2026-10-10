@@ -209,10 +209,14 @@ func TestSoloCreditsAnotherAddressToThePayoutAddress(t *testing.T) {
 	s := newSoloServer(t, testPayout)
 	s.config.CreditPayoutAddress = true
 
+	typo := mistyped(other)
 	for _, tc := range []struct{ username, worker string }{
 		{other + ".mrr", "mrr"},
 		{other, shortAddress(other)}, // a bare address: its short form tells two rigs apart
 		{testPayout + ".rig1", "rig1"},
+		{strings.TrimPrefix(other, "bitcoincashii:"), shortAddress(other)},
+		{strings.TrimPrefix(typo, "bitcoincashii:"), strings.TrimPrefix(typo, "bitcoincashii:")},
+		{typo + ".rig1", "bitcoincashii_" + strings.TrimPrefix(typo, "bitcoincashii:") + ".rig1"},
 	} {
 		c, resp := authorize(t, s, tc.username)
 		if resp.Result != true {
@@ -247,6 +251,63 @@ func TestAddressUsernameCreditedToItselfWithoutCreditPayoutAddress(t *testing.T)
 	c.mu.RUnlock()
 	if minerID != other || worker != "rig1" {
 		t.Errorf("credited to %q worker %q, want %q worker rig1", minerID, worker, other)
+	}
+}
+
+// mistyped is addr with one character of its address changed: its checksum no longer holds.
+func mistyped(addr string) string {
+	i := len("bitcoincashii:") + 10
+	c := byte('q')
+	if addr[i] == c {
+		c = 'p'
+	}
+	return addr[:i] + string(c) + addr[i+1:]
+}
+
+// Without CreditPayoutAddress (Forge Gateway) an address username is credited to that address at
+// the pool, so every form of it is checked, with or without the prefix. A mistyped address without
+// the prefix was credited to itself: the pool refused every share of that miner, and its work was
+// credited to nobody. Like one with the prefix, it is now a worker name, credited to the payout
+// address.
+func TestEveryFormOfAnAddressUsernameIsChecked(t *testing.T) {
+	var h [20]byte
+	h[0] = 7
+	other := cashaddr.Encode(cashaddr.MainnetPrefix, cashaddr.P2PKH, h)
+	bare := strings.TrimPrefix(other, "bitcoincashii:")
+	typo := strings.TrimPrefix(mistyped(other), "bitcoincashii:")
+	s := newSoloServer(t, testPayout)
+
+	for _, tc := range []struct{ username, minerID, worker string }{
+		{other, other, "default"},
+		{bare, other, "default"},
+		{bare + ".rig1", other, "rig1"},
+		{strings.ToUpper(bare) + ".rig1", other, "rig1"},
+		{"bitcoinii:" + bare + ".rig1", other, "rig1"},
+		{bare + "rig1", other, "rig1"}, // a worker name with no dot before it
+		{other + "rig1", other, "rig1"},
+		{typo, testPayout, typo},
+		{typo + ".rig1", testPayout, typo + ".rig1"},
+		{"bitcoincashii:" + typo + ".rig1", testPayout, "bitcoincashii_" + typo + ".rig1"},
+		{"bitcoinii:" + typo + ".rig1", testPayout, "bitcoinii_" + typo + ".rig1"},
+		{typo + "rig1", testPayout, typo + "rig1"},
+		{"bitcoincash2:" + bare, testPayout, "bitcoincash2_" + bare},
+		{"1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2", testPayout, "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2"}, // legacy
+	} {
+		c, resp := authorize(t, s, tc.username)
+		if resp.Result != true {
+			t.Errorf("authorize(%q) refused: %+v", tc.username, resp.Error)
+			continue
+		}
+		c.mu.RLock()
+		minerID, worker := c.MinerID, c.WorkerName
+		c.mu.RUnlock()
+		if minerID != tc.minerID || worker != tc.worker {
+			t.Errorf("authorize(%q): credited to %q worker %q, want %q worker %q", tc.username, minerID, worker, tc.minerID, tc.worker)
+		}
+		// The pool credits a share only to an address it can decode.
+		if _, err := cashaddr.Decode(minerID, cashaddr.MainnetPrefix); err != nil {
+			t.Errorf("authorize(%q): credited to %q, which the pool refuses: %v", tc.username, minerID, err)
+		}
 	}
 }
 

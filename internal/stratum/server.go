@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/BitcoincashII/forge-solo/internal/cashaddr"
 	"github.com/BitcoincashII/forge-solo/internal/mergemining"
 	"github.com/BitcoincashII/forge-solo/internal/netlisten"
 	"go.uber.org/zap"
@@ -3429,9 +3430,9 @@ func parseUsername(username string) (minerID, workerName string) {
 	// split them off as worker name.
 	if strings.HasPrefix(minerID, "bitcoincashii:") {
 		hash := minerID[len("bitcoincashii:"):]
-		if len(hash) > 42 {
-			extra := hash[42:]
-			minerID = "bitcoincashii:" + hash[:42]
+		if len(hash) > cashAddrLen {
+			extra := hash[cashAddrLen:]
+			minerID = "bitcoincashii:" + hash[:cashAddrLen]
 			if workerName == "default" {
 				workerName = extra
 			}
@@ -3441,116 +3442,38 @@ func parseUsername(username string) (minerID, workerName string) {
 	return
 }
 
-// normalizeMinerAddress ensures the address has the correct bitcoincashii: prefix
-// Returns empty string for invalid/rejected address formats
-// validCashAddrChecksum verifies a CashAddr's BCH-style polymod checksum.
-//
-// Length and first-character checks are not validation: a single mistyped character in an
-// address used as the stratum username produced a perfectly happy authorize, and shares
-// recorded under a minerID that the dashboard API then refused with "Invalid BCH2 address
-// format" -- so every tile read zero forever with nothing to explain it. Funds were never
-// at risk (the coinbase only ever uses the configured payout pubkeyHash), but the app's own
-// banner invites this by telling users they may authorize with their address.
-//
-// In a solo deployment a rejection here is not fatal: handleAuthorize falls back to the
-// configured payout address and treats the whole username as a worker label, so the miner
-// still mines and is credited correctly.
-func validCashAddrChecksum(address string) bool {
-	const charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
-	i := strings.LastIndex(address, ":")
-	if i < 0 {
-		return false
-	}
-	prefix, payload := address[:i], address[i+1:]
-	if len(payload) < 8 {
-		return false
-	}
-	v := make([]byte, 0, len(prefix)+1+len(payload))
-	for j := 0; j < len(prefix); j++ {
-		v = append(v, prefix[j]&0x1f)
-	}
-	v = append(v, 0)
-	for _, c := range payload {
-		k := strings.IndexRune(charset, c)
-		if k < 0 {
-			return false
-		}
-		v = append(v, byte(k))
-	}
-	return cashaddrPolymodStratum(v) == 0
-}
-
-// cashaddrPolymodStratum is the BCH CashAddr polymod (a 40-bit BCH code over GF(32)).
-func cashaddrPolymodStratum(v []byte) uint64 {
-	c := uint64(1)
-	for _, d := range v {
-		c0 := c >> 35
-		c = ((c & 0x07ffffffff) << 5) ^ uint64(d)
-		if c0&0x01 != 0 {
-			c ^= 0x98f2bc8e61
-		}
-		if c0&0x02 != 0 {
-			c ^= 0x79b76d99e2
-		}
-		if c0&0x04 != 0 {
-			c ^= 0xf33e5fb3c4
-		}
-		if c0&0x08 != 0 {
-			c ^= 0xae2eabe2a8
-		}
-		if c0&0x10 != 0 {
-			c ^= 0x1e4f43e470
-		}
-	}
-	return c ^ 1
-}
+// cashAddrLen is the length of a BCH2 address after its prefix: a 20-byte hash and the checksum.
+const cashAddrLen = 42
 
 // NormalizeMinerAddress is addr in the form miners are credited and looked up under, or "" if it
 // is not a BCH2 address.
 func NormalizeMinerAddress(addr string) string { return normalizeMinerAddress(addr) }
 
+// normalizeMinerAddress is addr with the bitcoincashii: prefix, in lower case, or "" if it does not
+// start with a BCH2 address. The prefix may be left off, or cut short to bitcoinii: (WhatsMiner
+// firmware). What follows the address's cashAddrLen characters is kept: parseUsername makes it the
+// worker name.
+//
+// Every form is decoded as the pool decodes it, checksum included: an address with a typo in it is
+// not an address. Only the prefixed form was checked. A mistyped address without the prefix was
+// taken as one: Forge Gateway sent that miner's shares to the pool under it, the pool refused
+// every one, and the work was credited to nobody. In solo a rejection here is not fatal: authorize
+// takes the whole username as a worker name and credits the payout address.
 func normalizeMinerAddress(addr string) string {
-	// Convert to lowercase for comparison
-	lowerAddr := strings.ToLower(addr)
-
-	// REJECT bitcoincash2: prefix - invalid format
-	if strings.HasPrefix(lowerAddr, "bitcoincash2:") {
-		return "" // Signal rejection
-	}
-
-	// If already has correct prefix, validate it has an actual hash after the prefix
-	if strings.HasPrefix(lowerAddr, "bitcoincashii:") {
-		hash := lowerAddr[len("bitcoincashii:"):]
-		if len(hash) < 42 || (hash[0] != 'q' && hash[0] != 'p') {
-			return "" // Reject: prefix without valid hash
+	hash := strings.ToLower(addr)
+	for _, prefix := range []string{"bitcoincashii:", "bitcoinii:"} {
+		if strings.HasPrefix(hash, prefix) {
+			hash = hash[len(prefix):]
+			break
 		}
-		if !validCashAddrChecksum(lowerAddr) {
-			return "" // one-character typo: see validCashAddrChecksum
-		}
-		return lowerAddr
 	}
-
-	// Handle truncated prefix: bitcoinii: -> bitcoincashii: (WhatsMiner firmware bug)
-	if strings.HasPrefix(lowerAddr, "bitcoinii:") {
-		hash := lowerAddr[len("bitcoinii:"):]
-		if len(hash) >= 42 && (hash[0] == 'q' || hash[0] == 'p') {
-			return "bitcoincashii:" + hash
-		}
-		return "" // Reject: invalid hash after prefix
+	if len(hash) < cashAddrLen {
+		return ""
 	}
-
-	// Reject bare prefix variants with no hash (firmware truncation)
-	if lowerAddr == "bitcoincashii" || lowerAddr == "bitcoincash" || lowerAddr == "bitcoinii" {
-		return "" // Signal rejection
+	if _, err := cashaddr.Decode(hash[:cashAddrLen], cashaddr.MainnetPrefix); err != nil {
+		return ""
 	}
-
-	// If it's just the hash part (starts with 'q' for mainnet), add prefix
-	if len(addr) >= 42 && (strings.HasPrefix(lowerAddr, "q") || strings.HasPrefix(lowerAddr, "p")) {
-		return "bitcoincashii:" + lowerAddr
-	}
-
-	// Reject anything else that isn't a valid address
-	return ""
+	return "bitcoincashii:" + hash
 }
 
 // normalizeHex pads a hex string to the required length with leading zeros
