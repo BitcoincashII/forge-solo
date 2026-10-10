@@ -3,6 +3,7 @@ package forgesolo
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -172,10 +173,34 @@ func TestDockerBuildMakesTheMigrateImage(t *testing.T) {
 	}
 }
 
+// The Go programs in the images are built with the Go of go.mod's toolchain line, as every other
+// build is. The golang image sets GOTOOLCHAIN=local, so a Dependabot update that moves the golang
+// image of one Dockerfile alone would build that image's program with another Go than the rest of
+// the release.
+func TestImagesBuildWithGoModsToolchain(t *testing.T) {
+	tc := regexp.MustCompile(`(?m)^toolchain go(\S+)$`).FindStringSubmatch(string(mustRead(t, "go.mod")))
+	if tc == nil {
+		t.Fatal("IMAGE-GO: go.mod has no toolchain line")
+	}
+	files, _ := filepath.Glob("docker/*/Dockerfile")
+	stages := 0
+	for _, f := range files {
+		for _, m := range regexp.MustCompile(`(?m)^FROM (?:--platform=\S+ )?golang:([^-@\s]+)`).FindAllStringSubmatch(string(mustRead(t, f)), -1) {
+			stages++
+			if m[1] != tc[1] {
+				t.Errorf("IMAGE-GO: %s builds with golang:%s; go.mod's toolchain line is go%s", f, m[1], tc[1])
+			}
+		}
+	}
+	if stages < 3 {
+		t.Errorf("IMAGE-GO: %d golang stages in docker/*/Dockerfile, want the api's, the stratum's and the migrator's", stages)
+	}
+}
+
 // The migrate image's own build: the migrator compiled with the version it is given, PostgreSQL 16
-// (the major version of the data it reads), every base image pinned by digest, and two checks that
-// fail the build: the server starts far enough to print its version (a library left out stops it),
-// and the migrator answers.
+// (the major version of the data it reads) from the Alpine of the image itself, whose C library it
+// runs on, every base image pinned by digest, and two checks that fail the build: the server starts
+// far enough to print its version (a library left out stops it), and the migrator answers.
 func TestMigrateImageBuild(t *testing.T) {
 	b, err := os.ReadFile("docker/migrate/Dockerfile")
 	if err != nil {
@@ -194,6 +219,16 @@ func TestMigrateImageBuild(t *testing.T) {
 	pg := regexp.MustCompile(`(?m)^FROM postgres:(16\.[0-9]+)-`).FindStringSubmatch(src)
 	if pg == nil {
 		t.Fatal("MIGRATE-IMAGE-PG16: the image does not take PostgreSQL 16, the version of the data it reads")
+	}
+	alpineOf := func(re, s string) string {
+		if m := regexp.MustCompile(re).FindStringSubmatch(s); m != nil {
+			return m[1]
+		}
+		return "none"
+	}
+	pgAlpine := alpineOf(`(?m)^FROM postgres:16\.[0-9]+-alpine([0-9.]+)@`, src)
+	if alpine := alpineOf(`^FROM alpine:([0-9.]+)@`, froms[len(froms)-1]); alpine != pgAlpine || alpine == "none" {
+		t.Errorf("MIGRATE-IMAGE-ALPINE: the PostgreSQL stage is from Alpine %s, the image itself from Alpine %s", pgAlpine, alpine)
 	}
 	for code, re := range map[string]string{
 		"MIGRATE-IMAGE-BUILD":      `go build [^\n]*(\\\n[^\n]*)*\./cmd/forge-solo-migrate`,
