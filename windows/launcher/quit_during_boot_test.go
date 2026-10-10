@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -72,6 +73,54 @@ func freePort(t *testing.T) string {
 	return p
 }
 
+// heldPort is a port on 127.0.0.1 that is bound but not listened on, like a node's RPC while the
+// node loads: connections to it are refused, and no other program can take it, until answer makes
+// it answer. A port found free and let go could be taken by another program in the meantime, and its
+// answer then started the miner too early.
+func heldPort(t *testing.T) (port string, answer func()) {
+	t.Helper()
+	syscall.ForkLock.RLock() // no program started meanwhile inherits the socket
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
+	if err == nil {
+		syscall.CloseOnExec(fd)
+	}
+	syscall.ForkLock.RUnlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sock := os.NewFile(uintptr(fd), "held port")
+	t.Cleanup(func() { _ = sock.Close() })
+	if err := syscall.Bind(fd, &syscall.SockaddrInet4{Addr: [4]byte{127, 0, 0, 1}}); err != nil {
+		t.Fatal(err)
+	}
+	sa, err := syscall.Getsockname(fd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	answer = func() {
+		if err := syscall.Listen(fd, 8); err != nil {
+			t.Errorf("listening on the held port: %v", err)
+			return
+		}
+		l, err := net.FileListener(sock)
+		if err != nil {
+			t.Errorf("listening on the held port: %v", err)
+			return
+		}
+		t.Cleanup(func() { _ = l.Close() })
+		go func() {
+			for {
+				c, err := l.Accept()
+				if err != nil {
+					return
+				}
+				_ = c.Close()
+			}
+		}()
+	}
+	return strconv.Itoa(sa.(*syscall.SockaddrInet4).Port), answer
+}
+
 // Quit while boot still waits for the 1175 node: the node's RPC is not up yet, so it keeps
 // starting; it comes up while the stop waits on the nodes, and boot then started the miner after
 // the stop had passed it. Forge Solo exited with stratum.exe still running, with no node and no
@@ -92,7 +141,7 @@ func TestQuitDuringBootLeavesNothingRunning(t *testing.T) {
 	defer bch2.Close()
 	api := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	defer api.Close()
-	auxPort := freePort(t) // the 1175 node's RPC, not listening yet
+	auxPort, auxAnswers := heldPort(t) // the 1175 node's RPC, not answering yet
 	pgPort, bch2RPC, bch2ZMQ, aux1175RPC, stratumInt, apiPort = "1", portOf(bch2.URL), "2", auxPort, "3", portOf(api.URL)
 
 	booted := make(chan struct{})
@@ -109,20 +158,12 @@ func TestQuitDuringBootLeavesNothingRunning(t *testing.T) {
 	// The 1175 node finishes loading a second into the stop: its RPC begins to answer.
 	go func() {
 		time.Sleep(time.Second)
-		if l, err := net.Listen("tcp", "127.0.0.1:"+auxPort); err == nil {
-			t.Cleanup(func() { _ = l.Close() })
-			for {
-				c, err := l.Accept()
-				if err != nil {
-					return
-				}
-				_ = c.Close()
-			}
-		}
+		auxAnswers()
 	}()
 
 	stopForExit() // what Quit runs, before the exit
-	time.Sleep(time.Second)
+	// The 1175 node's RPC answers: boot's start of the miner ends, having started it or not.
+	minerStart.Wait()
 	for _, k := range []string{"stratum", "api", "bch2", "aux1175"} {
 		if started(k) {
 			_, err := os.Stat(marker)
