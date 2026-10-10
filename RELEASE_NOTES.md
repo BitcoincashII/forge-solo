@@ -28,9 +28,9 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
 - **Every platform, TIDES:** the TIDES help page, Settings and the dashboard's TIDES card say which
   blocks pay Forge Pool's TIDES window: a TIDES block, found on work Forge Pool registered, through
   any of its gateways (Forge Solo in TIDES mode and Forge Gateway). Forge Pool's pages call it a
-  DATUM block. A block found on solo work, while Forge Pool cannot be reached or is slow to take a
-  new block's work, pays your payout address in full. They said every block found through a
-  gateway paid the window. The texts now agree with Forge Pool's TIDES guide.
+  DATUM block. A block found on solo work, while Forge Pool cannot be reached, will not take a job,
+  or is slow to take a new block's work, pays your payout address in full. They said every block
+  found through a gateway paid the window. The texts now agree with Forge Pool's TIDES guide.
 - **Every platform, TIDES:** the TIDES help page gives the pool's share difficulty as Forge Pool
   sets it: it doubles when more than 24 credited shares a minute arrive from your install and
   halves when fewer than 6 do (it aims at 12), at most once every 2 minutes, never below 1,024. The
@@ -51,9 +51,10 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
   block until its coinbase can be spent (100 blocks): one that drops off the chain in that time is
   marked orphaned, its payouts leave "Paid to you (2+ confirmations)", and its effect on carried
   amounts is undone.
-- **Every platform, TIDES:** the README and the Linux README no longer say there is no minimum
-  payout: in TIDES mode an amount under 546 satoshis is carried to a later TIDES block. They say
-  that in TIDES mode every share is credited to your payout address, whatever the worker name.
+- **Every platform, TIDES:** the README, the Linux README and Settings no longer say there is no
+  minimum payout: in TIDES mode an amount under 546 satoshis is carried to a later TIDES block.
+  They, and the Umbrel app's description, no longer say that every block pays your payout address:
+  every solo block does, and in TIDES mode every share is credited to it, whatever the worker name.
 
 **Usernames that are addresses.**
 - **Every platform:** a BCH2 address used as a miner's username is checked against its checksum
@@ -69,10 +70,11 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
 - **Every platform:** while the BCH2 node catches up with the chain, the mining service's log no
   longer has two lines for every block ("ZMQ block notification received" and "ZMQ triggered job
   refresh"): a sync of 14,000 blocks on Windows wrote 28,000 of them, and the warnings given once a
-  minute were lost among them. The log says once that the node is catching up, then gives its
-  block and headers once a minute. The lines of each block come back once the node is level with
-  the headers it knows, or 5 seconds after the last block. This also works while mining waits for
-  a payout address.
+  minute were lost among them. While mining, nearly every block also brought "Network difficulty
+  updated from template", and that line is left out too. The log says once that the node is
+  catching up, then gives its block and headers once a minute. The lines of each block come back
+  once the node is level with the headers it knows, or 5 seconds after the last block. This also
+  works while mining waits for a payout address.
 
 **Up to date.** Built with Go 1.27.2 (was 1.26.8), which has the fixes for security problems in
 Go's standard library (net/http, net/textproto and crypto/tls) that 1.0.13's programs reach.

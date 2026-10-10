@@ -9,9 +9,9 @@ node, a mining service your miners connect to, and a dashboard, all from this on
   registered, through any of its gateways (Forge Solo in TIDES mode and Forge Gateway), pays
   everyone with work in Forge Pool's TIDES window, straight from its coinbase. You are paid from
   every such block found while you have work in the window. A block your miners find on solo work,
-  while Forge Pool cannot be reached or is slow to take a new block's work, pays your address in
-  full. There is no pool wallet and no pool fee. The dashboard's TIDES page (`/tides`) explains it
-  in full.
+  while Forge Pool cannot be reached, will not take a job, or is slow to take a new block's work,
+  pays your address in full. There is no pool wallet and no pool fee. The dashboard's TIDES page
+  (`/tides`) explains it in full.
 
 This version is BCH2 only. 1175 (ESF) merge-mining is not part of it; the Umbrel app and the
 Windows version have it.

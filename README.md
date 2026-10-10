@@ -122,10 +122,9 @@ usual 100-block coinbase maturity. In TIDES mode every TIDES block (a block foun
 Pool registered) pays you the same way, in proportion to your work in the window, and an amount
 under 546 satoshis is carried forward to a later one. The dashboard's TIDES page explains it.
 
-The worker username is **just a label**: `rig1`, `bitaxe`, anything. It has no payout
-role: every solo block pays your configured BCH2 address, and in TIDES mode every share is
-credited to it. Supplying
-`<your-address>.<label>` also works. Give each device its own label (`rig1`, `rig2`): the
+The worker username is **just a label**: `rig1`, `bitaxe`, anything. It has no payout role: every
+solo block pays your configured BCH2 address, and in TIDES mode every share is credited to it.
+Supplying `<your-address>.<label>` also works. Give each device its own label (`rig1`, `rig2`): the
 difficulty Forge Solo remembers across reconnects belongs to the label and the address the miner
 connects from, so devices that share both share it.
 

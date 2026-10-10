@@ -27,10 +27,11 @@ description: >-
     - Variable difficulty (works with small ASICs like the Bitaxe)
 
   Set your BCH2 payout address, and your 1175 payout address, on the app's Settings page:
-  every block's reward is paid there, and the miner's worker name is just a label. Then point
-  your miner at stratum+tcp://<your-umbrel-ip>:3333 and you're mining. Braiins connects each
-  miner individually, so it uses 3333 like your own hardware; NiceHash and MiningRigRentals put
-  the whole order behind one connection, so they use 3335.
+  every block you solo-mine pays them, in TIDES mode every share is credited to your BCH2
+  address, and the miner's worker name is just a label. Then point your miner at
+  stratum+tcp://<your-umbrel-ip>:3333 and you're mining. Braiins connects each miner
+  individually, so it uses 3333 like your own hardware; NiceHash and MiningRigRentals put the
+  whole order behind one connection, so they use 3335.
 
 
   Settings asks for Forge Solo's password before it saves a change. umbrelOS shows it when you
