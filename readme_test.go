@@ -33,18 +33,21 @@ func sentences(s string) []string {
 	return sentenceEnd.Split(flat(s), -1)
 }
 
-// The root README is where a user starts on every platform: it has a Windows install path (Smart
-// App Control, SmartScreen, the one permission prompt, a Private network, the Settings password),
-// says where the Settings password is on each platform, says on each platform what to delete when
-// a node's chain data is damaged, and marks what is Umbrel's alone. Before, its setup sections
-// were Umbrel's, it listed a postgres container, it never named the password Settings asks for,
-// and only Umbrel users were told what to do about a damaged chain: on Windows the 1175 node's
-// automatic -reindex cannot rebuild a mainnet chain, and the tray does not name the folders.
+// The root README is where a user starts on every platform: it has a Windows install path
+// (SmartScreen, what to do if Smart App Control blocks Forge Solo, the one permission prompt, a
+// Private network, the Settings password), says where the Settings password is on each platform,
+// says on each platform what to delete when a node's chain data is damaged, and marks what is
+// Umbrel's alone. Before, its setup sections were Umbrel's, it listed a postgres container, it
+// never named the password Settings asks for, and only Umbrel users were told what to do about a
+// damaged chain: on Windows the 1175 node's automatic -reindex cannot rebuild a mainnet chain, and
+// the tray does not name the folders. It then said Smart App Control must be Off, though on a
+// Windows 11 PC with it On the 1.0.13 installer and Forge Solo ran.
 func TestReadmeCoversEveryPlatform(t *testing.T) {
 	readme := string(mustRead(t, "README.md"))
 	text := flat(readme)
 	for _, c := range []struct{ code, want string }{
 		{"DOCS-README-WINDOWS", "## Install on Windows"},
+		{"DOCS-README-SAC", "If Smart App Control on Windows 11 blocks the installer or Forge Solo, turn Smart App Control off"},
 		{"DOCS-README-SAC", "Smart App Control settings"},
 		{"DOCS-README-SAC", "Windows 10 has no Smart App Control"},
 		{"DOCS-README-SMARTSCREEN", "More info, then Run anyway"},
@@ -296,9 +299,11 @@ func TestReadmeBuildsAsCIDoes(t *testing.T) {
 // The Windows README describes the build as it is: the services and the migrator as the one build,
 // with no tag, PostgreSQL only for a move, the junction folder named from the account's SID, and Smart
 // App Control as Microsoft documents it. Smart App Control checks every program and DLL that
-// loads, so a trusted certificate on the installer alone would still leave the programs it installs
+// loads, so a trusted certificate on the installer alone could still leave the programs it installs
 // blocked; text that said such a certificate lets Smart App Control run Forge Solo could steer the
-// choice of certificate.
+// choice of certificate. It also runs what Microsoft's cloud service predicts is safe: a Windows 11
+// PC with it On ran the 1.0.13 installer and Forge Solo, so the README says it may block them, not
+// that it does.
 func TestWindowsReadmeDescribesTheSQLiteBuild(t *testing.T) {
 	readme := string(mustRead(t, "windows/README.md"))
 	text := flat(readme)
@@ -323,6 +328,7 @@ func TestWindowsReadmeDescribesTheSQLiteBuild(t *testing.T) {
 		{"DOCS-WIN-STALE-HEADING", regexp.MustCompile(`(?i)Not yet done \(pre public release\)`)},
 		{"DOCS-WIN-OVEV", regexp.MustCompile(`(?i)would remove the warning`)},
 		{"DOCS-WIN-SAC-FILES", regexp.MustCompile(`(?i)let(s)? Smart App Control run Forge Solo`)},
+		{"DOCS-WIN-SAC", regexp.MustCompile(`(?i)Smart App Control blocks Forge Solo while it is On|while it is On, it blocks`)},
 		{"DOCS-WIN-LINKS", regexp.MustCompile(`(?i)links\\<account>`)},
 	} {
 		if m := s.re.FindString(text); m != "" {
@@ -331,7 +337,9 @@ func TestWindowsReadmeDescribesTheSQLiteBuild(t *testing.T) {
 	}
 	for _, c := range []struct{ code, want string }{
 		{"DOCS-WIN-SAC", "Windows treats a self-signed signature the same as none"},
-		{"DOCS-WIN-SAC", "it blocks the installer and the programs it installs"},
+		{"DOCS-WIN-SAC", "runs a program that Microsoft's cloud service predicts is safe, or one signed by a certificate Windows trusts"},
+		{"DOCS-WIN-SAC", "it may block the installer and the programs it installs"},
+		{"DOCS-WIN-SAC", "If it blocks Forge Solo, turn it off in Windows Security"},
 		{"DOCS-WIN-SAC", "Windows 10 has none"},
 		{"DOCS-WIN-OVEV", "SmartScreen would still warn until reputation builds"},
 		{"DOCS-WIN-OVEV", "EV certificate no longer skips that"},

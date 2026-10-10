@@ -26,14 +26,13 @@ Forge Solo needs 64-bit Windows: Windows 10 or 11 on an x64 PC, or Windows 11 on
 
 1. Download `ForgeSolo-Setup-<version>.exe` from the
    [latest release](https://github.com/BitcoincashII/forge-solo/releases/latest).
-2. On Windows 11, check Smart App Control first: **Windows Security → App & browser control →
-   Smart App Control settings**. Forge Solo is not yet signed by a certificate Windows trusts, so
-   while Smart App Control is **On**, Windows blocks it. To use Forge Solo, choose **Off**. On a
-   Windows 11 with its current updates you can turn it back on later in the same place; on an older
-   one, turning it off lasts until Windows is reset. **Evaluation** does not block Forge Solo, but
-   Windows may switch it to On later. Windows 10 has no Smart App Control.
-3. Run the installer. When SmartScreen says "Windows protected your PC", choose **More info**, then
+2. Run the installer. When SmartScreen says "Windows protected your PC", choose **More info**, then
    **Run anyway**.
+3. Forge Solo is not yet signed by a certificate Windows trusts. If Smart App Control on Windows 11
+   blocks the installer or Forge Solo, turn Smart App Control off: **Windows Security → App &
+   browser control → Smart App Control settings**, then **Off**, and run the installer again. On a
+   Windows 11 with its current updates you can turn it back on later in the same place; on an older
+   one, turning it off lasts until Windows is reset. Windows 10 has no Smart App Control.
 4. Windows asks once whether Windows Command Processor may make changes to your device: choose
    **Yes**. That adds the firewall rules that let miners on your network reach Forge Solo (3333,
    3335) and other nodes reach its nodes (8339, 25360), and Defender exclusions for the blockchains.

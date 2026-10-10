@@ -318,12 +318,15 @@ The installer is written to `windows/ForgeSolo-Setup-<version>.exe`. CI stamps t
 The installer is signed with a self-signed certificate (CN=BCH2 Software), and Forge Solo's own
 programs inside it are not signed. Windows treats a self-signed signature the same as none.
 
-- **Smart App Control** (Windows 11 only; Windows 10 has none): while it is On, it blocks the
-  installer and the programs it installs, and Windows offers no exception for one app. To use
-  Forge Solo, turn it off in **Windows Security → App & browser control → Smart App Control
-  settings**. On a Windows 11 with its current updates it can be turned back on later in the same
-  place; on an older one, turning it off lasts until Windows is reset. In Evaluation it blocks
-  nothing, but Windows may switch it to On later.
+- **Smart App Control** (Windows 11 only; Windows 10 has none) runs a program that Microsoft's
+  cloud service predicts is safe, or one signed by a certificate Windows trusts. While it is On,
+  it may block the installer and the programs it installs, and Windows offers no exception for one
+  app. On a Windows 11 25H2 PC with Smart App Control On, the 1.0.13 installer from the release
+  page installed and Forge Solo ran without a block. If it blocks Forge Solo, turn it off in
+  **Windows Security → App & browser control → Smart App Control settings**. On a Windows 11 with
+  its current updates it can be turned back on later in the same place; on an older one, turning
+  it off lasts until Windows is reset. In Evaluation it blocks nothing, but Windows may switch it
+  to On later.
 - **SmartScreen** warns on every release ("Windows protected your PC": **More info**, then **Run
   anyway**), because a self-signed installer starts with no reputation.
 
@@ -336,7 +339,7 @@ its files unsigned, and SignPath signs only what is built from your own source).
 still warn until reputation builds; an EV certificate no longer skips that.
 
 ## Known limitations and still to do
-- The certificate is self-signed: Smart App Control blocks Forge Solo while it is On, and
+- The certificate is self-signed: Smart App Control may block Forge Solo while it is On, and
   SmartScreen warns on every release (above).
 - The automatic `-reindex` of a damaged chain helps the BCH2 node only (see the design notes).
 - Fresh-install and update tests on a real Windows 10 PC.
