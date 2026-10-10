@@ -28,10 +28,21 @@ updates:
       - "/docker/api"
       - "/docker/stratum"
       - "/docker/web"
+    schedule:
+      interval: "weekly"
+  # The BCH2 v27.0.2 release binary loads libminiupnpc.so.17, which Ubuntu 26.04 does not have (it has
+  # libminiupnpc.so.21), so the BCH2 node image stays on Ubuntu 24.04. The 1175 node image stays with
+  # it: on an Umbrel the two share that base, downloaded and stored once. So no later Ubuntu is offered,
+  # and not 24.10 either, which is past its end of life.
+  - package-ecosystem: "docker"
+    directories:
       - "/docker/node"
       - "/docker/node1175"
     schedule:
       interval: "weekly"
+    ignore:
+      - dependency-name: "ubuntu"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
   - package-ecosystem: "docker"
     directory: "/docker/migrate"
     schedule:
