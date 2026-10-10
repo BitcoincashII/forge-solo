@@ -3422,21 +3422,19 @@ func parseUsername(username string) (minerID, workerName string) {
 		workerName = "default"
 	}
 
-	// Normalize address: ensure bitcoincashii: prefix (lowercase)
-	minerID = normalizeMinerAddress(minerID)
-
 	// CashAddr is exactly 42 chars after prefix. If extra chars remain
 	// (e.g. NiceHash appends worker suffix without dot separator),
 	// split them off as worker name.
-	if strings.HasPrefix(minerID, "bitcoincashii:") {
-		hash := minerID[len("bitcoincashii:"):]
-		if len(hash) > cashAddrLen {
-			extra := hash[cashAddrLen:]
-			minerID = "bitcoincashii:" + hash[:cashAddrLen]
-			if workerName == "default" {
-				workerName = extra
-			}
-		}
+	addr, extra := strings.ToLower(minerID), ""
+	if hash := trimAddressPrefix(addr); len(hash) > cashAddrLen {
+		extra = hash[cashAddrLen:]
+		addr = addr[:len(addr)-len(extra)]
+	}
+
+	// Normalize address: ensure bitcoincashii: prefix (lowercase)
+	minerID = normalizeMinerAddress(addr)
+	if minerID != "" && extra != "" && workerName == "default" {
+		workerName = extra
 	}
 
 	return
@@ -3449,10 +3447,8 @@ const cashAddrLen = 42
 // is not a BCH2 address.
 func NormalizeMinerAddress(addr string) string { return normalizeMinerAddress(addr) }
 
-// normalizeMinerAddress is addr with the bitcoincashii: prefix, in lower case, or "" if it does not
-// start with a BCH2 address. The prefix may be left off, or cut short to bitcoinii: (WhatsMiner
-// firmware). What follows the address's cashAddrLen characters is kept: parseUsername makes it the
-// worker name.
+// normalizeMinerAddress is addr with the bitcoincashii: prefix, in lower case, or "" if it is not
+// a BCH2 address. The prefix may be left off, or cut short to bitcoinii: (WhatsMiner firmware).
 //
 // Every form is decoded as the pool decodes it, checksum included: an address with a typo in it is
 // not an address. Only the prefixed form was checked. A mistyped address without the prefix was
@@ -3460,23 +3456,27 @@ func NormalizeMinerAddress(addr string) string { return normalizeMinerAddress(ad
 // every one, and the work was credited to nobody. In solo a rejection here is not fatal: authorize
 // takes the whole username as a worker name and credits the payout address.
 func normalizeMinerAddress(addr string) string {
-	hash := strings.ToLower(addr)
-	for _, prefix := range []string{"bitcoincashii:", "bitcoinii:"} {
-		if strings.HasPrefix(hash, prefix) {
-			hash = hash[len(prefix):]
-			break
-		}
-	}
-	if len(hash) < cashAddrLen {
+	hash := trimAddressPrefix(strings.ToLower(addr))
+	if len(hash) != cashAddrLen {
 		return ""
 	}
-	if _, err := cashaddr.Decode(hash[:cashAddrLen], cashaddr.MainnetPrefix); err != nil {
+	if _, err := cashaddr.Decode(hash, cashaddr.MainnetPrefix); err != nil {
 		return ""
 	}
 	return "bitcoincashii:" + hash
 }
 
-// normalizeHex pads a hex string to the required length with leading zeros
+// trimAddressPrefix is addr, in lower case, without the prefix a BCH2 address may start with:
+// bitcoincashii:, or bitcoinii:.
+func trimAddressPrefix(addr string) string {
+	for _, prefix := range []string{"bitcoincashii:", "bitcoinii:"} {
+		if strings.HasPrefix(addr, prefix) {
+			return addr[len(prefix):]
+		}
+	}
+	return addr
+}
+
 // connectionLimitFor is how many connections may be open when one from addr arrives. A quarter of
 // the slots are kept for this network's own miners (private, loopback and link-local addresses):
 // connections from the internet, where a forwarded port lets anyone in, can take only the rest,
@@ -3862,6 +3862,7 @@ func ntimeInRange(ntime, jobNTime string) bool {
 	return err1 == nil && err2 == nil && got >= base && got <= base+7000
 }
 
+// normalizeHex pads a hex string to the required length with leading zeros
 func normalizeHex(s string, length int) string {
 	// Remove any "0x" prefix
 	s = strings.TrimPrefix(s, "0x")

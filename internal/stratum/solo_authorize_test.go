@@ -311,6 +311,31 @@ func TestEveryFormOfAnAddressUsernameIsChecked(t *testing.T) {
 	}
 }
 
+// NormalizeMinerAddress's other callers (the payout address, a job's PayTo) take what it gives as
+// an address, so an address with anything after it is none: only parseUsername splits a worker
+// name off, before the check.
+func TestNormalizeMinerAddressIsAnAddressOrNothing(t *testing.T) {
+	var h [20]byte
+	h[0] = 7
+	addr := cashaddr.Encode(cashaddr.MainnetPrefix, cashaddr.P2PKH, h)
+	bare := strings.TrimPrefix(addr, "bitcoincashii:")
+	for _, tc := range []struct{ in, want string }{
+		{addr, addr},
+		{bare, addr},
+		{strings.ToUpper(addr), addr},
+		{"bitcoinii:" + bare, addr},
+		{addr + " ", ""},
+		{addr + "rig1", ""},
+		{bare + "rig1", ""},
+		{"bitcoinii:" + bare + "\n", ""},
+		{addr[:len(addr)-1], ""},
+	} {
+		if got := NormalizeMinerAddress(tc.in); got != tc.want {
+			t.Errorf("NormalizeMinerAddress(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 // A TIDES job commits to a share difficulty above MaxDifficulty, so it must cover every miner
 // that is really working, including one whose vardiff step is decided but not yet sent. It counts
 // only what a miner has proven with a recent share, and at most provenAhead times that: a
