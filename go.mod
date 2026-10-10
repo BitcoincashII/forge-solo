@@ -2,11 +2,11 @@ module github.com/BitcoincashII/forge-solo
 
 go 1.26.0
 
-// Built with Go 1.26.8: Go 1.25 left support when Go 1.27 came out
-// (2026-08-19), so its security fixes stopped. The language version stays
-// 1.25, so no GODEBUG default changes with the move. The Docker build images
-// are pinned to the matching golang:1.26.8-bookworm digest.
-toolchain go1.26.8
+// Built with Go 1.27.2, which has security fixes 1.26.8 lacks (crypto/tls,
+// html/template, net/http, net/textproto, os). The language version stays
+// 1.26, so no GODEBUG default changes with the move. The Docker build images
+// are pinned to the matching golang:1.27.2-bookworm digest.
+toolchain go1.27.2
 
 require (
 	github.com/btcsuite/btcd/btcutil v1.2.0

@@ -28,7 +28,7 @@ func TestLauncherIsStaticchecked(t *testing.T) {
 	if err := yaml.Unmarshal(b, &w); err != nil {
 		t.Fatal(err)
 	}
-	pin := regexp.MustCompile(`(?m)^\s*go install honnef\.co/go/tools/cmd/staticcheck@(v[0-9.]+)$`)
+	pin := regexp.MustCompile(`(?m)^\s*go install honnef\.co/go/tools/cmd/staticcheck@(v[0-9][0-9A-Za-z.-]*)$`)
 	var unit string
 	for _, s := range w.Jobs["unit"].Steps {
 		if m := pin.FindStringSubmatch(s.Run); m != nil {

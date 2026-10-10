@@ -251,14 +251,14 @@ theirs, for a Linux shell.
 
 You need Git, Go 1.21 or newer, a C compiler for the race tests (gcc, which `-race` needs on Linux),
 and Docker for the images, the installers, the Linux downloads and the integration tests. `go.mod`
-names the Go the releases are built with, `toolchain go1.26.8`: an older Go downloads go1.26.8 the
+names the Go the releases are built with, `toolchain go1.27.2`: an older Go downloads go1.27.2 the
 first time it runs in the clone and builds with it (unless `GOTOOLCHAIN` is `local`), and a newer
-one builds with itself. `GOTOOLCHAIN=go1.26.8` makes any of them build with go1.26.8.
+one builds with itself. `GOTOOLCHAIN=go1.27.2` makes any of them build with go1.27.2.
 
 ```sh
 git clone https://github.com/BitcoincashII/forge-solo
 cd forge-solo
-go version        # go1.26.8, or the newer Go you have
+go version        # go1.27.2, or the newer Go you have
 ```
 
 ### The programs
@@ -392,10 +392,10 @@ The unit job of `test.yml` takes a few minutes. The 32-bit run, there because th
 downloads are 32-bit, needs an x86-64 machine.
 
 ```sh
-export GOTOOLCHAIN=go1.26.8   # staticcheck v0.7.0 does not build with a newer Go
+export GOTOOLCHAIN=go1.27.2   # the Go CI runs them with
 gofmt -l .        # lists nothing
 go vet ./...
-go install honnef.co/go/tools/cmd/staticcheck@v0.7.0 && "$(go env GOPATH)/bin/staticcheck" ./...
+go install honnef.co/go/tools/cmd/staticcheck@v0.7.0-0.dev.0.20261009230814-452d5bb86b45 && "$(go env GOPATH)/bin/staticcheck" ./...
 go test -count=1 ./...
 CGO_ENABLED=0 GOARCH=386 go test -count=1 ./...
 go test -count=1 -race ./internal/stratum/ ./cmd/stratum/ ./cmd/api/ ./internal/mining/ ./internal/stats/ ./internal/dblock/ ./internal/pgmigrate/ ./internal/migstatus/ ./cmd/forge-solo-migrate/

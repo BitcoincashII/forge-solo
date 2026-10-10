@@ -58,7 +58,7 @@ func gwCIHas(t *testing.T, code, run string, want ...string) {
 // gwCIUnitStaticcheck is the staticcheck version the unit job pins.
 func gwCIUnitStaticcheck(t *testing.T, w workflow) string {
 	t.Helper()
-	pin := regexp.MustCompile(`(?m)^\s*go install honnef\.co/go/tools/cmd/staticcheck@(v[0-9.]+)$`)
+	pin := regexp.MustCompile(`(?m)^\s*go install honnef\.co/go/tools/cmd/staticcheck@(v[0-9][0-9A-Za-z.-]*)$`)
 	for _, s := range w.Jobs["unit"].Steps {
 		if m := pin.FindStringSubmatch(s.Run); m != nil {
 			return m[1]

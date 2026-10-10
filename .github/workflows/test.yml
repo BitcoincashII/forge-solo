@@ -56,15 +56,15 @@ jobs:
       # staticcheck finds what vet does not: code nothing reaches. Clean as of this commit; this
       # keeps it that way.
       #
-      # Pinned to v0.7.0 (2026.1) for two reasons. A floating version would fail this build on
-      # someone else's release schedule. And it must BUILD with the Go this job has: setup-go
-      # exports GOTOOLCHAIN=local, so there is no automatic toolchain download, and v0.8.x
-      # declared go >= 1.26.0 while go.mod pinned Go 1.25. v0.7.0 declares go 1.25.0 and builds
-      # with the toolchain go.mod now pins (1.26.8); moving to v0.8.x is a separate change.
+      # Pinned, because a floating version would fail this build on someone else's release schedule,
+      # and to a commit of staticcheck's master branch rather than a release: it must read the
+      # packages of the Go this job has, and Go 1.27.2 writes them in a format no release reads yet
+      # (2026.2.1, v0.8.1, stops with "export data version 5 is greater than maximum supported
+      # version 4"). This commit, of 2026-10-09, reads it; the next release will.
       - name: staticcheck
         if: ${{ !cancelled() && steps.go.outcome == 'success' }}
         run: |
-          go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
+          go install honnef.co/go/tools/cmd/staticcheck@v0.7.0-0.dev.0.20261009230814-452d5bb86b45
           "$(go env GOPATH)/bin/staticcheck" ./...
 
       - name: Test
@@ -204,7 +204,7 @@ jobs:
         working-directory: windows/launcher
         run: |
           GOOS=windows GOARCH=amd64 go vet ./...
-          go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
+          go install honnef.co/go/tools/cmd/staticcheck@v0.7.0-0.dev.0.20261009230814-452d5bb86b45
           GOOS=windows GOARCH=amd64 "$(go env GOPATH)/bin/staticcheck" ./...
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui -s -w" -o /tmp/forge-solo.exe .
 
@@ -223,7 +223,7 @@ jobs:
         working-directory: windows/gateway/launcher
         run: |
           GOOS=windows GOARCH=amd64 go vet ./...
-          go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
+          go install honnef.co/go/tools/cmd/staticcheck@v0.7.0-0.dev.0.20261009230814-452d5bb86b45
           GOOS=windows GOARCH=amd64 "$(go env GOPATH)/bin/staticcheck" ./...
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui -s -w" -o /tmp/forge-gateway-tray.exe .
           go test -race -count=1 ./...
