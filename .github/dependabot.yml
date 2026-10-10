@@ -1,54 +1,64 @@
 version: 2
+# Each entry's updates come in one pull request per group, for all of the entry's folders: a week's
+# updates open at most four (the GitHub Actions, the Go modules, the images' bases, the golang
+# image) instead of one for every update in every folder. No group sets update-types: Dependabot
+# leaves an update of another type, and every digest refresh (the same tag, rebuilt), out of such a
+# group, to a pull request of its own in each folder. No dependency is in two groups of an entry:
+# while one group's pull request is open, Dependabot holds back every dependency that group takes.
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]
   # The Go modules and the images the app is built on: fasthttp sat at a version two years and
   # one advisory old with nothing proposing the update. The Windows launchers are modules of their
   # own, and Dependabot reads only the directories listed here.
-  - package-ecosystem: "gomod"
-    directory: "/"
-    schedule:
-      interval: "weekly"
+  #
   # Forge Solo's and Forge Gateway's Windows launchers share code and must build with the same
-  # versions (windows/gateway/launcher/drift_test.go). Without the group, Dependabot updates each
-  # folder in a pull request of its own, which fails that test until the other one is updated too.
+  # versions (windows/gateway/launcher/drift_test.go). One group takes every module of the three
+  # folders, so a module both launchers use is updated in both by the same pull request.
   - package-ecosystem: "gomod"
     directories:
+      - "/"
       - "/windows/launcher"
       - "/windows/gateway/launcher"
     schedule:
       interval: "weekly"
     groups:
-      windows-launchers:
-        group-by: dependency-name
+      go-modules:
+        patterns: ["*"]
+  # Every image in one entry, so a base refreshed in several folders comes in one pull request. The
+  # golang image has a group of its own: its version moves with go.mod's toolchain line
+  # (workflow_docker_build_test.go), which its pull request does not change, so the bases are not
+  # held up by it.
   - package-ecosystem: "docker"
     directories:
       - "/docker/api"
       - "/docker/stratum"
       - "/docker/web"
-    schedule:
-      interval: "weekly"
-  # The BCH2 v27.0.2 release binary loads libminiupnpc.so.17, which Ubuntu 26.04 does not have (it has
-  # libminiupnpc.so.21), so the BCH2 node image stays on Ubuntu 24.04. The 1175 node image stays with
-  # it: on an Umbrel the two share that base, downloaded and stored once. So no later Ubuntu is offered,
-  # and not 24.10 either, which is past its end of life.
-  - package-ecosystem: "docker"
-    directories:
+      - "/docker/migrate"
       - "/docker/node"
       - "/docker/node1175"
     schedule:
       interval: "weekly"
+    groups:
+      images:
+        patterns: ["*"]
+        exclude-patterns: ["golang"]
+      golang:
+        patterns: ["golang"]
     ignore:
+      # The BCH2 v27.0.2 release binary loads libminiupnpc.so.17, which Ubuntu 26.04 does not have
+      # (it has libminiupnpc.so.21), so the BCH2 node image stays on Ubuntu 24.04. The 1175 node
+      # image stays with it: on an Umbrel the two share that base, downloaded and stored once. So no
+      # later Ubuntu is offered, and not 24.10 either, which is past its end of life. Ubuntu is the
+      # base of the two node images alone.
       - dependency-name: "ubuntu"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
-  - package-ecosystem: "docker"
-    directory: "/docker/migrate"
-    schedule:
-      interval: "weekly"
-    # The image's PostgreSQL only reads the database 1.0.12 wrote (PostgreSQL 16 data): a newer major
-    # cannot open it, so only 16.x updates are offered.
-    ignore:
+      # The migrate image's PostgreSQL only reads the database 1.0.12 wrote (PostgreSQL 16 data): a
+      # newer major cannot open it, so only 16.x updates are offered.
       - dependency-name: "postgres"
         update-types: ["version-update:semver-major"]

@@ -4,10 +4,9 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
-
-	"gopkg.in/yaml.v3"
 )
 
 // gwCILines is a step's script as its commands: each line trimmed, without blank lines and
@@ -148,25 +147,12 @@ func TestGatewayCINative(t *testing.T) {
 
 // Forge Solo's and Forge Gateway's Windows launchers share code and must build with the same module
 // versions (windows/gateway/launcher's drift test). Dependabot updates each folder of an entry in a
-// pull request of its own unless the entry groups them by dependency name: a pull request that
+// pull request of its own unless a group of the entry takes the update: a pull request that
 // updated one launcher alone failed CI until the other was updated too. One entry holds both
-// launchers, grouped by dependency name, so one pull request updates a module in both.
+// launchers, with a group that takes every module, so one pull request updates a module in both.
 func TestGatewayCIDependabotUpdatesBothLaunchersTogether(t *testing.T) {
-	var c struct {
-		Updates []struct {
-			Ecosystem   string   `yaml:"package-ecosystem"`
-			Directory   string   `yaml:"directory"`
-			Directories []string `yaml:"directories"`
-			Groups      map[string]struct {
-				GroupBy string `yaml:"group-by"`
-			} `yaml:"groups"`
-		} `yaml:"updates"`
-	}
-	if err := yaml.Unmarshal(mustRead(t, ".github/dependabot.yml"), &c); err != nil {
-		t.Fatal(err)
-	}
 	found := 0
-	for _, u := range c.Updates {
+	for _, u := range dependabotEntries(t) {
 		dirs := map[string]bool{u.Directory: true}
 		for _, d := range u.Directories {
 			dirs[d] = true
@@ -177,10 +163,10 @@ func TestGatewayCIDependabotUpdatesBothLaunchersTogether(t *testing.T) {
 		found++
 		grouped := false
 		for _, g := range u.Groups {
-			grouped = grouped || g.GroupBy == "dependency-name"
+			grouped = grouped || (slices.Contains(g.Patterns, "*") && len(g.ExcludePatterns) == 0 && len(g.UpdateTypes) == 0)
 		}
 		if !dirs["/windows/launcher"] || !dirs["/windows/gateway/launcher"] || !grouped {
-			t.Errorf("GW-CI-DEPENDABOT-GROUP: a gomod entry has the directories %v and groups %v: both launchers must be in one entry with a group whose group-by is dependency-name",
+			t.Errorf("GW-CI-DEPENDABOT-GROUP: a gomod entry has the directories %v and groups %v: both launchers must be in one entry with a group that takes every module",
 				u.Directories, u.Groups)
 		}
 	}
