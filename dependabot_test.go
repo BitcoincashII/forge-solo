@@ -4,7 +4,9 @@ import (
 	"io/fs"
 	"maps"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -17,6 +19,10 @@ type dependabotEntry struct {
 	Directory   string                     `yaml:"directory"`
 	Directories []string                   `yaml:"directories"`
 	Groups      map[string]dependabotGroup `yaml:"groups"`
+	Ignore      []struct {
+		Dependency  string   `yaml:"dependency-name"`
+		UpdateTypes []string `yaml:"update-types"`
+	} `yaml:"ignore"`
 }
 
 // dependabotGroup is a group of an entry: the dependencies it takes, and which of their updates.
@@ -114,5 +120,29 @@ func TestDependabotGroupsEveryUpdate(t *testing.T) {
 			t.Errorf("DEPENDABOT-GROUP-ALL: group %s of %s leaves out %v and the entry's other groups take %v; they must be the same",
 				every[0], entry, left, others)
 		}
+	}
+}
+
+// The web image runs nginx's stable branch, whose minor version is even. Dependabot offered the
+// mainline 1.31.0 (#33), which eight security advisories affect that do not affect 1.30.5. So it
+// offers no other minor or major version of nginx, and a move to the next stable branch is made by
+// hand.
+func TestWebImageStaysOnNginxStable(t *testing.T) {
+	m := regexp.MustCompile(`(?m)^FROM nginx:1\.(\d+)\.\d+-alpine@sha256:[0-9a-f]{64}$`).FindSubmatch(mustRead(t, "docker/web/Dockerfile"))
+	if m == nil {
+		t.Fatal("NGINX-STABLE: docker/web/Dockerfile has no FROM nginx:1.<minor>.<patch>-alpine@sha256:<digest> line")
+	}
+	if minor, _ := strconv.Atoi(string(m[1])); minor%2 != 0 {
+		t.Errorf("NGINX-STABLE: the web image runs nginx 1.%s, a mainline version", m[1])
+	}
+	held := false
+	for _, u := range dependabotEntries(t) {
+		for _, i := range u.Ignore {
+			held = held || (i.Dependency == "nginx" && slices.Contains(i.UpdateTypes, "version-update:semver-minor") &&
+				slices.Contains(i.UpdateTypes, "version-update:semver-major"))
+		}
+	}
+	if !held {
+		t.Error("NGINX-STABLE: Dependabot may offer another minor or major version of nginx, a mainline one among them")
 	}
 }

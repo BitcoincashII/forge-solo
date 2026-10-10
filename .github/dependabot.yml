@@ -62,3 +62,9 @@ updates:
       # newer major cannot open it, so only 16.x updates are offered.
       - dependency-name: "postgres"
         update-types: ["version-update:semver-major"]
+      # The web image runs nginx's stable branch, whose minor version is even (1.30). Dependabot
+      # offered the mainline 1.31.0 (#33), which eight security advisories affect that do not affect
+      # 1.30.5, on an older Alpine. So no other minor or major version is offered: the move to the
+      # next stable branch, once it is out and 1.30 gets no more fixes, is made by hand.
+      - dependency-name: "nginx"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
