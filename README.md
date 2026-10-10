@@ -80,7 +80,8 @@ stops that server cleanly first.
 ## Your data from 1.0.12 (Umbrel and Windows)
 
 Up to 1.0.12, Forge Solo on Umbrel and Windows kept its data in PostgreSQL. The first start of
-1.0.13 moves it into `forgesolo.db`, once, and checks every row before it replaces anything.
+1.0.13 or a later version moves it into `forgesolo.db`, once, and checks every row before it
+replaces anything.
 
 The old database stays where it was, so you can go back to 1.0.12: `postgres/` in the app's data
 on Umbrel, `pgdata` in `%APPDATA%\ForgeSolo` on Windows. It also holds the shares 1.0.12 stored.
@@ -88,7 +89,7 @@ Going back to 1.0.12 and forward again keeps what both versions recorded. On Win
 the Forge Solo icon and choose **Quit Forge Solo** before you run 1.0.12's installer: it cannot
 close Forge Solo itself.
 
-Once 1.0.13 shows your blocks and settings, you can delete the old database to free its space:
+Once Forge Solo shows your blocks and settings, you can delete the old database to free its space:
 deleting it, even half way, never stops Forge Solo, but 1.0.12 then no longer has your data. On
 Umbrel, from the umbrelOS terminal or over SSH:
 `sudo rm -rf ~/umbrel/app-data/bch2-apps-forge-solo/postgres`. On Windows, delete the `pgdata`
@@ -277,7 +278,7 @@ three that have one, with `-X main.version`.
 On Linux, for this machine, into `dist/`, which Git ignores:
 
 ```sh
-V=1.0.13
+V=1.0.14
 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o dist/stratum ./cmd/stratum
 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o dist/api ./cmd/api
 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$V" -o dist/forge-solo-migrate ./cmd/forge-solo-migrate
@@ -362,7 +363,7 @@ hours. A node built from source has other bytes, which the script refuses until 
 and pinned. To build with the nodes the releases ship, take them from a release's downloads first:
 
 ```sh
-V=1.0.13
+V=1.0.14
 git checkout v$V
 for a in x86_64 aarch64 armv7l armv6l i686 riscv64; do
   mkdir -p .linux-build/out/$a
@@ -378,7 +379,7 @@ the node, and run `./forge-solo` there as [packaging/linux/README.md](packaging/
 says. For another machine, add `GOOS=linux GOARCH=...` as above.
 
 ```sh
-d=~/forge-solo-1.0.13-linux-x86_64        # the unpacked download
+d=~/forge-solo-1.0.14-linux-x86_64        # the unpacked download
 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o $d/bin/stratum ./cmd/stratum
 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o $d/bin/api ./cmd/api
 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=dev" -o $d/forge-solo ./cmd/forge-solo-linux

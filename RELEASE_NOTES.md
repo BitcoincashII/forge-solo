@@ -8,6 +8,78 @@ screen shows `releaseNotes` from `umbrel-app.yml` instead, so write that too.
 Up to 1.0.12 each platform kept its own notes: [windows/RELEASE_NOTES.md](windows/RELEASE_NOTES.md)
 and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
 
+## 1.0.14
+
+**Installing and updating.**
+- **Windows:** you no longer have to turn Smart App Control off before you install. Forge Solo is
+  not yet signed by a certificate Windows trusts, but on a Windows 11 PC with Smart App Control On
+  the 1.0.13 installer installed and Forge Solo ran. If Smart App Control on Windows 11 blocks the
+  installer or Forge Solo, turn Smart App Control off: **Windows Security → App & browser control →
+  Smart App Control settings**, then **Off**, and run the installer again. When SmartScreen says
+  "Windows protected your PC", choose **More info**, then **Run anyway**.
+  [Install on Windows](https://github.com/BitcoincashII/forge-solo#install-on-windows) in the README
+  has every step.
+- **Every platform:** updating from 1.0.12, read the
+  [1.0.13 release notes](https://github.com/BitcoincashII/forge-solo/releases/tag/v1.0.13) too: on
+  Umbrel and Windows the first start after the update moves your data from the old database into
+  `forgesolo.db`, once.
+
+**TIDES mode: which blocks pay the window.**
+- **Every platform, TIDES:** the TIDES help page, Settings and the dashboard's TIDES card say which
+  blocks pay Forge Pool's TIDES window: a TIDES block, found on work Forge Pool registered, through
+  any of its gateways (Forge Solo in TIDES mode and Forge Gateway). Forge Pool's pages call it a
+  DATUM block. A block found on solo work, while Forge Pool cannot be reached or is slow to take a
+  new block's work, pays your payout address in full. They said every block found through a
+  gateway paid the window. The texts now agree with Forge Pool's TIDES guide.
+- **Every platform, TIDES:** the TIDES help page gives the pool's share difficulty as Forge Pool
+  sets it: it doubles when more than 24 credited shares a minute arrive from your install and
+  halves when fewer than 6 do (it aims at 12), at most once every 2 minutes, never below 1,024. The
+  difficulty your install commits to is the power of two at or above twice the highest difficulty
+  your miners work at, never above the network difficulty, and a difficulty a miner sets with `d=`
+  counts once it has sent a share at it.
+- **Every platform, TIDES:** the help page also says that the window holds up to 8 × the network
+  difficulty of the block being mined, that a block pays the split of the window snapshot its job
+  was registered with, and that an amount under 546 satoshis is carried to a later TIDES block in
+  which you have work in the window and are due at least 546 satoshis. It says which shares are
+  not sent (one on a block that has since been superseded, and one not delivered for 10 minutes),
+  that a job the pool cannot refresh stays in use until it is 45 seconds to about a minute old,
+  and that at a new block your miners get solo work if the pool has not taken the block's work
+  within 2 seconds.
+- **Every platform, TIDES:** "The next pool block pays you" has "if found now" under it, and the
+  help explains it as what a TIDES block found now would pay you. "Paid to you (2+ confirmations)"
+  counts your payouts in the pool's last 500 TIDES blocks. Forge Pool now checks a confirmed TIDES
+  block until its coinbase can be spent (100 blocks): one that drops off the chain in that time is
+  marked orphaned, its payouts leave "Paid to you (2+ confirmations)", and its effect on carried
+  amounts is undone.
+- **Every platform, TIDES:** the README and the Linux README no longer say there is no minimum
+  payout: in TIDES mode an amount under 546 satoshis is carried to a later TIDES block. They say
+  that in TIDES mode every share is credited to your payout address, whatever the worker name.
+
+**Usernames that are addresses.**
+- **Every platform:** a BCH2 address used as a miner's username is checked against its checksum
+  also without the `bitcoincashii:` prefix, and with the `bitcoinii:` one some WhatsMiner firmware
+  sends; only the full prefix was checked. Forge Solo credits every miner to your payout address
+  either way, so only worker names in the Workers table change: a mistyped address without the
+  prefix is shown whole, as a worker name, and an address with a worker name added straight after
+  it, with no dot, shows that worker name. The check matters for Forge Gateway, which is built from
+  this code and credits an address username to that address: a mistyped one without the prefix
+  went to Forge Pool, which refused every share of that miner.
+
+**While the BCH2 node catches up.**
+- **Every platform:** while the BCH2 node catches up with the chain, the mining service's log no
+  longer has two lines for every block ("ZMQ block notification received" and "ZMQ triggered job
+  refresh"): a sync of 14,000 blocks on Windows wrote 28,000 of them, and the warnings given once a
+  minute were lost among them. The log says once that the node is catching up, then gives its
+  block and headers once a minute. The lines of each block come back once the node is level with
+  the headers it knows, or 5 seconds after the last block. This also works while mining waits for
+  a payout address.
+
+**Up to date.** Built with Go 1.27.2 (was 1.26.8), which has the fixes for security problems in
+Go's standard library (net/http, net/textproto and crypto/tls) that 1.0.13's programs reach.
+SQLite 3.53.4 (was 3.53.3), through the modernc.org/sqlite 1.60.1 driver. **Umbrel:** the migrate
+step's image is based on Alpine 3.24 (was 3.23); it still reads 1.0.12's data with PostgreSQL
+16.15.
+
 ## 1.0.13
 
 **Installing on Windows.**

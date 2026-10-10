@@ -2,6 +2,7 @@ package forgesolo
 
 import (
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -57,15 +58,26 @@ func readUmbrelManifest(t *testing.T) umbrelManifest {
 	return m
 }
 
-// releaseTexts are the 1.0.13 texts: the release page's section, and the Umbrel store's.
+// releaseHeading is the heading of a version's section of RELEASE_NOTES.md.
+var releaseHeading = regexp.MustCompile(`(?m)^## ([0-9.]+)$`)
+
+// releaseTexts are the texts users see of the releases: each version's section of RELEASE_NOTES.md
+// (its release page), and the Umbrel store's.
 func releaseTexts(t *testing.T) []docText {
 	t.Helper()
-	m := readUmbrelManifest(t)
-	return []docText{
-		{"RELEASE_NOTES.md ## 1.0.13", releaseSection(t, "1.0.13")},
-		{"umbrel-app.yml releaseNotes", m.ReleaseNotes},
-		{"umbrel-app.yml description", m.Description},
+	var docs []docText
+	for _, h := range releaseHeading.FindAllStringSubmatch(string(mustRead(t, "RELEASE_NOTES.md")), -1) {
+		docs = append(docs, docText{"RELEASE_NOTES.md ## " + h[1], releaseSection(t, h[1])})
 	}
+	m := readUmbrelManifest(t)
+	return append(docs, docText{"umbrel-app.yml releaseNotes", m.ReleaseNotes}, docText{"umbrel-app.yml description", m.Description})
+}
+
+// tellsTheRentalPort reports whether the text named name tells how the rental port works: the
+// READMEs do, and the release page of 1.0.13, which changed it. Later release pages need not tell
+// it again, and the Umbrel store's text has no word on it.
+func tellsTheRentalPort(name string) bool {
+	return name == "RELEASE_NOTES.md ## 1.0.13" || slices.Contains(readmes, name)
 }
 
 // allDocs are the release texts and the READMEs.
@@ -211,6 +223,33 @@ func TestReleaseNotesTellWhenANewBlocksWorkWaits(t *testing.T) {
 	}
 }
 
+// While the BCH2 node catches up with the chain, the two ZMQ lines of each block are left out of
+// the log and the node's progress is said every noticeProgressEvery; each block's lines come back
+// once the node is level, or catchUpEvery after the last block. 1.0.14's release page gives the
+// figures job_loop.go has, and names the two lines as the stratum logs them.
+func TestReleaseNotesTellTheQuietCatchUp(t *testing.T) {
+	src := string(mustRead(t, "cmd/stratum/job_loop.go")) + string(mustRead(t, "cmd/stratum/main.go"))
+	every := regexp.MustCompile(`(?m)^\s*catchUpEvery\s*=\s*(\d+) \* time\.Second$`).FindStringSubmatch(src)
+	if every == nil || !regexp.MustCompile(`(?m)^\s*noticeProgressEvery\s*=\s*time\.Minute$`).MatchString(src) {
+		t.Fatal("DOCS-QUIET-CODE: cmd/stratum/job_loop.go no longer gives catchUpEvery in seconds, or no longer says the progress once a minute")
+	}
+	sec := flat(releaseSection(t, "1.0.14"))
+	for _, c := range []struct{ code, want string }{
+		{"DOCS-QUIET-LINES", `("ZMQ block notification received" and "ZMQ triggered job refresh")`},
+		{"DOCS-QUIET-PROGRESS", "then gives its block and headers once a minute"},
+		{"DOCS-QUIET-BACK", "or " + every[1] + " seconds after the last block"},
+	} {
+		if !strings.Contains(sec, c.want) {
+			t.Errorf("%s: RELEASE_NOTES.md ## 1.0.14 does not say %q", c.code, c.want)
+		}
+	}
+	for _, line := range []string{`"⚡ ZMQ block notification received"`, `"⚡ ZMQ triggered job refresh"`} {
+		if !strings.Contains(src, line) {
+			t.Errorf("DOCS-QUIET-LINES-CODE: the stratum no longer logs %s, which the release notes name", line)
+		}
+	}
+}
+
 // The release page gives the Linux README's own commands to check a download and to delete what an
 // install or an upgrade leaves behind, so the two never differ. The check 1.0.12 gave stopped on
 // BusyBox's sha256sum.
@@ -248,9 +287,9 @@ func TestRentalPortTakenIsToldOneWay(t *testing.T) {
 		}
 	}
 	// Umbrel cannot start without 3335 (its install stops), so the Umbrel store's text has no word
-	// on it; the release page and the READMEs do.
+	// on it; 1.0.13's release page and the READMEs do.
 	for _, d := range docs {
-		if strings.HasPrefix(d.name, "umbrel-app.yml") {
+		if !tellsTheRentalPort(d.name) {
 			continue
 		}
 		text := flat(d.text)
@@ -286,11 +325,11 @@ func TestRentalPortWindowsKeepsIsTold(t *testing.T) {
 // The rental port aims for one share every target_time seconds of the shipped template (which the
 // Windows and Linux configs are held to), where MiningRigRentals asks for one every 10 to 60
 // seconds at the rig's advertised hashrate. Every text that gives the rental port's share time
-// gives that one, and the READMEs and the release page give it. The README said a large connection
-// opened at the 1024 floor, the miners' port's; the rental port opens at 500,000. MiningRigRentals'
-// range does not follow every listing's advertised hashrate, and a rig under about 36 TH/s sits
-// above it at the floor, so no text says its warning goes away, and the release page says when it
-// can stay.
+// gives that one, and the READMEs and 1.0.13's release page give it. The README said a large
+// connection opened at the 1024 floor, the miners' port's; the rental port opens at 500,000.
+// MiningRigRentals' range does not follow every listing's advertised hashrate, and a rig under
+// about 36 TH/s sits above it at the floor, so no text says its warning goes away, and 1.0.13's
+// release page says when it can stay.
 func TestRentalPortDocsGiveTheShippedShareTime(t *testing.T) {
 	var cfg struct {
 		Rental struct {
@@ -331,7 +370,7 @@ func TestRentalPortDocsGiveTheShippedShareTime(t *testing.T) {
 				t.Errorf("DOCS-RENTAL-FLOOR: %s says a large or rented connection opens at 1024; the rental port opens at 500,000: %q", d.name, s)
 			}
 		}
-		if !said && !strings.HasPrefix(d.name, "umbrel-app.yml") {
+		if !said && tellsTheRentalPort(d.name) {
 			t.Errorf("DOCS-RENTAL-TIME: %s does not say the rental port aims for one share every %s s", d.name, target)
 		}
 	}
@@ -351,18 +390,22 @@ func TestRentalPortDocsGiveTheShippedShareTime(t *testing.T) {
 // which count a payout at 2 confirmations, and the heading of the Blocks table in TIDES mode. "Paid
 // to you (confirmed)" was the card's name, while the same page calls a solo block confirmed after
 // 100. The page says which API times are in UTC now. A slow pool still holds up a new block's work
-// for seconds, so no text says it no longer can.
+// for seconds, so no text says it no longer can. 1.0.14's page names the line the card now has
+// under "The next pool block pays you".
 func TestReleaseNotesNameTheDashboardAsItShows(t *testing.T) {
 	sec := flat(releaseSection(t, "1.0.13"))
 	solo := string(mustRead(t, "web/dist/solo.html"))
 	js := string(mustRead(t, "web/dist/js/pool-solo-inline.js"))
-	for _, c := range []struct{ code, label, file, src string }{
-		{"DOCS-TIDES-PENDING", "Pending (under 2 confirmations)", "web/dist/solo.html", solo},
-		{"DOCS-TIDES-PAID", "Paid to you (2+ confirmations)", "web/dist/solo.html", solo},
-		{"DOCS-SOLO-BLOCKS", "Your Solo Blocks", "web/dist/js/pool-solo-inline.js", js},
+	for _, c := range []struct{ code, version, label, file, src string }{
+		{"DOCS-TIDES-PENDING", "1.0.13", "Pending (under 2 confirmations)", "web/dist/solo.html", solo},
+		{"DOCS-TIDES-PAID", "1.0.13", "Paid to you (2+ confirmations)", "web/dist/solo.html", solo},
+		{"DOCS-SOLO-BLOCKS", "1.0.13", "Your Solo Blocks", "web/dist/js/pool-solo-inline.js", js},
+		{"DOCS-TIDES-NEXT", "1.0.14", "The next pool block pays you", "web/dist/solo.html", solo},
+		{"DOCS-TIDES-NEXT-NOW", "1.0.14", "if found now", "web/dist/solo.html", solo},
+		{"DOCS-TIDES-PAID", "1.0.14", "Paid to you (2+ confirmations)", "web/dist/solo.html", solo},
 	} {
-		if !strings.Contains(sec, `"`+c.label+`"`) {
-			t.Errorf("%s: RELEASE_NOTES.md ## 1.0.13 does not name %q", c.code, c.label)
+		if !strings.Contains(flat(releaseSection(t, c.version)), `"`+c.label+`"`) {
+			t.Errorf("%s: RELEASE_NOTES.md ## %s does not name %q", c.code, c.version, c.label)
 		}
 		if !strings.Contains(c.src, c.label) {
 			t.Errorf("%s-PAGE: %s no longer shows %q, which the release notes name", c.code, c.file, c.label)
@@ -393,8 +436,8 @@ func TestReleaseNotesNameTheDashboardAsItShows(t *testing.T) {
 // blank line. The update screen is short.
 func TestUmbrelStoreTextReadsAsWritten(t *testing.T) {
 	m := readUmbrelManifest(t)
-	if m.Version != "1.0.13" {
-		t.Errorf("DOCS-UMBREL-VERSION: umbrel-app.yml is version %q, not 1.0.13", m.Version)
+	if m.Version != "1.0.14" {
+		t.Errorf("DOCS-UMBREL-VERSION: umbrel-app.yml is version %q, not 1.0.14", m.Version)
 	}
 	joined := regexp.MustCompile(`\S[ \t]+-[ \t]+[A-Z]`)
 	item := regexp.MustCompile(`(?m)^[ \t]*- \S`)
@@ -452,24 +495,33 @@ func TestReleaseTextsDoNotOverstateThePassword(t *testing.T) {
 
 // 1.0.13 is the first Windows release on this repository's release page. A Windows user who lands
 // there learns before the download what Windows asks: Smart App Control off on Windows 11, and
-// More info, then Run anyway, at SmartScreen's warning; and where the steps are. The page resolves
-// a relative link against its own address, under /releases/tag/, where no file of the repository
+// More info, then Run anyway, at SmartScreen's warning; and where the steps are. From 1.0.14 the
+// page says, in the README's words, to turn Smart App Control off only if it blocks Forge Solo: on
+// a Windows 11 PC with it On, the 1.0.13 installer installed and Forge Solo ran. A page resolves a
+// relative link against its own address, under /releases/tag/, where no file of the repository
 // is, so its links are whole addresses.
 func TestReleaseNotesTellWindowsUsersHowToInstall(t *testing.T) {
-	sec := releaseSection(t, "1.0.13")
-	text := flat(sec)
-	for _, want := range []string{
-		"on Windows 11, Smart App Control must be Off",
-		"choose More info, then Run anyway",
-		"[Install on Windows](" + repoURL + "#install-on-windows)",
+	for _, c := range []struct{ version, sac string }{
+		{"1.0.13", "on Windows 11, Smart App Control must be Off"},
+		{"1.0.14", "If Smart App Control on Windows 11 blocks the installer or Forge Solo, turn Smart App Control off"},
 	} {
-		if !strings.Contains(text, want) {
-			t.Errorf("DOCS-RELEASE-WIN-INSTALL: RELEASE_NOTES.md ## 1.0.13 does not say %q", want)
+		sec := releaseSection(t, c.version)
+		text := flat(sec)
+		for _, want := range []string{
+			c.sac,
+			"choose More info, then Run anyway",
+			"[Install on Windows](" + repoURL + "#install-on-windows)",
+		} {
+			if !strings.Contains(text, want) {
+				t.Errorf("DOCS-RELEASE-WIN-INSTALL: RELEASE_NOTES.md ## %s does not say %q", c.version, want)
+			}
 		}
 	}
-	for _, m := range regexp.MustCompile(`\]\(([^)\s]*)\)`).FindAllStringSubmatch(sec, -1) {
-		if !strings.HasPrefix(m[1], "https://") {
-			t.Errorf("DOCS-RELEASE-LINK: RELEASE_NOTES.md ## 1.0.13 links to %q, which the release page cannot open", m[1])
+	for _, d := range releaseTexts(t) {
+		for _, m := range regexp.MustCompile(`\]\(([^)\s]*)\)`).FindAllStringSubmatch(d.text, -1) {
+			if !strings.HasPrefix(m[1], "https://") {
+				t.Errorf("DOCS-RELEASE-LINK: %s links to %q, which the release page cannot open", d.name, m[1])
+			}
 		}
 	}
 }
