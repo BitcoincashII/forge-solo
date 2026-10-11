@@ -77,17 +77,17 @@ func TestComposePinsTheAppImages(t *testing.T) {
 // of current digests cannot notice, because nothing changed. Tying the table to a version
 // means the release that bumps umbrel-app.yml must come back here, and re-pinning the
 // digests is the only way to make this pass.
-const releaseDigestsForVersion = "1.0.14"
+const releaseDigestsForVersion = "1.0.15"
 
 // The digests actually shipped by releaseDigestsForVersion. Update both, together, from the
 // digests CI published for the new tag.
 var releaseDigests = map[string]string{
-	"forge-solo-node":     "984d2fd578d77c7a4606741cbeb3491c883d15bd90f9968975889f3c5066f543",
-	"forge-solo-node1175": "e9a7a2317b9d9fb1bedebf2efe766dc677804eff4c7c6bc4026f4906a7e58d3f",
-	"forge-solo-api":      "f704c67b74118b8eabef99f4c10f4ca84fb931ef31b6fe89f8ae8892b59d697e",
-	"forge-solo-stratum":  "c2e57b6c682f9aef0d694964efad1b0a9a1a0aa92c9b4d9095dec69658603d89",
-	"forge-solo-web":      "6f8a19169053987bcdc697d601d329aa53496304c7157e3a9dbb870262f6b916",
-	"forge-solo-migrate":  "4e16af24c96c071b3342fa734a7739b071d2ef38cd3ed439d7644acef85a93f0",
+	"forge-solo-node":     "e4472d388dda1a75da8e16d300c7385ea56bfe8e9ea079d27054ad4f551c3e1f",
+	"forge-solo-node1175": "c1c572253bc85e921d0bb490bf9d374f4264a3ab6849b0e28d48e7ba80d909a2",
+	"forge-solo-api":      "aeb74175756763b6b3abf260ecf89cc350f221146dc0159bb4228e5c4b1118b4",
+	"forge-solo-stratum":  "1350e15ca209495a2a580b024b7c45ad578501a7d23aabec5dd8641755afb975",
+	"forge-solo-web":      "94d337c1add2eac00d0d0503a1c8bad856d4d8d7f997bc9d465b0e8f75cc8605",
+	"forge-solo-migrate":  "268cec182d48cb989b23f64582b7a3b153abd31bb9109a6a51a730e499eca1bd",
 }
 
 // appImages are the images the compose pins, sorted. The migrate image is pinned twice: by the
@@ -194,7 +194,7 @@ func TestRepinPinsEveryImageLine(t *testing.T) {
 			t.Errorf("REPIN-TABLE: releaseDigests does not say %s is %s after the re-pin", image, d)
 		}
 	}
-	if !strings.Contains(table, `const releaseDigestsForVersion = "1.0.14"`) {
+	if !strings.Contains(table, `const releaseDigestsForVersion = "1.0.15"`) {
 		t.Errorf("REPIN-TABLE-VERSION: releaseDigestsForVersion is not %s after the re-pin", version)
 	}
 }
