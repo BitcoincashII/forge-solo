@@ -123,6 +123,34 @@ func TestDependabotGroupsEveryUpdate(t *testing.T) {
 	}
 }
 
+// The migrate image's Dockerfile names the versions of its postgres and alpine images again, in
+// lines no Dependabot pull request changes: the PostgreSQL stage's Alpine, and the version its build
+// checks for (MIGRATE-IMAGE-ALPINE, MIGRATE-IMAGE-CHECK-PG). A pull request that moves either fails
+// until those lines are moved by hand. In the group that takes every other base, it would hold back
+// the Ubuntu, Debian and nginx updates with it, so the two have a group of their own.
+func TestDependabotMigrateBasesHaveAGroupOfTheirOwn(t *testing.T) {
+	found := 0
+	for _, u := range dependabotEntries(t) {
+		if u.Ecosystem != "docker" {
+			continue
+		}
+		found++
+		var groups []string
+		for name, g := range u.Groups {
+			if slices.Contains(g.Patterns, "postgres") || slices.Contains(g.Patterns, "alpine") {
+				groups = append(groups, name)
+			}
+		}
+		slices.Sort(groups)
+		if len(groups) != 1 || !slices.Equal(slices.Sorted(slices.Values(u.Groups[groups[0]].Patterns)), []string{"alpine", "postgres"}) {
+			t.Errorf("DEPENDABOT-GROUP-MIGRATE: groups of the docker entry that name postgres or alpine: %v; want one, which takes those two and nothing else", groups)
+		}
+	}
+	if found != 1 {
+		t.Errorf("DEPENDABOT-GROUP-MIGRATE: %d docker entries, want one", found)
+	}
+}
+
 // The web image runs nginx's stable branch, whose minor version is even. Dependabot offered the
 // mainline 1.31.0 (#33), which eight security advisories affect that do not affect 1.30.5. So it
 // offers no other minor or major version of nginx, and a move to the next stable branch is made by
