@@ -1,6 +1,6 @@
 # Compared byte for byte on every platform, Windows too: never converted to CRLF on checkout.
 testdata/migrate/** -text
 
-# Served to Macs as it is (forge-gateway's README fetches it from main), and its test fails on a
-# CRLF line end: never converted on a Windows checkout either.
+# Installed on a Mac from the checkout forge-gateway's README builds, and its test fails on a CRLF
+# line end: never converted on a Windows checkout either.
 cmd/forge-gateway/org.bitcoincashii.forge-gateway.plist -text

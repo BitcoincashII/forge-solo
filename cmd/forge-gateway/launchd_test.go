@@ -12,8 +12,8 @@ import (
 )
 
 // launchdPlist is the LaunchAgent that starts Forge Gateway at login on a Mac. Forge Gateway's
-// README installs it from this path on forge-solo's main branch, with one sed that puts the user's
-// home folder in place of launchdHome: launchd expands neither ~ nor $HOME.
+// README installs it from this path in the source it builds, with one sed that puts the user's home
+// folder in place of launchdHome: launchd expands neither ~ nor $HOME.
 const (
 	launchdPlist = "org.bitcoincashii.forge-gateway.plist"
 	launchdHome  = "/Users/YOU"
