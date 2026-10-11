@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd LaunchAgent for Forge Gateway on a Mac: it starts the gateway when you log in, and again
+  whenever it stops. Install it with the steps in forge-gateway's README ("On a Mac"). launchd
+  expands neither ~ nor $HOME, so the paths are written out in full; the README's install command
+  puts your home folder in them.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>org.bitcoincashii.forge-gateway</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/YOU/ForgeGateway/forge-gateway</string>
+		<string>-config</string>
+		<string>/Users/YOU/ForgeGateway/forge-gateway.json</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>/Users/YOU/Library/Logs/ForgeGateway/forge-gateway.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/YOU/Library/Logs/ForgeGateway/forge-gateway.log</string>
+</dict>
+</plist>

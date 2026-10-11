@@ -15,3 +15,7 @@ CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=<version>" -o f
 the rest.
 
 Its Windows tray app and installer are in windows/gateway.
+
+There is no Mac download: on a Mac it is built from source and signed ad hoc, as forge-gateway's
+README says. `org.bitcoincashii.forge-gateway.plist` here is the LaunchAgent that starts it at
+login there.

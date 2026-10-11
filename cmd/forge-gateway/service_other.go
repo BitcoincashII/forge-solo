@@ -2,7 +2,8 @@
 
 package main
 
-// On Linux and macOS the gateway runs under systemd (see README.md) or in a terminal.
+// On Linux the gateway runs under systemd (forge-gateway.service) or in a terminal, and on macOS
+// under launchd (org.bitcoincashii.forge-gateway.plist, started at login) or in Terminal.
 const serviceSupported = false
 
 func isWindowsService() bool              { return false }
