@@ -19,6 +19,7 @@ var statusPage []byte
 // statusView is GET /api/status.
 type statusView struct {
 	Version     string `json:"version"`
+	System      string `json:"system"` // runtime.GOOS: the page's texts for one system only follow it
 	Uptime      int64  `json:"uptime_seconds"`
 	Configured  bool   `json:"configured"` // the settings are complete and right
 	State       string `json:"state"`      // stateOf
@@ -83,7 +84,7 @@ func (a *app) settingsNow() (e *engine, cfg *Config, problem string) {
 
 func (a *app) view(now time.Time) statusView {
 	e, cfg, _ := a.settingsNow()
-	v := statusView{Version: version, Uptime: int64(now.Sub(a.started).Seconds()), Payout: cfg.Mining.PayoutAddress,
+	v := statusView{Version: version, System: runtime.GOOS, Uptime: int64(now.Sub(a.started).Seconds()), Payout: cfg.Mining.PayoutAddress,
 		PoolOnly: cfg.Mining.PoolOnly}
 	v.Configured, v.State, v.StateReason, v.Mode = a.stateNow()
 	v.Pool = poolView{Status: a.gw.Status(), URL: a.start.Pool.URL}

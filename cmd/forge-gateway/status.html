@@ -88,7 +88,7 @@ body.stale .grid,body.stale .tablewrap{opacity:.45}
   </div>
   <div id="cookieLogin" hidden>
     <label class="fld" for="cookieFile">Cookie file</label>
-    <input class="txt" id="cookieFile" type="text" spellcheck="false" autocapitalize="none" autocomplete="off" placeholder="C:\...\.cookie">
+    <input class="txt" id="cookieFile" type="text" spellcheck="false" autocapitalize="none" autocomplete="off">
     <p class="note">The node writes a new cookie each time it starts; Forge Gateway reads the new one by itself.</p>
   </div>
   <p class="note">Forge Gateway builds every block from your own BCH2 node. In the node's config file set server=1 and rpcuser and rpcpassword (or use its .cookie file), then restart the node. A node on this computer answers at http://127.0.0.1:8342.</p>
@@ -102,7 +102,8 @@ body.stale .grid,body.stale .tablewrap{opacity:.45}
     <label class="fld" for="gwPw">Forge Gateway's settings password (needed to save)</label>
     <!-- A text box, not a password box, so browsers do not offer their saved passwords here. It is masked all the same. -->
     <input class="txt" id="gwPw" type="text" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" spellcheck="false" autocapitalize="none" autocorrect="off">
-    <p class="note" id="pwNote">Other programs and accounts on this computer can reach Forge Gateway, so a change here needs its settings password. With the Windows tray app: right-click the Forge Gateway icon in the notification area of the taskbar (if it is not there, click the ^ arrow beside it first) and choose <strong>Copy Settings Password</strong>, then paste it here. Otherwise it is the SETTINGS_PASSWORD Forge Gateway was started with. This browser remembers it once a save succeeds.</p>
+    <p class="note" id="pwNote">Other programs and accounts on this computer can reach Forge Gateway, so a change here needs its settings password: the SETTINGS_PASSWORD Forge Gateway was started with. This browser remembers it once a save succeeds.</p>
+    <p class="note" id="pwNoteWindows" hidden>Other programs and accounts on this computer can reach Forge Gateway, so a change here needs its settings password. With the Windows tray app: right-click the Forge Gateway icon in the notification area of the taskbar (if it is not there, click the ^ arrow beside it first) and choose <strong>Copy Settings Password</strong>, then paste it here. Otherwise it is the SETTINGS_PASSWORD Forge Gateway was started with. This browser remembers it once a save succeeds.</p>
   </div>
   <div class="actions" id="saveRow">
     <button class="cta" id="saveBtn" type="button" disabled>Save settings</button>
@@ -127,6 +128,18 @@ function dl(el, rows){el.innerHTML = rows.map(([k,v])=>`<div class="row"><dt>${e
 function short(a){a=String(a||"");return a.length>30?a.slice(0,20)+"…"+a.slice(-6):a}
 // The badge says what the gateway is doing, from the state the API gives: good, warn or bad.
 const BADGE_CLASS = {active:"good", pool_unreachable:"warn", node_syncing:"warn", starting:"warn"};
+// The system Forge Gateway runs on, as the API gives it (Go's GOOS: windows, darwin, linux...). The
+// cookie file's example is where a BCH2 node keeps it there, and what only Windows has (the tray app
+// and its password, network profiles) is said on Windows alone.
+let system = "";
+const COOKIE_EXAMPLE = {windows:"C:\\Users\\<you>\\AppData\\Roaming\\Bitcoin Cash II\\.cookie", darwin:"/Users/<you>/Library/Application Support/Bitcoin Cash II/.cookie"};
+const WINDOWS_NETWORK = " Miners on other devices can connect only while this PC's network profile is Private (Windows Settings, Network &amp; internet, your connection's properties) or Domain; Windows 11 makes new networks Public.";
+function showSystem(sys){
+  system = sys||"";
+  $("cookieFile").placeholder = COOKIE_EXAMPLE[system]||"/home/<you>/.bitcoincashII/.cookie";
+  $("pwNote").hidden = system==="windows";
+  $("pwNoteWindows").hidden = system!=="windows";
+}
 async function tick(){
   let s;
   try { const r = await fetch("/api/status",{cache:"no-store"}); s = await r.json(); }
@@ -138,6 +151,7 @@ async function tick(){
     document.body.classList.add("stale");
     return; }
   document.body.classList.remove("stale");
+  showSystem(s.system);
   $("mode").className = "badge "+(BADGE_CLASS[s.state]||"bad");
   $("mode").textContent = {unconfigured:"Not set up", node_unreachable:"Node unreachable", node_login:"Node login failed", node_forbidden:"Node refuses this computer", node_syncing:"Node syncing", pool_unreachable:(s.mode==="waiting"?"Waiting for pool":"Solo fallback"), clock_off:"Clock off", starting:"Starting", active:"TIDES"}[s.state]||s.state;
   $("ver").textContent = "v"+s.version+" · up "+ago(s.uptime_seconds).replace(" ago","");
@@ -183,7 +197,7 @@ async function tick(){
   const w = s.workers||[];
   $("workers").innerHTML = w.length ? `<table><thead><tr><th>Worker</th><th>Credited to</th><th class="num">Hashrate (10 min)</th><th class="num">Shares</th><th>Last share</th></tr></thead><tbody>`+
     w.map(x=>`<tr><td>${esc(x.worker)}</td><td class="mono" title="${esc(x.miner)}">${esc(short(x.miner))}</td><td class="num">${rate(x.hashrate)}</td><td class="num">${num(x.shares)}</td><td>${since(x.last_share)}</td></tr>`).join("")+"</tbody></table>"
-    : `<div class="empty">No shares yet. Point your miners at this machine's port ${esc((st.listen||"").split(":").pop())}. A username that is a BCH2 address (bitcoincashii:q…), with or without a worker name after it, is credited to that address; any other username, a mistyped or legacy 1… address included, is credited to the payout address. On Windows, miners on other devices can connect only while this PC's network profile is Private (Windows Settings, Network &amp; internet, your connection's properties) or Domain; Windows 11 makes new networks Public.</div>`;
+    : `<div class="empty">No shares yet. Point your miners at this machine's port ${esc((st.listen||"").split(":").pop())}. A username that is a BCH2 address (bitcoincashii:q…), with or without a worker name after it, is credited to that address; any other username, a mistyped or legacy 1… address included, is credited to the payout address.${system==="windows"?WINDOWS_NETWORK:""}</div>`;
   const b = (s.blocks||[]).slice().reverse();
   $("blocks").innerHTML = b.length ? `<table><thead><tr><th class="num">Height</th><th>Hash</th><th>Paid</th><th>Result</th><th>Worker</th><th>When</th></tr></thead><tbody>`+
     b.map(x=>`<tr><td class="num">${num(x.height)}</td><td class="mono">${esc(x.hash.slice(0,16))}…</td><td>${x.tides?"TIDES split":"solo"}</td><td class="${x.result==="accepted"?"":"err"}">${esc(x.result)}</td><td>${esc(x.worker)}</td><td>${since(x.at)}</td></tr>`).join("")+"</tbody></table>"
@@ -194,7 +208,9 @@ async function tick(){
 // while someone types; until it has been, nothing can be saved, so a save never sends boxes that
 // were not filled from what is saved.
 const PW_KEY = "forgeGatewayPassword";
-const PW_WHERE = "Copy it again: right-click the Forge Gateway icon in the notification area, then Copy Settings Password.";
+// Where the settings password is: the Windows tray app copies it; anywhere else it is the one
+// Forge Gateway was started with.
+function pwWhere(){ return system==="windows" ? "Copy it again: right-click the Forge Gateway icon in the notification area, then Copy Settings Password." : "Enter the SETTINGS_PASSWORD Forge Gateway was started with."; }
 const FIELD = {"node.rpc_url":"rpcUrl", "node.rpc_user":"rpcUser", "node.rpc_password":"rpcPass", "node.rpc_cookie_file":"cookieFile", "mining.payout_address":"payout", "mining.coinbase_tag":"cbTag"};
 const INPUTS = ["rpcUrl","loginUser","loginCookie","rpcUser","rpcPass","cookieFile","payout","cbTag","poolOnly"];
 let settingsLoaded = false, pwLength = 64;
@@ -238,7 +254,7 @@ async function saveSettings(){
   const pw = $("gwPw").value.trim();
   if(!pw){ saveSays("err", "Enter Forge Gateway's settings password above the Save button first. Nothing was saved."); $("gwPw").focus(); return; }
   // The likeliest slip: copying the payout address after the password puts the address here.
-  if(/^(bitcoincashii:|bitcoincash:)/i.test(pw)){ saveSays("err", "That is an address, not Forge Gateway's settings password. Nothing was saved. "+PW_WHERE); $("gwPw").focus(); return; }
+  if(/^(bitcoincashii:|bitcoincash:)/i.test(pw)){ saveSays("err", "That is an address, not Forge Gateway's settings password. Nothing was saved. "+pwWhere()); $("gwPw").focus(); return; }
   const cookie = $("loginCookie").checked;
   const body = {node:{rpc_url:$("rpcUrl").value, rpc_user:cookie?"":$("rpcUser").value, rpc_password:cookie?"":$("rpcPass").value, rpc_cookie_file:cookie?$("cookieFile").value:""},
     mining:{payout_address:$("payout").value, coinbase_tag:$("cbTag").value, pool_only:$("poolOnly").checked}};
@@ -258,9 +274,10 @@ async function saveSettings(){
   } else if(said && d.password_wrong){
     rememberPw(""); $("gwPw").value = "";
     let m = "That is not Forge Gateway's settings password. Nothing was saved. ";
-    // How long it is shows a cut-off copy or extra text, without showing the entry itself.
-    if(!new RegExp("^[0-9a-fA-F]{"+pwLength+"}$").test(pw)) m += "It is "+pwLength+" characters, only 0–9 and a–f; what was entered was "+pw.length+" characters. ";
-    saveSays("err", m+PW_WHERE);
+    // How long it is shows a cut-off copy or extra text, without showing the entry itself. On
+    // Windows it is the tray app's, in hex; anywhere else it is one of your own, which can be anything.
+    if(system==="windows" && !new RegExp("^[0-9a-fA-F]{"+pwLength+"}$").test(pw)) m += "It is "+pwLength+" characters, only 0–9 and a–f; what was entered was "+pw.length+" characters. ";
+    saveSays("err", m+pwWhere());
     $("gwPw").focus();
   } else if(said && ((status>=400 && status<500) || status===500 || status===503)){
     const e = String(d.error);

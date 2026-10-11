@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -391,10 +392,13 @@ func TestStatusFields(t *testing.T) {
 	if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range []string{"configured", "state", "state_reason", "mode", "payout_address", "pool", "stratum", "workers", "blocks"} {
+	for _, k := range []string{"configured", "state", "state_reason", "mode", "payout_address", "pool", "stratum", "workers", "blocks", "system"} {
 		if _, ok := got[k]; !ok {
 			t.Errorf("GW-STATUS-FIELDS: no %q in %v", k, got)
 		}
+	}
+	if got["system"] != runtime.GOOS {
+		t.Errorf("GW-STATUS-SYSTEM: system %v, want %s, the system the gateway runs on", got["system"], runtime.GOOS)
 	}
 	if got["configured"] != true || got["state"] == "" || got["state_reason"] == "" {
 		t.Errorf("GW-STATUS-FIELDS: configured %v, state %v, reason %v", got["configured"], got["state"], got["state_reason"])
@@ -438,9 +442,9 @@ func TestStatusPageShowsTheState(t *testing.T) {
 
 // The page says no more than is so: a block pays the TIDES split only when it is found on work the
 // pool registered, which solo work is not. With no shares yet it says whom a username is credited
-// to, a worker name after the address with or without a dot, and how to avoid what it cannot see:
-// a Windows network profile that keeps miners on other devices out (the firewall rule lets them in
-// on Private and Domain networks).
+// to, a worker name after the address with or without a dot, and on Windows how to avoid what it
+// cannot see: a network profile that keeps miners on other devices out (the firewall rule lets them
+// in on Private and Domain networks).
 func TestStatusPageSaysWhatIsSo(t *testing.T) {
 	page, err := os.ReadFile("status.html")
 	if err != nil {
@@ -450,7 +454,8 @@ func TestStatusPageSaysWhatIsSo(t *testing.T) {
 	for _, want := range []string{
 		"A DATUM-style gateway: your node builds the block. A block found on work Forge Pool registered pays Forge Pool's TIDES split straight from its coinbase, with no pool fee; one found while mining solo pays your payout address in full.",
 		"A username that is a BCH2 address (bitcoincashii:q…), with or without a worker name after it, is credited to that address; any other username, a mistyped or legacy 1… address included, is credited to the payout address.",
-		"On Windows, miners on other devices can connect only while this PC's network profile is Private (Windows Settings, Network &amp; internet, your connection's properties) or Domain; Windows 11 makes new networks Public.",
+		`const WINDOWS_NETWORK = " Miners on other devices can connect only while this PC's network profile is Private (Windows Settings, Network &amp; internet, your connection's properties) or Domain; Windows 11 makes new networks Public.";`,
+		"credited to the payout address.${system===\"windows\"?WINDOWS_NETWORK:\"\"}</div>`",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("GW-PAGE-SO: status.html does not say %q", want)
@@ -458,6 +463,70 @@ func TestStatusPageSaysWhatIsSo(t *testing.T) {
 	}
 	if strings.Contains(s, "every block pays") {
 		t.Error("GW-PAGE-SO: status.html says every block pays the TIDES split; a solo block pays the payout address")
+	}
+}
+
+// The page says what is so on the system the gateway runs on, which /api/status gives (Go's GOOS);
+// it showed a Windows cookie path, and the tray app's password, on every system. The cookie file's
+// example is where a BCH2 27.0.2 node keeps its .cookie there (GetDefaultDataDir: %APPDATA%\Bitcoin
+// Cash II on Windows, ~/Library/Application Support/Bitcoin Cash II on a Mac, ~/.bitcoincashII on
+// Linux and any other system). What only Windows has, the tray app with the password it copies and
+// its length in hex, and network profiles, is said on Windows alone; nothing of one system is said
+// anywhere else on the page, nor before the page knows the system.
+func TestStatusPageFollowsTheSystem(t *testing.T) {
+	page, err := os.ReadFile("status.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(page)
+	if !strings.Contains(between(s, "async function tick(){", "const p = s.pool;"), "showSystem(s.system);") {
+		t.Error("GW-PAGE-SYSTEM: the page does not take the system from the gateway's answer")
+	}
+	// Each says something of one system only, and says it only there.
+	rest := s
+	for _, only := range []string{
+		`const COOKIE_EXAMPLE = {windows:"C:\\Users\\<you>\\AppData\\Roaming\\Bitcoin Cash II\\.cookie", darwin:"/Users/<you>/Library/Application Support/Bitcoin Cash II/.cookie"};`,
+		`$("cookieFile").placeholder = COOKIE_EXAMPLE[system]||"/home/<you>/.bitcoincashII/.cookie";`,
+		`const WINDOWS_NETWORK = " Miners on other devices can connect only while this PC's network profile is Private (Windows Settings, Network &amp; internet, your connection's properties) or Domain; Windows 11 makes new networks Public.";`,
+		`<p class="note" id="pwNoteWindows" hidden>Other programs and accounts on this computer can reach Forge Gateway, so a change here needs its settings password. ` +
+			`With the Windows tray app: right-click the Forge Gateway icon in the notification area of the taskbar (if it is not there, click the ^ arrow beside it first) ` +
+			`and choose <strong>Copy Settings Password</strong>, then paste it here. Otherwise it is the SETTINGS_PASSWORD Forge Gateway was started with. ` +
+			`This browser remembers it once a save succeeds.</p>`,
+		`function pwWhere(){ return system==="windows" ? "Copy it again: right-click the Forge Gateway icon in the notification area, then Copy Settings Password." : ` +
+			`"Enter the SETTINGS_PASSWORD Forge Gateway was started with."; }`,
+		`if(system==="windows" && !new RegExp("^[0-9a-fA-F]{"+pwLength+"}$").test(pw)) m += "It is "+pwLength+" characters, only 0–9 and a–f; what was entered was "+pw.length+" characters. ";`,
+	} {
+		if !strings.Contains(rest, only) {
+			t.Errorf("GW-PAGE-SYSTEM: status.html has no %s", only)
+		}
+		rest = strings.Replace(rest, only, "", 1)
+	}
+	// What shows each on its own system, which is "" until the gateway's first answer.
+	for _, shown := range []string{
+		`let system = "";`,
+		`$("pwNote").hidden = system==="windows";`,
+		`$("pwNoteWindows").hidden = system!=="windows";`,
+		"credited to the payout address.${system===\"windows\"?WINDOWS_NETWORK:\"\"}</div>`",
+		`<p class="note" id="pwNote">Other programs and accounts on this computer can reach Forge Gateway, so a change here needs its settings password: ` +
+			`the SETTINGS_PASSWORD Forge Gateway was started with. This browser remembers it once a save succeeds.</p>`,
+	} {
+		if !strings.Contains(rest, shown) {
+			t.Errorf("GW-PAGE-SYSTEM: status.html has no %s", shown)
+		}
+		rest = strings.Replace(rest, shown, "", 1)
+	}
+	// The rest, its comments left out, is said on every system.
+	var said []string
+	for _, line := range strings.Split(rest, "\n") {
+		if l := strings.TrimSpace(line); !strings.HasPrefix(l, "//") && !strings.HasPrefix(l, "<!--") {
+			said = append(said, line)
+		}
+	}
+	for _, w := range []string{"Windows", "tray", "taskbar", "notification area", "network profile", "this PC", "a–f", `C:\`,
+		"Mac", "Linux", "/Users/", "/home/", "Application Support", ".bitcoincashII"} {
+		if strings.Contains(strings.Join(said, "\n"), w) {
+			t.Errorf("GW-PAGE-SYSTEM: status.html says %q on every system", w)
+		}
 	}
 }
 
