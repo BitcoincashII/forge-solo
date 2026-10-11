@@ -90,7 +90,7 @@ func (a *app) view(now time.Time) statusView {
 	// The pool's refusal of this computer's clock is said in words on the Forge Pool card, not as
 	// the pool's JSON answer.
 	if off, refused := poolClockOff(v.Pool.Reason); refused {
-		v.Pool.Reason = clockShort(off, runtime.GOOS == "windows")
+		v.Pool.Reason = clockShort(off, runtime.GOOS)
 	}
 	v.Node = nodeView{RPCURL: shownURL(cfg.Node.RPCURL), TemplateAge: -1}
 	if e != nil && e.health != nil {

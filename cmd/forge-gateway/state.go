@@ -41,7 +41,7 @@ type stateInput struct {
 	pool       tidesgw.Status
 	mode       string // statusView.Mode
 	poolOnly   bool
-	windows    bool // the gateway runs on Windows: the clock's texts say where to set it there
+	goos       string // the system the gateway runs on (runtime.GOOS): the clock's texts say how to set it right there
 }
 
 const startingReason = "Waiting for the first block template from your node and the first job Forge Pool registers."
@@ -86,7 +86,7 @@ func stateOf(in stateInput) (state, reason string) {
 		return stateNodeSyncing, why + ". " + then
 	case (in.mode == "solo" || in.mode == "waiting") && poolRefusesClock(in.pool.Reason):
 		off, _ := poolClockOff(in.pool.Reason)
-		return stateClockOff, clockReason(off, in.windows, in.mode)
+		return stateClockOff, clockReason(off, in.goos, in.mode)
 	case in.mode == "solo":
 		return statePoolUnreachable, poolNotTaking + inBrackets(in.pool.Reason) +
 			". Your miners mine solo on your node meanwhile: a block found now pays your payout address in full. Forge Gateway tries the pool again every minute."
@@ -176,34 +176,48 @@ func howFar(d time.Duration) string {
 	return about(d.Round(time.Minute)/time.Minute, "a minute", "minutes")
 }
 
-// clockWhose is whose clock is off, as the texts say it.
-func clockWhose(windows bool) string {
-	if windows {
+// clockWhose is whose clock is off, as the texts say it on the system goos (runtime.GOOS).
+func clockWhose(goos string) string {
+	switch goos {
+	case "windows":
 		return "this PC's clock"
+	case "darwin":
+		return "this Mac's clock"
 	}
 	return "this computer's clock"
 }
 
-// clockShort is the Forge Pool card's reason while the pool refuses this computer's clock.
-func clockShort(off time.Duration, windows bool) string {
-	if far := howFar(off); far != "" {
-		return clockWhose(windows) + " is " + far + " off"
+// clockFix is how to set the clock right on the system goos. Windows and macOS each have one
+// switch for it in their settings. On Linux timedatectl turns on network time only where systemd
+// runs, so the text says so; any other system is told to set it right, with no command.
+func clockFix(goos string) string {
+	switch goos {
+	case "windows":
+		return "turn on Set time automatically in Windows Settings, Time & language"
+	case "darwin":
+		return "turn on Set time and date automatically in System Settings, General, Date & Time"
+	case "linux":
+		return "set it right, for example by turning on network time (on a system with systemd: timedatectl set-ntp true)"
 	}
-	return clockWhose(windows) + " is off"
+	return "set it right, for example by turning on network time"
+}
+
+// clockShort is the Forge Pool card's reason while the pool refuses this computer's clock.
+func clockShort(off time.Duration, goos string) string {
+	if far := howFar(off); far != "" {
+		return clockWhose(goos) + " is " + far + " off"
+	}
+	return clockWhose(goos) + " is off"
 }
 
 // clockReason is the state's reason while the pool refuses this computer's clock: how far off it
-// is, where to set it right, and what the miners do meanwhile.
-func clockReason(off time.Duration, windows bool, mode string) string {
-	fix := "set it right, for example by turning on network time (timedatectl set-ntp true)"
-	if windows {
-		fix = "turn on Set time automatically in Windows Settings, Time & language"
-	}
+// is, how to set it right on this system, and what the miners do meanwhile.
+func clockReason(off time.Duration, goos, mode string) string {
 	then := "Your miners mine solo on your node meanwhile: a block found now pays your payout address in full."
 	if mode == "waiting" {
 		then = "Pool only is on, so miners are turned away meanwhile, and fail over to their backup pool."
 	}
-	return upperFirst(clockShort(off, windows)) + ". Forge Pool refuses requests until it is right: " + fix + ". " + then +
+	return upperFirst(clockShort(off, goos)) + ". Forge Pool refuses requests until it is right: " + clockFix(goos) + ". " + then +
 		" Forge Gateway goes back to the pool by itself once the clock is right."
 }
 
@@ -243,7 +257,7 @@ func (a *app) stateNow() (configured bool, state, reason, mode string) {
 	e, cfg, problem := a.settingsNow()
 	mode = a.mode(e, cfg, problem, pool)
 	in := stateInput{engine: e != nil, problem: problem, pool: pool, mode: mode, poolOnly: cfg.Mining.PoolOnly,
-		cookie: cfg.Node.RPCUser == "", cookiePath: cfg.Node.RPCCookieFile, rpcURL: shownURL(cfg.Node.RPCURL), windows: runtime.GOOS == "windows"}
+		cookie: cfg.Node.RPCUser == "", cookiePath: cfg.Node.RPCCookieFile, rpcURL: shownURL(cfg.Node.RPCURL), goos: runtime.GOOS}
 	if e != nil {
 		in.loginErr = e.loginErr
 		if e.health != nil {

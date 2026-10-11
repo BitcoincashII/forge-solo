@@ -94,15 +94,21 @@ func TestStateTable(t *testing.T) {
 		{"7b clock off, Windows", stateClockOff, "This PC's clock is about 7 hours off. Forge Pool refuses requests until it is right: " +
 			"turn on Set time automatically in Windows Settings, Time & language. Your miners mine solo on your node meanwhile: " +
 			"a block found now pays your payout address in full. Forge Gateway goes back to the pool by itself once the clock is right.",
-			setUp(func(in *stateInput) { in.pool, in.mode, in.windows = clockRefused, "solo", true })},
-		{"7b clock off, Linux", stateClockOff, "This computer's clock is about 7 hours off. Forge Pool refuses requests until it is right: " +
-			"set it right, for example by turning on network time (timedatectl set-ntp true). Your miners mine solo on your node meanwhile: " +
+			setUp(func(in *stateInput) { in.pool, in.mode, in.goos = clockRefused, "solo", "windows" })},
+		{"7b clock off, macOS", stateClockOff, "This Mac's clock is about 7 hours off. Forge Pool refuses requests until it is right: " +
+			"turn on Set time and date automatically in System Settings, General, Date & Time. Your miners mine solo on your node meanwhile: " +
 			"a block found now pays your payout address in full. Forge Gateway goes back to the pool by itself once the clock is right.",
-			setUp(func(in *stateInput) { in.pool, in.mode = clockRefused, "solo" })},
+			setUp(func(in *stateInput) { in.pool, in.mode, in.goos = clockRefused, "solo", "darwin" })},
+		{"7b clock off, Linux", stateClockOff, "This computer's clock is about 7 hours off. Forge Pool refuses requests until it is right: " +
+			"set it right, for example by turning on network time (on a system with systemd: timedatectl set-ntp true). Your miners mine solo on your node meanwhile: " +
+			"a block found now pays your payout address in full. Forge Gateway goes back to the pool by itself once the clock is right.",
+			setUp(func(in *stateInput) { in.pool, in.mode, in.goos = clockRefused, "solo", "linux" })},
 		{"7b clock off, pool only", stateClockOff, "This PC's clock is about 7 hours off. Forge Pool refuses requests until it is right: " +
 			"turn on Set time automatically in Windows Settings, Time & language. Pool only is on, so miners are turned away meanwhile, " +
 			"and fail over to their backup pool. Forge Gateway goes back to the pool by itself once the clock is right.",
-			setUp(func(in *stateInput) { in.pool, in.mode, in.poolOnly, in.windows = clockRefused, "waiting", true, true })},
+			setUp(func(in *stateInput) {
+				in.pool, in.mode, in.poolOnly, in.goos = clockRefused, "waiting", true, "windows"
+			})},
 		{"7b node over clock", stateNodeLogin, "",
 			setUp(func(in *stateInput) { in.pool, in.mode, in.health = clockRefused, "solo", refused })},
 		{"7b a refresh refused while on TIDES work", stateActive, "",
@@ -212,11 +218,53 @@ func TestPoolClockRefusal(t *testing.T) {
 			t.Errorf("GW-CLOCK-READ: %q: refused %v, %q", tc.reason, refused, howFar(off))
 		}
 	}
-	if got := clockShort(7*time.Hour, true); got != "this PC's clock is about 7 hours off" {
+	if got := clockShort(7*time.Hour, "windows"); got != "this PC's clock is about 7 hours off" {
 		t.Errorf("GW-CLOCK-CARD: %q", got)
 	}
-	if got := clockShort(0, false); got != "this computer's clock is off" {
+	if got := clockShort(0, "linux"); got != "this computer's clock is off" {
 		t.Errorf("GW-CLOCK-CARD: %q", got)
+	}
+}
+
+// A clock the pool refuses is said, and how to set it right is told, as each system has it: the
+// switch in Windows Settings on a PC, the one in System Settings on a Mac, timedatectl only where
+// systemd runs on Linux, and no command on any other system. Each in both modes the state covers,
+// with how far off the clock is and without, and the Forge Pool card's short reason too.
+func TestClockAdviceForEachSystem(t *testing.T) {
+	const (
+		solo    = "Your miners mine solo on your node meanwhile: a block found now pays your payout address in full."
+		waiting = "Pool only is on, so miners are turned away meanwhile, and fail over to their backup pool."
+		back    = " Forge Gateway goes back to the pool by itself once the clock is right."
+	)
+	systems := []struct{ goos, whose, fix string }{
+		{"windows", "this PC's clock", "turn on Set time automatically in Windows Settings, Time & language"},
+		{"darwin", "this Mac's clock", "turn on Set time and date automatically in System Settings, General, Date & Time"},
+		{"linux", "this computer's clock", "set it right, for example by turning on network time (on a system with systemd: timedatectl set-ntp true)"},
+		{"freebsd", "this computer's clock", "set it right, for example by turning on network time"},
+		{"openbsd", "this computer's clock", "set it right, for example by turning on network time"},
+		{"", "this computer's clock", "set it right, for example by turning on network time"},
+	}
+	offsets := []struct {
+		reason, far string
+	}{
+		{`/datum/v1/jobs: 401 Unauthorized: {"error":"request time is -6h59m59s off the pool's clock"}`, " is about 7 hours off"},
+		{`/datum/v1/jobs: 401 Unauthorized: {"error":"request time is soon off the pool's clock"}`, " is off"},
+	}
+	for _, s := range systems {
+		for _, o := range offsets {
+			for _, m := range []struct{ mode, then string }{{"solo", solo}, {"waiting", waiting}} {
+				in := stateInput{engine: true, health: &healthResult{ci: &chainInfo{Chain: "main", Blocks: 100, Headers: 100}},
+					pool: tidesgw.Status{State: tidesgw.StateFallback, Reason: o.reason}, mode: m.mode, poolOnly: m.mode == "waiting", goos: s.goos}
+				want := upperFirst(s.whose) + o.far + ". Forge Pool refuses requests until it is right: " + s.fix + ". " + m.then + back
+				if state, reason := stateOf(in); state != stateClockOff || reason != want {
+					t.Errorf("GW-CLOCK-SYSTEM %q %s%s: %s %q\nwant %s %q", s.goos, m.mode, o.far, state, reason, stateClockOff, want)
+				}
+			}
+			off, _ := poolClockOff(o.reason)
+			if got, want := clockShort(off, s.goos), s.whose+o.far; got != want {
+				t.Errorf("GW-CLOCK-SYSTEM-CARD %q%s: the Forge Pool card says %q, want %q", s.goos, o.far, got, want)
+			}
+		}
 	}
 }
 

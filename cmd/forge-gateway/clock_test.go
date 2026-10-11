@@ -36,14 +36,13 @@ func TestAClockThatIsOffIsSaidSo(t *testing.T) {
 	if !eventually(10*time.Second, func() bool { v = h.a.view(time.Now()); return v.State == stateClockOff }) {
 		t.Fatalf("GW-CLOCK-STATE: the state is %s %q, pool %s %q", v.State, v.StateReason, v.Pool.State, v.Pool.Reason)
 	}
-	windows := runtime.GOOS == "windows"
-	if want := clockReason(7*time.Hour, windows, "solo"); v.StateReason != want || v.Mode != "solo" {
+	if want := clockReason(7*time.Hour, runtime.GOOS, "solo"); v.StateReason != want || v.Mode != "solo" {
 		t.Errorf("GW-CLOCK-REASON: %q (mode %s)\nwant %q", v.StateReason, v.Mode, want)
 	}
 	if !strings.Contains(v.StateReason, "clock is about 7 hours off. Forge Pool refuses requests until it is right") {
 		t.Errorf("GW-CLOCK-REASON: %q", v.StateReason)
 	}
-	if want := clockShort(7*time.Hour, windows); v.Pool.Reason != want {
+	if want := clockShort(7*time.Hour, runtime.GOOS); v.Pool.Reason != want {
 		t.Errorf("GW-CLOCK-CARD: the Forge Pool card says %q, want %q", v.Pool.Reason, want)
 	}
 	if v.Job == nil || v.Job.Tides {
