@@ -95,6 +95,19 @@ jobs:
           done
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o /dev/null ./cmd/forge-solo-migrate
 
+      # Forge Gateway has no Mac download: Mac users build it from this source, as forge-gateway's
+      # README says, and that repository's Mac CI builds a release only once it is tagged. Its files
+      # for a Mac are Linux's, which the steps above vet, staticcheck and test; this keeps every
+      # commit building for Apple silicon and Intel Macs.
+      - name: Vet and build Forge Gateway for macOS
+        if: ${{ !cancelled() && steps.go.outcome == 'success' }}
+        run: |
+          for arch in arm64 amd64; do
+            GOOS=darwin GOARCH=$arch go vet ./cmd/forge-gateway
+            CGO_ENABLED=0 GOOS=darwin GOARCH=$arch go build -o /dev/null ./cmd/forge-gateway
+            CGO_ENABLED=0 GOOS=darwin GOARCH=$arch go test -c -o /dev/null ./cmd/forge-gateway
+          done
+
       # Every platform runs on SQLite, where the api and the stratum share one file and the move
       # replaces it under the in-use lock.
       - name: Test with race detector

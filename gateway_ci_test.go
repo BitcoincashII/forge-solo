@@ -106,6 +106,24 @@ func TestGatewayCIGateway(t *testing.T) {
 	)
 }
 
+// Forge Gateway has no Mac download: Mac users build it from source (forge-gateway's README). The
+// unit job vets it for Apple silicon and Intel Macs, builds it and compiles its tests, so a change
+// that does not build for a Mac fails here, not on a Mac after its release.
+func TestGatewayCIMac(t *testing.T) {
+	w := loadWorkflow(t, ".github/workflows/test.yml")
+	_, dir, run, _ := gwCIStep(t, w, "unit", "Vet and build Forge Gateway for macOS")
+	if dir != "" {
+		t.Errorf("GW-CI-MAC-DIR: the step runs in %q, not the repository's root", dir)
+	}
+	gwCIHas(t, "GW-CI-MAC", run,
+		"for arch in arm64 amd64; do",
+		"GOOS=darwin GOARCH=$arch go vet ./cmd/forge-gateway",
+		"CGO_ENABLED=0 GOOS=darwin GOARCH=$arch go build -o /dev/null ./cmd/forge-gateway",
+		"CGO_ENABLED=0 GOOS=darwin GOARCH=$arch go test -c -o /dev/null ./cmd/forge-gateway",
+		"done",
+	)
+}
+
 // Forge Gateway's installer script is compiled in the Windows job, with placeholders for its
 // programs, in the image the release uses and with no network, and both programs must be in it.
 func TestGatewayCIISS(t *testing.T) {
