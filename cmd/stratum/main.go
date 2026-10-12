@@ -568,8 +568,6 @@ func rpcCallAuth(url, user, pass, method string, params []interface{}) (interfac
 		return nil, err
 	}
 	if result.Error != nil {
-		// Prefix MUST match isDefinitelyNotBroadcast ("RPC error:") so a node-level
-		// sendtoaddress rejection is correctly classified as definitely-not-broadcast.
 		return nil, fmt.Errorf("RPC error: %v", result.Error)
 	}
 	return result.Result, nil
@@ -837,11 +835,9 @@ func run1175PayoutCycle() {
 	for _, miner := range miners {
 		// 1175 is aux-coinbase-DIRECT: getauxblock builds the aux coinbase to pay
 		// PAYOUT_ADDRESS_1175 on-chain, so the reward is already delivered when the block
-		// matures. Settle the confirmed credit as paid-by-coinbase — do NOT run a secondary
-		// sendtoaddress (that would be a double-pay, and the per-miner address_1175 is a
-		// leftover pool concept that does not apply to a coinbase-direct solo miner). Only
-		// confirmed (mature + active-chain) credits are settled; orphaned ones are voided in
-		// step 2 above, so a reorged block is never marked paid.
+		// matures, and the confirmed credit is settled as paid by the coinbase. Only confirmed
+		// (mature + active-chain) credits are settled; orphaned ones are voided in step 2
+		// above, so a reorged block is never marked paid.
 		n, err := stats.Settle1175ByCoinbase(miner)
 		if err != nil {
 			logger.Warn("1175 settle-by-coinbase failed", zap.String("miner", miner), zap.Error(err))
@@ -2202,10 +2198,8 @@ func (p *BlockFindingShareProcessor) submitBlock(share *stratum.Share) {
 
 		if share.IsSolo {
 			// SOLO MODE: the block reward is paid on-chain DIRECTLY by the coinbase to the
-			// configured POOL_ADDRESS. Settle DB-only (txid='coinbase-direct') and never
-			// create a sendable payout row: the wallet sendtoaddress path targets a
-			// nonexistent wallet, would fail forever, and risks a double-pay. Mirrors the
-			// 1175 coinbase-direct settle.
+			// configured payout address, so the payout is recorded already settled
+			// (txid='coinbase-direct'), as the 1175 coinbase-direct settle is.
 			//
 			// The block is listed at the time its share came in, however late the record is.
 			foundAt := share.SubmittedAt

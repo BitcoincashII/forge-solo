@@ -1223,9 +1223,8 @@ func idPlaceholders(ids []int64) (string, []interface{}) {
 //
 // ReserveMaturePayouts atomically reserves every mature unpaid payout row for a
 // miner, stamps them with a unique placeholder txid, and returns them ordered.
-// Reserved rows carry a non-empty txid so GetReadyPayoutsDB no longer selects them --
-// this is what stops the auto processor and a concurrent manual request from both
-// paying the same balance.
+// Reserved rows carry a non-empty txid so a second reservation no longer selects them --
+// this is what stops two concurrent reservations from both taking the same balance.
 //
 // DIFFERS FROM 1.0.12'S POSTGRESQL BUILD BY DESIGN. That one reserved with SELECT ... FOR
 // UPDATE then UPDATEd the same predicate in one transaction. SQLite has no row locks, and a plain
@@ -1592,11 +1591,9 @@ func ConfirmSoloBlock(height int64) error {
 }
 
 // SaveSoloBlockCoinbaseDirect records a solo-found block and settles its reward DB-only.
-// In SOLO mode the block reward is paid on-chain DIRECTLY by the coinbase to
-// POOL_ADDRESS, so there is NO secondary sendtoaddress (that path targets a nonexistent
-// wallet, would fail forever, and risks a double-pay). The payout row is therefore
-// inserted already settled (txid='coinbase-direct', status='paid'), which the payout
-// processor -- selecting only rows WHERE txid IS NULL OR txid=” -- never touches.
+// In SOLO mode the block reward is paid on-chain DIRECTLY by the coinbase to the payout
+// address, so the payout row is inserted already settled (txid='coinbase-direct',
+// status='paid'): GetMinerBalanceDB, which sums rows with no txid, never counts it as owed.
 // Reorg-aware via recordBlockRow.
 func SaveSoloBlockCoinbaseDirect(minerID string, blockHeight int64, amount float64, blockHash string) error {
 	return SaveSoloBlockCoinbaseDirectAt(minerID, blockHeight, amount, blockHash, time.Now())
