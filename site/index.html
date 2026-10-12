@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Forge Solo: mine BCH2 at home on your own full node</title>
+    <meta name="description" content="Forge Solo is one app: a BCH2 full node, the stratum your miners connect to, and a dashboard. Mine solo or in Forge Pool's TIDES window, on Umbrel, Windows or Linux. No pool fee.">
+    <link rel="canonical" href="https://forgesolo.bch2.org/">
+    <meta name="theme-color" content="#0a0a0a">
+    <meta name="color-scheme" content="dark">
+    <link rel="icon" type="image/svg+xml" href="/img/logo.svg">
+    <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
+    <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="/css/site.css?v=1">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Bitcoin Cash II">
+    <meta property="og:title" content="Forge Solo: mine BCH2 at home on your own full node">
+    <meta property="og:description" content="One app: a BCH2 full node, the stratum your miners connect to, and a dashboard. Solo or TIDES, on Umbrel, Windows or Linux. No pool fee.">
+    <meta property="og:url" content="https://forgesolo.bch2.org/">
+    <meta property="og:image" content="https://forgesolo.bch2.org/img/og.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="Forge Solo: mine BCH2 at home on your own full node. Umbrel, Windows, Linux.">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:site" content="@BitcoincashII">
+    <meta name="twitter:title" content="Forge Solo: mine BCH2 at home on your own full node">
+    <meta name="twitter:description" content="One app: a BCH2 full node, the stratum your miners connect to, and a dashboard. Solo or TIDES, on Umbrel, Windows or Linux. No pool fee.">
+</head>
+<body>
+    <a class="skip-link" href="#main" data-i18n="fs_skip">Skip to main content</a>
+
+    <header class="site-header">
+        <div class="container">
+            <a class="brand" href="/">
+                <img src="/img/logo.svg" width="36" height="36" alt="">
+                <span>
+                    <span class="brand-name">Forge Solo</span>
+                    <span class="brand-sub" data-i18n="fs_brand_sub">Bitcoin Cash II home miner</span>
+                </span>
+            </a>
+            <nav class="site-nav" aria-label="Main">
+                <a class="in-page" href="#how-it-works" data-i18n="fs_nav_how">How it works</a>
+                <a class="in-page" href="#get-it" data-i18n="fs_nav_get">Get it</a>
+                <a class="in-page" href="#set-up" data-i18n="fs_nav_setup">Set up</a>
+                <a href="https://github.com/BitcoincashII/forge-solo">GitHub</a>
+            </nav>
+        </div>
+    </header>
+
+    <main id="main">
+        <section class="hero" aria-labelledby="hero-title">
+            <div class="container">
+                <h1 id="hero-title" data-i18n="fs_hero_title">Forge <span>Solo</span></h1>
+                <p class="lede" data-i18n="fs_hero_lede">Mine BCH2 at home on your own full node.</p>
+                <p class="intro" data-i18n="fs_hero_intro">Forge Solo is one app: a BCH2 full node, the stratum your miners connect to, and a dashboard. It runs on Umbrel, Windows and Linux, with no pool fee.</p>
+                <div class="actions">
+                    <a class="btn btn-primary" href="https://github.com/BitcoincashII/forge-solo/releases/latest" data-i18n="fs_hero_get">Get the latest release</a>
+                    <a class="btn btn-secondary" href="#how-it-works" data-i18n="fs_hero_how">How it works</a>
+                </div>
+                <p class="note" data-i18n="fs_hero_note">Free and open source. Downloads are on GitHub.</p>
+            </div>
+        </section>
+
+        <section class="section" id="how-it-works" aria-labelledby="how-title">
+            <div class="container">
+                <h2 id="how-title" data-i18n="fs_how_title">How it works</h2>
+                <p class="intro" data-i18n="fs_how_intro">Your own node builds every block your miners work on. In Settings, under <strong>How blocks pay</strong>, you choose <strong>Solo</strong> or <strong>TIDES pool</strong>.</p>
+                <div class="grid grid-2">
+                    <article class="card" aria-labelledby="solo-title">
+                        <h3 id="solo-title" data-i18n="fs_solo_title">Solo</h3>
+                        <ul>
+                            <li data-i18n="fs_solo_1">A block you find pays your BCH2 address in full, straight from its coinbase.</li>
+                            <li data-i18n="fs_solo_2">Nothing until you find a block, then all of it.</li>
+                            <li data-i18n="fs_solo_3">On Umbrel and Windows, solo mode also merge-mines 1175 (ESF) once you set a 1175 payout address, at no extra hashrate cost.</li>
+                        </ul>
+                    </article>
+                    <article class="card" aria-labelledby="tides-title">
+                        <h3 id="tides-title" data-i18n="fs_tides_title">TIDES pool</h3>
+                        <ul>
+                            <li data-i18n="fs_tides_1">Team up with other miners in Forge Pool's TIDES window.</li>
+                            <li data-i18n="fs_tides_2">Every TIDES block, one found on work Forge Pool registered, pays everyone with work in the window, straight from its coinbase, in proportion to that work.</li>
+                            <li data-i18n="fs_tides_3">0.00% fee, and no pool wallet. An amount under 546 satoshis is carried to a later TIDES block.</li>
+                            <li data-i18n="fs_tides_4">When Forge Pool cannot be reached, Forge Solo mines solo meanwhile. A block found then pays your BCH2 address in full.</li>
+                            <li data-i18n="fs_tides_5">1175 merge-mining is off in TIDES mode.</li>
+                        </ul>
+                        <p class="links" data-i18n="fs_tides_links"><a class="chip" href="https://pool.bch2.org/tides">The live TIDES window</a> <a class="chip" href="https://pool.bch2.org/tides-guide">TIDES guide</a></p>
+                    </article>
+                </div>
+                <p class="after" data-i18n="fs_how_after">Either way there is no payout schedule: the coinbase pays you directly. A block's reward can be spent after 100 blocks, the network's coinbase maturity.</p>
+            </div>
+        </section>
+
+        <section class="section" id="inside" aria-labelledby="inside-title">
+            <div class="container">
+                <h2 id="inside-title" data-i18n="fs_inside_title">What's inside</h2>
+                <div class="grid grid-4">
+                    <div class="tile">
+                        <h3 data-i18n="fs_inside_node">BCH2 full node</h3>
+                        <p data-i18n="fs_inside_node_text">It syncs on its own and keeps the whole chain, so other nodes can sync from it.</p>
+                    </div>
+                    <div class="tile">
+                        <h3 data-i18n="fs_inside_1175">1175 (ESF) node</h3>
+                        <p data-i18n="fs_inside_1175_text">On Umbrel and Windows, for merge-mining.</p>
+                    </div>
+                    <div class="tile">
+                        <h3 data-i18n="fs_inside_stratum">Stratum</h3>
+                        <p data-i18n="fs_inside_stratum_text">Port 3333 for your miners. Port 3335 for NiceHash and MiningRigRentals.</p>
+                    </div>
+                    <div class="tile">
+                        <h3 data-i18n="fs_inside_dash">Dashboard</h3>
+                        <p data-i18n="fs_inside_dash_text">Hashrate, effort, your blocks, payouts and the TIDES window.</p>
+                    </div>
+                </div>
+                <p class="after" data-i18n="fs_inside_after">Your settings, blocks and payouts are kept in one SQLite file, <code>forgesolo.db</code>. <a href="https://github.com/BitcoincashII/forge-solo#whats-inside">What's inside</a> in the README has the details.</p>
+            </div>
+        </section>
+
+        <section class="section" id="get-it" aria-labelledby="get-title">
+            <div class="container">
+                <h2 id="get-title" data-i18n="fs_get_title">Get Forge Solo</h2>
+                <p class="intro" data-i18n="fs_get_intro">Every download is on GitHub, on the page of the latest release.</p>
+                <div class="grid grid-3">
+                    <article class="card" aria-labelledby="umbrel-title">
+                        <h3 id="umbrel-title" data-i18n="fs_get_umbrel_title">Umbrel</h3>
+                        <p data-i18n="fs_get_umbrel">In Umbrel, add the community app store <code>https://github.com/<wbr>BitcoincashII/<wbr>umbrel-app-store</code>, then install Forge Solo from BCH2 Community Apps.</p>
+                        <p class="links" data-i18n="fs_get_umbrel_links"><a class="chip" href="https://github.com/BitcoincashII/forge-solo#install-on-umbrel">Directions on GitHub</a> <a class="chip" href="https://github.com/BitcoincashII/forge-solo/releases/latest">Latest release</a></p>
+                    </article>
+                    <article class="card" aria-labelledby="windows-title">
+                        <h3 id="windows-title" data-i18n="fs_get_windows_title">Windows</h3>
+                        <p data-i18n="fs_get_windows">64-bit Windows 10 or 11 on an x64 PC, or Windows 11 on ARM. The installer is on the latest release.</p>
+                        <p data-i18n="fs_get_windows_sign">Forge Solo is not yet signed by a certificate Windows trusts. The directions say what to do when SmartScreen or Smart App Control stops it.</p>
+                        <p class="links" data-i18n="fs_get_windows_links"><a class="chip" href="https://github.com/BitcoincashII/forge-solo#install-on-windows">Directions on GitHub</a> <a class="chip" href="https://github.com/BitcoincashII/forge-solo/releases/latest">Latest release</a></p>
+                    </article>
+                    <article class="card" aria-labelledby="linux-title">
+                        <h3 id="linux-title" data-i18n="fs_get_linux_title">Linux</h3>
+                        <p data-i18n="fs_get_linux">Downloads for x86_64 PCs and for ARM boards such as the Raspberry Pi, and also for i686 and riscv64. They are fully static: they run on any distribution with kernel 3.17 or newer.</p>
+                        <p data-i18n="fs_get_linux_bch2">BCH2 only: the Linux version does not merge-mine 1175.</p>
+                        <p class="links" data-i18n="fs_get_linux_links"><a class="chip" href="https://github.com/BitcoincashII/forge-solo/blob/main/packaging/linux/README.md">Directions on GitHub</a> <a class="chip" href="https://github.com/BitcoincashII/forge-solo/releases/latest">Latest release</a></p>
+                    </article>
+                </div>
+            </div>
+        </section>
+
+        <section class="section" id="set-up" aria-labelledby="setup-title">
+            <div class="container">
+                <h2 id="setup-title" data-i18n="fs_setup_title">Set up in three steps</h2>
+                <ol class="steps" role="list">
+                    <li>
+                        <h3 data-i18n="fs_setup_1">Install it</h3>
+                        <p data-i18n="fs_setup_1_text">On your Umbrel, PC or Linux machine, as above.</p>
+                    </li>
+                    <li>
+                        <h3 data-i18n="fs_setup_2">Set your payout address</h3>
+                        <p data-i18n="fs_setup_2_text">On the dashboard's Settings page, enter your BCH2 payout address and save. On Umbrel and Windows, add a 1175 payout address to merge-mine. Saving asks for Forge Solo's password: the directions say where each platform shows it.</p>
+                    </li>
+                    <li>
+                        <h3 data-i18n="fs_setup_3">Point your miners at it</h3>
+                        <p data-i18n="fs_setup_3_text"><code>stratum+tcp://&lt;your machine's address&gt;:3333</code>. The dashboard shows the address. The worker name is only a label. NiceHash and MiningRigRentals use port 3335.</p>
+                    </li>
+                </ol>
+                <p class="after" data-i18n="fs_setup_after">Everything else is in the README: <a href="https://github.com/BitcoincashII/forge-solo#connect-a-miner">connecting a miner</a>, <a href="https://github.com/BitcoincashII/forge-solo#open-these-ports-in-your-router">the ports to open in your router</a> and <a href="https://github.com/BitcoincashII/forge-solo#rented-hashpower-braiins-and-other-marketplaces">rented hashpower</a>.</p>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="container">
+            <p data-i18n="fs_footer_license">Forge Solo is free and open source, under the <a href="https://github.com/BitcoincashII/forge-solo/blob/main/LICENSE">MIT license</a>. <a href="https://github.com/BitcoincashII/forge-solo">Source on GitHub</a>.</p>
+            <p data-i18n="fs_footer_links"><a href="https://github.com/BitcoincashII/forge-solo/blob/main/RELEASE_NOTES.md">Release notes</a> <span aria-hidden="true">&middot;</span> <a href="https://github.com/BitcoincashII/forge-solo/issues">Questions and problems</a> <span aria-hidden="true">&middot;</span> <a href="https://pool.bch2.org/">Forge Pool</a></p>
+            <p data-i18n="fs_footer_ocean">TIDES mode follows DATUM and TIDES, designed by OCEAN. Forge Solo is not affiliated with or endorsed by OCEAN.</p>
+            <p data-i18n="fs_footer_version">This page describes Forge Solo 1.0.15.</p>
+        </div>
+    </footer>
+</body>
+</html>
