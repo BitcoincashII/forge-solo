@@ -645,6 +645,9 @@ func TestSiteHead(t *testing.T) {
 		return html.UnescapeString(m[1])
 	}
 	title := regexp.MustCompile(`<title[^>]*>([^<]*)</title>`)
+	// the preview's picture, with a ?v= that changes with it, since the services keep it by its address
+	ogImage := regexp.MustCompile(`^` + regexp.QuoteMeta(siteURL) + `img/og\.png(\?v=\d+)?$`)
+	var ogImageFirst, ogImageAt string
 	previews := 0
 	for _, p := range sitePages(t) {
 		if p.name == "site/404.html" {
@@ -654,12 +657,20 @@ func TestSiteHead(t *testing.T) {
 		u := siteURL + strings.TrimPrefix(siteAddress(p.name), "/")
 		for _, want := range []string{`<link rel="canonical" href="` + u + `">`, `<meta property="og:url" content="` + u + `">`,
 			`<meta property="og:type" content="website">`, `<meta property="og:site_name" content="Bitcoin Cash II">`,
-			`<meta property="og:image" content="` + siteURL + `img/og.png">`, `<meta property="og:image:width" content="1200">`,
+			`<meta property="og:image:width" content="1200">`,
 			`<meta property="og:image:height" content="630">`, `<meta name="twitter:card" content="summary_large_image">`,
 			`<meta name="twitter:site" content="@BitcoincashII">`, `<link rel="apple-touch-icon" href="/img/apple-touch-icon.png">`} {
 			if !strings.Contains(p.text, want) {
 				t.Errorf("SITE-HEAD: %s does not have %s", p.name, want)
 			}
+		}
+		switch img := meta(p.text, "property", "og:image"); {
+		case !ogImage.MatchString(img):
+			t.Errorf("SITE-HEAD: %s's og:image is %q, want %simg/og.png or %simg/og.png?v=<n>", p.name, img, siteURL, siteURL)
+		case ogImageAt == "":
+			ogImageFirst, ogImageAt = img, p.name
+		case img != ogImageFirst:
+			t.Errorf("SITE-HEAD-PREVIEW: %s's og:image is %s and %s's is %s: every page shows the same picture", ogImageAt, ogImageFirst, p.name, img)
 		}
 		var name string
 		if m := title.FindStringSubmatch(p.text); m != nil {

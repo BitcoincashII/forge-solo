@@ -120,7 +120,10 @@ wordmark, the tag with the BCH2 coin before it (26 px), "Mine BCH2 at home." wit
 the lede's words, the hero desk with the BCH2 coin arriving at the phone, and a soot strip with the
 three facts and forgesolo.bch2.org. Both were made from the page itself (the drawing parts and the
 hero straight out of `index.html`, and the site's own stylesheet, fonts and images), so they match
-it: a change to the hero needs them made again.
+it: a change to the hero needs them made again. The head carries the `canonical`, `og:*` and
+`twitter:*` tags (summary_large_image, @BitcoincashII) and `apple-touch-icon`; `og:image` ends in
+`?v=2`, a new number with each new picture, since X, Facebook and Telegram keep a picture by its
+address.
 
 ## The BCH2 coin
 
@@ -138,20 +141,19 @@ It stands only where it means BCH2, and small:
 | Where | Size | Description |
 |---|---|---|
 | before the hero's tag, "Home mining for Bitcoin Cash II", in place of the tag's rule | 20 px | `alt=""`: the words beside it say it |
-| the hero drawing: the reward arriving at the phone, under its sparks | 30 of the drawing's 640 units (28 px at 1440, 17 px at 390) | the drawing's description says the reward arrives as a BCH2 coin (`fs_hero_art_coin`) |
+| the hero drawing: the reward arriving at the phone, under its sparks | 30 of the drawing's 640 units (28 px at 1440, 17 px at 390, 14 px at 320); pin 3 sits below it, on the phone's edge, and never covers it | the drawing's description says the reward arrives as a BCH2 coin (`fs_hero_art_coin`) |
 | What you need, "Your BCH2 address": the coin falling to the phone | 26 of the panel's 240 units (28 px at 1440, 19 px at 390) | none: the drawing is decorative beside its heading |
 | the questions page, before "What is Bitcoin Cash II (BCH2)?" | 1 em of the heading (23 to 30 px), centred on its first line; a second line starts under the words | `alt=""` |
-| the footer, before "Bitcoin Cash II home miner" | 20 px, centred under the anvil, the words under "Forge Solo" | `alt=""` |
+| the footer, before "Bitcoin Cash II home miner" | 20 px, centred under the anvil, the words under "Forge Solo" at every width | `alt=""` |
 | the link preview, `img/og.png` | 26 px before the tag, and in the desk drawing | `og:image:alt` says a BCH2 coin arrives |
 
 The drawn amber coin (`#coin`) stays where a coin means a payment in general: on the phone's own
 screen (the wallet) and at Solo's "Who gets paid", where a block can pay 1175 too. The pages show the
 file itself, with `<img>` and, in the drawings, SVG `<image>`: one file, kept by the browser, which the
 policy's `img-src 'self'` allows, and drawn sharp at any size. At 20 px it reads as a green coin with a
-black B. Its centre is within a pixel of the middle of the capitals beside it in the tag and the
-question, and between the middle of the capitals and of the small letters in the footer (measured at
-1440, 1024, 390 and 320 px). The head carries the `canonical`, `og:*` and `twitter:*` tags
-(summary_large_image, @BitcoincashII) and `apple-touch-icon`.
+black B. Its centre is within a pixel of the middle of the capitals beside it, in the tag, the
+question and the footer (measured at 1440, 1024, 390 and 320 px), and when a translation wraps, it
+stays beside the first line and the second starts under the words.
 
 ## Drawings: one flat style
 
@@ -165,7 +167,8 @@ object is drawn straight on; nothing is isometric. Flat fills from the tokens on
 gradients, rounded corners, a sand floor line. The one exception is the BCH2 coin, the reward arriving
 at the phone: BCH2's own artwork, as it is (above). The desk's drawer hangs from the top and meets the
 right leg. "Others" in the TIDES window are the same Bitaxe in paper tones. The hero numbers 1, 2,
-3 are HTML pins over the picture (so they stay legible on a phone) and a key under it ("A miner, like a Bitaxe", "A computer that stays on", "Your BCH2
+3 are HTML pins over the picture (so they stay legible on a phone; 3 sits a fifth of the way down the
+phone's edge, clear of the BCH2 coin above it) and a key under it ("A miner, like a Bitaxe", "A computer that stays on", "Your BCH2
 address") matches the three cards, whose numbers come from the list itself (CSS counters).
 
 The TIDES picture shows no proportions: "Who gets paid" is the fraction *your work / all work in the

@@ -27,7 +27,7 @@ anchors of its headings, rather than repeating them. The Windows and Linux downl
 [the latest release](https://github.com/BitcoincashII/forge-solo/releases/latest), never on the
 site; Umbrel installs Forge Solo from its app store. The pages have no script, and load nothing
 from another site: the nginx server's Content-Security-Policy allows only their own styles, fonts
-and images. They link their files from the site's root (`/css/site.css?v=6`), since nginx serves
+and images. They link their files from the site's root (`/css/site.css?v=7`), since nginx serves
 `404.html` at whatever address was asked for and the questions page is a folder down. A
 screenshot's link opens its `@2x` file on the browser's own image page, whose inline styles the
 policy refuses: Chrome's console says so, and the image still shows, fitted to the window.
@@ -47,7 +47,8 @@ publish.
 
 When a release changes what the page says, change the page with it, and the version in its footer.
 A changed stylesheet gets a new `?v=` on every page, as on pool.bch2.org: nginx lets browsers keep it
-for a week.
+for a week. A changed `img/og.png` gets a new `?v=` in both pages' `og:image`: X, Facebook and
+Telegram keep a preview's picture by its address.
 
 ## Translations
 

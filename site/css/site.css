@@ -139,15 +139,19 @@ a.term:hover { color: var(--rust-deep); text-decoration-style: solid; }
 .mark-on-dark { --mk-anvil: var(--paper-hi); --mk-spark: var(--ember); }
 
 /* the Bitcoin Cash II coin (img/bch2-coin.svg, BCH2's own, as it is: its greens are the coin's, not the
-   page's), small, where the words mean BCH2. Beside them it says nothing more, so its alt is "" */
+   page's), small, where the words mean BCH2. Beside them it says nothing more, so its alt is "". It is
+   centred on the first line of its words (half its line-height down), so a translation that wraps
+   leaves it beside the first line, not between two */
 .coin { display: block; flex: none; }
+.tag.tag-coin { align-items: flex-start; }
 .tag-coin::before { display: none; }
-.tag-coin .coin { width: 20px; height: 20px; }
+.tag-coin .coin { width: 20px; height: 20px; margin-top: calc((1.3em - 20px) / 2); }
 .qa-coin { display: flex; align-items: flex-start; gap: .3em; }
 .qa-coin .coin { width: 1em; height: 1em; margin-top: .06em; }
-/* in the footer, under the anvil, its words under the name */
-.foot-coin { display: flex; align-items: center; gap: 18px; }
-.foot-coin .coin { width: 20px; height: 20px; margin-left: 8px; }
+/* in the footer, under the anvil, its words under the name (the gap is the brand's 10 px plus 8 px);
+   a pixel above the line's middle, on the middle of the capitals as in the tag and the question */
+.foot-coin { display: flex; align-items: flex-start; gap: 18px; }
+.foot-coin .coin { width: 20px; height: 20px; margin: calc((1.6em - 20px) / 2 - 1px) 0 0 8px; }
 
 .fn-bg { fill: var(--fn-bg, var(--paper-hi)); }
 .fn-blade { fill: var(--fn-blade, var(--copper)); }
@@ -269,10 +273,11 @@ a.term:hover { color: var(--rust-deep); text-decoration-style: solid; }
     font: 700 1.25rem/1 var(--display); font-variant-numeric: lining-nums;
 }
 .pin { position: absolute; width: clamp(32px, 3vw, 42px); transform: translate(-50%, -50%); font-size: clamp(1rem, .8rem + .5vw, 1.3125rem); }
-/* over the top-left corner of each object (viewBox 640 x 430) */
+/* over the top-left corner of each object (viewBox 640 x 430); 3 a fifth of the way down the phone's
+   left edge, clear of the BCH2 coin arriving above it, even at the bottom of its bob */
 .pin-1 { left: 6.6%; top: 54.6%; }
 .pin-2 { left: 65.9%; top: 61.6%; }
-.pin-3 { left: 85.3%; top: 57.6%; }
+.pin-3 { left: 85.3%; top: 62%; }
 .pin-1::before { content: "1"; }
 .pin-2::before { content: "2"; }
 .pin-3::before { content: "3"; }
@@ -757,6 +762,7 @@ a.term:hover { color: var(--rust-deep); text-decoration-style: solid; }
     .masthead-row { column-gap: 12px; }
     .brand { font-size: 1.375rem; gap: 8px; }
     .brand-mark { width: 36px; height: 36px; margin-top: -5px; }
+    .foot-coin { gap: 16px; }
     .btn-head { min-height: 44px; padding: 7px 14px; }
     .nav ul { justify-content: space-between; gap: 0 12px; }
     .nav a { font-size: 1rem; }
