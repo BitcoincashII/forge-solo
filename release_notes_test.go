@@ -427,6 +427,43 @@ func TestReleaseNotesNameTheDashboardAsItShows(t *testing.T) {
 	}
 }
 
+// 1.0.16's release page names the Wallet card, its figures and its link, and Settings' hint, as the
+// pages show them.
+func TestReleaseNotesNameTheWalletCardAsItShows(t *testing.T) {
+	sec := flat(releaseSection(t, "1.0.16"))
+	solo := string(mustRead(t, "web/dist/solo.html"))
+	settings := string(mustRead(t, "web/dist/settings.html"))
+	for _, c := range []struct {
+		code, label, file, src string
+		shown                  []string // as the page has it, when its markup splits the label
+	}{
+		{"DOCS-1016-CARD", "Wallet", "web/dist/solo.html", solo, []string{`<h2 id="walletTitle">Wallet `}},
+		{"DOCS-1016-SPENDABLE", "Spendable", "web/dist/solo.html", solo, []string{`<div class="wl">Spendable</div>`}},
+		{"DOCS-1016-MATURING", "Still maturing", "web/dist/solo.html", solo, []string{`<div class="wl">Still maturing</div>`}},
+		{"DOCS-1016-OPEN", "Open BCH2 Wallet", "web/dist/solo.html", solo, []string{`>Open BCH2 Wallet <span`}},
+		{"DOCS-1016-HINT", "Need a BCH2 address? Create one in the BCH2 Wallet", "web/dist/settings.html", settings,
+			[]string{"Need a BCH2 address? <a ", ">Create one in the BCH2 Wallet</a>"}},
+	} {
+		if !strings.Contains(sec, `"`+c.label+`"`) {
+			t.Errorf("%s: RELEASE_NOTES.md ## 1.0.16 does not name %q", c.code, c.label)
+		}
+		for _, s := range c.shown {
+			if !strings.Contains(c.src, s) {
+				t.Errorf("%s-PAGE: %s no longer shows %q, which the release notes name", c.code, c.file, c.label)
+			}
+		}
+	}
+	for _, want := range []string{"each can be spent 100 blocks after the block that paid it", "no other service is asked",
+		"It holds no keys, so it cannot spend them", "the keys can stay on another device, such as your phone"} {
+		if !strings.Contains(sec, want) {
+			t.Errorf("DOCS-1016-WORDS: RELEASE_NOTES.md ## 1.0.16 does not say %q", want)
+		}
+	}
+	if !strings.Contains(solo, "Each can be spent 100 blocks after the block that paid it.") {
+		t.Error("DOCS-1016-MATURITY: the Wallet card no longer says when a coin can be spent, as the release notes do")
+	}
+}
+
 // The store's description and update notes keep their lists one item to a line and their
 // paragraphs apart. umbrelOS shows both as plain text with every line break kept, not as Markdown.
 // In a folded block, lines at the block's own indentation are joined into one: the store showed
@@ -436,8 +473,8 @@ func TestReleaseNotesNameTheDashboardAsItShows(t *testing.T) {
 // blank line. The update screen is short.
 func TestUmbrelStoreTextReadsAsWritten(t *testing.T) {
 	m := readUmbrelManifest(t)
-	if m.Version != "1.0.15" {
-		t.Errorf("DOCS-UMBREL-VERSION: umbrel-app.yml is version %q, not 1.0.15", m.Version)
+	if m.Version != "1.0.16" {
+		t.Errorf("DOCS-UMBREL-VERSION: umbrel-app.yml is version %q, not 1.0.16", m.Version)
 	}
 	joined := regexp.MustCompile(`\S[ \t]+-[ \t]+[A-Z]`)
 	item := regexp.MustCompile(`(?m)^[ \t]*- \S`)

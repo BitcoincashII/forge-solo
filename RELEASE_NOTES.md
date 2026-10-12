@@ -8,6 +8,36 @@ screen shows `releaseNotes` from `umbrel-app.yml` instead, so write that too.
 Up to 1.0.12 each platform kept its own notes: [windows/RELEASE_NOTES.md](windows/RELEASE_NOTES.md)
 and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
 
+## 1.0.16
+
+**The coins at your payout address.**
+- **Every platform:** the dashboard has a "Wallet" card: the coins at your payout address, as your
+  node sees them, from your block rewards, your TIDES payouts and anything else sent to it. It
+  shows what is "Spendable" and what is "Still maturing", with the blocks each block reward or TIDES
+  payout still has to wait: each can be spent 100 blocks after the block that paid it. Forge Solo
+  reads them from its own BCH2 node, which looks them up in its own copy of the chain: no other
+  service is asked, and nothing is sent anywhere. It holds no keys, so it cannot spend them. A
+  payment shows once a block includes it.
+- **Umbrel and Windows:** with a 1175 address set, the card shows its coins too, read from the 1175
+  node.
+- **Every platform:** "Open BCH2 Wallet" opens the BCH2 Wallet at wallet.bch2.org in a new tab. It
+  keeps its keys in your browser.
+- **Every platform:** while no payout address is set, Settings says where to get one: "Need a BCH2
+  address? Create one in the BCH2 Wallet". Forge Solo only needs the address, so the keys can stay on
+  another device, such as your phone.
+
+**TIDES mode: a clock that is off.**
+- **Every platform, TIDES:** Forge Pool refuses the requests of an install whose clock is more than
+  2 minutes off its own, and the install mines solo meanwhile. The dashboard's banner and TIDES card
+  now say how far off the clock is and how to set it right: on Windows, turn on Set time
+  automatically in Windows Settings, Time & language; on Linux, turn on network time (with systemd:
+  `timedatectl set-ntp true`); on Umbrel, umbrelOS sets the clock itself, so check that the Umbrel
+  is online. They showed the pool's answer as it came.
+
+**Nodes.**
+- **Linux:** the BCH2 node's config has `disablewallet=1`, as on Umbrel and Windows. The node Forge
+  Solo for Linux ships has no wallet built in, so it runs as before.
+
 ## 1.0.15
 
 1.0.14 was tagged but not released. 1.0.15 has all of its changes, and newer versions of some of
