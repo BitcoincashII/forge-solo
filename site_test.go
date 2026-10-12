@@ -73,8 +73,9 @@ func TestSiteLinksLeadToHeadings(t *testing.T) {
 	}
 }
 
-// Every download is on GitHub's latest release, never on the site: the release page has every
-// platform's file and their checksums, and a link to it cannot fall behind a release.
+// The Windows and Linux downloads are on GitHub's latest release, never on the site: the release
+// page has their files and checksums, and a link to it cannot fall behind a release. (Umbrel
+// installs Forge Solo from its app store.)
 func TestSiteDownloadsAreOnGitHub(t *testing.T) {
 	file := regexp.MustCompile(`(?i)\.(exe|msi|gz|tgz|xz|zip|dmg|pkg|deb|rpm|appimage)$`)
 	latest := 0
@@ -103,12 +104,18 @@ func TestSiteDownloadsAreOnGitHub(t *testing.T) {
 // attribute, an event handler, and a stylesheet, font or image from another site, so each fails
 // here first.
 func TestSiteLivesWithItsContentSecurityPolicy(t *testing.T) {
-	m := regexp.MustCompile(`(?m)^\s*add_header Content-Security-Policy "([^"]+)" always;$`).FindStringSubmatch(string(mustRead(t, siteNginx)))
-	if m == nil {
+	const csp = `add_header Content-Security-Policy "`
+	value := ""
+	for _, s := range nginxStatements(string(mustRead(t, siteNginx))) {
+		if rest, ok := strings.CutPrefix(s.text, csp); ok {
+			value, _, _ = strings.Cut(rest, `"`)
+		}
+	}
+	if value == "" {
 		t.Fatalf("SITE-CSP: %s sends no Content-Security-Policy", siteNginx)
 	}
 	policy := map[string]string{}
-	for _, d := range strings.Split(m[1], ";") {
+	for _, d := range strings.Split(value, ";") {
 		if f := strings.Fields(d); len(f) > 0 {
 			policy[f[0]] = strings.Join(f[1:], " ")
 		}
@@ -126,7 +133,7 @@ func TestSiteLivesWithItsContentSecurityPolicy(t *testing.T) {
 	refused := regexp.MustCompile(`(?i)<script\b|<style\b|<iframe\b|<object\b|<embed\b|<form\b|\sstyle\s*=|\son[a-z]+\s*=`)
 	tag := regexp.MustCompile(`(?i)<(link|img|source|audio|video)\b[^>]*>`)
 	rel := regexp.MustCompile(`(?i)\brel="([^"]*)"`)
-	src := regexp.MustCompile(`(?i)\b(?:href|src|srcset)="([^"]*)"`)
+	src := regexp.MustCompile(`(?i)\b(href|src|srcset)="([^"]*)"`)
 	elsewhere := regexp.MustCompile(`(?i)^(?:[a-z][a-z0-9+.-]*:|//)`)
 	for _, p := range sitePages(t) {
 		for _, s := range refused.FindAllString(p.text, -1) {
@@ -137,8 +144,20 @@ func TestSiteLivesWithItsContentSecurityPolicy(t *testing.T) {
 				continue // names an address, loads nothing
 			}
 			for _, s := range src.FindAllStringSubmatch(el, -1) {
-				if elsewhere.MatchString(s[1]) {
-					t.Errorf("SITE-CSP-ELSEWHERE: %s loads %s from another site: %s", p.name, s[1], el)
+				urls := []string{s[2]}
+				if strings.EqualFold(s[1], "srcset") {
+					// a srcset is a list, "a.png 1x, b.png 2x": the browser may load any of them
+					urls = nil
+					for _, c := range strings.Split(s[2], ",") {
+						if f := strings.Fields(c); len(f) > 0 {
+							urls = append(urls, f[0])
+						}
+					}
+				}
+				for _, u := range urls {
+					if elsewhere.MatchString(u) {
+						t.Errorf("SITE-CSP-ELSEWHERE: %s loads %s from another site: %s", p.name, u, el)
+					}
 				}
 			}
 		}
@@ -154,12 +173,72 @@ func TestSiteLivesWithItsContentSecurityPolicy(t *testing.T) {
 	}
 }
 
+// nginxStmt is one directive of an nginx file, without its ";" or "{", and how many blocks deep it
+// is: a server's own directives are at 1, a location's at 2.
+type nginxStmt struct {
+	text  string
+	depth int
+}
+
+// nginxStatements splits an nginx file into its directives however they are laid out on lines, so
+// "location = /x { add_header A b; }" is two, the second at depth 2. Comments are left out, and a
+// quoted string (the policy has ";" in it) stays in its directive. As in nginx, "#" and a quote
+// begin a comment or a string only at the start of a word.
+func nginxStatements(conf string) []nginxStmt {
+	var out []nginxStmt
+	var cur strings.Builder
+	depth, quote, comment := 0, byte(0), false
+	emit := func() {
+		if s := strings.Join(strings.Fields(cur.String()), " "); s != "" {
+			out = append(out, nginxStmt{s, depth})
+		}
+		cur.Reset()
+	}
+	for i := 0; i < len(conf); i++ {
+		c := conf[i]
+		wordStart := i == 0 || strings.IndexByte(" \t\r\n;{}", conf[i-1]) >= 0
+		switch {
+		case comment:
+			if c == '\n' {
+				comment = false
+				cur.WriteByte(' ')
+			}
+		case quote != 0:
+			cur.WriteByte(c)
+			if c == '\\' && i+1 < len(conf) {
+				i++
+				cur.WriteByte(conf[i])
+			} else if c == quote {
+				quote = 0
+			}
+		case wordStart && (c == '"' || c == '\''):
+			quote = c
+			cur.WriteByte(c)
+		case wordStart && c == '#':
+			comment = true
+		case c == ';':
+			emit()
+		case c == '{':
+			emit()
+			depth++
+		case c == '}':
+			emit()
+			depth--
+		default:
+			cur.WriteByte(c)
+		}
+	}
+	emit()
+	return out
+}
+
 // nginx sends a server's add_header lines only for a location without an add_header of its own.
 // The site's HTTPS server sets its security headers once, and its locations set none: they cache
 // with expires, which leaves them in place. pool.bch2.org's "location ~ \.html$" adds
 // Cache-Control, so its pages go out without them. The port-80 server, the part of the file
 // site/README.md installs before there is a certificate, names none, and answers the ACME
-// challenge from the webroot certbot is given.
+// challenge from the webroot certbot is given. Neither server is the box's default for its port:
+// a name the box has no server for would get this site.
 func TestSiteServerSendsItsHeadersEverywhere(t *testing.T) {
 	conf := string(mustRead(t, siteNginx))
 	plain, tls, ok := strings.Cut(conf, "\n# HTTPS\n")
@@ -181,23 +260,30 @@ func TestSiteServerSendsItsHeadersEverywhere(t *testing.T) {
 		}
 	}
 
-	headers := map[string]bool{}
-	depth := 0
-	for _, line := range strings.Split(tls, "\n") {
-		l := strings.TrimSpace(line)
-		if strings.HasPrefix(l, "#") {
+	for _, s := range nginxStatements(conf) {
+		f := strings.Fields(s.text)
+		if f[0] != "listen" {
 			continue
 		}
-		if strings.HasPrefix(l, "add_header ") {
-			if depth != 1 {
-				t.Errorf("SITE-NGINX-LOCATION: %s has %q in a location, which drops the server's security headers there", siteNginx, l)
-			} else if !strings.HasSuffix(l, " always;") {
-				t.Errorf("SITE-NGINX-ALWAYS: %q is not sent with an error page", l)
-			} else {
-				headers[strings.Fields(l)[1]] = true
+		for _, p := range f[1:] {
+			if p == "default_server" || p == "default" {
+				t.Errorf("SITE-NGINX-DEFAULT: %s has %q: every name the box has no server for would get this site", siteNginx, s.text)
 			}
 		}
-		depth += strings.Count(l, "{") - strings.Count(l, "}")
+	}
+
+	headers := map[string]bool{}
+	for _, s := range nginxStatements(tls) {
+		f := strings.Fields(s.text)
+		switch {
+		case f[0] != "add_header":
+		case s.depth != 1:
+			t.Errorf("SITE-NGINX-LOCATION: %s has %q in a location, which drops the server's security headers there", siteNginx, s.text)
+		case len(f) < 4 || f[len(f)-1] != "always":
+			t.Errorf("SITE-NGINX-ALWAYS: %q is not sent with an error page", s.text)
+		default:
+			headers[f[1]] = true
+		}
 	}
 	for _, h := range []string{"Content-Security-Policy", "X-Frame-Options", "X-Content-Type-Options", "X-XSS-Protection",
 		"Referrer-Policy", "Strict-Transport-Security"} {
@@ -205,7 +291,7 @@ func TestSiteServerSendsItsHeadersEverywhere(t *testing.T) {
 			t.Errorf("SITE-NGINX-HEADERS: the HTTPS server of %s does not send %s", siteNginx, h)
 		}
 	}
-	for _, want := range []string{"root /var/www/forgesolo;", "ssl_certificate     /etc/letsencrypt/live/forgesolo.bch2.org/fullchain.pem;", "error_page 404 /404.html;", "server_tokens off;"} {
+	for _, want := range []string{"root /var/www/forgesolo;", "ssl_certificate     /etc/letsencrypt/live/forgesolo.bch2.org/fullchain.pem;", "error_page 404 /404.html;", "error_page 403 =404 /404.html;", "server_tokens off;"} {
 		if !strings.Contains(tls, want) {
 			t.Errorf("SITE-NGINX-443: the HTTPS server of %s does not have %q", siteNginx, want)
 		}
@@ -213,10 +299,12 @@ func TestSiteServerSendsItsHeadersEverywhere(t *testing.T) {
 }
 
 // deploy.sh copies site/ to the live root with --delete, apart from the repository's own files in
-// it. Every other file in site/ is one a browser fetches: anything else would be published.
+// it. Every other file in site/ is one a browser fetches: anything else would be published. On the
+// box it refuses a site/ with a change that is not committed or a file git does not track.
 func TestSiteDeploySendsOnlyTheSite(t *testing.T) {
 	sh := string(mustRead(t, "site/deploy.sh"))
 	for _, want := range []string{`rsync -av --delete $DRY`, `[ -f "${SRC}index.html" ] || {`, "DST=/var/www/forgesolo/",
+		`dirty=$(git -C "$SRC" status --porcelain --untracked-files=all --ignored -- . 2>&1)`, `if [ -n "$dirty" ]; then`,
 		"--exclude='/.well-known/'", "--exclude='*.bak*'", "--exclude='*.pre-*'"} {
 		if !strings.Contains(sh, want) {
 			t.Errorf("SITE-DEPLOY: site/deploy.sh does not have %s", want)

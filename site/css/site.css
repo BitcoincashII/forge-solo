@@ -1,6 +1,7 @@
 /* Forge Solo's website: the colours and the type of pool.bch2.org (its css/common.css), dark with
    BCH2 green and Inter. Inter is served from this site (fonts/OFL.txt is its license), so the page
-   fetches nothing from anywhere else. */
+   fetches nothing from anywhere else. Text sizes are in rem, so a larger default font size set in
+   the browser makes the text larger. */
 
 @font-face {
     font-family: "Inter";
@@ -36,7 +37,7 @@ body {
     background: var(--bg);
     color: var(--text);
     font-family: var(--font-sans);
-    font-size: 16px;
+    font-size: 1rem;
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -45,6 +46,9 @@ body {
 h1, h2, h3, p, ul, ol { margin: 0; }
 img { display: block; max-width: 100%; height: auto; }
 strong { color: var(--text); font-weight: 600; }
+
+/* No word left alone on the last line of a heading, the lede or a footer line. */
+h1, h2, h3, .hero .lede, .site-footer p { text-wrap: balance; }
 
 /* Links in text are underlined: the green alone is too close to the grey text to tell them apart. */
 a {
@@ -73,9 +77,23 @@ code {
     overflow-wrap: anywhere;
 }
 
+/* Read by a screen reader, not shown: what tells links of the same name apart. */
+.vh {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+/* Above the top of the page until it has the focus, at any text size. */
 .skip-link {
     position: absolute;
-    top: -60px;
+    top: 0;
     left: 8px;
     z-index: 10;
     padding: 10px 16px;
@@ -84,8 +102,9 @@ code {
     color: #000;
     font-weight: 600;
     text-decoration: none;
+    transform: translateY(-110%);
 }
-.skip-link:focus { top: 0; }
+.skip-link:focus { transform: none; }
 
 .container {
     max-width: 1080px;
@@ -112,14 +131,14 @@ code {
     text-decoration: none;
 }
 .brand img { width: 36px; height: 36px; flex: none; }
-.brand-name { display: block; font-size: 18px; font-weight: 700; line-height: 1.2; }
-.brand-sub { display: block; font-size: 12px; line-height: 1.3; color: var(--text-2); }
+.brand-name { display: block; font-size: 1.125rem; font-weight: 700; line-height: 1.2; }
+.brand-sub { display: block; font-size: 0.75rem; line-height: 1.3; color: var(--text-2); }
 
 .site-nav { display: flex; align-items: center; gap: 16px; }
 .site-nav a {
     color: var(--text-2);
     padding: 10px 4px;
-    font-size: 14px;
+    font-size: 0.875rem;
     font-weight: 500;
     text-decoration: none;
     transition: color 0.15s ease;
@@ -130,20 +149,20 @@ code {
 
 .hero { padding: 80px 0 72px; text-align: center; }
 .hero h1 {
-    font-size: 56px;
+    font-size: 3.5rem;
     font-weight: 700;
     line-height: 1.1;
     letter-spacing: -0.02em;
 }
 .hero h1 span { color: var(--green); }
-.hero .lede { margin-top: 16px; font-size: 22px; font-weight: 600; line-height: 1.4; }
+.hero .lede { margin-top: 16px; font-size: 1.375rem; font-weight: 600; line-height: 1.4; }
 .hero .intro {
     max-width: 620px;
     margin: 16px auto 0;
     color: var(--text-2);
-    font-size: 17px;
+    font-size: 1.0625rem;
 }
-.hero .note { margin-top: 18px; color: var(--text-2); font-size: 14px; }
+.hero .note { margin-top: 18px; color: var(--text-2); font-size: 0.875rem; }
 
 .actions {
     display: flex;
@@ -153,14 +172,16 @@ code {
     margin-top: 32px;
 }
 
+/* The transparent border is what Windows' contrast themes draw round a button. */
 .btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     min-height: 48px;
     padding: 12px 24px;
+    border: 1px solid transparent;
     border-radius: var(--radius-sm);
-    font-size: 16px;
+    font-size: 1rem;
     font-weight: 600;
     text-decoration: none;
     transition: background-color 0.15s ease, border-color 0.15s ease;
@@ -174,7 +195,7 @@ code {
 
 .section { padding: 64px 0; border-top: 1px solid var(--border); }
 .section h2 {
-    font-size: 28px;
+    font-size: 1.75rem;
     font-weight: 700;
     line-height: 1.25;
     letter-spacing: -0.01em;
@@ -195,7 +216,7 @@ code {
     border: 1px solid var(--border);
     border-radius: var(--radius);
 }
-.card h3 { color: var(--green); font-size: 19px; font-weight: 700; line-height: 1.3; }
+.card h3 { color: var(--green); font-size: 1.1875rem; font-weight: 700; line-height: 1.3; }
 .card p, .card li { color: var(--text-2); }
 .card p { margin-top: 10px; }
 .card ul { margin-top: 12px; padding-left: 20px; }
@@ -210,16 +231,16 @@ code {
     padding-top: 20px;
 }
 
+/* A block, not a flex box: a chip's text is one run, so the space beside a .vh part stays. */
 .chip {
-    display: inline-flex;
-    align-items: center;
-    min-height: 40px;
-    padding: 8px 12px;
+    display: inline-block;
+    padding: 0.5rem 0.75rem;
     border: 1px solid var(--border-strong);
     border-radius: 8px;
     color: var(--text);
-    font-size: 14px;
+    font-size: 0.875rem;
     font-weight: 500;
+    line-height: 1.5rem;
     text-decoration: none;
     transition: border-color 0.15s ease, color 0.15s ease;
 }
@@ -231,8 +252,8 @@ code {
     border: 1px solid var(--border);
     border-radius: var(--radius);
 }
-.tile h3 { font-size: 16px; font-weight: 600; line-height: 1.35; }
-.tile p { margin-top: 6px; color: var(--text-2); font-size: 15px; }
+.tile h3 { font-size: 1rem; font-weight: 600; line-height: 1.35; }
+.tile p { margin-top: 6px; color: var(--text-2); font-size: 0.9375rem; }
 
 .steps {
     display: grid;
@@ -255,15 +276,15 @@ code {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 36px;
-    height: 36px;
+    width: 2.25rem;
+    height: 2.25rem;
     margin-bottom: 14px;
     border: 2px solid var(--green);
     border-radius: 50%;
     color: var(--green);
     font-weight: 700;
 }
-.steps h3 { font-size: 18px; font-weight: 600; line-height: 1.35; }
+.steps h3 { font-size: 1.125rem; font-weight: 600; line-height: 1.35; }
 .steps p { margin-top: 8px; color: var(--text-2); }
 
 /* Footer */
@@ -272,7 +293,7 @@ code {
     padding: 40px 0 48px;
     border-top: 1px solid var(--border);
     color: var(--text-2);
-    font-size: 14px;
+    font-size: 0.875rem;
     text-align: center;
 }
 .site-footer p + p { margin-top: 10px; }
@@ -280,11 +301,13 @@ code {
 /* The page that answers an address the site does not have */
 
 .notfound { padding: 96px 0; text-align: center; }
-.notfound h1 { font-size: 40px; line-height: 1.15; }
+.notfound h1 { font-size: 2.5rem; line-height: 1.15; }
 .notfound p { max-width: 560px; margin: 16px auto 0; color: var(--text-2); }
 
+/* Four tiles in two rows; the three platform cards one under the other, not two and one. */
 @media (max-width: 900px) {
-    .grid-3, .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: 1fr; }
     .steps { grid-template-columns: 1fr; }
 }
 
@@ -292,12 +315,12 @@ code {
     .container { padding: 0 16px; }
     .site-nav .in-page { display: none; }
     .hero { padding: 48px 0 48px; }
-    .hero h1 { font-size: 42px; }
-    .hero .lede { font-size: 19px; }
-    .hero .intro { font-size: 16px; }
+    .hero h1 { font-size: 2.625rem; }
+    .hero .lede { font-size: 1.1875rem; }
+    .hero .intro { font-size: 1rem; }
     .actions .btn { width: 100%; }
     .section { padding: 48px 0; }
-    .section h2 { font-size: 24px; }
+    .section h2 { font-size: 1.5rem; }
     .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
     .card, .steps li { padding: 20px; }
 }
@@ -308,4 +331,19 @@ code {
 
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+
+/* On paper: dark text on white, since printing drops the backgrounds, and no navigation. */
+@media print {
+    :root {
+        color-scheme: light;
+        --bg: #ffffff;
+        --bg-card: #ffffff;
+        --text: #000000;
+        --text-2: #222222;
+        --border: #999999;
+        --border-strong: #999999;
+        --green: #05664a;
+    }
+    .skip-link, .site-nav, .actions { display: none; }
 }

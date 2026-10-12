@@ -4,3 +4,8 @@ testdata/migrate/** -text
 # Installed on a Mac from the checkout forge-gateway's README builds, and its test fails on a CRLF
 # line end: never converted on a Windows checkout either.
 cmd/forge-gateway/org.bitcoincashii.forge-gateway.plist -text
+
+# The website's files, its nginx server and deploy.sh go to a Linux box as they are, and
+# site_test.go fails on a CRLF line end in the nginx server: never converted on a Windows checkout
+# either.
+site/** -text

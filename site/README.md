@@ -15,15 +15,17 @@ https://forgesolo.bch2.org, one static page, served by nginx on the pool box (14
 | `nginx/forgesolo.bch2.org.conf` | the box's nginx server for the site (a draft until the setup below is done) |
 
 The page says what Forge Solo is and points to the README on GitHub for the directions, by the
-anchors of its headings, rather than repeating them. Every download is on
+anchors of its headings, rather than repeating them. The Windows and Linux downloads are on
 [the latest release](https://github.com/BitcoincashII/forge-solo/releases/latest), never on the
-site. The page has no script, and loads nothing from another site: the nginx server's
-Content-Security-Policy allows only its own styles, font and images.
+site; Umbrel installs Forge Solo from its app store. The page has no script, and loads nothing
+from another site: the nginx server's Content-Security-Policy allows only its own styles, font
+and images.
 
 `site_test.go` fails when a heading the site links to is renamed, when the site links to a download
 or a release other than the latest, when a page carries a script or a style the policy refuses, when
-a location in the nginx server drops its security headers, and when site/ holds a file that is not
-the site's and that deploy.sh would publish.
+a location in the nginx server drops its security headers, when the server would be the box's
+default for its port, and when site/ holds a file that is not the site's and that deploy.sh would
+publish.
 
 When a release changes what the page says, change the page with it, and the version in its footer.
 
@@ -33,8 +35,10 @@ The page is in English. Each text on it has a `data-i18n` key, as on pool.bch2.o
 language can be added the way the pool adds one: a `lang/fs-<code>.js` with the texts by key
 (`var PT = { _code: "de", fs_hero_lede: "..." }`), and a loader like the pool's `js/pool-i18n.js`,
 which picks the language from the `lang` cookie bch2.org sets for all of `.bch2.org`, then the
-browser's, and puts each text in its element. The policy then needs `script-src 'self'`. Inter's
-file here has Latin letters only: a language with other letters needs its subset too.
+browser's, and puts each text in its element. The policy then needs `script-src 'self'`, and the
+loader's language menu needs its styles in `css/site.css`: the pool's loader adds them in a
+`<style>` element, which the policy refuses. Inter's file here has Latin letters only: a language
+with other letters needs its subset too.
 
 ## Look at it locally
 
@@ -89,7 +93,8 @@ site/deploy.sh
 ```
 
 deploy.sh copies site/ to /var/www/forgesolo and deletes what site/ no longer has. It refuses a
-checkout without `index.html`, never sends itself, this README or `nginx/`, and leaves `.well-known/`
-and backup copies (`*.bak*`, `*.pre-*`) alone. A change to `nginx/forgesolo.bch2.org.conf` is not
-deployed: copy it to `/etc/nginx/sites-available/forgesolo.bch2.org`, then
-`nginx -t && systemctl reload nginx`.
+checkout without `index.html`, and one whose site/ has a change that is not committed or a file git
+does not track, which it would publish too. It never sends itself, this README or `nginx/`, and
+leaves `.well-known/` and backup copies (`*.bak*`, `*.pre-*`) alone. A change to
+`nginx/forgesolo.bch2.org.conf` is not deployed: copy it to
+`/etc/nginx/sites-available/forgesolo.bch2.org`, then `nginx -t && systemctl reload nginx`.
