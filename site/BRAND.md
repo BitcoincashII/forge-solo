@@ -5,7 +5,11 @@ anvil-and-sparks mark, ember for the one thing to do, copper and rust on worksho
 headings, square plates and dashed wires. The **feel** comes from the Home concept: a light page in
 daylight, newcomer-first order and words, one friendly flat drawing style, numbered 1/2/3 parts that
 match between the picture and the cards, and warnings set as callouts. The page is light from top to
-bottom; the only dark band is the footer (plus the black box that holds the stratum address).
+bottom; the only dark band is the footer (plus the black box that holds the stratum address, and the
+ink bezels around the app's own screenshots, which are dark because the app is).
+
+Two pages share the look: the home page and the questions page (`faq/index.html`, at /faq/), with
+the same header and footer; `404.html` answers every other address.
 
 ## Palette
 
@@ -28,8 +32,10 @@ bottom; the only dark band is the footer (plus the black box that holds the stra
 | `--amber-tint` | `#ffe6bf` | warning callouts, the "When you're paid" row |
 | `--soot` / `--ash` / `--ash-2` | `#15110e` / `#f6eee4` / `#cfc1b0` | the footer band and the stratum-address box |
 
-Contrast (WCAG 2 relative luminance; every rendered text node of the page was also measured against
-its real background at 1440 and 390 px: 164 at 1440, lowest 4.89:1, all pass):
+Contrast (WCAG 2 relative luminance; every rendered text node of the home page, the questions page
+and 404.html was also measured against its real background at 1440, 1024, 390 and 320 px: 186 on
+the home page and 220 on the questions page at 1440, lowest 4.89:1, all pass, and again with a
+glossary word and a question opened from a link):
 
 | Foreground | Background | Ratio | Use | Needs |
 |---|---|---|---|---|
@@ -44,11 +50,14 @@ its real background at 1440 and 390 px: 164 at 1440, lowest 4.89:1, all pass):
 | ink | ember | 6.74:1 | primary button label | 4.5, pass |
 | ink | amber | 9.97:1 | button hover, the "at home." highlight | 4.5, pass |
 | ink | amber-tint | 14.46:1 | callouts, "When you're paid" | 4.5, pass |
+| ink-2 | amber-tint | 7.06:1 | a glossary word opened from a link | 4.5, pass |
+| paper-hi | ink | 16.56:1 | the 1/2/3 numbers and the "?" | 4.5, pass |
 | ink | inline code ground (worst case) | 11.97:1 | `3333`, `rig1` | 4.5, pass |
 | ash | soot | 16.33:1 | the stratum address, footer brand | 4.5, pass |
 | amber | soot | 10.69:1 | `<your machine's address>`, footer focus ring | 4.5, pass |
 | ash-2 | soot | 10.65:1 | footer text | 4.5, pass |
-| rust | paper | 5.49:1 | dashed wires and arrows (non-text) | 3.0, pass |
+| rust | paper | 5.49:1 | dashed wires and arrows, the dotted underline of a word to look up (non-text) | 3.0, pass |
+| ember-deep | paper | 3.08:1 | the bar beside a question opened from a link (non-text) | 3.0, pass |
 | ink-2 | paper-hi | 8.09:1 | chip border, the TIDES window's dashed edge (non-text) | 3.0, pass |
 | ink | paper | 15.34:1 | focus ring (non-text) | 3.0, pass |
 | ember-deep | paper | 3.08:1 | the mark's sparks (logo) | exempt |
@@ -68,8 +77,9 @@ All three are the unmodified Latin subsets (U+0000 to 00FF plus general punctuat
 Fontsource npm packages, WOFF2, served from the site; 66,576 B in total. Each licence file starts
 with the copyright notice the font itself carries, then names the face and weight the site serves
 ("Source Sans 3 (variable, weights 200 to 900)", "Source Code Pro Medium (500)", "Zilla Slab Bold
-(700)"). The subsets have no U+2192 arrow, so menu paths use "›". The page itself
-shows no raster image; the only PNGs are the link preview and the home-screen icon (below).
+(700)"). The subsets have no U+2192 arrow, so menu paths use "›". The only raster images are
+the link preview and the home-screen icon (PNG, below) and the app's screenshots (WebP, under
+Components).
 
 **The zero check.** "0.00% 1000" was rendered in Source Sans 3, Public Sans, Figtree, Source Code Pro
 and Zilla Slab before choosing. Source Sans 3 has a **plain oval zero** by default at every
@@ -90,7 +100,7 @@ Scale (rem, so a larger browser font enlarges everything):
 The Forge anvil, side on, with three tapered sparks: the moment of the strike. On paper the anvil is
 ink and the sparks ember-deep (`img/mark.svg`, which `404.html` shows); on dark the anvil is paper and
 the sparks ember (`.mark-on-dark` in `css/site.css`: the footer and the box in the drawings). The page draws it once
-(`<symbol id="mark">`) and reuses it in the header, the footer, the Umbrel-style box in every drawing
+(`<symbol id="mark">`, which the questions page copies as it is for its own header and footer) and reuses it in the header, the footer, the Umbrel-style box in every drawing
 and the dashboard on every screen, where it replaces Home's house.
 
 Refinement for the blend: the favicon (`img/favicon.svg`, soot square, 12/64 corners) uses heavier
@@ -156,16 +166,54 @@ under `prefers-reduced-motion: no-preference` (checked: zero animations when red
   `rig1`, `DASHBOARD_PASSWORD`, the arch names, the fixed parts of the stratum address) carries
   `translate="no"`; the placeholder words inside the stratum address stay translatable.
 - **Focus**: a 3 px ink ring, 3 px out, everywhere on paper; amber in the footer. Skip link first.
+- **Words to look up**: the first use on the home page of a word a newcomer may not know (BCH2 node,
+  ASIC miner, hashrate, merge-mine, stratum address, worker name) links to its entry in the
+  glossary (`/faq/#glossary-<word>`). Such a link keeps the text's colour and has a dotted rust
+  underline (`a.term`), solid on hover, so it reads as "look this up" and not as a way out of the
+  page. The answers on the questions page do the same, once per answer. Only the hard words: a word
+  the sentence already explains in plain words stays plain.
+- **Questions after a section**: a line with a round ink "?" (the 1/2/3 numbers' style) and a link to
+  the answer on the questions page: under What you need ("Questions before you start?"), under How
+  it works ("Still deciding?", to Solo or TIDES) and beside the Solo screenshot ("Not mining yet?").
+- **Screenshots** (What you'll see, after Set up, on paper-deep): real screenshots of Forge Solo
+  1.0.15 on a test install (Settings under How blocks pay, the dashboard in TIDES mode and in Solo
+  mode), each in an 8 px ink bezel with 10 px corners like the drawings' monitor, and a caption
+  under it: a Zilla Slab title and one plain sentence of what to look at. The lede says the figures
+  in them come from a test miner and are not yours, and no text quotes them. Settings and the TIDES
+  dashboard sit side by side from 900 px (their shapes are close); the short Solo dashboard takes
+  the next row with its words beside it. Below 900 px they stand one under another, 36 rem at most.
+  WebP, `width`/`height` from the file, `srcset` at 1x and 2x widths with `sizes`, lazy-loaded.
+  The crops leave out anything that showed the test machine's address, and other miners' payout
+  addresses in the TIDES blocks table are blurred.
 - **Not found**: `404.html`, the answer to any address the site has no page for: the masthead's mark
   and name, "Page not found", one sentence and the primary button home. It links its files from the
   site's root, since nginx serves it at whatever address was asked for.
 
+## The questions page
+
+`faq/index.html`, "Questions and words": twelve questions a newcomer asks before mining, and a
+glossary of the words they will meet, for Forge Solo 1.0.15. It is for reading in any order, so it
+is plain: a head on the How it works graph paper (tag, h1, lede), then the list of questions and the
+answers. The list ("On this page") is a plate like the platform cards: from 1000 px it is a column
+beside the answers, and stays in view while they scroll when the window is at least 760 px tall;
+below that it sits above them, in two columns from 700 px. Each answer is a Zilla Slab question,
+short paragraphs (lists for choices, numbered for steps, with the page's diamond and round numbers)
+and a "Details:" line with links to the README section, the release page or Forge Pool's own pages
+where the rest is. Answers are anchored (`#solo-or-tides`, `#not-mining-yet`, ...), and the one a
+link opens on is marked with an ember-deep bar. The glossary is a two-column set of small plates
+(one column under about 610 px), each word anchored as `#glossary-<word>` and tinted amber when a
+link opens on it. The page ends with a "Ready to start?" plate (the Then plate's ember edge) and
+the primary button to Get Forge Solo on the home page.
+
 ## Layout
 
 Content 1200 px, side gutter `clamp(16px, 4vw, 48px)`, sections `clamp(56px, 7vw, 104px)` (52 px on
-phones). Header: brand, nav, "Get Forge Solo" on one row; under 900 px the nav takes its own row;
-under 375 px the button reads "Get it" and GitHub leaves the nav (it is on every platform card and in
-the footer), so the header is 110 px at 320 and the nav never wraps (checked from 320 to 1920 px).
+phones). Header (the same on the home page and the questions page): brand, nav (What you need, How
+it works, Set up, Questions, GitHub), "Get Forge Solo" on one row; under 960 px the nav takes its
+own row; under 460 px GitHub leaves the nav (it is on every platform card and in the footer), under
+390 px Set up does too (the header's button leads to Get it, which Set up follows), and under 375 px
+the button reads "Get it", so the nav never wraps (checked from 320 to 1440 px). The questions
+page's own link is underlined in ink there (`aria-current="page"`).
 Subgrid aligns the three platform cards' rows (so the buttons line up), the two mode cards' rows and
 the three flow stations. A subgrid must not be a size container (containment makes it an independent
 grid), so the platform card's head, not the card, is the container that moves the chip under the
@@ -179,7 +227,8 @@ BCH2 node, which keeps a full copy of the blockchain"; "its stratum address, the
 work to"). Mining in two sentences before any mode. Name what the visitor will see in the app
 ("Settings, under How blocks pay"). Say what will go wrong before it does (the Windows prompts, the
 Private network, the password prompt), and what to choose when it does. No unexplained jargon:
-"coinbase" is not used (the block pays "straight from the block itself"); Forge Pool is introduced with
+"coinbase" is not used on the home page (the block pays "straight from the block itself"; the
+glossary explains it, for the dashboard's sake); Forge Pool is introduced with
 its address, the TIDES window as where Forge Pool registers the work of everyone mining with it, and a
 TIDES block as "a block found on work Forge Pool registered". Only facts from the READMEs at v1.0.15
 (root, `packaging/linux`, `windows`) or the page this one replaced: no odds, no earnings, no chain size, no "easy",
@@ -194,7 +243,11 @@ keys: the nav's How it works and Set up, the platform names, Get Forge Solo, the
 more; on `404.html`, "Page not found"); every key whose words changed has a new name
 (`fs_hero_headline`, `fs_hero_summary`, `fs_how_nosched`, `fs_tides_name`, `fs_get_umbrel_add`,
 `fs_get_windows_text`, `fs_get_linux_text`, `fs_get_win_*`, `fs_404_line` and so on), so a
-translation made for the earlier page never shows the wrong words.
+translation made for the earlier page never shows the wrong words. The questions page's own texts
+are `fs_faq_*` (`fs_faq_<question>_q` for a question, wherever it appears) and its glossary's
+`fs_word_<word>` and `fs_word_<word>_def`; the header and footer keep the home page's keys. The
+screenshots' descriptions are keyed in `data-i18n-alt` (`fs_shot_*_alt`), their captions in
+`data-i18n` like any text.
 
 ## How it is not Forge Pool
 
@@ -204,7 +257,10 @@ sans, square plates, dashed wires and drawings of a desk with a miner on it.
 
 ## Files
 
-In `site/`: `index.html`, `404.html`, `css/site.css`, `fonts/` (three WOFF2 files and their OFL
-licences), `img/mark.svg`, `img/favicon.svg`, `img/apple-touch-icon.png`, `img/og.png`. No script;
+In `site/`: `index.html`, `faq/index.html`, `404.html`, `css/site.css`, `fonts/` (three WOFF2 files
+and their OFL licences), `img/mark.svg`, `img/favicon.svg`, `img/apple-touch-icon.png`, `img/og.png`,
+and the screenshots `img/forge-solo-settings-how-blocks-pay.webp`,
+`img/forge-solo-dashboard-tides.webp` and `img/forge-solo-dashboard-solo.webp`, each with its `@2x`
+file. No script;
 everything works under the site's CSP (`default-src 'none'; style-src 'self'; font-src 'self';
 img-src 'self'`). [README.md](README.md) says how the site is served and deployed.

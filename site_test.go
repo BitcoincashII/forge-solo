@@ -8,6 +8,8 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -41,10 +43,53 @@ func sitePages(t *testing.T) []docText {
 	return out
 }
 
+// siteAddress is the address a page is served at: site/index.html is /, site/faq/index.html is
+// /faq/, site/404.html is /404.html.
+func siteAddress(page string) string {
+	rel := strings.TrimPrefix(page, siteDir+"/")
+	if rel == "index.html" || strings.HasSuffix(rel, "/index.html") {
+		return "/" + strings.TrimSuffix(rel, "index.html")
+	}
+	return "/" + rel
+}
+
 var (
 	siteHref      = regexp.MustCompile(`\bhref="([^"]*)"`)
 	siteElsewhere = regexp.MustCompile(`(?i)^(?:[a-z][a-z0-9+.-]*:|//)`)
 )
+
+// siteAttr is the value of the attribute name in an element's start tag, and whether it has one.
+func siteAttr(tag, name string) (string, bool) {
+	m := regexp.MustCompile(`\s` + regexp.QuoteMeta(name) + `="([^"]*)"`).FindStringSubmatch(tag)
+	if m == nil {
+		return "", false
+	}
+	return html.UnescapeString(m[1]), true
+}
+
+// siteImageSize is the width and height in pixels of a PNG or a WebP file (lossy VP8, lossless
+// VP8L or extended VP8X), read from its header.
+func siteImageSize(b []byte) (w, h int, ok bool) {
+	switch {
+	case len(b) >= 24 && string(b[1:4]) == "PNG":
+		return int(binary.BigEndian.Uint32(b[16:20])), int(binary.BigEndian.Uint32(b[20:24])), true
+	case len(b) >= 30 && string(b[0:4]) == "RIFF" && string(b[8:12]) == "WEBP":
+		switch string(b[12:16]) {
+		case "VP8X":
+			return 1 + (int(b[24]) | int(b[25])<<8 | int(b[26])<<16), 1 + (int(b[27]) | int(b[28])<<8 | int(b[29])<<16), true
+		case "VP8L":
+			if b[20] == 0x2f {
+				v := binary.LittleEndian.Uint32(b[21:25])
+				return int(v&0x3fff) + 1, int(v>>14&0x3fff) + 1, true
+			}
+		case "VP8 ":
+			if b[23] == 0x9d && b[24] == 0x01 && b[25] == 0x2a {
+				return int(binary.LittleEndian.Uint16(b[26:28]) & 0x3fff), int(binary.LittleEndian.Uint16(b[28:30]) & 0x3fff), true
+			}
+		}
+	}
+	return 0, 0, false
+}
 
 // The site points to the README for the directions, by the anchors GitHub gives its headings,
 // instead of repeating them. A heading renamed or a file moved fails here, not on the live site,
@@ -448,7 +493,7 @@ func TestSiteDeploySendsOnlyTheSite(t *testing.T) {
 	for _, m := range regexp.MustCompile(`--exclude='/([^'*]+)'`).FindAllStringSubmatch(sh, -1) {
 		excluded[m[1]] = true
 	}
-	served := map[string]bool{".html": true, ".css": true, ".svg": true, ".png": true, ".woff2": true, ".txt": true}
+	served := map[string]bool{".html": true, ".css": true, ".svg": true, ".png": true, ".webp": true, ".woff2": true, ".txt": true}
 	pages := 0
 	err := filepath.WalkDir(siteDir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -569,10 +614,10 @@ func TestSiteTextsAreReadyForTranslation(t *testing.T) {
 
 // The pages' heads: on every page the language, the icon and the stylesheet, the same version of
 // it everywhere (nginx lets a browser keep it for a week, so a page with another ?v= would get
-// another copy); on the home page its canonical address, the one site/nginx serves, and what a
-// link preview shows; 404.html is kept out of search engines. The pictures a link preview and a
-// phone's home screen show have the sizes the head gives, every image and font is small, and every
-// font has its license beside it.
+// another copy); on every page but 404.html its canonical address, the one site/nginx serves it
+// at, and what a link preview shows, with the page's own title and description; 404.html is kept
+// out of search engines. The pictures a link preview and a phone's home screen show have the sizes
+// the head gives, every image and font is small, and every font has its license beside it.
 func TestSiteHead(t *testing.T) {
 	stylesheet := regexp.MustCompile(`<link rel="stylesheet" href="(/css/site\.css\?v=\d+)">`)
 	version, first := "", ""
@@ -592,14 +637,51 @@ func TestSiteHead(t *testing.T) {
 			t.Errorf("SITE-HEAD-CSS: %s links %s and %s links %s: every page links the same", first, version, p.name, m[1])
 		}
 	}
-	page := string(mustRead(t, "site/index.html"))
-	for _, want := range []string{`<link rel="canonical" href="` + siteURL + `">`, `<meta property="og:url" content="` + siteURL + `">`,
-		`<meta property="og:image" content="` + siteURL + `img/og.png">`, `<meta property="og:image:width" content="1200">`,
-		`<meta property="og:image:height" content="630">`, `<meta name="twitter:card" content="summary_large_image">`,
-		`<link rel="apple-touch-icon" href="/img/apple-touch-icon.png">`} {
-		if !strings.Contains(page, want) {
-			t.Errorf("SITE-HEAD: site/index.html does not have %s", want)
+	meta := func(text, attr, name string) string {
+		m := regexp.MustCompile(`<meta ` + attr + `="` + regexp.QuoteMeta(name) + `" content="([^"]*)">`).FindStringSubmatch(text)
+		if m == nil {
+			return ""
 		}
+		return html.UnescapeString(m[1])
+	}
+	title := regexp.MustCompile(`<title[^>]*>([^<]*)</title>`)
+	previews := 0
+	for _, p := range sitePages(t) {
+		if p.name == "site/404.html" {
+			continue
+		}
+		previews++
+		u := siteURL + strings.TrimPrefix(siteAddress(p.name), "/")
+		for _, want := range []string{`<link rel="canonical" href="` + u + `">`, `<meta property="og:url" content="` + u + `">`,
+			`<meta property="og:type" content="website">`, `<meta property="og:site_name" content="Bitcoin Cash II">`,
+			`<meta property="og:image" content="` + siteURL + `img/og.png">`, `<meta property="og:image:width" content="1200">`,
+			`<meta property="og:image:height" content="630">`, `<meta name="twitter:card" content="summary_large_image">`,
+			`<meta name="twitter:site" content="@BitcoincashII">`, `<link rel="apple-touch-icon" href="/img/apple-touch-icon.png">`} {
+			if !strings.Contains(p.text, want) {
+				t.Errorf("SITE-HEAD: %s does not have %s", p.name, want)
+			}
+		}
+		var name string
+		if m := title.FindStringSubmatch(p.text); m != nil {
+			name = html.UnescapeString(m[1])
+		}
+		og := meta(p.text, "property", "og:description")
+		if name == "" || meta(p.text, "name", "description") == "" || og == "" || meta(p.text, "property", "og:image:alt") == "" {
+			t.Errorf("SITE-HEAD-PREVIEW: %s has no title, description, og:description or og:image:alt", p.name)
+		}
+		// a link preview shows the page's own title, on every service
+		for _, c := range []struct{ tag, got, want string }{
+			{"og:title", meta(p.text, "property", "og:title"), name},
+			{"twitter:title", meta(p.text, "name", "twitter:title"), name},
+			{"twitter:description", meta(p.text, "name", "twitter:description"), og},
+		} {
+			if c.got != c.want {
+				t.Errorf("SITE-HEAD-PREVIEW: %s's %s is %q, want %q", p.name, c.tag, c.got, c.want)
+			}
+		}
+	}
+	if previews < 2 {
+		t.Errorf("SITE-HEAD: the site has %d pages besides 404.html; want the home page and the questions page", previews)
 	}
 	if !strings.Contains(string(mustRead(t, "site/404.html")), `<meta name="robots" content="noindex">`) {
 		t.Error("SITE-HEAD: site/404.html does not keep itself out of search engines")
@@ -607,13 +689,13 @@ func TestSiteHead(t *testing.T) {
 	if !strings.Contains(string(mustRead(t, siteNginx)), "server_name forgesolo.bch2.org;") {
 		t.Errorf("SITE-HEAD: %s does not serve the page's canonical name", siteNginx)
 	}
-	for f, size := range map[string][2]uint32{"img/og.png": {1200, 630}, "img/apple-touch-icon.png": {180, 180}} {
+	for f, size := range map[string][2]int{"img/og.png": {1200, 630}, "img/apple-touch-icon.png": {180, 180}} {
 		b := mustRead(t, filepath.Join(siteDir, f))
 		if len(b) < 24 || string(b[1:4]) != "PNG" {
 			t.Errorf("SITE-IMAGE: site/%s is not a PNG", f)
 			continue
 		}
-		if w, h := binary.BigEndian.Uint32(b[16:20]), binary.BigEndian.Uint32(b[20:24]); w != size[0] || h != size[1] {
+		if w, h, _ := siteImageSize(b); w != size[0] || h != size[1] {
 			t.Errorf("SITE-IMAGE: site/%s is %d x %d, want %d x %d", f, w, h, size[0], size[1])
 		}
 	}
@@ -650,5 +732,200 @@ func TestSiteHead(t *testing.T) {
 				t.Errorf("SITE-SIZE: site/%s/%s is %d KB; the site's images and fonts are 150 KB or less", dir, e.Name(), info.Size()>>10)
 			}
 		}
+	}
+}
+
+// The home page shows real screenshots of Forge Solo's Settings page and dashboard, as WebP. Each
+// <img> gives its file's width and height, so the page does not jump while it loads, and a srcset
+// of the same picture at its real widths with sizes, so a phone fetches the smaller file. Every
+// image has an alt; a described one has its description keyed in data-i18n-alt, as the texts are
+// in data-i18n, and a key names one description.
+func TestSiteImages(t *testing.T) {
+	img := regexp.MustCompile(`(?i)<img\b[^>]*>`)
+	alts := map[string]string{}
+	shots := 0
+	size := func(addr string) (int, int, bool) {
+		b, err := os.ReadFile(filepath.Join(siteDir, filepath.FromSlash(siteFile(addr))))
+		if err != nil {
+			return 0, 0, true // a missing file is SITE-FILE-MISSING's to report
+		}
+		return siteImageSize(b)
+	}
+	for _, p := range sitePages(t) {
+		for _, tag := range img.FindAllString(p.text, -1) {
+			src, _ := siteAttr(tag, "src")
+			alt, hasAlt := siteAttr(tag, "alt")
+			switch key, _ := siteAttr(tag, "data-i18n-alt"); {
+			case !hasAlt:
+				t.Errorf("SITE-IMG-ALT: %s has an image with no alt: %s", p.name, tag)
+			case alt != "" && key == "":
+				t.Errorf("SITE-I18N-ALT: %s has an image whose alt has no data-i18n-alt key: %s", p.name, src)
+			case alt != "":
+				if was, ok := alts[key]; ok && was != alt {
+					t.Errorf("SITE-I18N-ONE: the alt key %s names two descriptions: %q and %q (%s)", key, was, alt, p.name)
+				}
+				alts[key] = alt
+			}
+			if path.Ext(src) == ".svg" {
+				continue // drawn to any size
+			}
+			w, h, ok := size(src)
+			if !ok {
+				t.Errorf("SITE-IMG: %s shows %s, which is not a PNG or WebP file", p.name, src)
+				continue
+			}
+			if ws, _ := siteAttr(tag, "width"); w != 0 && ws != strconv.Itoa(w) {
+				t.Errorf("SITE-IMG-SIZE: %s gives %s width=%q; the file is %d px wide", p.name, src, ws, w)
+			}
+			if hs, _ := siteAttr(tag, "height"); h != 0 && hs != strconv.Itoa(h) {
+				t.Errorf("SITE-IMG-SIZE: %s gives %s height=%q; the file is %d px high", p.name, src, hs, h)
+			}
+			if path.Ext(src) != ".webp" {
+				continue
+			}
+			shots++
+			srcset, _ := siteAttr(tag, "srcset")
+			if _, ok := siteAttr(tag, "sizes"); !ok || srcset == "" {
+				t.Errorf("SITE-IMG-SRCSET: %s shows %s without a srcset and sizes", p.name, src)
+				continue
+			}
+			self := false
+			for _, c := range strings.Split(srcset, ",") {
+				f := strings.Fields(c)
+				if len(f) != 2 || !strings.HasSuffix(f[1], "w") {
+					t.Errorf("SITE-IMG-SRCSET: %s's srcset for %s has %q; give each file with its width, \"x.webp 800w\"", p.name, src, c)
+					continue
+				}
+				self = self || f[0] == src
+				cw, ch, ok := size(f[0])
+				if !ok || cw == 0 {
+					continue
+				}
+				if f[1] != strconv.Itoa(cw)+"w" {
+					t.Errorf("SITE-IMG-SRCSET: %s gives %s as %s; the file is %d px wide", p.name, f[0], f[1], cw)
+				}
+				// the same picture: scaled to the img's width, its height is within a pixel
+				if d := cw*h - ch*w; w != 0 && (d > cw || -d > cw) {
+					t.Errorf("SITE-IMG-SRCSET: %s's srcset for %s has %s, which is %d x %d, not the same picture as %d x %d", p.name, src, f[0], cw, ch, w, h)
+				}
+			}
+			if !self {
+				t.Errorf("SITE-IMG-SRCSET: %s's srcset for %s does not list %s itself", p.name, src, src)
+			}
+		}
+	}
+	if shots == 0 {
+		t.Error("SITE-IMG: no page shows a screenshot of the app")
+	}
+}
+
+// The pages with the site's header, the home page and the questions page, share it: the same links
+// in the same order, the questions page among them, and on each page the link to the page itself
+// marked as the current one. A page that draws the mark draws the home page's.
+func TestSitePagesShareTheirHeader(t *testing.T) {
+	nav := regexp.MustCompile(`(?s)<nav class="nav"[^>]*>(.*?)</nav>`)
+	link := regexp.MustCompile(`<a\s[^>]*>`)
+	mark := regexp.MustCompile(`(?s)<symbol id="mark".*?</symbol>`)
+	homeMark := mark.FindString(string(mustRead(t, "site/index.html")))
+	if homeMark == "" {
+		t.Error("SITE-MARK: site/index.html does not draw the mark (<symbol id=\"mark\">)")
+	}
+	var want []string
+	first := ""
+	for _, p := range sitePages(t) {
+		if m := mark.FindString(p.text); m != "" && m != homeMark {
+			t.Errorf("SITE-MARK: %s draws the mark differently from site/index.html", p.name)
+		}
+		n := nav.FindStringSubmatch(p.text)
+		if n == nil {
+			continue
+		}
+		self := siteAddress(p.name)
+		var got []string
+		for _, a := range link.FindAllString(n[1], -1) {
+			u, _ := siteAttr(a, "href")
+			if strings.HasPrefix(u, "#") {
+				u = self + u
+			}
+			got = append(got, u)
+			if cur, _ := siteAttr(a, "aria-current"); (u == self) != (cur == "page") {
+				t.Errorf("SITE-NAV-CURRENT: in %s's header, the link to %s has aria-current=%q; only the link to the page itself has \"page\"", p.name, u, cur)
+			}
+		}
+		if !slices.Contains(got, "/faq/") {
+			t.Errorf("SITE-NAV: %s's header does not link to the questions page, /faq/", p.name)
+		}
+		if want == nil {
+			want, first = got, p.name
+		} else if !slices.Equal(got, want) {
+			t.Errorf("SITE-NAV: %s's header links %v and %s's links %v: every page has the same header", first, want, p.name, got)
+		}
+	}
+	if want == nil {
+		t.Error("SITE-NAV: no page has the site's header")
+	}
+}
+
+// The questions page, /faq/: its list of questions is the questions on it, in the same order; each
+// answer links to where its details are (the README, mostly), and the page re-explains no more;
+// each word of the glossary has a #glossary-<word> anchor; and a link drawn as a word to look up
+// (class "term", on any page) leads to one of them. TestSiteUsesItsOwnFiles checks every anchor is there.
+func TestSiteQuestionsPage(t *testing.T) {
+	const page = "site/faq/index.html"
+	faq := string(mustRead(t, page))
+	toc := regexp.MustCompile(`(?s)<ul class="toc-list"[^>]*>(.*?)</ul>`).FindStringSubmatch(faq)
+	if toc == nil {
+		t.Fatalf("SITE-FAQ-LIST: %s has no list of its questions (<ul class=\"toc-list\">)", page)
+	}
+	var listed, asked []string
+	for _, m := range regexp.MustCompile(`href="#([^"]+)"`).FindAllStringSubmatch(toc[1], -1) {
+		listed = append(listed, m[1])
+	}
+	starts := regexp.MustCompile(`<div class="qa" id="([^"]+)">`).FindAllStringSubmatchIndex(faq, -1)
+	for i, m := range starts {
+		id, end := faq[m[2]:m[3]], len(faq)
+		if i+1 < len(starts) {
+			end = starts[i+1][0]
+		}
+		answer := faq[m[1]:end]
+		if j := strings.Index(answer, "</section>"); j >= 0 {
+			answer = answer[:j]
+		}
+		asked = append(asked, id)
+		if !strings.Contains(answer, `href="https://`) {
+			t.Errorf("SITE-FAQ-DETAILS: the answer #%s in %s links to nowhere its details are", id, page)
+		}
+	}
+	if len(asked) == 0 {
+		t.Fatalf("SITE-FAQ: %s has no questions (<div class=\"qa\" id=...>)", page)
+	}
+	if !slices.Equal(listed, asked) {
+		t.Errorf("SITE-FAQ-LIST: %s lists the questions %v, and asks %v", page, listed, asked)
+	}
+	words := regexp.MustCompile(`<div class="word" id="([^"]+)">`).FindAllStringSubmatch(faq, -1)
+	if len(words) == 0 {
+		t.Errorf("SITE-FAQ-WORDS: %s has no glossary (<div class=\"word\" id=...>)", page)
+	}
+	for _, w := range words {
+		if !strings.HasPrefix(w[1], "glossary-") {
+			t.Errorf("SITE-FAQ-WORDS: the word #%s in %s does not have a glossary-<word> anchor", w[1], page)
+		}
+	}
+	term := regexp.MustCompile(`<a\s[^>]*\bclass="term"[^>]*>`)
+	terms := 0
+	for _, p := range sitePages(t) {
+		for _, a := range term.FindAllString(p.text, -1) {
+			terms++
+			u, _ := siteAttr(a, "href")
+			if strings.HasPrefix(u, "#") {
+				u = siteAddress(p.name) + u
+			}
+			if !strings.HasPrefix(u, "/faq/#glossary-") {
+				t.Errorf("SITE-TERM: %s draws %s as a word to look up; it leads to %s, not to a word of the glossary", p.name, a, u)
+			}
+		}
+	}
+	if terms == 0 {
+		t.Error("SITE-TERM: no page links a word to the glossary")
 	}
 }

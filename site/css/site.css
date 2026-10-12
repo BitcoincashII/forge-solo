@@ -90,6 +90,12 @@ code { font-size: .9em; padding: .05em .3em; border-radius: 3px; background: rgb
 
 a { color: var(--rust); text-decoration-thickness: 1px; text-underline-offset: 3px; }
 a:hover { color: var(--rust-deep); text-decoration-thickness: 2px; }
+/* a word the questions page explains: the text keeps its colour, a dotted rust underline marks it */
+a.term {
+    color: inherit; text-decoration-line: underline; text-decoration-style: dotted;
+    text-decoration-color: var(--rust); text-decoration-thickness: 2px; text-underline-offset: 4px;
+}
+a.term:hover { color: var(--rust-deep); text-decoration-style: solid; }
 :focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; border-radius: 3px; }
 
 .wrap { width: min(100% - 2 * var(--gutter), 1200px); margin-inline: auto; }
@@ -193,6 +199,7 @@ a:hover { color: var(--rust-deep); text-decoration-thickness: 2px; }
     border-bottom: 2px solid transparent;
 }
 .nav a:hover { color: var(--ink); border-bottom-color: var(--ember); }
+.nav a[aria-current="page"] { border-bottom-color: var(--ink); }
 .btn-head { min-height: 46px; padding: 8px 20px; font-size: 1rem; box-shadow: 0 3px 0 var(--ink); }
 .btn-head .short { display: none; }
 
@@ -302,8 +309,18 @@ a:hover { color: var(--rust-deep); text-decoration-thickness: 2px; }
     border-top: 2px solid var(--rust); border-right: 2px solid var(--rust); transform: rotate(45deg);
 }
 
+/* a question the questions page answers, after a section: a round "?" like the numbers, then the link */
+.ask { position: relative; margin-top: 28px; padding: 3px 0 0 44px; min-height: 32px; max-width: 52rem; font-weight: 600; color: var(--ink); }
+.ask::before {
+    content: "?"; content: "?" / "";
+    position: absolute; left: 0; top: 0; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
+    background: var(--ink); color: var(--paper-hi); font: 700 1.125rem/1 var(--display);
+}
+.ask a { font-weight: 700; }
+.after + .ask { margin-top: 18px; }
+
 /* How it works */
-.how {
+.how, .page-head {
     background-color: var(--paper-deep);
     background-image:
         linear-gradient(rgba(31, 24, 19, .045) 1px, transparent 1px),
@@ -495,6 +512,24 @@ a:hover { color: var(--rust-deep); text-decoration-thickness: 2px; }
     .then-steps { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); }
 }
 
+/* What you'll see: real screenshots of the app, each in an ink bezel like the drawings' monitor */
+.see { background: var(--paper-deep); border-top: 1px solid var(--rule); }
+.shots { display: grid; gap: 40px 32px; max-width: 36rem; }
+.shot { margin: 0; display: grid; align-content: start; gap: 18px; }
+.shot-frame { align-self: start; padding: 8px; background: var(--ink); border-radius: 10px; box-shadow: 0 4px 0 rgba(31, 24, 19, .14); }
+.shot img { display: block; width: 100%; height: auto; border-radius: 4px; background: var(--iron); }
+.shot figcaption { display: grid; align-content: start; gap: 6px; }
+.shot h3 { font-size: clamp(1.375rem, 1.25rem + .4vw, 1.625rem); line-height: 1.2; }
+.shot figcaption p { color: var(--ink-2); }
+.shot .ask { margin-top: 14px; color: var(--ink); }
+@media (min-width: 900px) {
+    .shots { max-width: none; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    /* side by side, the two pictures share a row and their captions the next, so the titles line up */
+    .shot:not(.shot-wide) { grid-row: span 2; grid-template-rows: subgrid; }
+    /* the short Solo screenshot takes the whole row, its words beside it */
+    .shot-wide { grid-column: 1 / -1; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); column-gap: 32px; align-items: center; }
+}
+
 /* ---------- footer: the one dark band ---------- */
 .foot { position: relative; background: var(--soot); color: var(--ash-2); padding-block: 48px 56px; }
 .foot::before {
@@ -515,6 +550,76 @@ a:hover { color: var(--rust-deep); text-decoration-thickness: 2px; }
 /* ---------- 404.html: the masthead's mark and name, one sentence and the way home ---------- */
 .lost { padding-block: clamp(56px, 9vw, 128px) clamp(72px, 12vw, 160px); }
 .lost h1 { margin: 0 0 16px; font-size: clamp(2.5rem, 1.6rem + 3.6vw, 4rem); line-height: 1.04; letter-spacing: -.015em; }
+
+/* ---------- /faq/: the questions, in a column beside their list, then the words ---------- */
+.page-head { border-top: 0; padding-block: clamp(36px, 5vw, 72px) clamp(32px, 4vw, 56px); }
+.page-head h1 { margin: 14px 0 16px; font-size: clamp(2.5rem, 1.6rem + 3.6vw, 4rem); line-height: 1.04; letter-spacing: -.015em; }
+.page-head .lede { max-width: 36em; }
+.faq { display: grid; gap: 40px; padding-block: clamp(32px, 4.4vw, 64px) clamp(48px, 6vw, 88px); }
+.toc {
+    padding: 18px 20px 16px; background: var(--paper-hi);
+    border: 1px solid var(--rule); border-top: 4px solid var(--ink); border-radius: var(--r);
+    font-size: 1rem; line-height: 1.35;
+}
+.toc-title { margin-bottom: 8px; font: 700 .875rem/1.3 var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--rust); }
+.toc a { color: var(--ink); text-decoration: none; }
+.toc a:hover { color: var(--rust-deep); text-decoration: underline; }
+.toc-part a { display: inline-flex; align-items: center; min-height: 36px; font-weight: 700; }
+.toc-list { list-style: none; margin: 0 0 6px; }
+.toc-list li { break-inside: avoid; }
+.toc-list a { display: block; position: relative; padding: 5px 0 5px 18px; }
+.toc-list a::before { content: ""; position: absolute; left: 1px; top: .82em; width: 7px; height: 7px; background: var(--ember-deep); transform: rotate(45deg); }
+@media (min-width: 700px) and (max-width: 999px) { .toc-list { columns: 2; column-gap: 32px; } }
+@media (min-width: 1000px) {
+    .faq { grid-template-columns: 17rem minmax(0, 1fr); gap: 56px; align-items: start; }
+    .toc { font-size: .9375rem; }
+}
+/* the list stays in view beside the answers, when the window is tall enough to show all of it */
+@media (min-width: 1000px) and (min-height: 760px) { .toc { position: sticky; top: 24px; } }
+
+.part-title {
+    display: flex; align-items: center; gap: 14px; margin-bottom: 8px;
+    font-size: clamp(1.875rem, 1.4rem + 1.8vw, 2.75rem); line-height: 1.05; letter-spacing: -.015em;
+}
+.part-title::after { content: ""; flex: 1; height: 2px; background: var(--rule); }
+.qa { display: grid; gap: 12px; padding-block: 28px; border-bottom: 1px solid var(--rule); scroll-margin-top: 16px; }
+.qa:last-child { border-bottom: 0; }
+.qa h3 { font-size: clamp(1.4375rem, 1.25rem + .6vw, 1.875rem); line-height: 1.15; }
+.qa > * { max-width: 46rem; }
+.qa ul, .qa ol { list-style: none; display: grid; gap: 10px; }
+.qa ul > li { position: relative; padding-left: 24px; }
+.qa ul > li::before { content: ""; position: absolute; left: 2px; top: .62em; width: 8px; height: 8px; background: var(--ember-deep); transform: rotate(45deg); }
+.qa ol { counter-reset: qa; }
+.qa ol > li { counter-increment: qa; position: relative; padding-left: 38px; }
+.qa ol > li::before {
+    content: counter(qa); position: absolute; left: 0; top: 1px;
+    display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%;
+    background: var(--ink); color: var(--paper-hi); font: 700 .875rem/1 var(--display); font-variant-numeric: lining-nums;
+}
+.qa code { overflow-wrap: anywhere; }
+.qa .details { margin-top: 2px; font-size: .9375rem; color: var(--ink-2); }
+.qa .details a { font-weight: 600; }
+/* the question or word a link leads to is marked when the page opens on it */
+.qa:target { margin-left: -14px; padding-left: 10px; border-left: 4px solid var(--ember-deep); }
+
+.glossary { margin-top: clamp(40px, 5vw, 64px); }
+.words { margin-top: 20px; columns: 2 17rem; column-gap: 20px; }
+.word {
+    break-inside: avoid; margin-bottom: 14px; padding: 14px 16px 16px; scroll-margin-top: 16px;
+    background: var(--paper-hi); border: 1px solid var(--rule); border-radius: 6px;
+}
+.word dt { font: 700 1.25rem/1.2 var(--display); color: var(--ink); }
+.word dd { margin-top: 6px; font-size: 1rem; line-height: 1.55; color: var(--ink-2); }
+.word code { overflow-wrap: anywhere; }
+.word:target { background: var(--amber-tint); border-color: #f2c98a; box-shadow: inset 4px 0 0 var(--ember-deep); }
+
+.ready { padding-bottom: clamp(56px, 7vw, 104px); }
+.ready-plate {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px 28px;
+    padding: clamp(20px, 3vw, 36px); background: var(--paper-hi);
+    border: 1px solid var(--rule); border-top: 4px solid var(--ember-deep); border-radius: var(--r);
+}
+.ready-line { font: 700 clamp(1.75rem, 1.3rem + 1.6vw, 2.5rem)/1.1 var(--display); color: var(--ink); }
 
 /* ---------- forced colors (Windows contrast themes): the dashed wires and arrows are backgrounds,
    which the theme removes, so draw them as solid lines in the text colour ---------- */
@@ -545,13 +650,15 @@ a:hover { color: var(--rust-deep); text-decoration-thickness: 2px; }
 @media (max-width: 959px) {
     .hero-art { max-width: 600px; }
 }
-@media (max-width: 900px) {
+/* the nav takes its own row under 960 px, where its five links no longer fit beside the name and the button */
+@media (max-width: 959px) {
     .masthead-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 4px; padding-block: 12px 4px; }
     .brand { grid-column: 1; grid-row: 1; }
     .btn-head { grid-column: 2; grid-row: 1; }
     .nav { grid-column: 1 / -1; grid-row: 2; justify-self: stretch; border-top: 1px solid var(--rule); }
     .nav ul { gap: 0 26px; }
-
+}
+@media (max-width: 900px) {
     .need-list { --gap: 64px; grid-template-columns: minmax(0, 1fr); gap: var(--gap); max-width: 40rem; }
     .need .wire {
         left: 30px; top: 100%; width: auto; height: var(--gap); transform: none;
@@ -641,10 +748,13 @@ a:hover { color: var(--rust-deep); text-decoration-thickness: 2px; }
     .callout > div > .callout-title { grid-column: 2; grid-row: 1; }
     .callout-icon { grid-column: 1; grid-row: 1; }
 }
+/* the nav stays one line: GitHub leaves it under 460 px (it is on every platform card and in the
+   footer), Set up under 390 px (the header's button leads to Get it, which Set up follows) */
+@media (max-width: 459px) { .nav-gh { display: none; } }
+@media (max-width: 389px) { .nav-setup { display: none; } }
 @media (max-width: 374px) {
     .btn-head .long { display: none; }
     .btn-head .short { display: inline; }
-    .nav-gh { display: none; }
     .hero .tag { letter-spacing: .07em; }
     .hero .tag::before { display: none; }
     .node-icon { display: none; }

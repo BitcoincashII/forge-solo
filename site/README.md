@@ -1,36 +1,44 @@
 # Forge Solo's website
 
 https://forgesolo.bch2.org, Forge Solo's home for people new to mining: what Forge Solo is, what you
-need, how Solo and TIDES pay, where to get it for each platform and how to connect a miner. Static
-files, served by nginx on the pool box (144.202.73.66).
+need, how Solo and TIDES pay, where to get it for each platform, how to connect a miner and what the
+app looks like; and, at /faq/, short answers to newcomers' questions and the words they will meet.
+Static files, served by nginx on the pool box (144.202.73.66).
 
 | Path | What |
 |---|---|
-| `index.html` | the page |
+| `index.html` | the home page |
+| `faq/index.html` | the questions page, /faq/: twelve questions and a glossary, each answer linking to the README |
 | `404.html` | the answer to any other address |
 | `css/site.css` | the styles, and the drawings' colours |
 | `fonts/*.woff2`, `fonts/OFL-*.txt` | Zilla Slab Bold, Source Sans 3 and Source Code Pro Medium, served from the site, and their licenses |
 | `img/favicon.svg` | the mark on a dark square: the browser tab's icon |
 | `img/mark.svg` | the mark on paper, in the 404 page's header |
 | `img/apple-touch-icon.png`, `img/og.png` | the icon for a phone's home screen, and the picture a link preview shows |
+| `img/forge-solo-*.webp` | screenshots of Forge Solo 1.0.15's Settings page and dashboard (Solo and TIDES), each also at twice the size (`@2x`), on the home page |
 | `robots.txt` | lets every crawler in |
 | `deploy.sh` | copies the files above to the box's web root |
 | `BRAND.md` | how the site looks: the colours, the type, the mark, the drawings and the words |
 | `nginx/forgesolo.bch2.org.conf` | the box's nginx server for the site (a draft until the setup below is done) |
 
-The page says what Forge Solo is and points to the README on GitHub for the directions, by the
+The pages say what Forge Solo is and point to the README on GitHub for the directions, by the
 anchors of its headings, rather than repeating them. The Windows and Linux downloads are on
 [the latest release](https://github.com/BitcoincashII/forge-solo/releases/latest), never on the
 site; Umbrel installs Forge Solo from its app store. The pages have no script, and load nothing
 from another site: the nginx server's Content-Security-Policy allows only their own styles, fonts
-and images. They link their files from the site's root (`/css/site.css?v=3`), since nginx serves
-`404.html` at whatever address was asked for. [BRAND.md](BRAND.md) is the look, and why.
+and images. They link their files from the site's root (`/css/site.css?v=4`), since nginx serves
+`404.html` at whatever address was asked for and the questions page is a folder down.
+[BRAND.md](BRAND.md) is the look, and why.
 
 `site_test.go` fails when a heading the site links to is renamed, when the site links to a download
 or a release other than the latest, when a page carries a script or a style the policy refuses, or
-loads a file that is not in site/, when a text has no `data-i18n` key, when a location in the nginx
-server drops its security headers, when the server would be the box's default for its port, and
-when site/ holds a file that is not the site's and that deploy.sh would publish.
+loads a file that is not in site/, when a link leads to an anchor a page does not have, when a text
+has no `data-i18n` key or an image's description no `data-i18n-alt` key, when a page's link preview
+does not carry its own title and address, when the pages' headers differ, when an image's size or
+`srcset` does not match its files, when the questions page's list and its questions differ, when a
+location in the nginx server drops its security headers, when the server would be the box's
+default for its port, and when site/ holds a file that is not the site's and that deploy.sh would
+publish.
 
 When a release changes what the page says, change the page with it, and the version in its footer.
 A changed stylesheet gets a new `?v=` on every page, as on pool.bch2.org: nginx lets browsers keep it
@@ -42,7 +50,9 @@ The pages are in English. Each text on them has a `data-i18n` key, as on pool.bc
 language can be added the way the pool adds one: a `lang/fs-<code>.js` with the texts by key
 (`var PT = { _code: "de", fs_hero_summary: "..." }`), and a loader like the pool's
 `js/pool-i18n.js`, which picks the language from the `lang` cookie bch2.org sets for all of
-`.bch2.org`, then the browser's, and puts each text in its element. The policy then needs
+`.bch2.org`, then the browser's, and puts each text in its element. The screenshots' descriptions
+(their `alt`) have their keys in `data-i18n-alt`, which the pool's loader does not read yet: the
+site's loader sets each image's `alt` from it. The policy then needs
 `script-src 'self'`, and the loader's language menu needs its styles in `css/site.css`: the pool's
 loader adds them in a `<style>` element, which the policy refuses. The fonts here have Latin letters
 only: a language with other letters needs their subsets too.

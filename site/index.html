@@ -12,7 +12,7 @@
     <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
     <link rel="preload" href="/fonts/zilla-slab-700.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/fonts/source-sans-3-wght.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/css/site.css?v=3">
+    <link rel="stylesheet" href="/css/site.css?v=4">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="Bitcoin Cash II">
     <meta property="og:title" content="Forge Solo: mine BCH2 at home, on your own node">
@@ -132,7 +132,8 @@
                 <ul role="list">
                     <li><a href="#what-you-need" data-i18n="fs_nav_need">What you need</a></li>
                     <li><a href="#how-it-works" data-i18n="fs_nav_how">How it works</a></li>
-                    <li><a href="#set-up" data-i18n="fs_nav_setup">Set up</a></li>
+                    <li class="nav-setup"><a href="#set-up" data-i18n="fs_nav_setup">Set up</a></li>
+                    <li><a href="/faq/" data-i18n="fs_nav_faq">Questions</a></li>
                     <li class="nav-gh"><a href="https://github.com/BitcoincashII/forge-solo" data-i18n="fs_nav_github">GitHub</a></li>
                 </ul>
             </nav>
@@ -146,7 +147,7 @@
                 <div class="hero-copy">
                     <p class="tag" data-i18n="fs_hero_tag">Home mining for Bitcoin Cash II</p>
                     <h1 id="hero-title" data-i18n="fs_hero_headline">Mine BCH2 <span class="hl">at&nbsp;home.</span></h1>
-                    <p class="lede" data-i18n="fs_hero_summary">Forge Solo is one free app for mining Bitcoin Cash II (BCH2): your own BCH2 node, a place for your miners to connect, and a dashboard that shows how it’s going.</p>
+                    <p class="lede" data-i18n="fs_hero_summary">Forge Solo is one free app for mining Bitcoin Cash II (BCH2): your own <a class="term" href="/faq/#glossary-node">BCH2 node</a>, a place for your miners to connect, and a dashboard that shows how it’s going.</p>
                     <div class="cta">
                         <a class="btn btn-primary" href="#get-it"><span data-i18n="fs_hero_get">Get Forge Solo</span><svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M10 3v12M4.5 9.5 10 15l5.5-5.5"/></svg></a>
                         <a class="btn btn-secondary" href="#what-you-need" data-i18n="fs_hero_start">New to mining? Start here</a>
@@ -240,7 +241,7 @@
                             </svg>
                         </div>
                         <h3 data-i18n="fs_need_miner">A miner</h3>
-                        <p data-i18n="fs_need_miner_text">A small one like a Bitaxe, which sits on a desk, or a bigger ASIC miner. You can connect several.</p>
+                        <p data-i18n="fs_need_miner_text">A small one like a Bitaxe, which sits on a desk, or a bigger <a class="term" href="/faq/#glossary-asic">ASIC miner</a>. You can connect several.</p>
                         <p class="wire"><span data-i18n="fs_need_wire_port">Connects on port <code translate="no">3333</code></span></p>
                     </li>
                     <li class="need">
@@ -292,6 +293,7 @@
                         <p data-i18n="fs_need_address_text">Where your rewards go. You enter it once, in Forge Solo’s Settings. Blocks pay it directly, with no pool wallet in between.</p>
                     </li>
                 </ol>
+                <p class="ask" data-i18n="fs_need_ask">Questions before you start? <a href="/faq/">Read the short answers, and the words you’ll meet</a></p>
             </div>
         </section>
 
@@ -335,7 +337,7 @@
                         <dl class="rows">
                             <div class="row row-paid"><dt data-i18n="fs_row_when">When you’re paid</dt><dd data-i18n="fs_solo_when">Nothing until you find a block, then all of it.</dd></div>
                             <div class="row"><dt data-i18n="fs_row_fee">Fee</dt><dd data-i18n="fs_solo_fee">No pool fee.</dd></div>
-                            <div class="row"><dt data-i18n="fs_row_1175">Also mines 1175 (ESF)</dt><dd data-i18n="fs_solo_1175">Yes, a second chain, at no extra hashrate cost: on Umbrel and Windows, once you set a 1175 payout address.</dd></div>
+                            <div class="row"><dt data-i18n="fs_row_1175">Also mines 1175 (ESF)</dt><dd data-i18n="fs_solo_1175">Yes, a second chain, at no extra <a class="term" href="/faq/#glossary-hashrate">hashrate</a> cost: on Umbrel and Windows, once you set a 1175 payout address.</dd></div>
                         </dl>
                     </article>
 
@@ -381,6 +383,7 @@
                 </div>
 
                 <p class="after" data-i18n="fs_how_nosched">Either way there is no payout schedule: the block pays you directly, and its reward can be spent after 100 blocks. <a href="https://pool.bch2.org/tides">See the live TIDES window</a></p>
+                <p class="ask" data-i18n="fs_how_ask">Still deciding? <a href="/faq/#solo-or-tides">Solo or TIDES: which should I choose?</a></p>
             </div>
         </section>
 
@@ -475,13 +478,13 @@
                     <ol class="then-steps" role="list">
                         <li>
                             <h3 data-i18n="fs_then_1">Set your payout address</h3>
-                            <p data-i18n="fs_then_1_text">Open Forge Solo’s dashboard and go to its <strong>Settings</strong> page. Enter your BCH2 address and save; saving asks for Forge Solo’s password. On Umbrel and Windows, add a 1175 payout address too, to merge-mine in solo mode.</p>
+                            <p data-i18n="fs_then_1_text">Open Forge Solo’s dashboard and go to its <strong>Settings</strong> page. Enter your BCH2 address and save; saving asks for Forge Solo’s password. On Umbrel and Windows, add a 1175 payout address too, to <a class="term" href="/faq/#glossary-merge-mining">merge-mine</a> in solo mode.</p>
                         </li>
                         <li>
                             <h3 data-i18n="fs_then_2">Point your miner at Forge Solo</h3>
-                            <p data-i18n="fs_then_2_text">In your miner’s settings, enter this as its stratum address, the server it sends its work to:</p>
+                            <p data-i18n="fs_then_2_text">In your miner’s settings, enter this as its <a class="term" href="/faq/#glossary-stratum">stratum address</a>, the server it sends its work to:</p>
                             <p class="addr"><code data-i18n="fs_then_addr"><span class="nw" translate="no">stratum+tcp://</span><wbr><span class="nw"><var>&lt;your machine’s address&gt;</var><span translate="no">:3333</span></span></code></p>
-                            <p data-i18n="fs_then_2_after">The dashboard shows the address. The worker name is only a label: <code translate="no">rig1</code>, <code translate="no">bitaxe</code>, anything.</p>
+                            <p data-i18n="fs_then_2_after">The dashboard shows the address. The <a class="term" href="/faq/#glossary-worker-name">worker name</a> is only a label: <code translate="no">rig1</code>, <code translate="no">bitaxe</code>, anything.</p>
                         </li>
                     </ol>
                     <div class="where">
@@ -506,6 +509,40 @@
                         <p data-i18n="fs_then_rent"><strong>Renting hashpower?</strong> Rentals from NiceHash and MiningRigRentals use port <code translate="no">3335</code>. They connect from the internet, so they reach you only once you forward that port in your router.</p>
                         <p data-i18n="fs_then_more">Everything else is in the README: <a href="https://github.com/BitcoincashII/forge-solo#connect-a-miner">connecting a miner</a>, <a href="https://github.com/BitcoincashII/forge-solo#open-these-ports-in-your-router">the ports to open in your router</a> and <a href="https://github.com/BitcoincashII/forge-solo#rented-hashpower-braiins-and-other-marketplaces">rented hashpower</a>.</p>
                     </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="section see" id="what-youll-see" aria-labelledby="see-title">
+            <div class="wrap">
+                <div class="sec-head">
+                    <p class="tag" data-i18n="fs_see_tag">In the app</p>
+                    <h2 id="see-title" data-i18n="fs_see_title">What you’ll see</h2>
+                    <p class="sec-lede" data-i18n="fs_see_lede">Forge Solo’s Settings page and its dashboard, in screenshots of Forge Solo 1.0.15. They come from a test install with a test miner, so the figures in them are not yours.</p>
+                </div>
+                <div class="shots">
+                    <figure class="shot">
+                        <div class="shot-frame"><img src="/img/forge-solo-settings-how-blocks-pay.webp" srcset="/img/forge-solo-settings-how-blocks-pay.webp 768w, /img/forge-solo-settings-how-blocks-pay@2x.webp 1536w" sizes="(min-width: 1296px) 568px, (min-width: 900px) calc(46vw - 32px), (min-width: 640px) 560px, calc(100vw - 48px)" width="768" height="853" loading="lazy" decoding="async" alt="Forge Solo’s Settings page: under How blocks pay, a choice between Solo, where every block you find pays your address in full, and TIDES pool, selected here, followed by the payout address, an optional coinbase tag, the password needed to save, and Save settings." data-i18n-alt="fs_shot_settings_alt"></div>
+                        <figcaption>
+                            <h3 data-i18n="fs_shot_settings_title">Settings, under How blocks pay</h3>
+                            <p data-i18n="fs_shot_settings_text">Choose Solo or TIDES pool, enter your BCH2 payout address, and save with Forge Solo’s password. You can switch at any time: the change takes effect within half a minute, with no restart.</p>
+                        </figcaption>
+                    </figure>
+                    <figure class="shot">
+                        <div class="shot-frame"><img src="/img/forge-solo-dashboard-tides.webp" srcset="/img/forge-solo-dashboard-tides.webp 800w, /img/forge-solo-dashboard-tides@2x.webp 1600w" sizes="(min-width: 1296px) 568px, (min-width: 900px) calc(46vw - 32px), (min-width: 640px) 560px, calc(100vw - 48px)" width="800" height="945" loading="lazy" decoding="async" alt="The Forge Solo dashboard in TIDES mode: a status banner saying the node is synced and mining for the Forge Pool TIDES window, the balance card, the Forge Pool TIDES card marked active with its window figures and recent TIDES blocks, and tiles for hashrate, network difficulty and workers." data-i18n-alt="fs_shot_tides_alt"></div>
+                        <figcaption>
+                            <h3 data-i18n="fs_shot_tides_title">The dashboard in TIDES mode</h3>
+                            <p data-i18n="fs_shot_tides_text">The TIDES badge at the top, the status banner, which here says the node is synced and a miner is sending shares, and the Forge Pool TIDES card: your share of the window, what the next TIDES block pays you, and the recent TIDES blocks.</p>
+                        </figcaption>
+                    </figure>
+                    <figure class="shot shot-wide">
+                        <div class="shot-frame"><img src="/img/forge-solo-dashboard-solo.webp" srcset="/img/forge-solo-dashboard-solo.webp 800w, /img/forge-solo-dashboard-solo@2x.webp 1600w" sizes="(min-width: 1296px) 664px, (min-width: 900px) calc(54vw - 36px), (min-width: 640px) 560px, calc(100vw - 48px)" width="800" height="448" loading="lazy" decoding="async" alt="The Forge Solo dashboard in Solo mode: a SOLO badge, a banner saying the node is synced and mining, the payout address, the balance card with blocks found, and tiles for hashrate, network difficulty, workers and shares." data-i18n-alt="fs_shot_solo_alt"></div>
+                        <figcaption>
+                            <h3 data-i18n="fs_shot_solo_title">The dashboard in Solo mode</h3>
+                            <p data-i18n="fs_shot_solo_text">The SOLO badge, your payout address, what blocks have paid it and how many you have found, and tiles for your miners’ hashrate and the network’s.</p>
+                            <p class="ask" data-i18n="fs_see_ask">Not mining yet? <a href="/faq/#not-mining-yet">Two things come first</a></p>
+                        </figcaption>
+                    </figure>
                 </div>
             </div>
         </section>
