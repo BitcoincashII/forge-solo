@@ -90,7 +90,7 @@ func (a *app) view(now time.Time) statusView {
 	v.Pool = poolView{Status: a.gw.Status(), URL: a.start.Pool.URL}
 	// The pool's refusal of this computer's clock is said in words on the Forge Pool card, not as
 	// the pool's JSON answer.
-	if off, refused := poolClockOff(v.Pool.Reason); refused {
+	if off, refused := tidesgw.ClockRefusal(v.Pool.Reason); refused {
 		v.Pool.Reason = clockShort(off, runtime.GOOS)
 	}
 	v.Node = nodeView{RPCURL: shownURL(cfg.Node.RPCURL), TemplateAge: -1}

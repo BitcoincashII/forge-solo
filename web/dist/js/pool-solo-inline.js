@@ -351,6 +351,20 @@
                 && (Date.now() - lastMiningStatusAt) < MINING_STATUS_MAX_AGE_MS);
         }
 
+        // How to set the clock right where Forge Solo runs, while Forge Pool refuses this install's
+        // requests for it (tides.clock_refused). Windows and Linux in Forge Gateway's words
+        // (cmd/forge-gateway/state.go clockFix); umbrelOS sets its clock itself (systemd-timesyncd).
+        const CLOCK_FIX = {
+            windows: 'turn on Set time automatically in Windows Settings, Time & language',
+            linux: 'set it right, for example by turning on network time (on a system with systemd: timedatectl set-ntp true)',
+            umbrel: 'umbrelOS sets it by itself over the internet, so check that the Umbrel is online and that your network lets it reach a time server (UDP port 123); restarting the Umbrel sets it again'
+        };
+        function clockAdvice(t) {
+            const whose = platform === 'windows' ? 'This PC\'s clock' : (platform === 'umbrel' ? 'This Umbrel\'s clock' : 'This computer\'s clock');
+            return whose + ' is ' + (t.clock_off ? t.clock_off + ' ' : '') + 'off, and Forge Pool refuses this install\'s requests until it is right: '
+                + (CLOCK_FIX[platform] || 'set it right, for example by turning on network time') + '.';
+        }
+
         function tidesStatusLine(ms) {
             if (!tidesInEffect(ms) || !ms.tides) return { text: '', warn: false };
             const t = ms.tides;
@@ -360,6 +374,12 @@
                 return { warn: true, text: '⏳ <b>TIDES paused, mining SOLO.</b> This BCH2 node is not on Forge Pool\'s block yet'
                     + (t.reason ? ' (' + sanitizeHTML(t.reason) + ')' : '') + '. Blocks found meanwhile pay your own address in full; '
                     + 'TIDES resumes by itself once it is.' };
+            }
+            // The pool answered, and refuses every request until this computer's clock is right: said in
+            // words, with how to set it right here, rather than as the pool's answer.
+            if (t.state === 'fallback' && t.clock_refused) {
+                return { warn: true, text: '🕒 <b>TIDES paused, mining SOLO.</b> ' + sanitizeHTML(clockAdvice(t))
+                    + ' Blocks found meanwhile pay your own address in full; TIDES resumes by itself once the clock is right.' };
             }
             if (t.state === 'fallback') {
                 return { warn: true, text: '⚠️ <b>TIDES paused, mining SOLO.</b> Forge Pool is not taking this install\'s work'
@@ -386,6 +406,7 @@
             b.className = 'mode-badge ' + (fallback ? 'fallback' : 'tides');
             b.title = !fallback ? 'Mining for the Forge Pool TIDES window'
                 : (ms.tides.node_behind ? 'TIDES chosen, but this BCH2 node is not on Forge Pool\'s block yet: mining solo meanwhile'
+                    : ms.tides.clock_refused ? 'TIDES chosen, but Forge Pool refuses this install\'s requests until its clock is right: mining solo meanwhile'
                     : 'TIDES chosen, but Forge Pool is unavailable: mining solo meanwhile');
         }
 
@@ -423,6 +444,8 @@
             document.getElementById('tidesNote').textContent = t.state === 'fallback' && t.node_behind
                 ? 'This BCH2 node is not on Forge Pool\'s block yet' + (t.reason ? ' (' + t.reason + ')' : '')
                   + ', so it is mining solo until it is. The figures below are the pool\'s.'
+                : t.state === 'fallback' && t.clock_refused
+                ? clockAdvice(t) + ' Until then it is mining solo. The figures below are the pool\'s.'
                 : t.state === 'fallback'
                 ? 'Forge Pool is not taking this install\'s work right now' + (t.reason ? ' (' + t.reason + ')' : '')
                   + ', so it is mining solo until the pool answers again. The figures below are the pool\'s.'

@@ -912,6 +912,10 @@ type Status struct {
 	// NodeBehind: fallen back because this BCH2 node is not on the pool's block yet (StaleError),
 	// not because of the pool.
 	NodeBehind bool `json:"node_behind,omitempty"`
+	// ClockRefused: Forge Pool refuses this install's requests because this computer's clock is more
+	// than 2 minutes off its own. ClockOff says how far, in round words; "" when the pool did not say.
+	ClockRefused bool   `json:"clock_refused,omitempty"`
+	ClockOff     string `json:"clock_off,omitempty"`
 	Counts
 }
 
@@ -925,6 +929,9 @@ func (g *Gateway) Status() Status {
 		NodeBehind: g.state == StateFallback && g.waitHeight > 0}
 	if !g.lastOK.IsZero() {
 		st.LastRegistered = int64(now.Sub(g.lastOK).Seconds())
+	}
+	if off, refused := ClockRefusal(g.reason); refused {
+		st.ClockRefused, st.ClockOff = true, HowFar(off)
 	}
 	if g.snap != nil {
 		st.Snapshot = g.snap.Version

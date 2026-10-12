@@ -6,9 +6,7 @@ import (
 	"io/fs"
 	"net"
 	"net/url"
-	"regexp"
 	"runtime"
-	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -55,6 +53,7 @@ const poolNotTaking = "Forge Pool cannot be reached, or will not take your node'
 // a setup problem before the node, the node before the pool.
 func stateOf(in stateInput) (state, reason string) {
 	h := in.health
+	clockOff, clockRefused := tidesgw.ClockRefusal(in.pool.Reason)
 	switch {
 	case in.problem != "":
 		return stateUnconfigured, in.problem
@@ -84,9 +83,8 @@ func stateOf(in stateInput) (state, reason string) {
 			why = "Your node is not on Forge Pool's block yet"
 		}
 		return stateNodeSyncing, why + ". " + then
-	case (in.mode == "solo" || in.mode == "waiting") && poolRefusesClock(in.pool.Reason):
-		off, _ := poolClockOff(in.pool.Reason)
-		return stateClockOff, clockReason(off, in.goos, in.mode)
+	case (in.mode == "solo" || in.mode == "waiting") && clockRefused:
+		return stateClockOff, clockReason(clockOff, in.goos, in.mode)
 	case in.mode == "solo":
 		return statePoolUnreachable, poolNotTaking + inBrackets(in.pool.Reason) +
 			". Your miners mine solo on your node meanwhile: a block found now pays your payout address in full. Forge Gateway tries the pool again every minute."
@@ -126,56 +124,6 @@ func nodeErrorShown(err error, cookie bool) string {
 	return briefNodeError(err)
 }
 
-// Forge Pool refuses a signed request whose time is more than 2 minutes off its own clock: it
-// answers 401 {"error":"request time is <how far> off the pool's clock"} (internal/datum/wire,
-// Verify), and the pool gateway's reason carries that answer. The pool was reached: only setting
-// this computer's clock right helps.
-var poolClockText = regexp.MustCompile(`request time is (-?[0-9][0-9a-zµ.]*) off the pool's clock`)
-
-// poolRefusesClock reports whether the pool gateway's reason is that refusal.
-func poolRefusesClock(reason string) bool {
-	return strings.Contains(reason, " 401 ") && strings.Contains(reason, "off the pool's clock")
-}
-
-// poolClockOff is how far off the pool found this computer's clock, from the pool gateway's reason;
-// 0 when it does not say.
-func poolClockOff(reason string) (time.Duration, bool) {
-	if !poolRefusesClock(reason) {
-		return 0, false
-	}
-	m := poolClockText.FindStringSubmatch(reason)
-	if m == nil {
-		return 0, true
-	}
-	d, err := time.ParseDuration(m[1])
-	if err != nil {
-		return 0, true
-	}
-	if d < 0 {
-		d = -d
-	}
-	return d, true
-}
-
-// howFar is d in round words: about 7 hours, about 3 minutes, about 2 days; "" when it is not known.
-func howFar(d time.Duration) string {
-	about := func(n time.Duration, one, many string) string {
-		if n <= 1 {
-			return "about " + one
-		}
-		return fmt.Sprintf("about %d %s", int64(n), many)
-	}
-	switch {
-	case d <= 0:
-		return ""
-	case d >= 36*time.Hour:
-		return about(d.Round(24*time.Hour)/(24*time.Hour), "a day", "days")
-	case d >= 50*time.Minute:
-		return about(d.Round(time.Hour)/time.Hour, "an hour", "hours")
-	}
-	return about(d.Round(time.Minute)/time.Minute, "a minute", "minutes")
-}
-
 // clockWhose is whose clock is off, as the texts say it on the system goos (runtime.GOOS).
 func clockWhose(goos string) string {
 	switch goos {
@@ -202,9 +150,10 @@ func clockFix(goos string) string {
 	return "set it right, for example by turning on network time"
 }
 
-// clockShort is the Forge Pool card's reason while the pool refuses this computer's clock.
+// clockShort is the Forge Pool card's reason while the pool refuses this computer's clock
+// (tidesgw.ClockRefusal).
 func clockShort(off time.Duration, goos string) string {
-	if far := howFar(off); far != "" {
+	if far := tidesgw.HowFar(off); far != "" {
 		return clockWhose(goos) + " is " + far + " off"
 	}
 	return clockWhose(goos) + " is off"

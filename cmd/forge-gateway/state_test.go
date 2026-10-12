@@ -197,28 +197,9 @@ func TestNodeRefusals(t *testing.T) {
 	}
 }
 
-// Forge Pool's refusal of a request whose time is off its clock is read from the pool gateway's
-// reason, with how far off, in round words; nothing else is taken for it.
-func TestPoolClockRefusal(t *testing.T) {
-	for _, tc := range []struct {
-		reason  string
-		refused bool
-		far     string
-	}{
-		{`/datum/v1/jobs: 401 Unauthorized: {"error":"request time is -6h59m59s off the pool's clock"}`, true, "about 7 hours"},
-		{`/datum/v1/jobs: 401 Unauthorized: {"error":"request time is 3m5s off the pool's clock"}`, true, "about 3 minutes"},
-		{`/datum/v1/jobs: 401 Unauthorized: {"error":"request time is 49h0m0s off the pool's clock"}`, true, "about 2 days"},
-		{`/datum/v1/jobs: 401 Unauthorized: {"error":"request time is 1h2m0s off the pool's clock"}`, true, "about an hour"},
-		{`/datum/v1/jobs: 401 Unauthorized: {"error":"request time is soon off the pool's clock"}`, true, ""},
-		{`/datum/v1/jobs: 401 Unauthorized: {"error":"bad signature"}`, false, ""},
-		{`/datum/v1/jobs: 502 Bad Gateway: request time is 7h0m0s off the pool's clock`, false, ""},
-		{"the pool did not answer", false, ""},
-	} {
-		off, refused := poolClockOff(tc.reason)
-		if refused != tc.refused || howFar(off) != tc.far || poolRefusesClock(tc.reason) != tc.refused {
-			t.Errorf("GW-CLOCK-READ: %q: refused %v, %q", tc.reason, refused, howFar(off))
-		}
-	}
+// The Forge Pool card says in round words how far off the pool found this computer's clock.
+// internal/tidesgw's clock_test.go pins how the pool's refusal is read.
+func TestPoolClockCard(t *testing.T) {
 	if got := clockShort(7*time.Hour, "windows"); got != "this PC's clock is about 7 hours off" {
 		t.Errorf("GW-CLOCK-CARD: %q", got)
 	}
@@ -261,7 +242,7 @@ func TestClockAdviceForEachSystem(t *testing.T) {
 					t.Errorf("GW-CLOCK-SYSTEM %q %s%s: %s %q\nwant %s %q", s.goos, m.mode, o.far, state, reason, stateClockOff, want)
 				}
 			}
-			off, _ := poolClockOff(o.reason)
+			off, _ := tidesgw.ClockRefusal(o.reason)
 			if got, want := clockShort(off, s.goos), s.whose+o.far; got != want {
 				t.Errorf("GW-CLOCK-SYSTEM-CARD %q%s: the Forge Pool card says %q, want %q", s.goos, o.far, got, want)
 			}

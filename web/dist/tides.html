@@ -77,6 +77,7 @@
   <div class="card">
     <h2>When your install mines solo</h2>
     <p>If Forge Pool cannot be reached, or will not take a job, your install mines <strong>solo</strong> in the meantime: a block found then pays your payout address in full. It tries the pool again every minute and returns to TIDES as soon as the pool takes a job. A job the pool already took stays in use while it cannot be refreshed, until it is 45 seconds to about a minute old. The TIDES card on the dashboard shows <strong>paused, mining solo</strong> while this lasts.</p>
+    <p>Forge Pool also refuses the requests of an install whose clock is more than 2 minutes off its own; the dashboard then says how far off the clock is and how to set it right on your system.</p>
     <p>At a new block, if the pool has not taken the new work within 2 seconds, your miners get solo work for that block until it does. A block found on it pays your payout address in full too; the card stays <strong>active</strong>.</p>
   </div>
 
