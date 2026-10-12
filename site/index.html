@@ -3,172 +3,529 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Forge Solo: mine BCH2 at home on your own full node</title>
-    <meta name="description" content="Forge Solo is one app: a BCH2 full node, the stratum your miners connect to, and a dashboard. Mine solo or in Forge Pool's TIDES window, on Umbrel, Windows or Linux. No pool fee.">
+    <title data-i18n="fs_meta_title">Forge Solo: mine BCH2 at home, on your own node</title>
+    <meta name="description" content="Forge Solo is one free app for mining Bitcoin Cash II (BCH2) at home: your own BCH2 node, a place for your miners to connect, and a dashboard. Umbrel, Windows or Linux. Solo or TIDES. No pool fee.">
     <link rel="canonical" href="https://forgesolo.bch2.org/">
-    <meta name="theme-color" content="#0a0a0a">
-    <meta name="color-scheme" content="dark">
-    <link rel="icon" type="image/svg+xml" href="/img/logo.svg">
+    <meta name="theme-color" content="#f6efe4">
+    <meta name="color-scheme" content="light">
+    <link rel="icon" type="image/svg+xml" href="/img/favicon.svg">
     <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
-    <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/css/site.css?v=2">
+    <link rel="preload" href="/fonts/zilla-slab-700.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="/fonts/source-sans-3-wght.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="/css/site.css?v=3">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="Bitcoin Cash II">
-    <meta property="og:title" content="Forge Solo: mine BCH2 at home on your own full node">
-    <meta property="og:description" content="One app: a BCH2 full node, the stratum your miners connect to, and a dashboard. Solo or TIDES, on Umbrel, Windows or Linux. No pool fee.">
+    <meta property="og:title" content="Forge Solo: mine BCH2 at home, on your own node">
+    <meta property="og:description" content="One free app for mining Bitcoin Cash II at home: your own BCH2 node, a place for your miners to connect, and a dashboard. Solo or TIDES, on Umbrel, Windows or Linux. No pool fee.">
     <meta property="og:url" content="https://forgesolo.bch2.org/">
     <meta property="og:image" content="https://forgesolo.bch2.org/img/og.png">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
-    <meta property="og:image:alt" content="Forge Solo: mine BCH2 at home on your own full node. Umbrel, Windows, Linux.">
+    <meta property="og:image:alt" content="Forge Solo: mine BCH2 at home. A drawing of a desk with a small miner, a computer running Forge Solo and a phone. Umbrel, Windows and Linux.">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:site" content="@BitcoincashII">
-    <meta name="twitter:title" content="Forge Solo: mine BCH2 at home on your own full node">
-    <meta name="twitter:description" content="One app: a BCH2 full node, the stratum your miners connect to, and a dashboard. Solo or TIDES, on Umbrel, Windows or Linux. No pool fee.">
+    <meta name="twitter:title" content="Forge Solo: mine BCH2 at home, on your own node">
+    <meta name="twitter:description" content="One free app for mining Bitcoin Cash II at home: your own BCH2 node, a place for your miners to connect, and a dashboard. Solo or TIDES, on Umbrel, Windows or Linux. No pool fee.">
 </head>
 <body>
     <a class="skip-link" href="#main" data-i18n="fs_skip">Skip to main content</a>
 
-    <header class="site-header">
-        <div class="container">
+    <!-- The drawings' shared parts: one flat style, the Forge palette, no outlines -->
+    <svg class="defs" aria-hidden="true" focusable="false" width="0" height="0">
+        <defs>
+            <symbol id="mark" viewBox="0 0 64 64">
+                <path class="mk-anvil" d="M3 33.6C9.6 31.7 15 31 21 31h38v6.2l-4 2.1c-3.1 1.6-4.6 3.7-4.6 6.5 0 3.3 2.3 5.4 6.1 5.9V56H19.5v-4.3c3.8-.5 6.1-2.6 6.1-5.9 0-2.9-1.5-4.9-4.1-5.9C14.9 38.5 8.6 36.6 3 33.6Z"/>
+                <path class="mk-spark" d="M39.37 22.38 43.7 5.88A2.9 2.9 0 0 0 37.99 4.88L36.41 21.86A1.5 1.5 0 0 0 39.37 22.38ZM44.23 25.21 54.19 18.42A2.5 2.5 0 0 0 50.98 14.59L42.56 23.22A1.3 1.3 0 0 0 44.23 25.21ZM32.75 21.73 28.83 13.57A2.2 2.2 0 0 0 25.1 15.9L30.71 23A1.2 1.2 0 0 0 32.75 21.73Z"/>
+            </symbol>
+            <symbol id="fan" viewBox="0 0 34 34">
+                <circle class="fn-bg" cx="17" cy="17" r="16.5"/>
+                <g class="fan">
+                    <path class="fn-blade" d="M17 17C14 11 15 4 21 2.5 23 7.5 22 13 17 17Z"/>
+                    <path class="fn-blade" d="M17 17C14 11 15 4 21 2.5 23 7.5 22 13 17 17Z" transform="rotate(90 17 17)"/>
+                    <path class="fn-blade" d="M17 17C14 11 15 4 21 2.5 23 7.5 22 13 17 17Z" transform="rotate(180 17 17)"/>
+                    <path class="fn-blade" d="M17 17C14 11 15 4 21 2.5 23 7.5 22 13 17 17Z" transform="rotate(270 17 17)"/>
+                </g>
+                <circle class="fn-hub" cx="17" cy="17" r="4.5"/>
+            </symbol>
+            <!-- a Bitaxe-style board, standing on its edge: display, fan on the heatsink, copper traces -->
+            <symbol id="bitaxe" viewBox="0 0 120 100">
+                <path class="bx-stand" d="M26 80H94L100 100H20Z"/>
+                <rect class="bx-pcb" x="4" y="2" width="112" height="84" rx="7"/>
+                <path class="bx-trace" d="M14 64H32L40 56H48M14 71H38L46 63H50M22 78H44L50 72" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <circle class="bx-pad" cx="48" cy="56" r="2.6"/>
+                <circle class="bx-pad" cx="50" cy="63" r="2.6"/>
+                <circle class="bx-pad" cx="50" cy="72" r="2.6"/>
+                <circle class="bx-hole" cx="12" cy="10" r="3.6"/>
+                <circle class="bx-hole" cx="108" cy="10" r="3.6"/>
+                <circle class="bx-hole" cx="12" cy="78" r="3.6"/>
+                <circle class="bx-hole" cx="108" cy="78" r="3.6"/>
+                <rect class="bx-oled" x="13" y="20" width="32" height="22" rx="2"/>
+                <rect class="bx-oled-line" x="17" y="25" width="16" height="3" rx="1.5"/>
+                <rect class="bx-oled-line op-6" x="17" y="32" width="23" height="3" rx="1.5"/>
+                <rect class="bx-sink" x="52" y="10" width="50" height="62" rx="7"/>
+                <use href="#fan" x="55" y="19" width="44" height="44"/>
+                <rect class="bx-jack" x="0" y="48" width="10" height="14" rx="2"/>
+                <circle class="bx-led led" cx="108" cy="44" r="2.8"/>
+            </symbol>
+            <!-- the computer that stays on: an Umbrel-style box with the anvil on its face -->
+            <symbol id="box" viewBox="0 0 92 78">
+                <rect class="bo-body" width="92" height="78" rx="16"/>
+                <use href="#mark" class="mark-on-dark" x="24" y="9" width="44" height="44"/>
+                <circle class="bo-led led" cx="17" cy="63" r="4"/>
+                <rect class="bo-slot" x="30" y="60" width="46" height="6" rx="3"/>
+            </symbol>
+            <symbol id="monitor" viewBox="0 0 200 172">
+                <rect class="f-ink" width="200" height="136" rx="10"/>
+                <rect class="f-paperhi" x="9" y="9" width="182" height="114" rx="4"/>
+                <use href="#mark" x="15" y="13" width="20" height="20"/>
+                <rect class="f-sand" x="40" y="19" width="50" height="7" rx="3.5"/>
+                <rect class="f-ember" x="150" y="16" width="32" height="13" rx="6.5"/>
+                <!-- a level, jittery hashrate line: the dashboard shows work, not money going up -->
+                <path class="f-amtint" d="M18 104V72L40 64 58 71 78 62 98 70 118 63 140 71 162 64 182 68V104Z"/>
+                <path class="s-ember" d="M18 72 40 64 58 71 78 62 98 70 118 63 140 71 162 64 182 68" fill="none" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"/>
+                <rect class="f-sand" x="18" y="110" width="44" height="6" rx="3"/>
+                <rect class="f-rule" x="70" y="110" width="30" height="6" rx="3"/>
+                <rect class="f-rule" x="108" y="110" width="40" height="6" rx="3"/>
+                <rect class="f-ink" x="90" y="135" width="20" height="27"/>
+                <rect class="f-ink" x="60" y="160" width="80" height="12" rx="6"/>
+            </symbol>
+            <symbol id="coin" viewBox="0 0 32 32">
+                <circle class="f-amber" cx="16" cy="16" r="15"/>
+                <circle class="s-emberdeep" cx="16" cy="16" r="9.5" fill="none" stroke-width="3"/>
+            </symbol>
+            <!-- a phone with a wallet: where your address lives, and where the reward lands -->
+            <symbol id="phone" viewBox="0 0 56 100">
+                <path class="f-ink2" d="M12 84H44L52 100H4Z"/>
+                <rect class="f-ink" x="7" y="0" width="42" height="88" rx="9"/>
+                <rect class="f-paperhi" x="11" y="8" width="34" height="72" rx="4"/>
+                <use href="#coin" x="17" y="15" width="22" height="22"/>
+                <rect class="f-sand" x="16" y="45" width="24" height="5" rx="2.5"/>
+                <rect class="f-rule" x="16" y="54" width="17" height="5" rx="2.5"/>
+                <rect class="f-ember" x="16" y="65" width="24" height="9" rx="4.5"/>
+            </symbol>
+            <symbol id="asic" viewBox="0 0 140 96">
+                <rect class="f-ink2" width="140" height="86" rx="10"/>
+                <rect class="f-ink" x="12" y="9" width="116" height="5" rx="2.5"/>
+                <use href="#fan" x="11" y="21" width="54" height="54"/>
+                <use href="#fan" x="75" y="21" width="54" height="54"/>
+                <rect class="f-ink" x="12" y="84" width="18" height="12" rx="2"/>
+                <rect class="f-ink" x="110" y="84" width="18" height="12" rx="2"/>
+            </symbol>
+            <!-- a block, seen straight on like every other drawing: a header band over its lines -->
+            <symbol id="block" viewBox="0 0 44 44">
+                <rect class="f-ember" x="2" y="3" width="40" height="38" rx="5"/>
+                <path class="f-amber" d="M7 3H37A5 5 0 0 1 42 8V14H2V8A5 5 0 0 1 7 3Z"/>
+                <rect class="f-paperhi" x="8" y="20" width="28" height="4" rx="2"/>
+                <rect class="f-paperhi" x="8" y="27" width="21" height="4" rx="2"/>
+                <rect class="f-paperhi" x="8" y="34" width="25" height="4" rx="2"/>
+            </symbol>
+        </defs>
+    </svg>
+
+    <header class="masthead">
+        <div class="wrap masthead-row">
             <a class="brand" href="/">
-                <img src="/img/logo.svg" width="36" height="36" alt="">
-                <span>
-                    <span class="brand-name">Forge Solo</span>
-                    <span class="brand-sub" data-i18n="fs_brand_sub">Bitcoin Cash II home miner</span>
-                </span>
+                <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><use href="#mark"/></svg>
+                <span class="brand-name" data-i18n="fs_brand">Forge Solo</span>
             </a>
-            <nav class="site-nav" aria-label="Main">
-                <a class="in-page" href="#how-it-works" data-i18n="fs_nav_how">How it works</a>
-                <a class="in-page" href="#get-it" data-i18n="fs_nav_get">Get it</a>
-                <a class="in-page" href="#set-up" data-i18n="fs_nav_setup">Set up</a>
-                <a href="https://github.com/BitcoincashII/forge-solo">GitHub</a>
+            <nav class="nav" aria-label="Main">
+                <ul role="list">
+                    <li><a href="#what-you-need" data-i18n="fs_nav_need">What you need</a></li>
+                    <li><a href="#how-it-works" data-i18n="fs_nav_how">How it works</a></li>
+                    <li><a href="#set-up" data-i18n="fs_nav_setup">Set up</a></li>
+                    <li class="nav-gh"><a href="https://github.com/BitcoincashII/forge-solo" data-i18n="fs_nav_github">GitHub</a></li>
+                </ul>
             </nav>
+            <a class="btn btn-primary btn-head" href="#get-it"><span class="long" data-i18n="fs_head_get">Get Forge Solo</span><span class="short" data-i18n="fs_head_get_short">Get it</span></a>
         </div>
     </header>
 
     <main id="main">
         <section class="hero" aria-labelledby="hero-title">
-            <div class="container">
-                <h1 id="hero-title" data-i18n="fs_hero_title">Forge <span>Solo</span></h1>
-                <p class="lede" data-i18n="fs_hero_lede">Mine BCH2 at home on your own full node.</p>
-                <p class="intro" data-i18n="fs_hero_intro">Forge Solo is one app: a BCH2 full node, the stratum your miners connect to, and a dashboard. It runs on Umbrel, Windows and Linux, with no pool fee.</p>
-                <div class="actions">
-                    <a class="btn btn-primary" href="#get-it" data-i18n="fs_hero_get">Get Forge Solo</a>
-                    <a class="btn btn-secondary" href="#how-it-works" data-i18n="fs_hero_how">How it works</a>
+            <div class="wrap hero-grid">
+                <div class="hero-copy">
+                    <p class="tag" data-i18n="fs_hero_tag">Home mining for Bitcoin Cash II</p>
+                    <h1 id="hero-title" data-i18n="fs_hero_headline">Mine BCH2 <span class="hl">at&nbsp;home.</span></h1>
+                    <p class="lede" data-i18n="fs_hero_summary">Forge Solo is one free app for mining Bitcoin Cash II (BCH2): your own BCH2 node, a place for your miners to connect, and a dashboard that shows how it’s going.</p>
+                    <div class="cta">
+                        <a class="btn btn-primary" href="#get-it"><span data-i18n="fs_hero_get">Get Forge Solo</span><svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M10 3v12M4.5 9.5 10 15l5.5-5.5"/></svg></a>
+                        <a class="btn btn-secondary" href="#what-you-need" data-i18n="fs_hero_start">New to mining? Start here</a>
+                    </div>
+                    <ul class="facts" role="list">
+                        <li data-i18n="fs_hero_fact_free">Free and open source (MIT)</li>
+                        <li data-i18n="fs_hero_fact_fee">No pool fee</li>
+                        <li data-i18n="fs_hero_fact_platforms">Umbrel, Windows and Linux</li>
+                    </ul>
                 </div>
-                <p class="note" data-i18n="fs_hero_note">Free and open source. Downloads are on GitHub.</p>
+
+                <figure class="hero-art">
+                    <div class="art-frame">
+                    <svg viewBox="0 0 640 430" role="img" aria-labelledby="hero-art-title" focusable="false">
+                        <title id="hero-art-title" data-i18n="fs_hero_art">A desk with a small miner such as a Bitaxe (1), a computer that stays on, running Forge Solo with its dashboard on screen (2), and a phone with your wallet, where a reward arrives (3).</title>
+                        <defs>
+                            <pattern id="peg" width="13" height="13" patternUnits="userSpaceOnUse" x="40" y="44"><circle class="f-rule" cx="6.5" cy="6.5" r="1.9"/></pattern>
+                        </defs>
+                        <!-- the workshop wall, a window and a pegboard -->
+                        <rect class="f-deep" x="8" y="8" width="624" height="404" rx="32"/>
+                        <rect class="f-paperhi" x="446" y="40" width="152" height="106" rx="12"/>
+                        <rect class="f-amtint" x="455" y="49" width="134" height="88" rx="6"/>
+                        <circle class="f-amber" cx="550" cy="78" r="13"/>
+                        <path class="f-copperlt" d="M455 116C478 104 502 108 522 117S562 122 589 110V137H455Z"/>
+                        <rect class="f-paperhi" x="519" y="49" width="6" height="88"/>
+                        <rect class="f-paperhi" x="455" y="90" width="134" height="6"/>
+                        <rect class="f-ink2" x="438" y="142" width="168" height="10" rx="5"/>
+                        <rect class="f-sand" x="40" y="44" width="138" height="104" rx="10"/>
+                        <rect fill="url(#peg)" x="40" y="44" width="138" height="104" rx="10"/>
+                        <rect class="f-copper" x="70" y="70" width="8" height="58" rx="4"/>
+                        <rect class="f-ink2" x="56" y="61" width="36" height="15" rx="3"/>
+                        <path class="s-ink2" d="M116 64 132 130M148 64 132 130" fill="none" stroke-width="4.5" stroke-linecap="round"/>
+                        <circle class="f-ink" cx="132" cy="96" r="3.6"/>
+                        <circle class="s-copper" cx="160" cy="92" r="9.5" fill="none" stroke-width="4.5"/>
+                        <rect class="f-ink2" x="158" y="72" width="4" height="10" rx="2"/>
+                        <!-- the lamp -->
+                        <rect class="f-ink2" x="298" y="8" width="2" height="90"/>
+                        <path class="f-glow" d="M283 132H315L348 166H250Z"/>
+                        <rect class="f-ink" x="293" y="95" width="12" height="9" rx="2"/>
+                        <path class="f-amber" d="M280 133 289 104H309L318 133Z"/>
+                        <circle class="f-paperhi" cx="299" cy="135" r="5"/>
+                        <!-- the desk -->
+                        <rect class="f-sand" x="0" y="408" width="640" height="12" rx="6"/>
+                        <rect class="f-ink" x="22" y="352" width="596" height="14" rx="7"/>
+                        <rect class="f-ink" x="46" y="364" width="14" height="46"/>
+                        <rect class="f-ink" x="580" y="364" width="14" height="46"/>
+                        <!-- the drawer hangs from the top and meets the right leg -->
+                        <path class="f-ink2" d="M440 366H580V398H446A6 6 0 0 1 440 392Z"/>
+                        <rect class="f-sand" x="493" y="378" width="36" height="6" rx="3"/>
+                        <!-- 1 the miner, 2 the computer and its screen, 3 the wallet -->
+                        <path class="s-ink2" d="M38 300C20 302 18 330 28 352" fill="none" stroke-width="3" stroke-linecap="round"/>
+                        <use href="#bitaxe" x="36" y="232" width="144" height="120"/>
+                        <use href="#monitor" x="194" y="170" width="212" height="182"/>
+                        <use href="#box" x="418" y="262" width="106" height="90"/>
+                        <use href="#phone" x="540" y="245" width="60" height="107"/>
+                        <g class="coin-fall">
+                            <rect class="f-emberdeep" x="568" y="170" width="4" height="12" rx="2"/>
+                            <rect class="f-emberdeep" x="553" y="176" width="4" height="9" rx="2" transform="rotate(-30 555 180)"/>
+                            <rect class="f-emberdeep" x="583" y="176" width="4" height="9" rx="2" transform="rotate(30 585 180)"/>
+                            <use href="#coin" x="555" y="191" width="30" height="30"/>
+                        </g>
+                    </svg>
+                    <span class="pin pin-1" aria-hidden="true"></span>
+                    <span class="pin pin-2" aria-hidden="true"></span>
+                    <span class="pin pin-3" aria-hidden="true"></span>
+                    </div>
+                    <figcaption class="art-key">
+                        <span class="key key-1" data-i18n="fs_hero_key_1">A miner, like a Bitaxe</span>
+                        <span class="key key-2" data-i18n="fs_hero_key_2">A computer that stays on</span>
+                        <span class="key key-3" data-i18n="fs_hero_key_3">Your BCH2 address</span>
+                    </figcaption>
+                </figure>
             </div>
         </section>
 
-        <section class="section" id="how-it-works" aria-labelledby="how-title">
-            <div class="container">
-                <h2 id="how-title" data-i18n="fs_how_title">How it works</h2>
-                <p class="intro" data-i18n="fs_how_intro">Your own node builds every block your miners work on. In Settings, under <strong>How blocks pay</strong>, you choose <strong>Solo</strong> or <strong>TIDES pool</strong>.</p>
-                <div class="grid grid-2">
-                    <article class="card" aria-labelledby="solo-title">
-                        <h3 id="solo-title" data-i18n="fs_solo_title">Solo</h3>
-                        <ul>
-                            <li data-i18n="fs_solo_1">A block you find pays your BCH2 address in full, straight from its coinbase.</li>
-                            <li data-i18n="fs_solo_2">Nothing until you find a block, then all of it.</li>
-                            <li data-i18n="fs_solo_3">On Umbrel and Windows, solo mode also merge-mines 1175 (ESF), a second chain, once you set a 1175 payout address, at no extra hashrate cost.</li>
-                        </ul>
-                    </article>
-                    <article class="card" aria-labelledby="tides-title">
-                        <h3 id="tides-title" data-i18n="fs_tides_title">TIDES pool</h3>
-                        <ul>
-                            <li data-i18n="fs_tides_1">Team up with other miners in Forge Pool's TIDES window.</li>
-                            <li data-i18n="fs_tides_2">Every TIDES block (a block found on work Forge Pool registered) pays everyone with work in the window, in proportion to that work, straight from its coinbase. Forge Pool's pages call it a DATUM block.</li>
-                            <li data-i18n="fs_tides_3">0.00% fee, and no pool wallet. An amount under 546 satoshis is carried to a later TIDES block.</li>
-                            <li data-i18n="fs_tides_4">Forge Solo mines solo while Forge Pool cannot be reached or will not take a job. At a new block it also mines solo if the pool has not taken the block's work within 2 seconds, until the pool takes it. A block found on solo work pays your BCH2 address in full.</li>
-                            <li data-i18n="fs_tides_5">1175 merge-mining is off in TIDES mode.</li>
-                        </ul>
-                        <p class="links" data-i18n="fs_tides_links"><a class="chip" href="https://pool.bch2.org/tides">The live TIDES window</a></p>
-                    </article>
+        <section class="section needs" id="what-you-need" aria-labelledby="need-title">
+            <div class="wrap">
+                <div class="sec-head">
+                    <p class="tag" data-i18n="fs_need_tag">Before you start</p>
+                    <h2 id="need-title" data-i18n="fs_need_title">What you need</h2>
+                    <p class="sec-lede" data-i18n="fs_need_lede">Three things. You don’t need to know how mining works yet.</p>
                 </div>
-                <p class="after" data-i18n="fs_how_after">Either way there is no payout schedule: the coinbase pays you directly. A block's reward can be spent after 100 blocks, the network's coinbase maturity.</p>
-            </div>
-        </section>
-
-        <section class="section" id="inside" aria-labelledby="inside-title">
-            <div class="container">
-                <h2 id="inside-title" data-i18n="fs_inside_title">What's inside</h2>
-                <div class="grid grid-4">
-                    <div class="tile">
-                        <h3 data-i18n="fs_inside_node">BCH2 full node</h3>
-                        <p data-i18n="fs_inside_node_text">It syncs on its own and keeps the whole chain, so other nodes can sync from it.</p>
-                    </div>
-                    <div class="tile">
-                        <h3 data-i18n="fs_inside_1175">1175 (ESF) node</h3>
-                        <p data-i18n="fs_inside_1175_text">On Umbrel and Windows, for merge-mining.</p>
-                    </div>
-                    <div class="tile">
-                        <h3 data-i18n="fs_inside_stratum">Stratum</h3>
-                        <p data-i18n="fs_inside_stratum_text">Port 3333 for your miners. Port 3335 for NiceHash and MiningRigRentals.</p>
-                    </div>
-                    <div class="tile">
-                        <h3 data-i18n="fs_inside_dash">Dashboard</h3>
-                        <p data-i18n="fs_inside_dash_text">Hashrate, effort, your blocks, payouts and the TIDES window.</p>
-                    </div>
-                </div>
-                <p class="after" data-i18n="fs_inside_after">Your settings, blocks and payouts are kept in one SQLite file, <code>forgesolo.db</code>. The README's <a href="https://github.com/BitcoincashII/forge-solo#whats-inside">What's inside</a> has the details.</p>
-            </div>
-        </section>
-
-        <section class="section" id="get-it" aria-labelledby="get-title">
-            <div class="container">
-                <h2 id="get-title" data-i18n="fs_get_title">Get Forge Solo</h2>
-                <p class="intro" data-i18n="fs_get_intro">The Windows and Linux downloads are on GitHub, on the page of the latest release. Umbrel installs Forge Solo from an app store.</p>
-                <div class="grid grid-3">
-                    <article class="card" aria-labelledby="umbrel-title">
-                        <h3 id="umbrel-title" data-i18n="fs_get_umbrel_title">Umbrel</h3>
-                        <p data-i18n="fs_get_umbrel">In Umbrel, add the community app store <code>https://github.com/<wbr>BitcoincashII/<wbr>umbrel-app-store</code>, then install Forge Solo from BCH2 Community Apps.</p>
-                        <p class="links" data-i18n="fs_get_umbrel_links"><a class="chip" href="https://github.com/BitcoincashII/forge-solo#install-on-umbrel">Directions<span class="vh"> for Umbrel</span> on GitHub</a></p>
-                    </article>
-                    <article class="card" aria-labelledby="windows-title">
-                        <h3 id="windows-title" data-i18n="fs_get_windows_title">Windows</h3>
-                        <p data-i18n="fs_get_windows">64-bit Windows 10 or 11 on an x64 PC, or Windows 11 on ARM. On the latest release, under Assets, download <code>ForgeSolo-Setup-&lt;version&gt;.exe</code>.</p>
-                        <p data-i18n="fs_get_windows_sign">Forge Solo is not yet signed by a certificate Windows trusts. The directions say what to do when SmartScreen or Smart App Control stops it.</p>
-                        <p class="links" data-i18n="fs_get_windows_links"><a class="chip" href="https://github.com/BitcoincashII/forge-solo#install-on-windows">Directions<span class="vh"> for Windows</span> on GitHub</a> <a class="chip" href="https://github.com/BitcoincashII/forge-solo/releases/latest">Latest release</a></p>
-                    </article>
-                    <article class="card" aria-labelledby="linux-title">
-                        <h3 id="linux-title" data-i18n="fs_get_linux_title">Linux</h3>
-                        <p data-i18n="fs_get_linux">Downloads for x86_64 PCs and for ARM boards such as the Raspberry Pi, and also for i686 and riscv64. They are fully static: they run on any distribution with kernel 3.17 or newer.</p>
-                        <p data-i18n="fs_get_linux_bch2">BCH2 only: the Linux version does not merge-mine 1175.</p>
-                        <p class="links" data-i18n="fs_get_linux_links"><a class="chip" href="https://github.com/BitcoincashII/forge-solo/blob/main/packaging/linux/README.md">Directions<span class="vh"> for Linux</span> on GitHub</a> <a class="chip" href="https://github.com/BitcoincashII/forge-solo/releases/latest">Latest release</a></p>
-                    </article>
-                </div>
-            </div>
-        </section>
-
-        <section class="section" id="set-up" aria-labelledby="setup-title">
-            <div class="container">
-                <h2 id="setup-title" data-i18n="fs_setup_title">Set up in three steps</h2>
-                <ol class="steps" role="list">
-                    <li>
-                        <h3 data-i18n="fs_setup_1">Install it</h3>
-                        <p data-i18n="fs_setup_1_text">Follow the directions for <a href="https://github.com/BitcoincashII/forge-solo#install-on-umbrel">Umbrel</a>, <a href="https://github.com/BitcoincashII/forge-solo#install-on-windows">Windows</a> or <a href="https://github.com/BitcoincashII/forge-solo/blob/main/packaging/linux/README.md">Linux</a>. On Windows they include setting your network to Private: while it is Public, miners on your network cannot connect.</p>
+                <ol class="need-list" role="list">
+                    <li class="need">
+                        <div class="need-art">
+                            <span class="num" aria-hidden="true"></span>
+                            <svg viewBox="0 0 240 140" aria-hidden="true" focusable="false">
+                                <rect class="f-sand" x="10" y="128" width="220" height="6" rx="3"/>
+                                <use href="#asic" x="102" y="43" width="124" height="85"/>
+                                <use href="#bitaxe" x="14" y="58" width="84" height="70"/>
+                            </svg>
+                        </div>
+                        <h3 data-i18n="fs_need_miner">A miner</h3>
+                        <p data-i18n="fs_need_miner_text">A small one like a Bitaxe, which sits on a desk, or a bigger ASIC miner. You can connect several.</p>
+                        <p class="wire"><span data-i18n="fs_need_wire_port">Connects on port <code translate="no">3333</code></span></p>
                     </li>
-                    <li>
-                        <h3 data-i18n="fs_setup_2">Set your payout address</h3>
-                        <p data-i18n="fs_setup_2_text">On the dashboard's Settings page, enter your BCH2 payout address and save. On Umbrel and Windows, add a 1175 payout address to merge-mine in solo mode. Saving asks for Forge Solo's password: <a href="https://github.com/BitcoincashII/forge-solo#connect-a-miner">Connect a miner</a> in the README says where each platform shows it.</p>
+                    <li class="need">
+                        <div class="need-art">
+                            <span class="num" aria-hidden="true"></span>
+                            <svg viewBox="0 0 240 140" aria-hidden="true" focusable="false">
+                                <rect class="f-sand" x="10" y="128" width="220" height="6" rx="3"/>
+                                <circle class="f-amber" cx="214" cy="26" r="13"/>
+                                <circle class="f-deep" cx="220" cy="21" r="11"/>
+                                <circle class="f-amber" cx="186" cy="14" r="2.5"/>
+                                <circle class="f-amber" cx="228" cy="54" r="2"/>
+                                <use href="#monitor" x="22" y="18" width="128" height="110"/>
+                                <use href="#box" x="144" y="62" width="78" height="66"/>
+                            </svg>
+                        </div>
+                        <h3 data-i18n="fs_need_computer">A computer that stays on</h3>
+                        <p data-i18n="fs_need_computer_text">An Umbrel box, a 64-bit Windows 10 or 11 PC, or a Linux machine, even a Raspberry Pi. Forge Solo mines while it runs.</p>
+                        <p class="wire"><span data-i18n="fs_need_wire_pays">Pays rewards to</span></p>
                     </li>
-                    <li>
-                        <h3 data-i18n="fs_setup_3">Point your miners at it</h3>
-                        <p data-i18n="fs_setup_3_text"><code>stratum+tcp://&lt;your machine's address&gt;:3333</code>. The dashboard shows the address. The worker name is only a label. NiceHash and MiningRigRentals use port 3335.</p>
+                    <li class="need">
+                        <div class="need-art">
+                            <span class="num" aria-hidden="true"></span>
+                            <svg viewBox="0 0 240 140" aria-hidden="true" focusable="false">
+                                <rect class="f-sand" x="10" y="128" width="220" height="6" rx="3"/>
+                                <g class="coin-fall">
+                                    <rect class="f-emberdeep" x="70" y="4" width="4" height="10" rx="2"/>
+                                    <rect class="f-emberdeep" x="57" y="9" width="4" height="8" rx="2" transform="rotate(-30 59 13)"/>
+                                    <rect class="f-emberdeep" x="83" y="9" width="4" height="8" rx="2" transform="rotate(30 85 13)"/>
+                                    <use href="#coin" x="59" y="20" width="26" height="26"/>
+                                </g>
+                                <use href="#phone" x="44" y="50" width="44" height="78"/>
+                                <!-- an address tag, tied to the wallet -->
+                                <path class="s-ink2" d="M121 92C108 78 101 62 86 56" fill="none" stroke-width="2" stroke-linecap="round"/>
+                                <path class="f-paperhi" d="M128 70H210A8 8 0 0 1 218 78V110A8 8 0 0 1 210 118H128L114 103V85Z"/>
+                                <circle class="f-deep" cx="123" cy="94" r="3.5"/>
+                                <rect class="f-ink" x="132" y="80" width="10" height="10" rx="1.5"/>
+                                <rect class="f-paperhi" x="134.5" y="82.5" width="5" height="5"/>
+                                <rect class="f-ink" x="152" y="80" width="10" height="10" rx="1.5"/>
+                                <rect class="f-paperhi" x="154.5" y="82.5" width="5" height="5"/>
+                                <rect class="f-ink" x="132" y="100" width="10" height="10" rx="1.5"/>
+                                <rect class="f-paperhi" x="134.5" y="102.5" width="5" height="5"/>
+                                <path class="f-ink" d="M145 80h4v4h-4zM145 87h4v4h-4zM152 94h4v4h-4zM145 94h4v4h-4zM158 94h4v4h-4zM152 100h4v4h-4zM158 106h4v4h-4zM145 104h4v6h-4zM132 94h4v3h-4zM138 94h4v3h-4z"/>
+                                <rect class="f-ink2" x="170" y="83" width="38" height="6" rx="3"/>
+                                <rect class="f-rule" x="170" y="95" width="30" height="6" rx="3"/>
+                                <rect class="f-rule" x="170" y="104" width="22" height="6" rx="3"/>
+                            </svg>
+                        </div>
+                        <h3 data-i18n="fs_need_address">Your BCH2 address</h3>
+                        <p data-i18n="fs_need_address_text">Where your rewards go. You enter it once, in Forge Solo’s Settings. Blocks pay it directly, with no pool wallet in between.</p>
                     </li>
                 </ol>
-                <p class="after" data-i18n="fs_setup_after">Everything else is in the README: <a href="https://github.com/BitcoincashII/forge-solo#connect-a-miner">connecting a miner</a>, <a href="https://github.com/BitcoincashII/forge-solo#open-these-ports-in-your-router">the ports to open in your router</a> and <a href="https://github.com/BitcoincashII/forge-solo#rented-hashpower-braiins-and-other-marketplaces">rented hashpower</a>.</p>
+            </div>
+        </section>
+
+        <section class="section how" id="how-it-works" aria-labelledby="how-title">
+            <div class="wrap">
+                <div class="sec-head">
+                    <p class="tag" data-i18n="fs_how_tag">The idea</p>
+                    <h2 id="how-title" data-i18n="fs_how_title">How it works</h2>
+                    <p class="sec-lede" data-i18n="fs_how_lede">Mining is a race to find the next BCH2 block: your miner makes guess after guess, very fast. A winning guess makes the new block, and the block’s reward is paid from inside that block.</p>
+                </div>
+
+                <div class="node-line">
+                    <svg class="node-icon" viewBox="0 0 92 78" aria-hidden="true" focusable="false"><use href="#box"/></svg>
+                    <p data-i18n="fs_how_node">Your own BCH2 node, which keeps a full copy of the blockchain, builds every block your miners work on. In Settings, under <strong>How blocks pay</strong>, you choose <strong>Solo</strong> or <strong>TIDES pool</strong>.</p>
+                </div>
+
+                <div class="modes">
+                    <article class="mode" aria-labelledby="solo-title">
+                        <p class="mode-kicker" data-i18n="fs_solo_kicker">On your own</p>
+                        <h3 id="solo-title" data-i18n="fs_solo_title">Solo</h3>
+                        <p class="mode-sum" data-i18n="fs_solo_sum">A block you find pays your BCH2 address in full, straight from the block itself.</p>
+                        <div class="flow">
+                            <div class="station">
+                                <span class="st-cap" data-i18n="fs_flow_who">Who mines</span>
+                                <span class="st-vis"><svg class="st-miner" viewBox="0 0 120 100" aria-hidden="true" focusable="false"><use href="#bitaxe"/></svg></span>
+                                <span class="st-txt" data-i18n="fs_solo_who">Your miners</span>
+                            </div>
+                            <span class="arrow" aria-hidden="true"></span>
+                            <div class="station">
+                                <span class="st-cap" data-i18n="fs_flow_which">Which blocks pay</span>
+                                <span class="st-vis"><svg class="st-block" viewBox="0 0 44 44" aria-hidden="true" focusable="false"><use href="#block"/></svg></span>
+                                <span class="st-txt" data-i18n="fs_solo_which">A block you find</span>
+                            </div>
+                            <span class="arrow" aria-hidden="true"></span>
+                            <div class="station">
+                                <span class="st-cap" data-i18n="fs_flow_paid">Who gets paid</span>
+                                <span class="st-vis"><svg class="st-coin" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><use href="#coin"/></svg></span>
+                                <span class="st-txt" data-i18n="fs_solo_paid">You, all of it</span>
+                            </div>
+                        </div>
+                        <dl class="rows">
+                            <div class="row row-paid"><dt data-i18n="fs_row_when">When you’re paid</dt><dd data-i18n="fs_solo_when">Nothing until you find a block, then all of it.</dd></div>
+                            <div class="row"><dt data-i18n="fs_row_fee">Fee</dt><dd data-i18n="fs_solo_fee">No pool fee.</dd></div>
+                            <div class="row"><dt data-i18n="fs_row_1175">Also mines 1175 (ESF)</dt><dd data-i18n="fs_solo_1175">Yes, a second chain, at no extra hashrate cost: on Umbrel and Windows, once you set a 1175 payout address.</dd></div>
+                        </dl>
+                    </article>
+
+                    <article class="mode" aria-labelledby="tides-title">
+                        <p class="mode-kicker" data-i18n="fs_tides_kicker">As a team</p>
+                        <h3 id="tides-title" data-i18n="fs_tides_name">TIDES</h3>
+                        <p class="mode-sum" data-i18n="fs_tides_sum">Team up with other miners through Forge Pool (<a href="https://pool.bch2.org/" translate="no">pool.bch2.org</a>): your work goes into its TIDES window, where Forge Pool registers the work of everyone mining with it. While Forge Pool can’t be reached, Forge Solo mines solo.</p>
+                        <div class="flow">
+                            <div class="station">
+                                <span class="st-cap" data-i18n="fs_flow_who">Who mines</span>
+                                <span class="st-vis st-window">
+                                    <svg class="st-miner st-sm" viewBox="0 0 120 100" aria-hidden="true" focusable="false"><use href="#bitaxe"/></svg>
+                                    <svg class="st-miner st-sm muted" viewBox="0 0 120 100" aria-hidden="true" focusable="false"><use href="#bitaxe"/></svg>
+                                    <svg class="st-miner st-sm muted" viewBox="0 0 120 100" aria-hidden="true" focusable="false"><use href="#bitaxe"/></svg>
+                                    <svg class="st-miner st-sm muted" viewBox="0 0 120 100" aria-hidden="true" focusable="false"><use href="#bitaxe"/></svg>
+                                </span>
+                                <span class="st-txt" data-i18n="fs_tides_who">You and others in the window</span>
+                            </div>
+                            <span class="arrow" aria-hidden="true"></span>
+                            <div class="station">
+                                <span class="st-cap" data-i18n="fs_flow_which">Which blocks pay</span>
+                                <span class="st-vis"><svg class="st-block" viewBox="0 0 44 44" aria-hidden="true" focusable="false"><use href="#block"/></svg></span>
+                                <span class="st-txt" data-i18n="fs_tides_which">Every TIDES block</span>
+                            </div>
+                            <span class="arrow" aria-hidden="true"></span>
+                            <div class="station st-pay">
+                                <span class="st-cap" data-i18n="fs_flow_paid">Who gets paid</span>
+                                <span class="st-vis">
+                                    <span class="frac">
+                                        <span class="frac-top" data-i18n="fs_tides_frac_top">your work</span>
+                                        <span class="frac-bot" data-i18n="fs_tides_frac_bot">all work in the window</span>
+                                    </span>
+                                </span>
+                                <span class="st-txt" data-i18n="fs_tides_paid">Everyone in the window, by their work</span>
+                            </div>
+                        </div>
+                        <dl class="rows">
+                            <div class="row row-paid"><dt data-i18n="fs_row_when">When you’re paid</dt><dd data-i18n="fs_tides_when">At every TIDES block (a block found on work Forge Pool registered), by your share of the work in the window. An amount under 546 satoshis, a tiny fraction of one BCH2, is carried to a later one.</dd></div>
+                            <div class="row"><dt data-i18n="fs_row_fee">Fee</dt><dd data-i18n="fs_tides_fee">0.00%, and no pool wallet.</dd></div>
+                            <div class="row"><dt data-i18n="fs_row_1175">Also mines 1175 (ESF)</dt><dd data-i18n="fs_tides_1175">No, 1175 merge-mining is off in TIDES mode.</dd></div>
+                        </dl>
+                    </article>
+                </div>
+
+                <p class="after" data-i18n="fs_how_nosched">Either way there is no payout schedule: the block pays you directly, and its reward can be spent after 100 blocks. <a href="https://pool.bch2.org/tides">See the live TIDES window</a></p>
+            </div>
+        </section>
+
+        <section class="section get" id="get-it" aria-labelledby="get-title">
+            <div class="wrap">
+                <div class="sec-head">
+                    <p class="tag" data-i18n="fs_get_tag">Free and open source, MIT license</p>
+                    <h2 id="get-title" data-i18n="fs_get_title">Get Forge Solo</h2>
+                    <p class="sec-lede" data-i18n="fs_get_lede">Pick the computer it will live on. Windows and Linux downloads come only from Forge Solo’s releases on GitHub. Umbrel installs it from an app store.</p>
+                </div>
+
+                <ul class="get-list" role="list">
+                    <li class="get-card" aria-labelledby="umbrel-title">
+                        <div class="get-head"><div class="get-head-in">
+                            <svg class="get-icon" viewBox="0 0 92 78" aria-hidden="true" focusable="false"><use href="#box"/></svg>
+                            <div class="get-title">
+                                <h3 id="umbrel-title" data-i18n="fs_get_umbrel_title">Umbrel</h3>
+                                <p class="chip" data-i18n="fs_get_chain_both">BCH2 + 1175 merge-mining</p>
+                            </div>
+                        </div></div>
+                        <div class="get-body">
+                            <p data-i18n="fs_get_umbrel_add">In Umbrel, under <strong>Settings › App Store › Community App Stores › Add</strong>, paste:</p>
+                            <p class="path"><code translate="no" data-i18n="fs_get_umbrel_store"><span class="nw">https://github.com/</span><wbr><span class="nw">BitcoincashII/</span><wbr><span class="nw">umbrel-app-store</span></code></p>
+                            <p data-i18n="fs_get_umbrel_then">Then open <strong>BCH2 Community Apps</strong> and install Forge Solo.</p>
+                        </div>
+                        <p class="get-actions"><a class="btn btn-primary btn-sm" href="https://github.com/BitcoincashII/forge-solo#install-on-umbrel" data-i18n="fs_get_umbrel_link">Umbrel directions</a></p>
+                    </li>
+                    <li class="get-card" aria-labelledby="windows-title">
+                        <div class="get-head"><div class="get-head-in">
+                            <svg class="get-icon" viewBox="0 0 200 172" aria-hidden="true" focusable="false"><use href="#monitor"/></svg>
+                            <div class="get-title">
+                                <h3 id="windows-title" data-i18n="fs_get_windows_title">Windows</h3>
+                                <p class="chip" data-i18n="fs_get_chain_both">BCH2 + 1175 merge-mining</p>
+                            </div>
+                        </div></div>
+                        <div class="get-body">
+                            <p data-i18n="fs_get_windows_text">64-bit Windows 10 or 11 on an x64 PC, or Windows 11 on ARM. On the latest release, under Assets, download:</p>
+                            <p class="path"><code translate="no" data-i18n="fs_get_windows_file"><span class="nw">ForgeSolo-Setup-</span><wbr><span class="nw">&lt;version&gt;.exe</span></code></p>
+                            <p data-i18n="fs_get_windows_see">The first time, Windows shows <a href="#windows-prompts">two prompts</a>, explained below.</p>
+                        </div>
+                        <p class="get-actions"><a class="btn btn-primary btn-sm" href="https://github.com/BitcoincashII/forge-solo/releases/latest"><span data-i18n="fs_get_windows_download">Download<span class="vh"> for Windows</span> from GitHub</span></a> <a class="more" href="https://github.com/BitcoincashII/forge-solo#install-on-windows" data-i18n="fs_get_windows_link">Windows directions</a></p>
+                    </li>
+                    <li class="get-card" aria-labelledby="linux-title">
+                        <div class="get-head"><div class="get-head-in">
+                            <svg class="get-icon" viewBox="0 0 48 40" aria-hidden="true" focusable="false"><rect class="f-ink" width="48" height="40" rx="6"/><circle class="f-ember" cx="7" cy="6.5" r="2"/><circle class="f-amber" cx="13" cy="6.5" r="2"/><path class="s-amber" d="M10 17l7 5-7 5" fill="none" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><rect class="f-paperhi" x="21" y="26" width="13" height="3.2" rx="1.6"/></svg>
+                            <div class="get-title">
+                                <h3 id="linux-title" data-i18n="fs_get_linux_title">Linux</h3>
+                                <p class="chip" data-i18n="fs_get_chain_bch2">BCH2 only</p>
+                            </div>
+                        </div></div>
+                        <div class="get-body">
+                            <p data-i18n="fs_get_linux_text">Fully static: it runs on any distribution with kernel 3.17 or newer. On the latest release, under Assets, download:</p>
+                            <p class="path"><code translate="no" data-i18n="fs_get_linux_file"><span class="nw">forge-solo-&lt;version&gt;-</span><wbr><span class="nw">linux-&lt;arch&gt;.tar.gz</span></code></p>
+                            <p data-i18n="fs_get_linux_arch">For <code translate="no">&lt;arch&gt;</code>, use what <code class="nw" translate="no">uname -m</code> prints: <span translate="no">x86_64</span> or <span translate="no">i686</span> on PCs; <span translate="no">aarch64</span>, <span translate="no">armv7l</span> or <span translate="no">armv6l</span> on ARM boards such as the Raspberry Pi; <span translate="no">riscv64</span> on RISC&#8209;V boards.</p>
+                        </div>
+                        <p class="get-actions"><a class="btn btn-primary btn-sm" href="https://github.com/BitcoincashII/forge-solo/releases/latest"><span data-i18n="fs_get_linux_download">Download<span class="vh"> for Linux</span> from GitHub</span></a> <a class="more" href="https://github.com/BitcoincashII/forge-solo/blob/main/packaging/linux/README.md" data-i18n="fs_get_linux_link">Linux directions</a></p>
+                    </li>
+                </ul>
+
+                <div class="callout callout-warn get-warn" id="windows-prompts">
+                    <svg class="callout-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path class="f-ember" d="M12 2.5 23 21.5H1Z"/><rect class="f-ink" x="10.8" y="9" width="2.4" height="7" rx="1.2"/><circle class="f-ink" cx="12" cy="18.4" r="1.4"/></svg>
+                    <div>
+                        <p class="callout-title" data-i18n="fs_get_win_title">On Windows, expect two prompts.</p>
+                        <p data-i18n="fs_get_win_unsigned">Forge Solo is not yet signed by a certificate Windows trusts.</p>
+                        <ol class="prompts" role="list">
+                            <li data-i18n="fs_get_win_prompt_1">SmartScreen says “Windows protected your PC”: choose <strong>More info</strong>, then <strong>Run anyway</strong>.</li>
+                            <li data-i18n="fs_get_win_prompt_2">Windows asks whether Windows Command Processor may make changes to your device: choose <strong>Yes</strong>, so miners on your network can reach Forge Solo.</li>
+                        </ol>
+                        <p data-i18n="fs_get_win_sac">If Smart App Control blocks it, the <a href="https://github.com/BitcoincashII/forge-solo#install-on-windows">Windows directions</a> say what to do.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="section connect" id="set-up" aria-labelledby="connect-title">
+            <div class="wrap">
+                <div class="then">
+                    <div class="then-head">
+                        <div>
+                            <p class="tag" data-i18n="fs_then_tag">After you install</p>
+                            <h2 id="connect-title" data-i18n="fs_then_title">Then, connect your miner</h2>
+                        </div>
+                        <svg class="then-art" viewBox="0 0 320 96" aria-hidden="true" focusable="false">
+                            <rect class="f-sand" x="0" y="90" width="320" height="6" rx="3"/>
+                            <use href="#bitaxe" x="6" y="10" width="96" height="80"/>
+                            <path class="s-rust" d="M112 62H200" fill="none" stroke-width="2.5" stroke-dasharray="6 5"/>
+                            <path class="s-rust" d="M194 56l7 6-7 6" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                            <text class="then-art-port" x="156" y="48" data-i18n="fs_then_art_port">:3333</text>
+                            <use href="#box" x="214" y="0" width="106" height="90"/>
+                        </svg>
+                    </div>
+                    <ol class="then-steps" role="list">
+                        <li>
+                            <h3 data-i18n="fs_then_1">Set your payout address</h3>
+                            <p data-i18n="fs_then_1_text">Open Forge Solo’s dashboard and go to its <strong>Settings</strong> page. Enter your BCH2 address and save; saving asks for Forge Solo’s password. On Umbrel and Windows, add a 1175 payout address too, to merge-mine in solo mode.</p>
+                        </li>
+                        <li>
+                            <h3 data-i18n="fs_then_2">Point your miner at Forge Solo</h3>
+                            <p data-i18n="fs_then_2_text">In your miner’s settings, enter this as its stratum address, the server it sends its work to:</p>
+                            <p class="addr"><code data-i18n="fs_then_addr"><span class="nw" translate="no">stratum+tcp://</span><wbr><span class="nw"><var>&lt;your machine’s address&gt;</var><span translate="no">:3333</span></span></code></p>
+                            <p data-i18n="fs_then_2_after">The dashboard shows the address. The worker name is only a label: <code translate="no">rig1</code>, <code translate="no">bitaxe</code>, anything.</p>
+                        </li>
+                    </ol>
+                    <div class="where">
+                        <div class="where-head">
+                            <svg class="where-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle class="f-emberdeep" cx="7.5" cy="12" r="5.5"/><circle class="f-paper" cx="6.5" cy="12" r="2"/><rect class="f-emberdeep" x="11" y="10.6" width="11.5" height="2.8" rx="1.4"/><rect class="f-emberdeep" x="16.5" y="12" width="2.6" height="5" rx="1"/><rect class="f-emberdeep" x="20" y="12" width="2.5" height="4" rx="1"/></svg>
+                            <h3 data-i18n="fs_then_where_title">Where to find the dashboard and the password</h3>
+                        </div>
+                        <dl class="where-list">
+                            <div><dt data-i18n="fs_get_umbrel_title">Umbrel</dt><dd data-i18n="fs_then_where_umbrel">Open the Forge Solo app; umbrelOS shows the password when you open it.</dd></div>
+                            <div><dt data-i18n="fs_get_windows_title">Windows</dt><dd data-i18n="fs_then_where_windows">The dashboard opens when Forge Solo starts. Password: right-click the Forge Solo icon in the notification area, then <strong>Copy Settings Password</strong>.</dd></div>
+                            <div><dt data-i18n="fs_get_linux_title">Linux</dt><dd data-i18n="fs_then_where_linux">Open <code translate="no">http://127.0.0.1:3080</code> on that machine. Password: <code translate="no">DASHBOARD_PASSWORD</code> in <code translate="no">secrets.env</code>, in the data directory.</dd></div>
+                        </dl>
+                    </div>
+                    <div class="callout callout-warn">
+                        <svg class="callout-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path class="f-ember" d="M12 2.5 23 21.5H1Z"/><rect class="f-ink" x="10.8" y="9" width="2.4" height="7" rx="1.2"/><circle class="f-ink" cx="12" cy="18.4" r="1.4"/></svg>
+                        <div>
+                            <p class="callout-title" data-i18n="fs_then_private_title">On Windows, set your network to Private.</p>
+                            <p data-i18n="fs_then_private">While it is Public, miners on your network cannot connect. In Windows Settings, under <strong>Network &amp; internet</strong>, open your connection’s properties and set its network profile to Private. Windows 11 makes new networks Public.</p>
+                        </div>
+                    </div>
+                    <div class="then-foot">
+                        <p data-i18n="fs_then_rent"><strong>Renting hashpower?</strong> Rentals from NiceHash and MiningRigRentals use port <code translate="no">3335</code>. They connect from the internet, so they reach you only once you forward that port in your router.</p>
+                        <p data-i18n="fs_then_more">Everything else is in the README: <a href="https://github.com/BitcoincashII/forge-solo#connect-a-miner">connecting a miner</a>, <a href="https://github.com/BitcoincashII/forge-solo#open-these-ports-in-your-router">the ports to open in your router</a> and <a href="https://github.com/BitcoincashII/forge-solo#rented-hashpower-braiins-and-other-marketplaces">rented hashpower</a>.</p>
+                    </div>
+                </div>
             </div>
         </section>
     </main>
 
-    <footer class="site-footer">
-        <div class="container">
-            <p data-i18n="fs_footer_license">Forge Solo is free and open source, under the <a href="https://github.com/BitcoincashII/forge-solo/blob/main/LICENSE">MIT license</a>. <a href="https://github.com/BitcoincashII/forge-solo">Source on GitHub</a>.</p>
-            <p data-i18n="fs_footer_links"><a href="https://github.com/BitcoincashII/forge-solo/blob/main/RELEASE_NOTES.md">Release notes</a> <span aria-hidden="true">&middot;</span> <a href="https://github.com/BitcoincashII/forge-solo/issues">Questions and problems</a></p>
-            <p data-i18n="fs_footer_ocean">TIDES mode follows DATUM and TIDES, designed by OCEAN. Forge Solo is not affiliated with or endorsed by OCEAN.</p>
-            <p data-i18n="fs_footer_version">This page describes Forge Solo 1.0.15.</p>
+    <footer class="foot">
+        <div class="wrap foot-row">
+            <div class="foot-brand">
+                <a class="brand" href="/">
+                    <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><use href="#mark" class="mark-on-dark"/></svg>
+                    <span class="brand-name" data-i18n="fs_brand">Forge Solo</span>
+                </a>
+                <p class="foot-sub" data-i18n="fs_brand_sub">Bitcoin Cash II home miner</p>
+            </div>
+            <div class="foot-text">
+                <p data-i18n="fs_footer_license">Forge Solo is free and open source, under the <a href="https://github.com/BitcoincashII/forge-solo/blob/main/LICENSE">MIT license</a>. <a href="https://github.com/BitcoincashII/forge-solo">Source on GitHub</a>.</p>
+                <p data-i18n="fs_footer_links"><a href="https://github.com/BitcoincashII/forge-solo/blob/main/RELEASE_NOTES.md">Release notes</a> <span aria-hidden="true">&middot;</span> <a href="https://github.com/BitcoincashII/forge-solo/issues">Questions and problems</a></p>
+                <p class="fine" data-i18n="fs_footer_ocean">TIDES mode follows DATUM and TIDES, designed by OCEAN. Forge Solo is not affiliated with or endorsed by OCEAN.</p>
+                <p class="fine" data-i18n="fs_footer_version">This page describes Forge Solo 1.0.15.</p>
+            </div>
         </div>
     </footer>
 </body>

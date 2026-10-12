@@ -5,7 +5,8 @@
 #
 # --delete makes the live site match site/, but leaves alone what is not the site's own: .well-known/
 # and the backup copies kept beside the files (*.bak*, *.pre-*). Those are neither sent nor deleted.
-# This script, site/README.md and the nginx draft are the repository's, not the site's: never sent.
+# This script, site/README.md, site/BRAND.md and the nginx draft are the repository's, not the
+# site's: never sent.
 set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/"
@@ -40,6 +41,7 @@ rsync -av --delete $DRY \
     --exclude='*.pre-*' \
     --exclude='/deploy.sh' \
     --exclude='/README.md' \
+    --exclude='/BRAND.md' \
     --exclude='/nginx/' \
     "$SRC" "$DST"
 

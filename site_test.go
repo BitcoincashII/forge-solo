@@ -1,6 +1,8 @@
 package forgesolo
 
 import (
+	"encoding/binary"
+	"html"
 	"io/fs"
 	"os"
 	"path"
@@ -11,32 +13,43 @@ import (
 )
 
 // Forge Solo's website, https://forgesolo.bch2.org: site/README.md says what is in it and how it
-// is served.
+// is served, site/BRAND.md how it looks.
 const (
 	siteDir   = "site"
 	siteNginx = "site/nginx/forgesolo.bch2.org.conf"
 	siteURL   = "https://forgesolo.bch2.org/"
 )
 
-// sitePages are the site's HTML pages.
+// siteOwn are the repository's files in site/, which deploy.sh never sends. Everything else in
+// site/ is what a browser gets.
+var siteOwn = []string{"deploy.sh", "README.md", "BRAND.md", "nginx/"}
+
+// sitePages are the site's HTML pages: site/*.html, and the index.html of a folder in it, which is
+// the page at the folder's address (/faq/ is site/faq/index.html).
 func sitePages(t *testing.T) []docText {
 	t.Helper()
-	files, err := filepath.Glob(filepath.Join(siteDir, "*.html"))
-	if err != nil || len(files) == 0 {
-		t.Fatalf("SITE-PAGES: %s has no pages (%v)", siteDir, err)
-	}
 	var out []docText
-	for _, f := range files {
-		out = append(out, docText{filepath.ToSlash(f), string(mustRead(t, f))})
+	err := filepath.WalkDir(siteDir, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && filepath.Ext(p) == ".html" {
+			out = append(out, docText{filepath.ToSlash(p), string(mustRead(t, p))})
+		}
+		return err
+	})
+	if err != nil || len(out) == 0 {
+		t.Fatalf("SITE-PAGES: %s has no pages (%v)", siteDir, err)
 	}
 	return out
 }
 
-var siteHref = regexp.MustCompile(`\bhref="([^"]*)"`)
+var (
+	siteHref      = regexp.MustCompile(`\bhref="([^"]*)"`)
+	siteElsewhere = regexp.MustCompile(`(?i)^(?:[a-z][a-z0-9+.-]*:|//)`)
+)
 
 // The site points to the README for the directions, by the anchors GitHub gives its headings,
 // instead of repeating them. A heading renamed or a file moved fails here, not on the live site,
-// where the link would open the top of the README, or GitHub's 404.
+// where the link would open the top of the README, or GitHub's 404. Each platform's card links to
+// its directions: the README's Umbrel and Windows sections, and packaging/linux/README.md.
 func TestSiteLinksLeadToHeadings(t *testing.T) {
 	sections := 0
 	for _, p := range sitePages(t) {
@@ -71,6 +84,12 @@ func TestSiteLinksLeadToHeadings(t *testing.T) {
 	if sections == 0 {
 		t.Error("SITE-ANCHOR: the site links to no section of the README")
 	}
+	index := string(mustRead(t, "site/index.html"))
+	for _, want := range []string{repoURL + "#install-on-umbrel", repoURL + "#install-on-windows", repoURL + "/blob/main/packaging/linux/README.md"} {
+		if !strings.Contains(index, `href="`+want+`"`) {
+			t.Errorf("SITE-DIRECTIONS: site/index.html does not link to %s", want)
+		}
+	}
 }
 
 // The Windows and Linux downloads are on GitHub's latest release, never on the site: the release
@@ -100,7 +119,7 @@ func TestSiteDownloadsAreOnGitHub(t *testing.T) {
 }
 
 // The site's nginx server sends a Content-Security-Policy that lets a page load its own styles,
-// font and images and nothing else. The browser refuses a <script>, a <style> block, a style
+// fonts and images and nothing else. The browser refuses a <script>, a <style> block, a style
 // attribute, an event handler, and a stylesheet, font or image from another site, so each fails
 // here first.
 func TestSiteLivesWithItsContentSecurityPolicy(t *testing.T) {
@@ -131,10 +150,10 @@ func TestSiteLivesWithItsContentSecurityPolicy(t *testing.T) {
 	}
 
 	refused := regexp.MustCompile(`(?i)<script\b|<style\b|<iframe\b|<object\b|<embed\b|<form\b|\sstyle\s*=|\son[a-z]+\s*=`)
-	tag := regexp.MustCompile(`(?i)<(link|img|source|audio|video)\b[^>]*>`)
+	// what loads a file: the head's links, images and media, and SVG's use and image
+	tag := regexp.MustCompile(`(?i)<(link|img|source|audio|video|track|input|use|image)\b[^>]*>`)
 	rel := regexp.MustCompile(`(?i)\brel="([^"]*)"`)
 	src := regexp.MustCompile(`(?i)\b(href|src|srcset)="([^"]*)"`)
-	elsewhere := regexp.MustCompile(`(?i)^(?:[a-z][a-z0-9+.-]*:|//)`)
 	for _, p := range sitePages(t) {
 		for _, s := range refused.FindAllString(p.text, -1) {
 			t.Errorf("SITE-CSP-INLINE: %s has %q, which the policy refuses", p.name, strings.TrimSpace(s))
@@ -144,18 +163,8 @@ func TestSiteLivesWithItsContentSecurityPolicy(t *testing.T) {
 				continue // names an address, loads nothing
 			}
 			for _, s := range src.FindAllStringSubmatch(el, -1) {
-				urls := []string{s[2]}
-				if strings.EqualFold(s[1], "srcset") {
-					// a srcset is a list, "a.png 1x, b.png 2x": the browser may load any of them
-					urls = nil
-					for _, c := range strings.Split(s[2], ",") {
-						if f := strings.Fields(c); len(f) > 0 {
-							urls = append(urls, f[0])
-						}
-					}
-				}
-				for _, u := range urls {
-					if elsewhere.MatchString(u) {
+				for _, u := range siteAddresses(s[1], s[2]) {
+					if siteElsewhere.MatchString(u) {
 						t.Errorf("SITE-CSP-ELSEWHERE: %s loads %s from another site: %s", p.name, u, el)
 					}
 				}
@@ -169,6 +178,131 @@ func TestSiteLivesWithItsContentSecurityPolicy(t *testing.T) {
 	for _, f := range css {
 		if s := regexp.MustCompile(`(?i)@import|url\(\s*["']?(?:[a-z][a-z0-9+.-]*:|//)`).FindString(string(mustRead(t, f))); s != "" {
 			t.Errorf("SITE-CSP-ELSEWHERE: %s loads %q from another site", filepath.ToSlash(f), s)
+		}
+	}
+}
+
+// siteAddresses are the addresses in an attribute's value: one, or a srcset's list, "a.png 1x,
+// b.png 2x", any of which the browser may load.
+func siteAddresses(attr, value string) []string {
+	if !strings.EqualFold(attr, "srcset") {
+		return []string{value}
+	}
+	var out []string
+	for _, c := range strings.Split(value, ",") {
+		if f := strings.Fields(c); len(f) > 0 {
+			out = append(out, f[0])
+		}
+	}
+	return out
+}
+
+// siteFile is the file in site/ an address on the site leads to, as nginx's try_files and index
+// find it: "/" and "/faq/" are their folder's index.html.
+func siteFile(addr string) string {
+	addr, _, _ = strings.Cut(addr, "#")
+	addr, _, _ = strings.Cut(addr, "?")
+	rel := strings.TrimPrefix(path.Clean("/"+addr), "/")
+	if rel == "" || strings.HasSuffix(addr, "/") {
+		rel = path.Join(rel, "index.html")
+	}
+	return rel
+}
+
+// Every address a page gives on the site itself, and every file the stylesheet loads, is a file in
+// site/ that deploy.sh sends: a file renamed or dropped fails here, not as a missing font, image or
+// page on the live site. A link to a part of a page leads to an id that page has. A page gives
+// those addresses from the site's root, never relative to its own: nginx serves 404.html at
+// whatever address was asked for, and a page in a folder (/faq/) is a level down, where "css/" is
+// another folder. And every image and font in site/ is one a page or the stylesheet uses:
+// deploy.sh would publish the rest for nothing.
+func TestSiteUsesItsOwnFiles(t *testing.T) {
+	ref := regexp.MustCompile(`(?i)\s(href|src|srcset|content)="([^"]*)"`)
+	idAttr := regexp.MustCompile(`\sid="([^"]+)"`)
+	pages := sitePages(t)
+	ids := map[string]map[string]bool{}
+	for _, p := range pages {
+		rel := strings.TrimPrefix(p.name, siteDir+"/")
+		ids[rel] = map[string]bool{}
+		for _, m := range idAttr.FindAllStringSubmatch(p.text, -1) {
+			ids[rel][m[1]] = true
+		}
+	}
+	used := map[string]bool{}
+	check := func(from, addr, rel string) {
+		for _, own := range siteOwn {
+			if rel == own || strings.HasSuffix(own, "/") && strings.HasPrefix(rel, own) {
+				t.Errorf("SITE-FILE-OWN: %s gives %s, which deploy.sh does not send", from, addr)
+				return
+			}
+		}
+		if rel == "404.html" {
+			t.Errorf("SITE-FILE-404: %s gives %s: nginx serves 404.html only for an address it has no file for", from, addr)
+			return
+		}
+		if st, err := os.Stat(filepath.Join(siteDir, filepath.FromSlash(rel))); err != nil || st.IsDir() || strings.HasPrefix(rel, "../") {
+			t.Errorf("SITE-FILE-MISSING: %s gives %s, and site/%s is not there", from, addr, rel)
+			return
+		}
+		used[rel] = true
+		if _, frag, ok := strings.Cut(addr, "#"); ok && ids[rel] != nil && !ids[rel][frag] {
+			t.Errorf("SITE-FILE-PART: %s links to %s, and site/%s has no id %q", from, addr, rel, frag)
+		}
+	}
+	for _, p := range pages {
+		self := strings.TrimPrefix(p.name, siteDir+"/")
+		for _, m := range ref.FindAllStringSubmatch(p.text, -1) {
+			attr := strings.ToLower(m[1])
+			for _, a := range siteAddresses(attr, m[2]) {
+				switch {
+				case strings.HasPrefix(a, siteURL):
+					check(p.name, a, siteFile("/"+strings.TrimPrefix(a, siteURL)))
+				case attr == "content":
+					// a meta tag's words, not an address
+				case strings.HasPrefix(a, "#"):
+					if !ids[self][a[1:]] {
+						t.Errorf("SITE-FILE-PART: %s links to %s, and has no such id", p.name, a)
+					}
+				case siteElsewhere.MatchString(a):
+					// another site: the tests above
+				case strings.HasPrefix(a, "/"):
+					check(p.name, a, siteFile(a))
+				default:
+					t.Errorf("SITE-FILE-RELATIVE: %s gives %q relative to its own address; give it from the site's root", p.name, a)
+				}
+			}
+		}
+	}
+	cssURL := regexp.MustCompile(`url\(\s*["']?([^"')]+)["']?\s*\)`)
+	css, _ := filepath.Glob(filepath.Join(siteDir, "css", "*.css"))
+	for _, f := range css {
+		name := filepath.ToSlash(f)
+		for _, m := range cssURL.FindAllStringSubmatch(string(mustRead(t, f)), -1) {
+			u := m[1]
+			if strings.HasPrefix(u, "#") || siteElsewhere.MatchString(u) {
+				continue
+			}
+			if strings.HasPrefix(u, "/") {
+				check(name, u, siteFile(u))
+				continue
+			}
+			file, _, _ := strings.Cut(u, "?")
+			check(name, u, path.Join("css", file))
+		}
+	}
+	if len(used) == 0 {
+		t.Fatal("SITE-FILE: no page uses a file of the site")
+	}
+	for _, dir := range []string{"img", "fonts"} {
+		entries, err := os.ReadDir(filepath.Join(siteDir, dir))
+		if err != nil {
+			t.Errorf("SITE-FILE: %v", err)
+		}
+		for _, e := range entries {
+			rel := dir + "/" + e.Name()
+			if !used[rel] && !(dir == "fonts" && strings.HasPrefix(e.Name(), "OFL-")) {
+				t.Errorf("SITE-FILE-UNUSED: no page or stylesheet uses site/%s, and deploy.sh would publish it", rel)
+			}
 		}
 	}
 }
@@ -336,7 +470,7 @@ func TestSiteDeploySendsOnlyTheSite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, own := range []string{"deploy.sh", "README.md", "nginx/"} {
+	for _, own := range siteOwn {
 		if !excluded[own] {
 			t.Errorf("SITE-DEPLOY-OWN: deploy.sh would publish site/%s, which is the repository's", own)
 		}
@@ -347,34 +481,79 @@ func TestSiteDeploySendsOnlyTheSite(t *testing.T) {
 }
 
 // Each text on a page carries a data-i18n key, as on pool.bch2.org, so that a translation can be
-// added the way the pool adds one (site/README.md). A key names one English text wherever it is
-// used. The texts use plain punctuation, as the READMEs do.
+// added the way the pool adds one (site/README.md): the pool's loader puts a key's text in its
+// element, in place of what is there. So every text in a page's body, and its title, is inside an
+// element with a key, and no element with a key is inside another one, whose translation would
+// replace it. A key names one text wherever it is used. The texts use plain punctuation, as the
+// READMEs do.
 func TestSiteTextsAreReadyForTranslation(t *testing.T) {
+	token := regexp.MustCompile(`<!--[\s\S]*?-->|<![^>]*>|</?([A-Za-z][A-Za-z0-9:-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>|[^<]+`)
+	keyAttr := regexp.MustCompile(`\sdata-i18n="([^"]*)"`)
+	void := map[string]bool{"area": true, "base": true, "br": true, "col": true, "embed": true, "hr": true, "img": true,
+		"input": true, "link": true, "meta": true, "source": true, "track": true, "wbr": true}
+	type open struct {
+		name, key string
+		content   int // where the element's content starts in the page
+	}
 	texts := map[string]string{}
-	open := regexp.MustCompile(`<(p|h1|h2|h3|li)\b([^>]*)>`)
 	for _, p := range sitePages(t) {
-		for _, m := range open.FindAllStringSubmatchIndex(p.text, -1) {
-			el, attrs := p.text[m[2]:m[3]], p.text[m[4]:m[5]]
-			if strings.Contains(attrs, "data-i18n=") {
-				continue
+		var stack []open
+		keyed := func() string {
+			for i := len(stack) - 1; i >= 0; i-- {
+				if stack[i].key != "" {
+					return stack[i].key
+				}
 			}
-			if el == "li" {
-				// a list item made of its own headings and paragraphs, which carry the keys
-				body, _, _ := strings.Cut(p.text[m[1]:], "</li>")
-				if strings.Contains(body, "<p ") || strings.Contains(body, "<h3 ") {
+			return ""
+		}
+		within := func(name string) bool {
+			for _, o := range stack {
+				if o.name == name {
+					return true
+				}
+			}
+			return false
+		}
+		for _, m := range token.FindAllStringSubmatchIndex(p.text, -1) {
+			tok := p.text[m[0]:m[1]]
+			switch {
+			case strings.HasPrefix(tok, "<!"):
+				// a comment or the doctype
+			case m[2] < 0:
+				if strings.TrimSpace(html.UnescapeString(tok)) != "" && keyed() == "" && (within("body") || within("title")) {
+					t.Errorf("SITE-I18N-KEY: %s has a text with no data-i18n key: %q", p.name, strings.Join(strings.Fields(tok), " "))
+				}
+			case strings.HasPrefix(tok, "</"):
+				name := strings.ToLower(p.text[m[2]:m[3]])
+				for i := len(stack) - 1; i >= 0; i-- {
+					if stack[i].name != name {
+						continue
+					}
+					if k := stack[i].key; k != "" {
+						text := strings.Join(strings.Fields(p.text[stack[i].content:m[0]]), " ")
+						if was, ok := texts[k]; ok && was != text {
+							t.Errorf("SITE-I18N-ONE: the key %s names two texts: %q and %q (%s)", k, was, text, p.name)
+						}
+						texts[k] = text
+					}
+					stack = stack[:i]
+					break
+				}
+			default:
+				name, attrs := strings.ToLower(p.text[m[2]:m[3]]), p.text[m[4]:m[5]]
+				key := ""
+				if km := keyAttr.FindStringSubmatch(attrs); km != nil {
+					if key = km[1]; key == "" {
+						t.Errorf("SITE-I18N-KEY: %s has an empty data-i18n key: %s", p.name, tok)
+					}
+				}
+				if key != "" && keyed() != "" {
+					t.Errorf("SITE-I18N-NESTED: in %s, the key %s is inside the key %s, whose translation would replace it", p.name, key, keyed())
+				}
+				if void[name] || strings.HasSuffix(attrs, "/") {
 					continue
 				}
-			}
-			t.Errorf("SITE-I18N-KEY: %s has a <%s%s> without a data-i18n key", p.name, el, attrs)
-		}
-		for _, el := range []string{"p", "h1", "h2", "h3", "li", "a", "span"} {
-			re := regexp.MustCompile(`<` + el + `\b[^>]*\bdata-i18n="([^"]+)"[^>]*>([\s\S]*?)</` + el + `>`)
-			for _, m := range re.FindAllStringSubmatch(p.text, -1) {
-				text := strings.Join(strings.Fields(m[2]), " ")
-				if was, ok := texts[m[1]]; ok && was != text {
-					t.Errorf("SITE-I18N-ONE: the key %s names two texts: %q and %q (%s)", m[1], was, text, p.name)
-				}
-				texts[m[1]] = text
+				stack = append(stack, open{name, key, m[1]})
 			}
 		}
 		if s := regexp.MustCompile(`&mdash;|&#8212;|&#x2014;`).FindString(p.text); s != "" {
@@ -384,26 +563,92 @@ func TestSiteTextsAreReadyForTranslation(t *testing.T) {
 	if len(texts) == 0 {
 		t.Error("SITE-I18N-KEY: no text on the site has a data-i18n key")
 	}
-	checkPlainPunctuation(t, append(sitePages(t), docText{"site/README.md", string(mustRead(t, "site/README.md"))}))
+	checkPlainPunctuation(t, append(sitePages(t), docText{"site/README.md", string(mustRead(t, "site/README.md"))},
+		docText{"site/BRAND.md", string(mustRead(t, "site/BRAND.md"))}))
 }
 
-// The page's head names its canonical address, the one site/nginx serves, and what a link preview
-// shows.
+// The pages' heads: on every page the language, the icon and the stylesheet, the same version of
+// it everywhere (nginx lets a browser keep it for a week, so a page with another ?v= would get
+// another copy); on the home page its canonical address, the one site/nginx serves, and what a
+// link preview shows; 404.html is kept out of search engines. The pictures a link preview and a
+// phone's home screen show have the sizes the head gives, every image and font is small, and every
+// font has its license beside it.
 func TestSiteHead(t *testing.T) {
+	stylesheet := regexp.MustCompile(`<link rel="stylesheet" href="(/css/site\.css\?v=\d+)">`)
+	version, first := "", ""
+	for _, p := range sitePages(t) {
+		for _, want := range []string{`<html lang="en">`, `<meta charset="utf-8">`, `<meta name="viewport" content="width=device-width, initial-scale=1">`,
+			`<link rel="icon" type="image/svg+xml" href="/img/favicon.svg">`, `<meta name="theme-color" content="#f6efe4">`} {
+			if !strings.Contains(p.text, want) {
+				t.Errorf("SITE-HEAD: %s does not have %s", p.name, want)
+			}
+		}
+		switch m := stylesheet.FindStringSubmatch(p.text); {
+		case m == nil:
+			t.Errorf("SITE-HEAD: %s does not link /css/site.css?v=<n>", p.name)
+		case version == "":
+			version, first = m[1], p.name
+		case m[1] != version:
+			t.Errorf("SITE-HEAD-CSS: %s links %s and %s links %s: every page links the same", first, version, p.name, m[1])
+		}
+	}
 	page := string(mustRead(t, "site/index.html"))
-	for _, want := range []string{`<html lang="en">`, `<link rel="canonical" href="` + siteURL + `">`, `<meta property="og:url" content="` + siteURL + `">`,
-		`<meta property="og:image" content="` + siteURL + `img/og.png">`, `<meta name="twitter:card" content="summary_large_image">`,
-		`<link rel="icon" type="image/svg+xml" href="/img/logo.svg">`, `<meta name="theme-color" content="#0a0a0a">`} {
+	for _, want := range []string{`<link rel="canonical" href="` + siteURL + `">`, `<meta property="og:url" content="` + siteURL + `">`,
+		`<meta property="og:image" content="` + siteURL + `img/og.png">`, `<meta property="og:image:width" content="1200">`,
+		`<meta property="og:image:height" content="630">`, `<meta name="twitter:card" content="summary_large_image">`,
+		`<link rel="apple-touch-icon" href="/img/apple-touch-icon.png">`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("SITE-HEAD: site/index.html does not have %s", want)
 		}
 	}
+	if !strings.Contains(string(mustRead(t, "site/404.html")), `<meta name="robots" content="noindex">`) {
+		t.Error("SITE-HEAD: site/404.html does not keep itself out of search engines")
+	}
 	if !strings.Contains(string(mustRead(t, siteNginx)), "server_name forgesolo.bch2.org;") {
 		t.Errorf("SITE-HEAD: %s does not serve the page's canonical name", siteNginx)
 	}
-	for _, f := range []string{"img/og.png", "img/logo.svg", "img/apple-touch-icon.png", "fonts/inter-latin.woff2", "fonts/OFL.txt", "404.html", "robots.txt"} {
+	for f, size := range map[string][2]uint32{"img/og.png": {1200, 630}, "img/apple-touch-icon.png": {180, 180}} {
+		b := mustRead(t, filepath.Join(siteDir, f))
+		if len(b) < 24 || string(b[1:4]) != "PNG" {
+			t.Errorf("SITE-IMAGE: site/%s is not a PNG", f)
+			continue
+		}
+		if w, h := binary.BigEndian.Uint32(b[16:20]), binary.BigEndian.Uint32(b[20:24]); w != size[0] || h != size[1] {
+			t.Errorf("SITE-IMAGE: site/%s is %d x %d, want %d x %d", f, w, h, size[0], size[1])
+		}
+	}
+	for _, f := range []string{"404.html", "robots.txt"} {
 		if _, err := os.Stat(filepath.Join(siteDir, f)); err != nil {
 			t.Errorf("SITE-FILES: site/%s is missing", f)
+		}
+	}
+
+	// fonts/<face>-<weight>.woff2 has its license in fonts/OFL-<Face>.txt
+	fonts, _ := filepath.Glob(filepath.Join(siteDir, "fonts", "*.woff2"))
+	licenses, _ := filepath.Glob(filepath.Join(siteDir, "fonts", "OFL-*.txt"))
+	if len(fonts) == 0 {
+		t.Error("SITE-FONT: site/fonts has no font")
+	}
+	for _, f := range fonts {
+		base := strings.TrimSuffix(filepath.Base(f), ".woff2")
+		face := strings.ReplaceAll(base[:max(strings.LastIndex(base, "-"), 0)], "-", "")
+		found := false
+		for _, l := range licenses {
+			name := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(l), "OFL-"), ".txt")
+			if face != "" && strings.EqualFold(name, face) && strings.Contains(string(mustRead(t, l)), "SIL OPEN FONT LICENSE") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("SITE-FONT-LICENSE: site/fonts has no OFL-<face>.txt with the SIL Open Font License for %s", filepath.ToSlash(f))
+		}
+	}
+	for _, dir := range []string{"img", "fonts"} {
+		entries, _ := os.ReadDir(filepath.Join(siteDir, dir))
+		for _, e := range entries {
+			if info, err := e.Info(); err == nil && info.Size() > 150<<10 {
+				t.Errorf("SITE-SIZE: site/%s/%s is %d KB; the site's images and fonts are 150 KB or less", dir, e.Name(), info.Size()>>10)
+			}
 		}
 	}
 }
