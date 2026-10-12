@@ -138,6 +138,17 @@ a.term:hover { color: var(--rust-deep); text-decoration-style: solid; }
 .mk-spark { fill: var(--mk-spark, var(--ember-deep)); }
 .mark-on-dark { --mk-anvil: var(--paper-hi); --mk-spark: var(--ember); }
 
+/* the Bitcoin Cash II coin (img/bch2-coin.svg, BCH2's own, as it is: its greens are the coin's, not the
+   page's), small, where the words mean BCH2. Beside them it says nothing more, so its alt is "" */
+.coin { display: block; flex: none; }
+.tag-coin::before { display: none; }
+.tag-coin .coin { width: 20px; height: 20px; }
+.qa-coin { display: flex; align-items: flex-start; gap: .3em; }
+.qa-coin .coin { width: 1em; height: 1em; margin-top: .06em; }
+/* in the footer, under the anvil, its words under the name */
+.foot-coin { display: flex; align-items: center; gap: 18px; }
+.foot-coin .coin { width: 20px; height: 20px; margin-left: 8px; }
+
 .fn-bg { fill: var(--fn-bg, var(--paper-hi)); }
 .fn-blade { fill: var(--fn-blade, var(--copper)); }
 .fn-hub { fill: var(--fn-hub, var(--ink)); }

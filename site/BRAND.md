@@ -28,7 +28,7 @@ the same header and footer; `404.html` answers every other address.
 | `--copper` | `#d98c5f` | drawings: traces, fan blades, the hammer (never text) |
 | `--ember` | `#ff7a2e` | **the primary action** (buttons), sparks, drawing accents |
 | `--ember-deep` | `#e2611c` | the mark's sparks on paper, bullets, the Then plate's top edge |
-| `--amber` | `#ffb547` | highlights: "at home.", the coin, the lamp, the address placeholder on black |
+| `--amber` | `#ffb547` | highlights: "at home.", the drawn coin, the lamp, the address placeholder on black |
 | `--amber-tint` | `#ffe6bf` | warning callouts, the "When you're paid" row |
 | `--soot` / `--ash` / `--ash-2` | `#15110e` / `#f6eee4` / `#cfc1b0` | the footer band and the stratum-address box |
 
@@ -64,8 +64,11 @@ glossary word and a question opened from a link):
 | ink | paper | 15.34:1 | focus ring (non-text) | 3.0, pass |
 | ember-deep | paper | 3.08:1 | the mark's sparks (logo) | exempt |
 | ember | paper | 2.28:1 | ember fills inside drawings | decorative, always beside words |
+| the BCH2 coin's green edge | paper / paper-deep / soot | 2.24 / 1.99 / 7.35:1 | the coin, beside its words or in a described drawing (logo) | exempt |
+| black B | the coin's green | 8.22 to 6.75:1 | the coin's B (logo) | exempt |
 
-Ember is never used for text on paper. Links are always underlined, never colour alone.
+Ember is never used for text on paper, and the coin's greens never for anything but the coin. Links
+are always underlined, never colour alone.
 
 ## Type
 
@@ -113,10 +116,41 @@ anvil's height; never in a circle (that is BCH2's coin badge); the mark itself n
 **Home-screen icon and link preview.** `img/apple-touch-icon.png` (180 x 180, 1.6 KB) is the favicon
 drawn full-bleed on soot with the mark at 75%, centred, because iOS rounds the corners itself.
 `img/og.png` (1200 x 630, 29 KB, 256-colour PNG) is the hero in the paper and ember look: the mark and
-wordmark, the tag, "Mine BCH2 at home." with the amber highlight, the lede's words, the hero desk, and a
-soot strip with the three facts and forgesolo.bch2.org. Both were made from the page itself (the
-drawing parts and the hero straight out of `index.html`), so they match it: a change to the hero
-needs them made again. The head carries the `canonical`, `og:*` and `twitter:*` tags
+wordmark, the tag with the BCH2 coin before it (26 px), "Mine BCH2 at home." with the amber highlight,
+the lede's words, the hero desk with the BCH2 coin arriving at the phone, and a soot strip with the
+three facts and forgesolo.bch2.org. Both were made from the page itself (the drawing parts and the
+hero straight out of `index.html`, and the site's own stylesheet, fonts and images), so they match
+it: a change to the hero needs them made again.
+
+## The BCH2 coin
+
+`img/bch2-coin.svg` is Bitcoin Cash II's own coin: `bch2_logo.svg` from
+[BitcoincashII/BCH2-Graphics](https://github.com/BitcoincashII/BCH2-Graphics) at commit d8f44f8 ("Add
+bch2_logo.svg (vector version of bch2_logo.png: gradient circle, traced II and B)"), byte for byte:
+4,682 B, a `#09b887` to `#09a67a` gradient circle, a `#067355` traced "II" and a black B, with no
+script and nothing loaded from elsewhere. That repository has no licence file; the coin is the BCH2
+project's own mark, so it is used as it is: never recoloured, redrawn, cropped or outlined. Its greens
+are the coin's own colour, not an accent of the site: nothing else on the pages is green, and the
+anvil and sparks stay Forge Solo's logo (which is why the mark is never put in a circle).
+
+It stands only where it means BCH2, and small:
+
+| Where | Size | Description |
+|---|---|---|
+| before the hero's tag, "Home mining for Bitcoin Cash II", in place of the tag's rule | 20 px | `alt=""`: the words beside it say it |
+| the hero drawing: the reward arriving at the phone, under its sparks | 30 of the drawing's 640 units (28 px at 1440, 17 px at 390) | the drawing's description says the reward arrives as a BCH2 coin (`fs_hero_art_coin`) |
+| What you need, "Your BCH2 address": the coin falling to the phone | 26 of the panel's 240 units (28 px at 1440, 19 px at 390) | none: the drawing is decorative beside its heading |
+| the questions page, before "What is Bitcoin Cash II (BCH2)?" | 1 em of the heading (23 to 30 px), centred on its first line; a second line starts under the words | `alt=""` |
+| the footer, before "Bitcoin Cash II home miner" | 20 px, centred under the anvil, the words under "Forge Solo" | `alt=""` |
+| the link preview, `img/og.png` | 26 px before the tag, and in the desk drawing | `og:image:alt` says a BCH2 coin arrives |
+
+The drawn amber coin (`#coin`) stays where a coin means a payment in general: on the phone's own
+screen (the wallet) and at Solo's "Who gets paid", where a block can pay 1175 too. The pages show the
+file itself, with `<img>` and, in the drawings, SVG `<image>`: one file, kept by the browser, which the
+policy's `img-src 'self'` allows, and drawn sharp at any size. At 20 px it reads as a green coin with a
+black B. Its centre is within a pixel of the middle of the capitals beside it in the tag and the
+question, and between the middle of the capitals and of the small letters in the footer (measured at
+1440, 1024, 390 and 320 px). The head carries the `canonical`, `og:*` and `twitter:*` tags
 (summary_large_image, @BitcoincashII) and `apple-touch-icon`.
 
 ## Drawings: one flat style
@@ -128,7 +162,8 @@ stays on, with the anvil), `#monitor` (the Forge Solo dashboard: mark, a level, 
 no numbers; nothing on it rises like earnings), `#phone` (the wallet), `#coin`, `#block` (a block seen
 straight on, like everything else: an amber header band over three lines), `#fan` and the mark. Every
 object is drawn straight on; nothing is isometric. Flat fills from the tokens only, no outlines, no
-gradients, rounded corners, a sand floor line. The desk's drawer hangs from the top and meets the
+gradients, rounded corners, a sand floor line. The one exception is the BCH2 coin, the reward arriving
+at the phone: BCH2's own artwork, as it is (above). The desk's drawer hangs from the top and meets the
 right leg. "Others" in the TIDES window are the same Bitaxe in paper tones. The hero numbers 1, 2,
 3 are HTML pins over the picture (so they stay legible on a phone) and a key under it ("A miner, like a Bitaxe", "A computer that stays on", "Your BCH2
 address") matches the three cards, whose numbers come from the list itself (CSS counters).
@@ -276,7 +311,7 @@ sans, square plates, dashed wires and drawings of a desk with a miner on it.
 
 In `site/`: `index.html`, `faq/index.html`, `404.html`, `css/site.css`, `fonts/` (three WOFF2 files
 and their OFL licences), `img/mark.svg`, `img/favicon.svg`, `img/apple-touch-icon.png`, `img/og.png`,
-and the screenshots `img/forge-solo-settings-how-blocks-pay.webp`,
+`img/bch2-coin.svg` (BCH2's coin, from BCH2-Graphics at d8f44f8), and the screenshots `img/forge-solo-settings-how-blocks-pay.webp`,
 `img/forge-solo-dashboard-tides.webp` and `img/forge-solo-dashboard-solo.webp`, each with its `@2x`
 file. No script;
 everything works under the site's CSP (`default-src 'none'; style-src 'self'; font-src 'self';

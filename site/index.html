@@ -12,7 +12,7 @@
     <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
     <link rel="preload" href="/fonts/zilla-slab-700.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/fonts/source-sans-3-wght.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/css/site.css?v=5">
+    <link rel="stylesheet" href="/css/site.css?v=6">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="Bitcoin Cash II">
     <meta property="og:title" content="Forge Solo: mine BCH2 at home, on your own node">
@@ -21,7 +21,7 @@
     <meta property="og:image" content="https://forgesolo.bch2.org/img/og.png">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
-    <meta property="og:image:alt" content="Forge Solo: mine BCH2 at home. A drawing of a desk with a small miner, a computer running Forge Solo and a phone. Umbrel, Windows and Linux.">
+    <meta property="og:image:alt" content="Forge Solo: mine BCH2 at home. A drawing of a desk with a small miner, a computer running Forge Solo and a phone, where a BCH2 coin arrives. Umbrel, Windows and Linux.">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:site" content="@BitcoincashII">
     <meta name="twitter:title" content="Forge Solo: mine BCH2 at home, on your own node">
@@ -145,7 +145,7 @@
         <section class="hero" aria-labelledby="hero-title">
             <div class="wrap hero-grid">
                 <div class="hero-copy">
-                    <p class="tag" data-i18n="fs_hero_tag">Home mining for Bitcoin Cash II</p>
+                    <p class="tag tag-coin"><img class="coin" src="/img/bch2-coin.svg" width="20" height="20" alt=""><span data-i18n="fs_hero_tag">Home mining for Bitcoin Cash II</span></p>
                     <h1 id="hero-title" data-i18n="fs_hero_headline">Mine BCH2 <span class="hl">at&nbsp;home.</span></h1>
                     <p class="lede" data-i18n="fs_hero_summary">Forge Solo is one free app for mining Bitcoin Cash II (BCH2): your own <a class="term" href="/faq/#glossary-node">BCH2 node</a>, a place for your miners to connect, and a dashboard that shows how it’s going.</p>
                     <div class="cta">
@@ -162,7 +162,7 @@
                 <figure class="hero-art">
                     <div class="art-frame">
                     <svg viewBox="0 0 640 430" role="img" aria-labelledby="hero-art-title" focusable="false">
-                        <title id="hero-art-title" data-i18n="fs_hero_art">A desk with a small miner such as a Bitaxe (1), a computer that stays on, running Forge Solo with its dashboard on screen (2), and a phone with your wallet, where a reward arrives (3).</title>
+                        <title id="hero-art-title" data-i18n="fs_hero_art_coin">A desk with a small miner such as a Bitaxe (1), a computer that stays on, running Forge Solo with its dashboard on screen (2), and a phone with your wallet, where a reward arrives as a BCH2 coin (3).</title>
                         <defs>
                             <pattern id="peg" width="13" height="13" patternUnits="userSpaceOnUse" x="40" y="44"><circle class="f-rule" cx="6.5" cy="6.5" r="1.9"/></pattern>
                         </defs>
@@ -207,7 +207,7 @@
                             <rect class="f-emberdeep" x="568" y="170" width="4" height="12" rx="2"/>
                             <rect class="f-emberdeep" x="553" y="176" width="4" height="9" rx="2" transform="rotate(-30 555 180)"/>
                             <rect class="f-emberdeep" x="583" y="176" width="4" height="9" rx="2" transform="rotate(30 585 180)"/>
-                            <use href="#coin" x="555" y="191" width="30" height="30"/>
+                            <image href="/img/bch2-coin.svg" x="555" y="191" width="30" height="30"/>
                         </g>
                     </svg>
                     <span class="pin pin-1" aria-hidden="true"></span>
@@ -270,7 +270,7 @@
                                     <rect class="f-emberdeep" x="70" y="4" width="4" height="10" rx="2"/>
                                     <rect class="f-emberdeep" x="57" y="9" width="4" height="8" rx="2" transform="rotate(-30 59 13)"/>
                                     <rect class="f-emberdeep" x="83" y="9" width="4" height="8" rx="2" transform="rotate(30 85 13)"/>
-                                    <use href="#coin" x="59" y="20" width="26" height="26"/>
+                                    <image href="/img/bch2-coin.svg" x="59" y="20" width="26" height="26"/>
                                 </g>
                                 <use href="#phone" x="44" y="50" width="44" height="78"/>
                                 <!-- an address tag, tied to the wallet -->
@@ -562,7 +562,7 @@
                     <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><use href="#mark" class="mark-on-dark"/></svg>
                     <span class="brand-name" data-i18n="fs_brand">Forge Solo</span>
                 </a>
-                <p class="foot-sub" data-i18n="fs_brand_sub">Bitcoin Cash II home miner</p>
+                <p class="foot-sub foot-coin"><img class="coin" src="/img/bch2-coin.svg" width="20" height="20" alt=""><span data-i18n="fs_brand_sub">Bitcoin Cash II home miner</span></p>
             </div>
             <div class="foot-text">
                 <p data-i18n="fs_footer_license">Forge Solo is free and open source, under the <a href="https://github.com/BitcoincashII/forge-solo/blob/main/LICENSE">MIT license</a>. <a href="https://github.com/BitcoincashII/forge-solo">Source on GitHub</a>.</p>

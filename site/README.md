@@ -15,6 +15,7 @@ Static files, served by nginx on the pool box (144.202.73.66).
 | `img/favicon.svg` | the mark on a dark square: the browser tab's icon |
 | `img/mark.svg` | the mark on paper, in the 404 page's header |
 | `img/apple-touch-icon.png`, `img/og.png` | the icon for a phone's home screen, and the picture a link preview shows |
+| `img/bch2-coin.svg` | the Bitcoin Cash II coin, byte for byte `bch2_logo.svg` from [BitcoincashII/BCH2-Graphics](https://github.com/BitcoincashII/BCH2-Graphics) at commit d8f44f8; that repository has no licence file, and the coin is the BCH2 project's own mark, used here as it is (BRAND.md says where) |
 | `img/forge-solo-*.webp` | screenshots of Forge Solo 1.0.15's Settings page and dashboard (Solo and TIDES), each also at twice the size (`@2x`), on the home page, where each links to its `@2x` file |
 | `robots.txt` | lets every crawler in |
 | `deploy.sh` | copies the files above to the box's web root |
@@ -26,7 +27,7 @@ anchors of its headings, rather than repeating them. The Windows and Linux downl
 [the latest release](https://github.com/BitcoincashII/forge-solo/releases/latest), never on the
 site; Umbrel installs Forge Solo from its app store. The pages have no script, and load nothing
 from another site: the nginx server's Content-Security-Policy allows only their own styles, fonts
-and images. They link their files from the site's root (`/css/site.css?v=5`), since nginx serves
+and images. They link their files from the site's root (`/css/site.css?v=6`), since nginx serves
 `404.html` at whatever address was asked for and the questions page is a folder down. A
 screenshot's link opens its `@2x` file on the browser's own image page, whose inline styles the
 policy refuses: Chrome's console says so, and the image still shows, fitted to the window.
