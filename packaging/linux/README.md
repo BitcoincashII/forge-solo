@@ -53,7 +53,9 @@ the foreground; Ctrl-C stops it (see **Stopping**). Then:
    **TIDES pool**, and press **Save settings**. Mining waits for a payout address. Saving asks
    for Forge Solo's password, `DASHBOARD_PASSWORD` in `secrets.env` in the data directory
    (`cat ~/.local/share/forge-solo/secrets.env`): other accounts on this machine can reach the
-   dashboard too. The browser remembers it after that.
+   dashboard too. The browser remembers it after that. No BCH2 address yet? Settings links to the
+   BCH2 Wallet at wallet.bch2.org, which makes one in your browser. Forge Solo only needs the
+   address, so the keys can stay on another device, such as your phone.
 3. Point your miners at **stratum+tcp://THIS-MACHINE:3333**. The worker name is only a label for
    the dashboard, and the password can be anything (`x`). Whatever the worker name, every solo
    block pays the payout address in Settings, and in TIDES mode every share is credited to it.

@@ -389,9 +389,9 @@
                     : 'TIDES chosen, but Forge Pool is unavailable: mining solo meanwhile');
         }
 
-        function fmtBCH2(sats) {
+        function fmtCoins(sats, unit) {
             const n = Number(sats) || 0;
-            return (n / 1e8).toLocaleString(undefined, { maximumFractionDigits: 8 }) + ' BCH2';
+            return (n / 1e8).toLocaleString(undefined, { maximumFractionDigits: 8 }) + ' ' + unit;
         }
 
         function shortAddr(a) {
@@ -449,9 +449,9 @@
 
             const w = mine && mine.window;
             document.getElementById('tidesShare').textContent = w ? (Number(w.share) * 100).toFixed(2) + '%' : (mine ? '0%' : '--');
-            document.getElementById('tidesNext').textContent = w ? fmtBCH2(w.next_payout_sats) : (mine ? fmtBCH2(0) : '--');
-            document.getElementById('tidesPending').textContent = mine ? fmtBCH2(mine.pending_sats) : '--';
-            document.getElementById('tidesPaid').textContent = mine ? fmtBCH2(mine.paid_sats) : '--';
+            document.getElementById('tidesNext').textContent = w ? fmtCoins(w.next_payout_sats, 'BCH2') : (mine ? fmtCoins(0, 'BCH2') : '--');
+            document.getElementById('tidesPending').textContent = mine ? fmtCoins(mine.pending_sats, 'BCH2') : '--';
+            document.getElementById('tidesPaid').textContent = mine ? fmtCoins(mine.paid_sats, 'BCH2') : '--';
             // Addresses with work in the window: the pool also lists ones that only have a carried amount.
             // The pool's lists are checked before use: a malformed answer must not stop the card.
             document.getElementById('tidesMiners').textContent = pool && Array.isArray(pool.miners) ? String(pool.miners.filter(m => m && m.work > 0).length) : '--';
@@ -477,11 +477,62 @@
                 const when = b.found_at ? new Date(b.found_at).toLocaleString() : '';
                 return '<tr><td>' + Number(b.height) + '</td>'
                     + '<td>' + (you ? '<span class="tides-you">You</span>' : sanitizeHTML(shortAddr(b.finder))) + '</td>'
-                    + '<td>' + sanitizeHTML(fmtBCH2(b.value_sats)) + '</td>'
-                    + '<td>' + (got != null ? sanitizeHTML(fmtBCH2(got)) : '—') + '</td>'
+                    + '<td>' + sanitizeHTML(fmtCoins(b.value_sats, 'BCH2')) + '</td>'
+                    + '<td>' + (got != null ? sanitizeHTML(fmtCoins(got, 'BCH2')) : '—') + '</td>'
                     + '<td>' + sanitizeHTML(b.status) + '</td>'
                     + '<td>' + sanitizeHTML(when) + '</td></tr>';
             }).join('');
+        }
+
+        // ---- Wallet card ------------------------------------------------------------
+        //
+        // The coins at the payout address (and the 1175 address), which the api reads from this
+        // install's own nodes (/api/v1/wallet). Read only: Forge Solo holds no keys. The api asks a node
+        // at most once per new block, so this polls as often as the stats.
+        function setText(id, text) {
+            const el = document.getElementById(id);
+            if (el && el.textContent !== text) el.textContent = text;   // a status line is announced only when it changes
+        }
+
+        function renderWalletCoin(prefix, w, unit, rows) {
+            const f = w.figures;
+            setText(prefix + 'Addr', w.address || '');
+            setText(prefix + 'Spendable', f ? fmtCoins(f.spendable_sats, unit) : '--');
+            setText(prefix + 'Maturing', f ? fmtCoins(f.maturing_sats, unit) : '--');
+            const next = f && Array.isArray(f.maturing) && f.maturing.length ? f.maturing[0] : null;
+            setText(prefix + 'Next', !f ? '' : next
+                ? 'next: ' + fmtCoins(next.sats, unit) + ' in ' + formatNumber(next.blocks_to_go) + ' block' + (next.blocks_to_go === 1 ? '' : 's')
+                : 'none');
+            let status = w.message || '';
+            if (f) status = 'As of block ' + formatNumber(f.height) + '. ' + (w.state === 'ok'
+                ? 'Coins sent to this address show once a block includes them.' : status);
+            setText(prefix + 'Status', status);
+            if (f && Array.isArray(f.maturing)) f.maturing.forEach(m => rows.push({ unit: unit, m: m }));
+        }
+
+        async function fetchWallet() {
+            const card = document.getElementById('walletCard');
+            if (!card) return;
+            let w;
+            try {
+                w = await apiFetch('/api/v1/wallet');
+            } catch (e) {
+                return;   // leave what is shown; the card stays hidden until the first answer
+            }
+            if (!w || !w.bch2) { card.hidden = true; return; }
+            card.hidden = false;
+            const rows = [];
+            renderWalletCoin('wallet', w.bch2, 'BCH2', rows);
+            const aux = !!w.aux1175;
+            document.getElementById('walletAux').hidden = !aux;
+            document.getElementById('walletAuxSpend').hidden = !aux;
+            if (aux) renderWalletCoin('walletAux', w.aux1175, 'ESF', rows);
+            rows.sort((a, b) => a.m.blocks_to_go - b.m.blocks_to_go);
+            document.getElementById('walletDetails').hidden = rows.length === 0;
+            document.getElementById('walletMaturingRows').innerHTML = rows.map(r =>
+                '<tr><td>' + sanitizeHTML(r.unit === 'ESF' ? '1175' : 'BCH2') + '</td><td>' + formatNumber(Number(r.m.height))
+                + '</td><td>' + sanitizeHTML(fmtCoins(r.m.sats, r.unit)) + '</td><td>' + formatNumber(Number(r.m.blocks_to_go))
+                + ' block' + (Number(r.m.blocks_to_go) === 1 ? '' : 's') + '</td></tr>').join('');
         }
 
         async function fetchStats() {
@@ -1036,8 +1087,10 @@
             fetchBlocks();
             fetchPayouts();
             fetchTides();
+            fetchWallet();
             setInterval(updateStatusBanner, 5000);
             setInterval(fetchTides, 15000);
+            setInterval(fetchWallet, 30000);
             setInterval(fetchConnectivity, 30000);
             setInterval(fetchStats, 30000);
             setInterval(fetchMinerData, 5000);

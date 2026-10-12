@@ -136,7 +136,7 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # Both steps run the SAME scripts a developer runs locally, so there is no second
+      # The steps run the SAME scripts a developer runs locally, so there is no second
       # copy of the provisioning logic to drift. Each script fails if a test it runs SKIPS, which
       # is what stops a silently-unopened gate from reading as a pass.
       #
@@ -148,6 +148,11 @@ jobs:
 
       - name: Merge-mining end to end (live 1175 regtest node)
         run: ./scripts/it-1175.sh
+
+      # The nodes of the images the compose pins, each on a regtest chain with its wallet off, asked
+      # for the coins at an address through the api's own handler.
+      - name: The dashboard's Wallet card against live BCH2 and 1175 regtest nodes
+        run: ./scripts/it-wallet.sh
 
   store-manifest:
     name: Store listing matches this repo

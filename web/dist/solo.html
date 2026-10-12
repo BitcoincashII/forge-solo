@@ -91,6 +91,22 @@
         @media(max-width:900px){.tides-grid{grid-template-columns:repeat(3,1fr)}}
         @media(max-width:600px){.tides-grid{grid-template-columns:repeat(2,1fr)}}
 
+        /* The Wallet card: the coins at the payout address, read only */
+        .wallet-card{margin-bottom:24px}
+        .wallet-ro{font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px;margin-left:auto;background:rgba(10,193,142,0.15);color:var(--bch-green)}
+        .wallet-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin:12px 0}
+        .wallet-grid>div{background:var(--bg-primary);border-radius:10px;padding:14px;text-align:center;min-width:0}
+        .wallet-grid .wv{font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--bch-green);word-break:break-word}
+        .wallet-grid .wl{font-size:11px;color:var(--text-secondary);margin-top:4px}
+        .wallet-grid .ws{font-size:10px;color:var(--text-secondary);opacity:0.8;margin-top:2px}
+        .wallet-note{font-size:13px;color:var(--text-secondary);line-height:1.55}
+        .wallet-addr{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-secondary);word-break:break-all;margin-top:8px}
+        .wallet-details{margin:8px 0}
+        .wallet-details summary{cursor:pointer;font-size:13px}
+        .wallet-btn{display:inline-block;background:var(--bch-green);color:#000;padding:10px 18px;border-radius:8px;font-weight:700;text-decoration:none;margin:8px 0}
+        .wallet-btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+        @media(max-width:600px){.wallet-grid{grid-template-columns:1fr}}
+
         footer a{color:var(--gold)}
 
         @media(max-width:900px){
@@ -152,6 +168,42 @@
                     <div style="margin-top:4px;font-size:12px;opacity:0.8;color:#000" id="blocksFoundTides" hidden></div>
                     <div style="margin-top:8px;font-size:13px;opacity:0.8;color:#000" id="totalEarned">Total: --</div>
                 </div>
+            </div>
+
+            <!-- The coins at your payout address, read by Forge Solo's API from this install's own nodes
+                 (/api/v1/wallet). Read only: Forge Solo holds no keys. wallet.bch2.org refuses to be framed, so
+                 it is linked, never embedded. -->
+            <div class="card wallet-card" id="walletCard" hidden role="region" aria-labelledby="walletTitle">
+                <h2 id="walletTitle">Wallet <span class="wallet-ro">read only</span></h2>
+                <p class="wallet-note">The coins at your payout address, as your node sees them: your block rewards, your TIDES payouts and anything else sent to it. Forge Solo reads them from its own node and holds no keys, so it cannot spend them.</p>
+                <div class="wallet-addr" id="walletAddr"></div>
+                <div class="wallet-grid">
+                    <div><div class="wv" id="walletSpendable">--</div><div class="wl">Spendable</div></div>
+                    <div><div class="wv" id="walletMaturing">--</div><div class="wl">Still maturing</div><div class="ws" id="walletNext"></div></div>
+                </div>
+                <p class="wallet-note" id="walletStatus" role="status"></p>
+                <!-- Umbrel and Windows, with a 1175 address set. -->
+                <div id="walletAux" hidden>
+                    <div class="wallet-addr" id="walletAuxAddr"></div>
+                    <div class="wallet-grid">
+                        <div><div class="wv" id="walletAuxSpendable">--</div><div class="wl">1175 spendable</div></div>
+                        <div><div class="wv" id="walletAuxMaturing">--</div><div class="wl">1175 still maturing</div><div class="ws" id="walletAuxNext"></div></div>
+                    </div>
+                    <p class="wallet-note" id="walletAuxStatus" role="status"></p>
+                </div>
+                <details class="wallet-details" id="walletDetails" hidden>
+                    <summary>Coins still maturing</summary>
+                    <div class="table-scroll">
+                        <table class="blocks-table">
+                            <caption class="sr-only">Block rewards and TIDES payouts at your addresses that cannot be spent yet</caption>
+                            <thead><tr><th scope="col">Coin</th><th scope="col">Block</th><th scope="col">Amount</th><th scope="col">Spendable in</th></tr></thead>
+                            <tbody id="walletMaturingRows"></tbody>
+                        </table>
+                    </div>
+                    <p class="wallet-note">Each can be spent 100 blocks after the block that paid it.</p>
+                </details>
+                <a class="wallet-btn" href="https://wallet.bch2.org" target="_blank" rel="noopener noreferrer">Open BCH2 Wallet <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>
+                <p class="wallet-note">The BCH2 Wallet keeps its keys in your browser, not on a server. Spend these coins from the wallet that holds your payout address's keys<span id="walletAuxSpend" hidden>, and 1175 coins from a 1175 wallet: the BCH2 Wallet holds BCH2 only</span>.</p>
             </div>
 
             <!-- TIDES mode: shown only while the stratum reports TIDES in effect. -->
@@ -371,6 +423,6 @@
     </footer>
 
     <script src="/js/common.js?v=20261007a"></script>
-    <script src="/js/pool-solo-inline.js?v=20261010a"></script>
+    <script src="/js/pool-solo-inline.js?v=20261012a"></script>
 </body>
 </html>

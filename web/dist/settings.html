@@ -67,6 +67,8 @@
     </div>
     <label class="fld" for="poolAddr">BCH2 payout address (required)</label>
     <input class="txt" id="poolAddr" type="text" spellcheck="false" autocapitalize="none" placeholder="bitcoincashii:q…">
+    <!-- Shown while no payout address is set. wallet.bch2.org refuses to be framed, so it is linked. -->
+    <p class="note" id="getAddressNote" hidden>Need a BCH2 address? <a href="https://wallet.bch2.org" target="_blank" rel="noopener noreferrer" style="color:var(--bch-green,#0ac18e)">Create one in the BCH2 Wallet</a><span class="sr-only"> (opens in a new tab)</span>. Forge Solo only needs the address, so the keys can stay on another device, such as your phone.</p>
     <label class="fld mm" for="esfAddr">1175 (ESF) merge-mining payout address (optional)</label>
     <input class="txt mm" id="esfAddr" type="text" spellcheck="false" autocapitalize="none" placeholder="esf1…">
     <label class="fld" for="cbTag">Coinbase tag (optional, ≤24 chars)</label>
@@ -235,6 +237,7 @@
          var why=apiError ? 'Forge Solo cannot read its settings right now' : 'cannot reach Forge Solo';
          document.getElementById('apiDownWhy').textContent=apiError || 'Can\'t reach Forge Solo, so your saved settings could not be loaded.';
          document.getElementById('notConfiguredBanner').style.display='none';
+         document.getElementById('getAddressNote').hidden=true;
          document.getElementById('apiDownBanner').style.display='block';
          var es=document.getElementById('esfStatus');
          if(es){ es.textContent='unknown: '+why; es.className='v mm-off'; }
@@ -264,8 +267,9 @@
      var tides=(d.payout_mode==='tides');
      document.querySelectorAll('input[name=payoutMode]').forEach(function(r){ r.checked=(r.value===(tides?'tides':'solo')); });
      if(d.coinbase_tag!=null) document.getElementById('cbTag').value=d.coinbase_tag;
-     // Not-configured banner (#1): shown only when no BCH2 payout address is set.
+     // Not-configured banner (#1): shown only when no BCH2 payout address is set, with where to get one.
      document.getElementById('notConfiguredBanner').style.display = pool ? 'none' : 'block';
+     document.getElementById('getAddressNote').hidden = !!pool;
      // Merge-mining status (#9): the ESF address, or an explicit "OFF" when empty.
      var es=document.getElementById('esfStatus');
      if(tides){ es.textContent='OFF: TIDES mode mines BCH2 only'+(esf?' (your address is kept for Solo)':''); es.className='v mm-off'; return; }

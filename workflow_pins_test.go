@@ -504,3 +504,15 @@ func TestSQLiteSwitchIsGuardedInCI(t *testing.T) {
 		}
 	}
 }
+
+// The dashboard's Wallet card is tested in CI against live nodes, the ones the compose pins, on regtest
+// chains (scripts/it-wallet.sh, which fails when its test skips).
+func TestWalletCardIsTestedAgainstLiveNodes(t *testing.T) {
+	w := loadWorkflow(t, ".github/workflows/test.yml")
+	for _, s := range w.Jobs["integration"].Steps {
+		if strings.TrimSpace(s.Run) == "./scripts/it-wallet.sh" {
+			return
+		}
+	}
+	t.Error("CI-WALLET-IT: the integration job does not run scripts/it-wallet.sh")
+}

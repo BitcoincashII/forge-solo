@@ -68,7 +68,8 @@ On every platform:
 - a BCH2 full node, which syncs on its own and keeps the whole chain so other nodes can sync from it
 - on Umbrel and Windows, a 1175 (ESF) node for AuxPoW merge-mining (its program is checksum-verified)
 - the mining service (stratum): port 3333 for your miners, 3335 for NiceHash and MiningRigRentals
-- the dashboard and its API: hashrate, effort, your blocks, payouts and the TIDES window
+- the dashboard and its API: hashrate, effort, your blocks, payouts, the coins at your payout
+  address and the TIDES window
 - `forgesolo.db`, one SQLite file that holds your settings, blocks and payouts
 
 On Umbrel each part is a container: `node`, `node1175`, `stratum`, `api` and `web`. Before the
@@ -112,6 +113,10 @@ on a computer, do not have:
   Password**.
 - **Linux:** `DASHBOARD_PASSWORD` in `secrets.env` in the data directory
   (`sudo cat /var/lib/forge-solo/secrets.env` for the service).
+
+No BCH2 address yet? Settings links to the BCH2 Wallet at wallet.bch2.org, which makes one in your
+browser. Forge Solo only needs the address, so the keys can stay on another device, such as your
+phone.
 
 Then point your miner at `stratum+tcp://<forge-solo-ip>:3333`, the address of the Umbrel, PC or
 Linux machine on your network. The dashboard shows it.
@@ -237,6 +242,7 @@ chain again, and your settings and block history stay.
 - Every secret (both nodes' RPC passwords, the internal API token) is **generated per install** (`exports.sh`); nothing is hardcoded.
 - Settings takes no change without **Forge Solo's own password**, which umbrelOS shows only to you: other apps on the Umbrel can reach Forge Solo directly.
 - Other apps reach only the dashboard. The nodes, the API and the stratum talk over a **network of their own**, and the node RPC ports are not published to the host.
+- The dashboard's Wallet card asks only Forge Solo's own nodes for the coins at your addresses; nothing is sent to any other service.
 - Internal API fails **closed** without its token.
 - 1175 node binary is **checksum-verified**; images are pinned by digest.
 - Share work is credited as `min(assigned, proven)`, so credit cannot be inflated.
@@ -405,11 +411,12 @@ The two Windows tray apps are modules of their own, which `./...` leaves out: CI
 its Windows job (vet, staticcheck and builds with `GOOS=windows`, both installer scripts compiled
 with placeholders) and the job that runs on Windows itself are in `test.yml`.
 
-The integration job runs two scripts, each of which fails when a test it runs is skipped:
+The integration job runs three scripts, each of which fails when a test it runs is skipped:
 
 ```sh
 ./scripts/it-pg-to-sqlite.sh
 ./scripts/it-1175.sh
+./scripts/it-wallet.sh
 ```
 
 `it-pg-to-sqlite.sh` makes a 1.0.12 database with 1.0.12's own code (the `v1.0.12` tag, which a
@@ -420,6 +427,10 @@ compose and buildx, Go, python3 and curl, takes about 12 minutes on a CI runner,
 containers and work folder; the `forge-it-*` images it builds stay, for `IT_REUSE_IMAGES=1`. Its
 first lines list its options, such as `IT_CASES` and `KEEP=1`. `it-1175.sh` downloads the
 1175 node (x86_64 or aarch64), checks its SHA-256, and merge-mines a block on a regtest chain.
+`it-wallet.sh` runs the BCH2 and 1175 nodes of the images the compose pins, with Docker, each on a
+regtest chain with its wallet off, and checks what the dashboard's Wallet card shows through the
+API's own handler; with `BCH2_BIN_DIR` and `ESF_BIN_DIR` it runs those folders' node programs
+instead.
 
 ## Releasing
 

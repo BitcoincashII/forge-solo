@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -361,6 +362,9 @@ func main() {
 	// TIDES mode: the pool's window and this install's payouts, read from Forge Pool.
 	api.Get("/tides", getTidesPool)
 	api.Get("/tides/me", getTidesMine)
+	// The coins at the payout address, and at the 1175 address, as this install's own nodes see
+	// them (wallet.go).
+	api.Get("/wallet", getWallet)
 	// The data of the version before 1.0.13, while it was left out (maintenance.go).
 	api.Post("/old-data", saveOldDataChoice)
 
@@ -422,43 +426,6 @@ func main() {
 		zapLogger.Info("The move of the old data is no longer failed: stopping, to be started again normally")
 	}
 	app.Shutdown()
-}
-
-// rpcCallURL is rpcCall against an arbitrary node. The 1175 node has its own credentials,
-// and its peer counts are needed to tell the user whether their 25360 forward is working.
-func rpcCallURL(url, user, pass, method string, params interface{}) (json.RawMessage, error) {
-	if url == "" || user == "" || pass == "" {
-		return nil, fmt.Errorf("RPC credentials not configured")
-	}
-	reqBody, err := json.Marshal(map[string]interface{}{
-		"jsonrpc": "1.0", "id": "api", "method": method, "params": params,
-	})
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequest("POST", url, bytes.NewReader(reqBody))
-	if err != nil {
-		return nil, err
-	}
-	req.SetBasicAuth(user, pass)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	var rpcResp struct {
-		Result json.RawMessage `json:"result"`
-	}
-	if err := json.Unmarshal(body, &rpcResp); err != nil {
-		return nil, err
-	}
-	return rpcResp.Result, nil
 }
 
 // peerCounts reports total peers and how many of them dialled US.
@@ -606,11 +573,13 @@ func getConnectivity(c *fiber.Ctx) error {
 			"known": bchOK, "reachable": bchOK && bchInbound > 0,
 		},
 	}
-	// Without a 1175 node (Forge Solo for Linux) there is no 1175 port to report on.
+	// Without a 1175 node (Forge Solo for Linux) there is no 1175 port to report on. The 1175 node
+	// has its own login, and its peer counts tell the user whether their 25360 forward works.
 	if mergeMiningAvailable() {
-		auxTotal, auxInbound, auxOK := peerCounts(rpcCallURL(
-			os.Getenv("AUX1175_URL"), os.Getenv("AUX1175_USER"), os.Getenv("AUX1175_PASSWORD"),
-			"getpeerinfo", []interface{}{}))
+		url, user, pass := aux1175Login()
+		ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
+		defer cancel()
+		auxTotal, auxInbound, auxOK := peerCounts(rpcCallCtx(ctx, url, user, pass, "getpeerinfo", []interface{}{}))
 		out["aux1175"] = fiber.Map{
 			"port": 25360, "peers": auxTotal, "inbound": auxInbound,
 			"known": auxOK, "reachable": auxOK && auxInbound > 0,
@@ -866,33 +835,65 @@ func (e *rpcError) Error() string {
 // verifying its latest blocks); its message says which step it is on.
 const rpcInWarmup = -28
 
-func rpcCall(method string, params interface{}) (json.RawMessage, error) {
-	if rpcUser == "" || rpcPass == "" {
-		return nil, fmt.Errorf("RPC credentials not configured - set RPC_USER and RPC_PASSWORD environment variables")
-	}
+// rpcTimeout bounds a question to a node, all but a scan of its coins (walletScanTimeout).
+const rpcTimeout = 10 * time.Second
 
-	reqBody, _ := json.Marshal(map[string]interface{}{
+// rpcMaxAnswer is the largest answer read from a node: a variable, so a test can lower it.
+var rpcMaxAnswer = 32 << 20
+
+var errAnswerTooBig = errors.New("the node's answer is larger than 32 MB")
+
+// bch2Login is the BCH2 node's RPC login.
+func bch2Login() (url, user, pass string) { return rpcURL, rpcUser, rpcPass }
+
+// aux1175Login is the 1175 node's RPC login, which Umbrel and Windows set. Forge Solo for Linux runs
+// no 1175 node.
+func aux1175Login() (url, user, pass string) {
+	return os.Getenv("AUX1175_URL"), os.Getenv("AUX1175_USER"), os.Getenv("AUX1175_PASSWORD")
+}
+
+// rpcCall asks the BCH2 node.
+func rpcCall(method string, params interface{}) (json.RawMessage, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
+	defer cancel()
+	url, user, pass := bch2Login()
+	return rpcCallCtx(ctx, url, user, pass, method, params)
+}
+
+// rpcCallCtx asks the node at url, until ctx ends. An error the node answers with is an *rpcError.
+func rpcCallCtx(ctx context.Context, url, user, pass, method string, params interface{}) (json.RawMessage, error) {
+	if url == "" || user == "" || pass == "" {
+		return nil, fmt.Errorf("RPC credentials not configured")
+	}
+	reqBody, err := json.Marshal(map[string]interface{}{
 		"jsonrpc": "1.0",
 		"id":      "api",
 		"method":  method,
 		"params":  params,
 	})
-
-	req, err := http.NewRequest("POST", rpcURL, bytes.NewBuffer(reqBody))
 	if err != nil {
 		return nil, err
 	}
-	req.SetBasicAuth(rpcUser, rpcPass)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, err
+	}
+	req.SetBasicAuth(user, pass)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(rpcMaxAnswer)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > rpcMaxAnswer {
+		return nil, errAnswerTooBig
+	}
 	var rpcResp struct {
 		Result json.RawMessage `json:"result"`
 		Error  *struct {
@@ -1286,22 +1287,7 @@ func getPoolConfig(c *fiber.Ctx) error {
 	if err != nil {
 		return settingsUnreadable(c, err)
 	}
-	if !mergeMiningAvailable() {
-		// No 1175 node here: a 1175 address a database brought from Umbrel or Windows holds is not
-		// this install's setting, and Settings has no box for it.
-		payout1175 = ""
-	} else if payout1175 == "" {
-		// Validated, like the POOL_ADDRESS fallback beside it. Unvalidated, one typo in the
-		// Umbrel app config pre-filled the form with a bad address and then 400'd EVERY
-		// save -- including the save that sets the BCH2 address and un-pauses mining.
-		if env := strings.TrimSpace(os.Getenv("PAYOUT_ADDRESS_1175")); env != "" {
-			if isValid1175Address(env) {
-				payout1175 = env
-			} else {
-				log.Printf("WARNING: PAYOUT_ADDRESS_1175 is set but is not a valid esf1… address (%q); ignoring it", env)
-			}
-		}
-	}
+	payout1175 = address1175InEffect(payout1175)
 	if tag == "" {
 		tag = os.Getenv("COINBASE_TAG")
 	}
@@ -1337,6 +1323,28 @@ func getPoolConfig(c *fiber.Ctx) error {
 		out["secrets_path"] = p
 	}
 	return c.JSON(out)
+}
+
+// address1175InEffect is the 1175 address the dashboard shows, given the stored one: the stored one,
+// else a valid PAYOUT_ADDRESS_1175 from the app config, and none where this app runs no 1175 node.
+func address1175InEffect(stored string) string {
+	if !mergeMiningAvailable() {
+		// No 1175 node here: a 1175 address a database brought from Umbrel or Windows holds is not
+		// this install's setting, and Settings has no box for it.
+		return ""
+	}
+	if stored != "" {
+		return stored
+	}
+	// Validated, like the POOL_ADDRESS fallback beside it. Unvalidated, one typo in the Umbrel app
+	// config pre-filled the form with a bad address and then 400'd EVERY save -- including the save
+	// that sets the BCH2 address and un-pauses mining.
+	env := strings.TrimSpace(os.Getenv("PAYOUT_ADDRESS_1175"))
+	if env != "" && !isValid1175Address(env) {
+		log.Printf("WARNING: PAYOUT_ADDRESS_1175 is set but is not a valid esf1… address (%q); ignoring it", env)
+		return ""
+	}
+	return env
 }
 
 // platformFromEnv is where this app runs, as FORGE_PLATFORM says: "windows" or "linux", which
@@ -1781,6 +1789,27 @@ func getMiningStatus(c *fiber.Ctx) error {
 // either failure.
 const syncedHeaderSlack = 1
 
+// blockchainInfo is the part of a node's getblockchaininfo the dashboard reads.
+type blockchainInfo struct {
+	Blocks               int64   `json:"blocks"`
+	Headers              int64   `json:"headers"`
+	BestBlockHash        string  `json:"bestblockhash"`
+	VerificationProgress float64 `json:"verificationprogress"`
+	InitialBlockDownload bool    `json:"initialblockdownload"`
+}
+
+// chainSynced reports a node that is synced: the node itself says IBD is over AND it has connected
+// every header it knows about, within syncedHeaderSlack. Deliberately NOT a verificationprogress
+// threshold: that figure is an ESTIMATE derived from the hardcoded chainTxData tx-rate assumption,
+// which on a young low-volume fork chain can sit just under 1.0 at the actual tip -- pinning the
+// dashboard to "syncing, you can mine once it reaches 100%" on a node that is fully synced and, in
+// fact, already mining. IBD is also exactly what the node gates getblocktemplate on, so the banner
+// agrees with the mining path instead of contradicting it. The Wallet card asks a node only when it
+// is synced, by the same test.
+func chainSynced(blocks, headers int64, ibd bool) bool {
+	return !ibd && headers > 0 && blocks >= headers-syncedHeaderSlack
+}
+
 func getNodeStatus(c *fiber.Ctx) error {
 	result, err := rpcCall("getblockchaininfo", []interface{}{})
 	if err != nil {
@@ -1798,12 +1827,7 @@ func getNodeStatus(c *fiber.Ctx) error {
 		})
 	}
 
-	var info struct {
-		Blocks               int64   `json:"blocks"`
-		Headers              int64   `json:"headers"`
-		VerificationProgress float64 `json:"verificationprogress"`
-		InitialBlockDownload bool    `json:"initialblockdownload"`
-	}
+	var info blockchainInfo
 	if err := json.Unmarshal(result, &info); err != nil {
 		return c.JSON(fiber.Map{
 			"status":  "offline",
@@ -1811,15 +1835,8 @@ func getNodeStatus(c *fiber.Ctx) error {
 		})
 	}
 
-	// Synced = the node itself says IBD is over AND it has connected every header it
-	// knows about. Deliberately NOT a verificationprogress threshold: that figure is an
-	// ESTIMATE derived from the hardcoded chainTxData tx-rate assumption, which on a
-	// young low-volume fork chain can sit just under 1.0 at the actual tip -- pinning the
-	// dashboard to "syncing, you can mine once it reaches 100%" on a node that is fully
-	// synced and, in fact, already mining. IBD is also exactly what the node gates
-	// getblocktemplate on, so the banner now agrees with the mining path instead of
-	// contradicting it. Progress is still reported, for the bar.
-	if info.InitialBlockDownload || info.Headers <= 0 || info.Blocks < info.Headers-syncedHeaderSlack {
+	// Progress is reported while it syncs, for the bar.
+	if !chainSynced(info.Blocks, info.Headers, info.InitialBlockDownload) {
 		return c.JSON(fiber.Map{
 			"status":   "syncing",
 			"blocks":   info.Blocks,

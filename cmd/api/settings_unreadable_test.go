@@ -22,10 +22,12 @@ func TestSettingsUnreadableIsNotReportedAsDefaults(t *testing.T) {
 	app.Get("/api/v1/pool/config", getPoolConfig)
 	app.Post("/api/v1/pool/config", savePoolConfig)
 	app.Get("/api/v1/tides/me", getTidesMine)
+	app.Get("/api/v1/wallet", getWallet)
 	for _, r := range []struct{ method, path, body string }{
 		{"GET", "/api/v1/pool/config", ""},
 		{"POST", "/api/v1/pool/config", `{"pool_address":"","coinbase_tag":"x"}`},
 		{"GET", "/api/v1/tides/me", ""},
+		{"GET", "/api/v1/wallet", ""},
 	} {
 		req := httptest.NewRequest(r.method, r.path, strings.NewReader(r.body))
 		req.Header.Set("Content-Type", "application/json")
