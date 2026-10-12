@@ -12,7 +12,7 @@
     <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
     <link rel="preload" href="/fonts/zilla-slab-700.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/fonts/source-sans-3-wght.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/css/site.css?v=4">
+    <link rel="stylesheet" href="/css/site.css?v=5">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="Bitcoin Cash II">
     <meta property="og:title" content="Forge Solo: questions and words for new miners">
@@ -64,7 +64,7 @@
             <div class="wrap">
                 <p class="tag" data-i18n="fs_faq_tag">New to mining</p>
                 <h1 data-i18n="fs_faq_title">Questions and words</h1>
-                <p class="lede" data-i18n="fs_faq_lede">Short answers to what people ask before they mine for the first time, and the words you’ll meet in Forge Solo. The details live in Forge Solo’s README on GitHub, and each answer links to its part.</p>
+                <p class="lede" data-i18n="fs_faq_lede">Short answers to what people ask before they mine for the first time, and the words you’ll meet in Forge Solo. Most of the details live in Forge Solo’s README on GitHub, and each answer links to where its details are.</p>
             </div>
         </div>
 
@@ -125,7 +125,7 @@
                         <p data-i18n="fs_faq_solo_or_tides_a1">In both, your own BCH2 <a class="term" href="#glossary-node">node</a> builds every block your miners work on, and there is no pool fee. They differ in which blocks pay you.</p>
                         <ul role="list">
                             <li data-i18n="fs_faq_solo_or_tides_solo"><strong>Solo</strong> pays you for a block your miners find, and pays you all of it. Until then it pays nothing. On Umbrel and Windows it also mines 1175 (ESF), once you set a 1175 payout address.</li>
-                            <li data-i18n="fs_faq_solo_or_tides_tides"><strong>TIDES</strong> sends your work into the <a class="term" href="#glossary-tides">TIDES window</a> of Forge Pool (<a href="https://pool.bch2.org/" translate="no">pool.bch2.org</a>), where Forge Pool registers the work of everyone mining with it. Every TIDES block, a block found on work Forge Pool registered, pays everyone with work in the window by their share of the work. You are paid from every TIDES block found while your work is in the window, not only from blocks you find, so a small miner is paid far more often than in Solo, in smaller amounts. An amount under 546 <a class="term" href="#glossary-satoshi">satoshis</a> waits for a later TIDES block. 1175 is not mined in TIDES mode.</li>
+                            <li data-i18n="fs_faq_solo_or_tides_tides"><strong>TIDES</strong> sends your work into the <a class="term" href="#glossary-tides">TIDES window</a> of Forge Pool (<a href="https://pool.bch2.org/" translate="no">pool.bch2.org</a>), where Forge Pool registers the work of everyone mining into it through Forge Solo in TIDES mode or Forge Gateway. Every TIDES block, a block found on work Forge Pool registered, pays everyone with work in the window by their share of the work. You are paid from every TIDES block found while your work is in the window, not only from blocks you find, so a small miner is paid far more often than in Solo, in smaller amounts. An amount under 546 <a class="term" href="#glossary-satoshi">satoshis</a> waits for a later TIDES block. 1175 is not mined in TIDES mode.</li>
                         </ul>
                         <p data-i18n="fs_faq_solo_or_tides_a2">In TIDES mode, while Forge Pool can’t be reached, Forge Solo mines solo, and a block found then pays you in full.</p>
                         <p data-i18n="fs_faq_solo_or_tides_a3">You can switch at any time in Settings, under <strong>How blocks pay</strong>. The change takes effect within half a minute, with no restart.</p>
@@ -161,7 +161,7 @@
                         <p data-i18n="fs_faq_not_mining_yet_a1">Two things come first.</p>
                         <ol role="list">
                             <li data-i18n="fs_faq_not_mining_yet_sync">Its BCH2 node downloads the blockchain and catches up with the network. The dashboard shows how far it has got, and you can mine once it reaches 100%.</li>
-                            <li data-i18n="fs_faq_not_mining_yet_address">Forge Solo needs your BCH2 payout address in Settings. Until it has one, a miner can’t log in.</li>
+                            <li data-i18n="fs_faq_not_mining_yet_address">Forge Solo needs your BCH2 payout address in Settings. Until it has one, it gives your miners no work.</li>
                         </ol>
                         <p data-i18n="fs_faq_not_mining_yet_a2">On Windows, also set your network to <strong>Private</strong>: while it is Public, miners on your network can’t connect.</p>
                         <p class="details" data-i18n="fs_faq_not_mining_yet_more">Details: <a href="https://github.com/BitcoincashII/forge-solo#install-on-windows">Install on Windows</a>, <a href="https://github.com/BitcoincashII/forge-solo#connect-a-miner">Connect a miner</a></p>
@@ -201,12 +201,36 @@
 
                     <div class="qa" id="help">
                         <h3 data-i18n="fs_faq_help_q">Where can I get help?</h3>
-                        <p data-i18n="fs_faq_help_a1">Ask on GitHub: open an issue on Forge Solo’s <a href="https://github.com/BitcoincashII/forge-solo/issues">Questions and problems</a> page. The <a href="https://github.com/BitcoincashII/forge-solo">README</a> has the directions for every platform. Forge Solo’s dashboard has a TIDES page that explains TIDES mode, and Forge Pool’s <a href="https://pool.bch2.org/tides-guide">TIDES guide</a> covers the TIDES window in full.</p>
+                        <p data-i18n="fs_faq_help_a1">Ask on GitHub: open an issue on Forge Solo’s <a href="https://github.com/BitcoincashII/forge-solo/issues">Issues</a> page. The <a href="https://github.com/BitcoincashII/forge-solo">README</a> has the directions for every platform. Forge Solo’s dashboard has a TIDES page that explains TIDES mode, and Forge Pool’s <a href="https://pool.bch2.org/tides-guide">TIDES guide</a> covers the TIDES window in full.</p>
                     </div>
                 </section>
 
                 <section class="glossary" id="glossary" aria-labelledby="glossary-title">
                     <h2 id="glossary-title" class="part-title" data-i18n="fs_faq_words">Words you’ll meet</h2>
+                    <ul class="word-index" role="list">
+                        <li><a href="#glossary-1175" data-i18n="fs_word_1175">1175 (ESF)</a></li>
+                        <li><a href="#glossary-asic" data-i18n="fs_word_asic">ASIC</a></li>
+                        <li><a href="#glossary-bitaxe" data-i18n="fs_word_bitaxe">Bitaxe</a></li>
+                        <li><a href="#glossary-block" data-i18n="fs_word_block">Block</a></li>
+                        <li><a href="#glossary-coinbase" data-i18n="fs_word_coinbase">Coinbase</a></li>
+                        <li><a href="#glossary-datum-block" data-i18n="fs_word_datum_block">DATUM block</a></li>
+                        <li><a href="#glossary-difficulty" data-i18n="fs_word_difficulty">Difficulty</a></li>
+                        <li><a href="#glossary-forge-pool" data-i18n="fs_word_forge_pool">Forge Pool</a></li>
+                        <li><a href="#glossary-hashrate" data-i18n="fs_word_hashrate">Hashrate</a></li>
+                        <li><a href="#glossary-merge-mining" data-i18n="fs_word_merge_mining">Merge-mining</a></li>
+                        <li><a href="#glossary-mining" data-i18n="fs_word_mining">Mining</a></li>
+                        <li><a href="#glossary-node" data-i18n="fs_word_node">Node, full node</a></li>
+                        <li><a href="#glossary-payout-address" data-i18n="fs_word_payout_address">Payout address</a></li>
+                        <li><a href="#glossary-port" data-i18n="fs_word_port">Port</a></li>
+                        <li><a href="#glossary-satoshi" data-i18n="fs_word_satoshi">Satoshi</a></li>
+                        <li><a href="#glossary-share" data-i18n="fs_word_share">Share</a></li>
+                        <li><a href="#glossary-solo" data-i18n="fs_word_solo">Solo</a></li>
+                        <li><a href="#glossary-stratum" data-i18n="fs_word_stratum">Stratum</a></li>
+                        <li><a href="#glossary-tides" data-i18n="fs_word_tides">TIDES, the TIDES window</a></li>
+                        <li><a href="#glossary-umbrel" data-i18n="fs_word_umbrel">Umbrel</a></li>
+                        <li><a href="#glossary-wallet" data-i18n="fs_word_wallet">Wallet</a></li>
+                        <li><a href="#glossary-worker-name" data-i18n="fs_word_worker_name">Worker name</a></li>
+                    </ul>
                     <dl class="words">
                         <div class="word" id="glossary-1175"><dt data-i18n="fs_word_1175">1175 (ESF)</dt><dd data-i18n="fs_word_1175_def">A second chain that Forge Solo merge-mines with BCH2, in Solo mode on Umbrel and Windows. Its rewards go to the 1175 payout address you set in Settings.</dd></div>
                         <div class="word" id="glossary-asic"><dt data-i18n="fs_word_asic">ASIC</dt><dd data-i18n="fs_word_asic_def">A mining machine built for one kind of work only: for BCH2, SHA-256. The ASIC miners made for Bitcoin mine BCH2 too.</dd></div>
@@ -216,7 +240,7 @@
                         <div class="word" id="glossary-datum-block"><dt data-i18n="fs_word_datum_block">DATUM block</dt><dd data-i18n="fs_word_datum_block_def">What Forge Pool’s pages call a TIDES block: a block found on work Forge Pool registered, through Forge Solo in TIDES mode or Forge Gateway. Only these pay the TIDES window; a block found on solo work pays the payout address of the install or gateway that found it, in full.</dd></div>
                         <div class="word" id="glossary-difficulty"><dt data-i18n="fs_word_difficulty">Difficulty</dt><dd data-i18n="fs_word_difficulty_def">How hard a target is to hit. The network difficulty says how hard a block is to find and can change at every block; the share difficulty Forge Solo gives each miner is far lower, so shares come often.</dd></div>
                         <div class="word" id="glossary-forge-pool"><dt data-i18n="fs_word_forge_pool">Forge Pool</dt><dd data-i18n="fs_word_forge_pool_def">The BCH2 mining pool at <a href="https://pool.bch2.org/" translate="no">pool.bch2.org</a>, which runs the TIDES window. In TIDES mode, Forge Solo sends it your shares, while your own node still builds your blocks.</dd></div>
-                        <div class="word" id="glossary-hashrate"><dt data-i18n="fs_word_hashrate">Hashrate</dt><dd data-i18n="fs_word_hashrate_def">How many guesses (hashes) a miner makes each second, counted in GH/s, TH/s or PH/s. On average, the more hashrate, the more blocks you find.</dd></div>
+                        <div class="word" id="glossary-hashrate"><dt data-i18n="fs_word_hashrate">Hashrate</dt><dd data-i18n="fs_word_hashrate_def">How many guesses (hashes) a miner makes each second, counted in MH/s, GH/s, TH/s or PH/s. On average, the more hashrate, the more blocks you find.</dd></div>
                         <div class="word" id="glossary-merge-mining"><dt data-i18n="fs_word_merge_mining">Merge-mining</dt><dd data-i18n="fs_word_merge_mining_def">Mining two chains with the same work (AuxPoW). In Solo mode on Umbrel and Windows, Forge Solo puts a 1175 commitment into the work it gives your miners, so they mine 1175 (ESF) with BCH2 at no extra hashrate cost.</dd></div>
                         <div class="word" id="glossary-mining"><dt data-i18n="fs_word_mining">Mining</dt><dd data-i18n="fs_word_mining_def">A race to find the next block: your miner makes guess after guess, very fast, and a winning guess makes the new block and earns its reward. BCH2 is mined with SHA-256, like Bitcoin.</dd></div>
                         <div class="word" id="glossary-node"><dt data-i18n="fs_word_node">Node, full node</dt><dd data-i18n="fs_word_node_def">A program that keeps a full copy of the BCH2 blockchain and shares it with other nodes. Forge Solo includes one, which builds every block your miners work on.</dd></div>
@@ -229,7 +253,7 @@
                         <div class="word" id="glossary-tides"><dt data-i18n="fs_word_tides">TIDES, the TIDES window</dt><dd data-i18n="fs_word_tides_def">TIDES is how Forge Pool shares blocks among everyone mining into it through Forge Solo in TIDES mode or Forge Gateway: every TIDES block pays everyone in the TIDES window by their part of the work. The window holds the most recent work and slides as new work comes in; finding a block doesn’t reset it.</dd></div>
                         <div class="word" id="glossary-umbrel"><dt data-i18n="fs_word_umbrel">Umbrel</dt><dd data-i18n="fs_word_umbrel_def">umbrelOS, a system for running apps from app stores on a computer at home. Forge Solo installs on it from the BCH2 Community Apps store.</dd></div>
                         <div class="word" id="glossary-wallet"><dt data-i18n="fs_word_wallet">Wallet</dt><dd data-i18n="fs_word_wallet_def">An app that holds your coins and gives you addresses to receive them. bch2.org lists two for BCH2: the web wallet at <a href="https://wallet.bch2.org/" translate="no">wallet.bch2.org</a> and the Core Wallet desktop app.</dd></div>
-                        <div class="word" id="glossary-worker-name"><dt data-i18n="fs_word_worker_name">Worker name</dt><dd data-i18n="fs_word_worker_name_def">The username you enter in your miner. In Forge Solo it is only a label for the dashboard, such as <code translate="no">rig1</code> or <code translate="no">bitaxe</code>: it doesn’t decide who is paid, so give each device its own.</dd></div>
+                        <div class="word" id="glossary-worker-name"><dt data-i18n="fs_word_worker_name">Worker name</dt><dd data-i18n="fs_word_worker_name_def">The username you enter in your miner. In Forge Solo it is only a label for the dashboard, such as <code translate="no">rig1</code> or <code translate="no">bitaxe</code>: it doesn’t decide who is paid. Give each device its own: Forge Solo remembers each one’s difficulty by its label.</dd></div>
                     </dl>
                 </section>
             </div>
@@ -237,7 +261,7 @@
 
         <div class="wrap ready">
             <div class="ready-plate">
-                <p class="ready-line" data-i18n="fs_faq_ready">Ready to start?</p>
+                <p class="ready-line" data-i18n="fs_ready">Ready to start?</p>
                 <a class="btn btn-primary" href="/#get-it" data-i18n="fs_head_get">Get Forge Solo</a>
             </div>
         </div>

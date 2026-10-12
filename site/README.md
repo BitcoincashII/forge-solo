@@ -8,14 +8,14 @@ Static files, served by nginx on the pool box (144.202.73.66).
 | Path | What |
 |---|---|
 | `index.html` | the home page |
-| `faq/index.html` | the questions page, /faq/: twelve questions and a glossary, each answer linking to the README |
+| `faq/index.html` | the questions page, /faq/: twelve questions and a glossary, each answer linking to where its details are (the README, mostly) |
 | `404.html` | the answer to any other address |
 | `css/site.css` | the styles, and the drawings' colours |
 | `fonts/*.woff2`, `fonts/OFL-*.txt` | Zilla Slab Bold, Source Sans 3 and Source Code Pro Medium, served from the site, and their licenses |
 | `img/favicon.svg` | the mark on a dark square: the browser tab's icon |
 | `img/mark.svg` | the mark on paper, in the 404 page's header |
 | `img/apple-touch-icon.png`, `img/og.png` | the icon for a phone's home screen, and the picture a link preview shows |
-| `img/forge-solo-*.webp` | screenshots of Forge Solo 1.0.15's Settings page and dashboard (Solo and TIDES), each also at twice the size (`@2x`), on the home page |
+| `img/forge-solo-*.webp` | screenshots of Forge Solo 1.0.15's Settings page and dashboard (Solo and TIDES), each also at twice the size (`@2x`), on the home page, where each links to its `@2x` file |
 | `robots.txt` | lets every crawler in |
 | `deploy.sh` | copies the files above to the box's web root |
 | `BRAND.md` | how the site looks: the colours, the type, the mark, the drawings and the words |
@@ -26,16 +26,20 @@ anchors of its headings, rather than repeating them. The Windows and Linux downl
 [the latest release](https://github.com/BitcoincashII/forge-solo/releases/latest), never on the
 site; Umbrel installs Forge Solo from its app store. The pages have no script, and load nothing
 from another site: the nginx server's Content-Security-Policy allows only their own styles, fonts
-and images. They link their files from the site's root (`/css/site.css?v=4`), since nginx serves
-`404.html` at whatever address was asked for and the questions page is a folder down.
+and images. They link their files from the site's root (`/css/site.css?v=5`), since nginx serves
+`404.html` at whatever address was asked for and the questions page is a folder down. A
+screenshot's link opens its `@2x` file on the browser's own image page, whose inline styles the
+policy refuses: Chrome's console says so, and the image still shows, fitted to the window.
 [BRAND.md](BRAND.md) is the look, and why.
 
 `site_test.go` fails when a heading the site links to is renamed, when the site links to a download
 or a release other than the latest, when a page carries a script or a style the policy refuses, or
 loads a file that is not in site/, when a link leads to an anchor a page does not have, when a text
 has no `data-i18n` key or an image's description no `data-i18n-alt` key, when a page's link preview
-does not carry its own title and address, when the pages' headers differ, when an image's size or
-`srcset` does not match its files, when the questions page's list and its questions differ, when a
+does not carry its own title and address, when the pages' headers differ, when a page with the
+header does not end with the way to get the app, when an image's size or `srcset` does not match
+its files, when a screenshot does not link to its full-size file, when the questions page's lists
+and its questions or glossary words differ, when a
 location in the nginx server drops its security headers, when the server would be the box's
 default for its port, and when site/ holds a file that is not the site's and that deploy.sh would
 publish.

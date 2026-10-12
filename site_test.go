@@ -737,11 +737,13 @@ func TestSiteHead(t *testing.T) {
 
 // The home page shows real screenshots of Forge Solo's Settings page and dashboard, as WebP. Each
 // <img> gives its file's width and height, so the page does not jump while it loads, and a srcset
-// of the same picture at its real widths with sizes, so a phone fetches the smaller file. Every
-// image has an alt; a described one has its description keyed in data-i18n-alt, as the texts are
-// in data-i18n, and a key names one description.
+// of the same picture at its real widths with sizes, so a phone fetches the smaller file. On the
+// page a screenshot is smaller than the app, so it is a link to its largest file, where the app's
+// words are at their own size. Every image has an alt; a described one has its description keyed
+// in data-i18n-alt, as the texts are in data-i18n, and a key names one description.
 func TestSiteImages(t *testing.T) {
 	img := regexp.MustCompile(`(?i)<img\b[^>]*>`)
+	linked := regexp.MustCompile(`<a\s[^>]*\bhref="([^"]*)"[^>]*>\s*(<img\b[^>]*>)`)
 	alts := map[string]string{}
 	shots := 0
 	size := func(addr string) (int, int, bool) {
@@ -752,6 +754,10 @@ func TestSiteImages(t *testing.T) {
 		return siteImageSize(b)
 	}
 	for _, p := range sitePages(t) {
+		link := map[string]string{} // an image's start tag: the link around it
+		for _, m := range linked.FindAllStringSubmatch(p.text, -1) {
+			link[m[2]] = m[1]
+		}
 		for _, tag := range img.FindAllString(p.text, -1) {
 			src, _ := siteAttr(tag, "src")
 			alt, hasAlt := siteAttr(tag, "alt")
@@ -790,6 +796,7 @@ func TestSiteImages(t *testing.T) {
 				continue
 			}
 			self := false
+			largest, largestW := "", 0
 			for _, c := range strings.Split(srcset, ",") {
 				f := strings.Fields(c)
 				if len(f) != 2 || !strings.HasSuffix(f[1], "w") {
@@ -800,6 +807,9 @@ func TestSiteImages(t *testing.T) {
 				cw, ch, ok := size(f[0])
 				if !ok || cw == 0 {
 					continue
+				}
+				if cw > largestW {
+					largest, largestW = f[0], cw
 				}
 				if f[1] != strconv.Itoa(cw)+"w" {
 					t.Errorf("SITE-IMG-SRCSET: %s gives %s as %s; the file is %d px wide", p.name, f[0], f[1], cw)
@@ -812,6 +822,9 @@ func TestSiteImages(t *testing.T) {
 			if !self {
 				t.Errorf("SITE-IMG-SRCSET: %s's srcset for %s does not list %s itself", p.name, src, src)
 			}
+			if largest != "" && link[tag] != largest {
+				t.Errorf("SITE-IMG-FULL: %s shows %s in a link to %q, not to its largest file %s, where the app's words can be read", p.name, src, link[tag], largest)
+			}
 		}
 	}
 	if shots == 0 {
@@ -821,7 +834,9 @@ func TestSiteImages(t *testing.T) {
 
 // The pages with the site's header, the home page and the questions page, share it: the same links
 // in the same order, the questions page among them, and on each page the link to the page itself
-// marked as the current one. A page that draws the mark draws the home page's.
+// marked as the current one. Each of them ends with the way to get the app, Get it on the home
+// page, so a newcomer at the bottom does not scroll back up for it: the header is not fixed and the
+// footer has no download. A page that draws the mark draws the home page's.
 func TestSitePagesShareTheirHeader(t *testing.T) {
 	nav := regexp.MustCompile(`(?s)<nav class="nav"[^>]*>(.*?)</nav>`)
 	link := regexp.MustCompile(`<a\s[^>]*>`)
@@ -855,6 +870,18 @@ func TestSitePagesShareTheirHeader(t *testing.T) {
 		if !slices.Contains(got, "/faq/") {
 			t.Errorf("SITE-NAV: %s's header does not link to the questions page, /faq/", p.name)
 		}
+		last := ""
+		if end := strings.LastIndex(p.text, "</main>"); end >= 0 {
+			if all := link.FindAllString(p.text[:end], -1); len(all) > 0 {
+				last, _ = siteAttr(all[len(all)-1], "href")
+			}
+		}
+		if strings.HasPrefix(last, "#") {
+			last = self + last
+		}
+		if last != "/#get-it" {
+			t.Errorf("SITE-READY: %s's last link is to %q; a page with the header ends with the way to get the app, /#get-it", p.name, last)
+		}
 		if want == nil {
 			want, first = got, p.name
 		} else if !slices.Equal(got, want) {
@@ -868,8 +895,9 @@ func TestSitePagesShareTheirHeader(t *testing.T) {
 
 // The questions page, /faq/: its list of questions is the questions on it, in the same order; each
 // answer links to where its details are (the README, mostly), and the page re-explains no more;
-// each word of the glossary has a #glossary-<word> anchor; and a link drawn as a word to look up
-// (class "term", on any page) leads to one of them. TestSiteUsesItsOwnFiles checks every anchor is there.
+// each word of the glossary has a #glossary-<word> anchor, and the list of words under its heading
+// is the words, in the same order; and a link drawn as a word to look up (class "term", on any
+// page) leads to one of them. TestSiteUsesItsOwnFiles checks every anchor is there.
 func TestSiteQuestionsPage(t *testing.T) {
 	const page = "site/faq/index.html"
 	faq := string(mustRead(t, page))
@@ -906,9 +934,21 @@ func TestSiteQuestionsPage(t *testing.T) {
 	if len(words) == 0 {
 		t.Errorf("SITE-FAQ-WORDS: %s has no glossary (<div class=\"word\" id=...>)", page)
 	}
+	var defined, indexed []string
 	for _, w := range words {
+		defined = append(defined, w[1])
 		if !strings.HasPrefix(w[1], "glossary-") {
 			t.Errorf("SITE-FAQ-WORDS: the word #%s in %s does not have a glossary-<word> anchor", w[1], page)
+		}
+	}
+	if index := regexp.MustCompile(`(?s)<ul class="word-index"[^>]*>(.*?)</ul>`).FindStringSubmatch(faq); index == nil {
+		t.Errorf("SITE-FAQ-WORD-INDEX: %s has no list of its words (<ul class=\"word-index\">)", page)
+	} else {
+		for _, m := range regexp.MustCompile(`href="#([^"]+)"`).FindAllStringSubmatch(index[1], -1) {
+			indexed = append(indexed, m[1])
+		}
+		if !slices.Equal(indexed, defined) {
+			t.Errorf("SITE-FAQ-WORD-INDEX: %s lists the words %v, and its glossary has %v", page, indexed, defined)
 		}
 	}
 	term := regexp.MustCompile(`<a\s[^>]*\bclass="term"[^>]*>`)

@@ -12,7 +12,7 @@
     <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
     <link rel="preload" href="/fonts/zilla-slab-700.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/fonts/source-sans-3-wght.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/css/site.css?v=4">
+    <link rel="stylesheet" href="/css/site.css?v=5">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="Bitcoin Cash II">
     <meta property="og:title" content="Forge Solo: mine BCH2 at home, on your own node">
@@ -258,7 +258,7 @@
                             </svg>
                         </div>
                         <h3 data-i18n="fs_need_computer">A computer that stays on</h3>
-                        <p data-i18n="fs_need_computer_text">An Umbrel box, a 64-bit Windows 10 or 11 PC, or a Linux machine, even a Raspberry Pi. Forge Solo mines while it runs.</p>
+                        <p data-i18n="fs_need_computer_text">An Umbrel box, a 64-bit Windows 10 or 11 PC (on ARM, Windows 11 only), or a Linux machine, even a Raspberry Pi. Forge Solo mines while it runs.</p>
                         <p class="wire"><span data-i18n="fs_need_wire_pays">Pays rewards to</span></p>
                     </li>
                     <li class="need">
@@ -344,7 +344,7 @@
                     <article class="mode" aria-labelledby="tides-title">
                         <p class="mode-kicker" data-i18n="fs_tides_kicker">As a team</p>
                         <h3 id="tides-title" data-i18n="fs_tides_name">TIDES</h3>
-                        <p class="mode-sum" data-i18n="fs_tides_sum">Team up with other miners through Forge Pool (<a href="https://pool.bch2.org/" translate="no">pool.bch2.org</a>): your work goes into its TIDES window, where Forge Pool registers the work of everyone mining with it. While Forge Pool can’t be reached, Forge Solo mines solo.</p>
+                        <p class="mode-sum" data-i18n="fs_tides_sum">Team up with other miners through Forge Pool (<a href="https://pool.bch2.org/" translate="no">pool.bch2.org</a>): your work goes into its TIDES window, where Forge Pool registers the work of everyone mining into it through Forge Solo in TIDES mode or Forge Gateway. While Forge Pool can’t be reached, Forge Solo mines solo.</p>
                         <div class="flow">
                             <div class="station">
                                 <span class="st-cap" data-i18n="fs_flow_who">Who mines</span>
@@ -422,7 +422,7 @@
                         <div class="get-body">
                             <p data-i18n="fs_get_windows_text">64-bit Windows 10 or 11 on an x64 PC, or Windows 11 on ARM. On the latest release, under Assets, download:</p>
                             <p class="path"><code translate="no" data-i18n="fs_get_windows_file"><span class="nw">ForgeSolo-Setup-</span><wbr><span class="nw">&lt;version&gt;.exe</span></code></p>
-                            <p data-i18n="fs_get_windows_see">The first time, Windows shows <a href="#windows-prompts">two prompts</a>, explained below.</p>
+                            <p data-i18n="fs_get_windows_see">When you install it, Windows shows <a href="#windows-prompts">two prompts</a>, explained below.</p>
                         </div>
                         <p class="get-actions"><a class="btn btn-primary btn-sm" href="https://github.com/BitcoincashII/forge-solo/releases/latest"><span data-i18n="fs_get_windows_download">Download<span class="vh"> for Windows</span> from GitHub</span></a> <a class="more" href="https://github.com/BitcoincashII/forge-solo#install-on-windows" data-i18n="fs_get_windows_link">Windows directions</a></p>
                     </li>
@@ -522,30 +522,37 @@
                 </div>
                 <div class="shots">
                     <figure class="shot">
-                        <div class="shot-frame"><img src="/img/forge-solo-settings-how-blocks-pay.webp" srcset="/img/forge-solo-settings-how-blocks-pay.webp 768w, /img/forge-solo-settings-how-blocks-pay@2x.webp 1536w" sizes="(min-width: 1296px) 568px, (min-width: 900px) calc(46vw - 32px), (min-width: 640px) 560px, calc(100vw - 48px)" width="768" height="853" loading="lazy" decoding="async" alt="Forge Solo’s Settings page: under How blocks pay, a choice between Solo, where every block you find pays your address in full, and TIDES pool, selected here, followed by the payout address, an optional coinbase tag, the password needed to save, and Save settings." data-i18n-alt="fs_shot_settings_alt"></div>
+                        <a class="shot-frame" href="/img/forge-solo-settings-how-blocks-pay@2x.webp"><img src="/img/forge-solo-settings-how-blocks-pay.webp" srcset="/img/forge-solo-settings-how-blocks-pay.webp 768w, /img/forge-solo-settings-how-blocks-pay@2x.webp 1536w" sizes="(min-width: 1296px) 568px, (min-width: 900px) calc(46vw - 32px), (min-width: 640px) 560px, calc(100vw - 48px)" width="768" height="853" loading="lazy" decoding="async" alt="Forge Solo’s Settings page: under How blocks pay, a choice between Solo, where every block you find pays your address in full, and TIDES pool, selected here, followed by the payout address, an optional coinbase tag, the password needed to save, and Save settings." data-i18n-alt="fs_shot_settings_alt"><span class="shot-open"><svg class="shot-open-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M12 3h5v5M17 3l-6 6M8 17H3v-5M3 17l6-6"/></svg><span data-i18n="fs_shot_open">Open full size</span></span></a>
                         <figcaption>
                             <h3 data-i18n="fs_shot_settings_title">Settings, under How blocks pay</h3>
                             <p data-i18n="fs_shot_settings_text">Choose Solo or TIDES pool, enter your BCH2 payout address, and save with Forge Solo’s password. You can switch at any time: the change takes effect within half a minute, with no restart.</p>
                         </figcaption>
                     </figure>
                     <figure class="shot">
-                        <div class="shot-frame"><img src="/img/forge-solo-dashboard-tides.webp" srcset="/img/forge-solo-dashboard-tides.webp 800w, /img/forge-solo-dashboard-tides@2x.webp 1600w" sizes="(min-width: 1296px) 568px, (min-width: 900px) calc(46vw - 32px), (min-width: 640px) 560px, calc(100vw - 48px)" width="800" height="945" loading="lazy" decoding="async" alt="The Forge Solo dashboard in TIDES mode: a status banner saying the node is synced and mining for the Forge Pool TIDES window, the balance card, the Forge Pool TIDES card marked active with its window figures and recent TIDES blocks, and tiles for hashrate, network difficulty and workers." data-i18n-alt="fs_shot_tides_alt"></div>
+                        <a class="shot-frame" href="/img/forge-solo-dashboard-tides@2x.webp"><img src="/img/forge-solo-dashboard-tides.webp" srcset="/img/forge-solo-dashboard-tides.webp 800w, /img/forge-solo-dashboard-tides@2x.webp 1600w" sizes="(min-width: 1296px) 568px, (min-width: 900px) calc(46vw - 32px), (min-width: 640px) 560px, calc(100vw - 48px)" width="800" height="945" loading="lazy" decoding="async" alt="The Forge Solo dashboard in TIDES mode: a status banner saying the node is synced and mining for the Forge Pool TIDES window, the balance card, the Forge Pool TIDES card marked active with its window figures and recent TIDES blocks, and tiles for hashrate, network difficulty and workers." data-i18n-alt="fs_shot_tides_alt"><span class="shot-open"><svg class="shot-open-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M12 3h5v5M17 3l-6 6M8 17H3v-5M3 17l6-6"/></svg><span data-i18n="fs_shot_open">Open full size</span></span></a>
                         <figcaption>
                             <h3 data-i18n="fs_shot_tides_title">The dashboard in TIDES mode</h3>
-                            <p data-i18n="fs_shot_tides_text">The TIDES badge at the top, the status banner, which here says the node is synced and a miner is sending shares, and the Forge Pool TIDES card: your share of the window, what the next TIDES block pays you, and the recent TIDES blocks.</p>
+                            <p data-i18n="fs_shot_tides_text">The TIDES badge at the top, the status banner, which here says the node is synced and a miner is sending shares, and the Forge Pool TIDES card: your share of the window, what the next TIDES block pays you, and the recent TIDES blocks. The test miner here is too small to reach Forge Pool’s share difficulty, so it has no work in the window, and both of those are 0.</p>
                         </figcaption>
                     </figure>
                     <figure class="shot shot-wide">
-                        <div class="shot-frame"><img src="/img/forge-solo-dashboard-solo.webp" srcset="/img/forge-solo-dashboard-solo.webp 800w, /img/forge-solo-dashboard-solo@2x.webp 1600w" sizes="(min-width: 1296px) 664px, (min-width: 900px) calc(54vw - 36px), (min-width: 640px) 560px, calc(100vw - 48px)" width="800" height="448" loading="lazy" decoding="async" alt="The Forge Solo dashboard in Solo mode: a SOLO badge, a banner saying the node is synced and mining, the payout address, the balance card with blocks found, and tiles for hashrate, network difficulty, workers and shares." data-i18n-alt="fs_shot_solo_alt"></div>
+                        <a class="shot-frame" href="/img/forge-solo-dashboard-solo@2x.webp"><img src="/img/forge-solo-dashboard-solo.webp" srcset="/img/forge-solo-dashboard-solo.webp 800w, /img/forge-solo-dashboard-solo@2x.webp 1600w" sizes="(min-width: 1296px) 664px, (min-width: 900px) calc(54vw - 36px), (min-width: 640px) 560px, calc(100vw - 48px)" width="800" height="448" loading="lazy" decoding="async" alt="The Forge Solo dashboard in Solo mode: a SOLO badge, a banner saying the node is synced and mining, the payout address, the balance card with blocks found, and tiles for hashrate, network difficulty, workers and shares." data-i18n-alt="fs_shot_solo_alt"><span class="shot-open"><svg class="shot-open-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M12 3h5v5M17 3l-6 6M8 17H3v-5M3 17l6-6"/></svg><span data-i18n="fs_shot_open">Open full size</span></span></a>
                         <figcaption>
                             <h3 data-i18n="fs_shot_solo_title">The dashboard in Solo mode</h3>
                             <p data-i18n="fs_shot_solo_text">The SOLO badge, your payout address, what blocks have paid it and how many you have found, and tiles for your miners’ hashrate and the network’s.</p>
-                            <p class="ask" data-i18n="fs_see_ask">Not mining yet? <a href="/faq/#not-mining-yet">Two things come first</a></p>
                         </figcaption>
                     </figure>
                 </div>
+                <p class="ask" data-i18n="fs_see_ask">Not mining yet? <a href="/faq/#not-mining-yet">Two things come first</a></p>
             </div>
         </section>
+
+        <div class="wrap ready">
+            <div class="ready-plate">
+                <p class="ready-line" data-i18n="fs_ready">Ready to start?</p>
+                <a class="btn btn-primary" href="#get-it" data-i18n="fs_head_get">Get Forge Solo</a>
+            </div>
+        </div>
     </main>
 
     <footer class="foot">

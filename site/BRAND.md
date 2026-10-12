@@ -33,8 +33,8 @@ the same header and footer; `404.html` answers every other address.
 | `--soot` / `--ash` / `--ash-2` | `#15110e` / `#f6eee4` / `#cfc1b0` | the footer band and the stratum-address box |
 
 Contrast (WCAG 2 relative luminance; every rendered text node of the home page, the questions page
-and 404.html was also measured against its real background at 1440, 1024, 390 and 320 px: 186 on
-the home page and 220 on the questions page at 1440, lowest 4.89:1, all pass, and again with a
+and 404.html was also measured against its real background at 1440, 1024, 390 and 320 px: 191 on
+the home page and 242 on the questions page at 1440, lowest 4.89:1, all pass, and again with a
 glossary word and a question opened from a link):
 
 | Foreground | Background | Ratio | Use | Needs |
@@ -56,8 +56,10 @@ glossary word and a question opened from a link):
 | ash | soot | 16.33:1 | the stratum address, footer brand | 4.5, pass |
 | amber | soot | 10.69:1 | `<your machine's address>`, footer focus ring | 4.5, pass |
 | ash-2 | soot | 10.65:1 | footer text | 4.5, pass |
+| ash | ink | 15.25:1 | "Open full size" on a screenshot's bezel | 4.5, pass |
+| ink | paper-hi | 16.56:1 | the glossary's word index | 4.5, pass |
 | rust | paper | 5.49:1 | dashed wires and arrows, the dotted underline of a word to look up (non-text) | 3.0, pass |
-| ember-deep | paper | 3.08:1 | the bar beside a question opened from a link (non-text) | 3.0, pass |
+| ember-deep | paper | 3.08:1 | the bar beside a question or a glossary word opened from a link (non-text) | 3.0, pass |
 | ink-2 | paper-hi | 8.09:1 | chip border, the TIDES window's dashed edge (non-text) | 3.0, pass |
 | ink | paper | 15.34:1 | focus ring (non-text) | 3.0, pass |
 | ember-deep | paper | 3.08:1 | the mark's sparks (logo) | exempt |
@@ -135,8 +137,10 @@ The TIDES picture shows no proportions: "Who gets paid" is the fraction *your wo
 window*, in words, so nothing reads as a typical share. On phones the line under it ("Everyone in the
 window, by their work") is set apart in ink-2, so the three lines do not read as one fraction.
 
-Motion: the fans turn, the box's light blinks, the coins bob, smooth in-page scrolling; all of it only
-under `prefers-reduced-motion: no-preference` (checked: zero animations when reduced).
+Motion: the fans turn, the box's light blinks, the coins bob; all of it only under
+`prefers-reduced-motion: no-preference` (checked: zero animations when reduced). Scrolling is never
+smooth: smooth scrolling also animates the jump when a page opens on a part of itself, so a glossary
+word linked from the home page would scroll past the whole questions page first.
 
 ## Components
 
@@ -165,7 +169,8 @@ under `prefers-reduced-motion: no-preference` (checked: zero animations when red
   Checked at 390 and 320 px: no segment ever breaks. Every literal (URL, file names, ports, `uname -m`,
   `rig1`, `DASHBOARD_PASSWORD`, the arch names, the fixed parts of the stratum address) carries
   `translate="no"`; the placeholder words inside the stratum address stay translatable.
-- **Focus**: a 3 px ink ring, 3 px out, everywhere on paper; amber in the footer. Skip link first.
+- **Focus**: a 3 px ink ring, 3 px out, everywhere on paper (around a screenshot's bezel too); amber
+  in the footer. Skip link first.
 - **Words to look up**: the first use on the home page of a word a newcomer may not know (BCH2 node,
   ASIC miner, hashrate, merge-mine, stratum address, worker name) links to its entry in the
   glossary (`/faq/#glossary-<word>`). Such a link keeps the text's colour and has a dotted rust
@@ -174,17 +179,24 @@ under `prefers-reduced-motion: no-preference` (checked: zero animations when red
   the sentence already explains in plain words stays plain.
 - **Questions after a section**: a line with a round ink "?" (the 1/2/3 numbers' style) and a link to
   the answer on the questions page: under What you need ("Questions before you start?"), under How
-  it works ("Still deciding?", to Solo or TIDES) and beside the Solo screenshot ("Not mining yet?").
+  it works ("Still deciding?", to Solo or TIDES) and after the screenshots ("Not mining yet?").
 - **Screenshots** (What you'll see, after Set up, on paper-deep): real screenshots of Forge Solo
   1.0.15 on a test install (Settings under How blocks pay, the dashboard in TIDES mode and in Solo
   mode), each in an 8 px ink bezel with 10 px corners like the drawings' monitor, and a caption
   under it: a Zilla Slab title and one plain sentence of what to look at. The lede says the figures
-  in them come from a test miner and are not yours, and no text quotes them. Settings and the TIDES
+  in them come from a test miner and are not yours, and no text quotes them, except to say why the
+  TIDES card's own figures are 0 (the test miner is too small to reach Forge Pool's share
+  difficulty). On the page a screenshot is smaller than the app, so its bezel is a link to the
+  `@2x` file, where the app's words are at their own size; the bezel's chin says "Open full size"
+  (ash with an ember underline, as the footer's links, and an amber icon). Settings and the TIDES
   dashboard sit side by side from 900 px (their shapes are close); the short Solo dashboard takes
   the next row with its words beside it. Below 900 px they stand one under another, 36 rem at most.
   WebP, `width`/`height` from the file, `srcset` at 1x and 2x widths with `sizes`, lazy-loaded.
   The crops leave out anything that showed the test machine's address, and other miners' payout
   addresses in the TIDES blocks table are blurred.
+- **Ready to start?**: the last thing in the home page's and the questions page's main part, a plate
+  with the Then plate's ember edge, "Ready to start?" and the primary button to Get it, since the
+  header is not fixed and the footer has no download.
 - **Not found**: `404.html`, the answer to any address the site has no page for: the masthead's mark
   and name, "Page not found", one sentence and the primary button home. It links its files from the
   site's root, since nginx serves it at whatever address was asked for.
@@ -200,10 +212,11 @@ below that it sits above them, in two columns from 700 px. Each answer is a Zill
 short paragraphs (lists for choices, numbered for steps, with the page's diamond and round numbers)
 and a "Details:" line with links to the README section, the release page or Forge Pool's own pages
 where the rest is. Answers are anchored (`#solo-or-tides`, `#not-mining-yet`, ...), and the one a
-link opens on is marked with an ember-deep bar. The glossary is a two-column set of small plates
-(one column under about 610 px), each word anchored as `#glossary-<word>` and tinted amber when a
-link opens on it. The page ends with a "Ready to start?" plate (the Then plate's ember edge) and
-the primary button to Get Forge Solo on the home page.
+link opens on is marked with an ember-deep bar. The glossary starts with every word as a small
+link plate in a few wrapping lines (on a phone the glossary is long), then the words: a two-column
+set of small plates (one column under about 610 px), each anchored as `#glossary-<word>`, tinted
+amber with the same ember-deep bar when a link opens on it (a border, so a Windows contrast theme
+keeps it). The page ends with the "Ready to start?" plate.
 
 ## Layout
 
@@ -213,7 +226,9 @@ it works, Set up, Questions, GitHub), "Get Forge Solo" on one row; under 960 px 
 own row; under 460 px GitHub leaves the nav (it is on every platform card and in the footer), under
 390 px Set up does too (the header's button leads to Get it, which Set up follows), and under 375 px
 the button reads "Get it", so the nav never wraps (checked from 320 to 1440 px). The questions
-page's own link is underlined in ink there (`aria-current="page"`).
+page's own link is underlined in ink there (`aria-current="page"`). Under forced colors the theme
+would draw every link's transparent underline, so it is drawn in Canvas, and only the current page's
+link (and the one under the pointer) is underlined.
 Subgrid aligns the three platform cards' rows (so the buttons line up), the two mode cards' rows and
 the three flow stations. A subgrid must not be a size container (containment makes it an independent
 grid), so the platform card's head, not the card, is the container that moves the chip under the
@@ -229,7 +244,8 @@ work to"). Mining in two sentences before any mode. Name what the visitor will s
 Private network, the password prompt), and what to choose when it does. No unexplained jargon:
 "coinbase" is not used on the home page (the block pays "straight from the block itself"; the
 glossary explains it, for the dashboard's sake); Forge Pool is introduced with
-its address, the TIDES window as where Forge Pool registers the work of everyone mining with it, and a
+its address, the TIDES window as where Forge Pool registers the work of everyone mining into it
+through Forge Solo in TIDES mode or Forge Gateway (not the miners on Forge Pool's own ports), and a
 TIDES block as "a block found on work Forge Pool registered". Only facts from the READMEs at v1.0.15
 (root, `packaging/linux`, `windows`) or the page this one replaced: no odds, no earnings, no chain size, no "easy",
 no exclamation marks.
@@ -247,7 +263,8 @@ translation made for the earlier page never shows the wrong words. The questions
 are `fs_faq_*` (`fs_faq_<question>_q` for a question, wherever it appears) and its glossary's
 `fs_word_<word>` and `fs_word_<word>_def`; the header and footer keep the home page's keys. The
 screenshots' descriptions are keyed in `data-i18n-alt` (`fs_shot_*_alt`), their captions in
-`data-i18n` like any text.
+`data-i18n` like any text, and their "Open full size" is `fs_shot_open`. The Ready plate's line is
+`fs_ready` on both pages, and the glossary's word index reuses the words' own `fs_word_<word>` keys.
 
 ## How it is not Forge Pool
 
