@@ -185,7 +185,7 @@ In the data directory:
 
 | Path | What |
 |---|---|
-| `bch2/` | the node: the chain, `bch2.conf` (written at every start), `debug.log` |
+| `bch2/` | the node: the chain, `bch2.conf` (written at every start, no wallet), `debug.log` |
 | `forgesolo.db` | the database: your settings and your blocks |
 | `forgesolo.db-wal`, `forgesolo.db-shm` | part of the database while it is open: keep them with it |
 | `forgesolo.db.inuse` | held by the API and the mining service while they have the database open: do not delete it while Forge Solo runs |

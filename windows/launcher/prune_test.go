@@ -43,8 +43,8 @@ func TestGeneratedConfsAreUnpruned(t *testing.T) {
 	}
 }
 
-// Neither node has a wallet, as on Umbrel (-disablewallet) and Linux (built without one): nothing
-// uses it, and anything holding the RPC password could make and use one.
+// Neither node has a wallet, as on Umbrel (-disablewallet) and Linux (disablewallet=1, and built
+// without one): nothing uses it, and anything holding the RPC password could make and use one.
 func TestNodesRunWithoutAWallet(t *testing.T) {
 	saved := dataDir
 	dataDir = t.TempDir()

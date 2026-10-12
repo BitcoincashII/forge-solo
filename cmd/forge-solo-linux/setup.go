@@ -163,6 +163,10 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 // Not pruned: the whole chain is about 90 MB, and a pruned node announces NODE_NETWORK_LIMITED,
 // which the DNS seeders never list. UPnP and NAT-PMP stay off: opening a port on the router is a
 // change to someone's network, not ours to make.
+//
+// No wallet, as on Umbrel and Windows: nothing here uses one, and anything holding the RPC password
+// could make and use it. The node Forge Solo for Linux ships is built without one; the line keeps it
+// so with any other build of the node in its place.
 func nodeConf(p ports, s secrets) string {
 	return fmt.Sprintf(`# Written by Forge Solo at every start: edits here are overwritten.
 server=1
@@ -185,6 +189,7 @@ printtoconsole=0
 dbcache=100
 maxmempool=50
 maxsigcachesize=4
+disablewallet=1
 `, p2pPort, onionPort, p.RPC, s.RPCPassword, p.ZMQ)
 }
 

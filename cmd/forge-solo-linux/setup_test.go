@@ -33,6 +33,13 @@ func TestNodeConfBindsAndIsNotPruned(t *testing.T) {
 	}
 }
 
+// The node runs without a wallet, as on Umbrel (-disablewallet) and Windows (disablewallet=1).
+func TestNodeConfHasNoWallet(t *testing.T) {
+	if c := nodeConf(testPorts(), secrets{RPCPassword: "pw"}); !strings.Contains(c, "\ndisablewallet=1\n") {
+		t.Errorf("LNX-NO-WALLET: bch2.conf does not disable the node's wallet:\n%s", c)
+	}
+}
+
 // The Linux stratum config must stay the config the Umbrel app ships and tests, with only this
 // machine's node endpoints filled in and merge-mining off: keys the stratum does not read are
 // silently ignored, so a drift here would look configured and do nothing.
