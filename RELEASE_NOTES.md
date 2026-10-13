@@ -10,33 +10,56 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
 
 ## 1.0.16
 
+**Installing and updating.**
+- **Windows:** Forge Solo is not yet signed by a certificate Windows trusts. If Smart App Control on
+  Windows 11 blocks the installer or Forge Solo, turn Smart App Control off: **Windows Security →
+  App & browser control → Smart App Control settings**, then **Off**, and run the installer again.
+  When SmartScreen says "Windows protected your PC", choose **More info**, then **Run anyway**.
+  [Install on Windows](https://github.com/BitcoincashII/forge-solo#install-on-windows) in the README
+  has every step.
+- **Every platform:** updating from 1.0.12, read the
+  [1.0.13 release notes](https://github.com/BitcoincashII/forge-solo/releases/tag/v1.0.13) too: on
+  Umbrel and Windows the first start after the update moves your data from the old database into
+  `forgesolo.db`, once. Updating from 1.0.13, read the
+  [1.0.15 release notes](https://github.com/BitcoincashII/forge-solo/releases/tag/v1.0.15) too: they
+  list what changed since 1.0.13 (1.0.14 was not released).
+
 **The coins at your payout address.**
-- **Every platform:** the dashboard has a "Wallet" card: the coins at your payout address, as your
-  node sees them, from your block rewards, your TIDES payouts and anything else sent to it. It
-  shows what is "Spendable" and what is "Still maturing", with the blocks each block reward or TIDES
-  payout still has to wait: each can be spent 100 blocks after the block that paid it. Forge Solo
-  reads them from its own BCH2 node, which looks them up in its own copy of the chain: no other
-  service is asked, and nothing is sent anywhere. It holds no keys, so it cannot spend them. A
-  payment shows once a block includes it.
+- **Every platform:** the dashboard has a "Wallet" card, under the hashrate tiles: the coins at your
+  payout address now, as your node sees them, from your block rewards, your TIDES payouts and
+  anything else sent to it, less anything sent from it. It shows what is "Spendable" and what is
+  "Still maturing", with the blocks each block reward or TIDES payout still has to wait: each can be
+  spent 100 blocks after the block that paid it, for BCH2 about 17 hours. Forge Solo reads them from
+  its own BCH2 node, which looks them up in its own copy of the chain: no other service is asked,
+  and nothing is sent anywhere. It holds no keys, so it cannot spend them. A payment to or from the
+  address shows once a block includes it.
+- **Every platform:** the balance card's "Matured (spendable)" is now "Matured" ("Solo: matured" in
+  TIDES mode): it adds up what your blocks paid, whether or not it is still at the address, and the
+  Wallet card says what can be spent.
 - **Umbrel and Windows:** with a 1175 address set, the card shows its coins too, read from the 1175
   node.
 - **Every platform:** "Open BCH2 Wallet" opens the BCH2 Wallet at wallet.bch2.org in a new tab. It
-  keeps its keys in your browser.
+  keeps its keys in your browser. Spend the coins from the wallet that holds your payout address's
+  keys.
 - **Every platform:** while no payout address is set, Settings says where to get one: "Need a BCH2
   address? Create one in the BCH2 Wallet". Forge Solo only needs the address, so the keys can stay on
-  another device, such as your phone.
+  another device, such as your phone: open wallet.bch2.org there and copy its BCH2 address into
+  Settings.
 
 **TIDES mode: a clock that is off.**
 - **Every platform, TIDES:** Forge Pool refuses the requests of an install whose clock is more than
   2 minutes off its own, and the install mines solo meanwhile. The dashboard's banner and TIDES card
   now say how far off the clock is and how to set it right: on Windows, turn on Set time
   automatically in Windows Settings, Time & language; on Linux, turn on network time (with systemd:
-  `timedatectl set-ntp true`); on Umbrel, umbrelOS sets the clock itself, so check that the Umbrel
-  is online. They showed the pool's answer as it came.
+  `timedatectl set-ntp true`); on Umbrel, umbrelOS sets the clock itself, so check that your network
+  lets the Umbrel reach a time server (UDP port 123), then restart the Umbrel. Before, they showed
+  the pool's answer as it came.
 
 **Nodes.**
 - **Linux:** the BCH2 node's config has `disablewallet=1`, as on Umbrel and Windows. The node Forge
   Solo for Linux ships has no wallet built in, so it runs as before.
+- **Umbrel and Windows:** while the 1175 node starts, the dashboard's connectivity card shows its
+  row as "node unreachable", as it does the BCH2 node's; it said "no inbound peers" and 0 peers.
 
 ## 1.0.15
 

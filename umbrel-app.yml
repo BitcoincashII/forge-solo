@@ -57,7 +57,7 @@ support: https://github.com/BitcoincashII/forge-solo/issues
 # app page reads gallery.length.
 gallery: []
 releaseNotes: >-
-  Forge Solo shows the coins at your payout address, and says what to check when Forge Pool refuses the Umbrel's clock.
+  Forge Solo shows the coins at your payout address, and says what to check when Forge Pool refuses the Umbrel's requests because its clock is off.
 
 
   Highlights:

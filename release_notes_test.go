@@ -534,13 +534,15 @@ func TestReleaseTextsDoNotOverstateThePassword(t *testing.T) {
 // there learns before the download what Windows asks: Smart App Control off on Windows 11, and
 // More info, then Run anyway, at SmartScreen's warning; and where the steps are. From 1.0.15 the
 // page says, in the README's words, to turn Smart App Control off only if it blocks Forge Solo: on
-// a Windows 11 PC with it On, the 1.0.13 installer installed and Forge Solo ran. A page resolves a
-// relative link against its own address, under /releases/tag/, where no file of the repository
-// is, so its links are whole addresses.
+// a Windows 11 PC with it On, the 1.0.13 installer installed and Forge Solo ran. Every release page
+// says it again: the release workflow puts only that version's section above its downloads. A page
+// resolves a relative link against its own address, under /releases/tag/, where no file of the
+// repository is, so its links are whole addresses.
 func TestReleaseNotesTellWindowsUsersHowToInstall(t *testing.T) {
 	for _, c := range []struct{ version, sac string }{
 		{"1.0.13", "on Windows 11, Smart App Control must be Off"},
 		{"1.0.15", "If Smart App Control on Windows 11 blocks the installer or Forge Solo, turn Smart App Control off"},
+		{"1.0.16", "If Smart App Control on Windows 11 blocks the installer or Forge Solo, turn Smart App Control off"},
 	} {
 		sec := releaseSection(t, c.version)
 		text := flat(sec)
