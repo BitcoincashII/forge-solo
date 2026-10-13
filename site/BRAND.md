@@ -219,16 +219,19 @@ word linked from the home page would scroll past the whole questions page first.
   the answer on the questions page: under What you need ("Questions before you start?"), under How
   it works ("Still deciding?", to Solo or TIDES) and after the screenshots ("Not mining yet?").
 - **Screenshots** (What you'll see, after Set up, on paper-deep): real screenshots of Forge Solo
-  1.0.15 on a test install (Settings under How blocks pay, the dashboard in TIDES mode and in Solo
-  mode), each in an 8 px ink bezel with 10 px corners like the drawings' monitor, and a caption
-  under it: a Zilla Slab title and one plain sentence of what to look at. The lede says the figures
-  in them come from a test miner and are not yours, and no text quotes them, except to say why the
-  TIDES card's own figures are 0 (the test miner is too small to reach Forge Pool's share
-  difficulty). On the page a screenshot is smaller than the app, so its bezel is a link to the
-  `@2x` file, where the app's words are at their own size; the bezel's chin says "Open full size"
-  (ash with an ember underline, as the footer's links, and an amber icon). Settings and the TIDES
-  dashboard sit side by side from 900 px (their shapes are close); the short Solo dashboard takes
-  the next row with its words beside it. Below 900 px they stand one under another, 36 rem at most.
+  1.0.16 on a test install (Settings under How blocks pay before an address is saved, the dashboard
+  in TIDES mode and in Solo mode, each down to its Wallet card), each in an 8 px ink bezel with
+  10 px corners like the drawings' monitor, and a caption under it: a Zilla Slab title and a few
+  plain sentences of what to look at. The lede says the figures in them come from a test miner and
+  are not yours, and no text quotes them, except to say why some are 0: the test miner is too small
+  to reach Forge Pool's share difficulty (the TIDES card) and has found no block, and the test
+  address holds no coins (the Wallet card). On the page a screenshot is smaller than the app, so its
+  bezel is a link to the `@2x` file, where the app's words are at their own size; the bezel's chin
+  says "Open full size" (ash with an ember underline, as the footer's links, and an amber icon).
+  Settings and the TIDES dashboard sit side by side from 900 px, their titles lined up under the
+  taller TIDES picture; the Solo dashboard takes the next row, as wide as each picture above it, so
+  all three show the app at one size, with its words beside it. Below 900 px they stand one under
+  another, 36 rem at most.
   WebP, `width`/`height` from the file, `srcset` at 1x and 2x widths with `sizes`, lazy-loaded.
   The crops leave out anything that showed the test machine's address, and other miners' payout
   addresses in the TIDES blocks table are blurred.
@@ -242,7 +245,7 @@ word linked from the home page would scroll past the whole questions page first.
 ## The questions page
 
 `faq/index.html`, "Questions and words": twelve questions a newcomer asks before mining, and a
-glossary of the words they will meet, for Forge Solo 1.0.15. It is for reading in any order, so it
+glossary of the words they will meet, for Forge Solo 1.0.16. It is for reading in any order, so it
 is plain: a head on the How it works graph paper (tag, h1, lede), then the list of questions and the
 answers. The list ("On this page") is a plate like the platform cards: from 1000 px it is a column
 beside the answers, and stays in view while they scroll when the window is at least 760 px tall;
@@ -284,8 +287,8 @@ Private network, the password prompt), and what to choose when it does. No unexp
 glossary explains it, for the dashboard's sake); Forge Pool is introduced with
 its address, the TIDES window as where Forge Pool registers the work of everyone mining into it
 through Forge Solo in TIDES mode or Forge Gateway (not the miners on Forge Pool's own ports), and a
-TIDES block as "a block found on work Forge Pool registered". Only facts from the READMEs at v1.0.15
-(root, `packaging/linux`, `windows`) or the page this one replaced: no odds, no earnings, no chain size, no "easy",
+TIDES block as "a block found on work Forge Pool registered". Only facts from the READMEs at v1.0.16
+(root, `packaging/linux`, `windows`), its release notes or the page this one replaced: no odds, no earnings, no chain size, no "easy",
 no exclamation marks.
 
 ## Translations

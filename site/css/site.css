@@ -552,8 +552,8 @@ a.term:hover { color: var(--rust-deep); text-decoration-style: solid; }
     .shots { max-width: none; grid-template-columns: repeat(2, minmax(0, 1fr)); }
     /* side by side, the two pictures share a row and their captions the next, so the titles line up */
     .shot:not(.shot-wide) { grid-row: span 2; grid-template-rows: subgrid; }
-    /* the short Solo screenshot takes the whole row, its words beside it */
-    .shot-wide { grid-column: 1 / -1; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); column-gap: 32px; align-items: center; }
+    /* the Solo screenshot takes the next row, as wide as each picture above it, its words beside it */
+    .shot-wide { grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 32px; align-items: center; }
 }
 
 /* ---------- footer: the one dark band ---------- */
