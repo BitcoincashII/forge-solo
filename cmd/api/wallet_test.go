@@ -109,6 +109,8 @@ type fakeNode struct {
 	scanTakes time.Duration // a scan takes this long, or until the caller gives up
 	padding   int           // bytes of padding in the scan's answer
 	warmup    bool          // every call answers -28
+	drop      time.Duration // every call is held this long, then its connection closed with no answer
+	scanning  func()        // called as a scan starts
 	calls     map[string]int
 	scans     []string // each scan start's params
 	aborts    int
@@ -133,16 +135,25 @@ func (f *fakeNode) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	f.mu.Lock()
 	f.calls[req.Method]++
-	blocks, headers, ibd, warmup := f.blocks, f.headers, f.ibd, f.warmup
+	blocks, headers, ibd, warmup, drop := f.blocks, f.headers, f.ibd, f.warmup, f.drop
 	unspents, scanError, stopped, takes, padding := f.unspents, f.scanError, f.stopped, f.scanTakes, f.padding
 	isAbort := req.Method == "scantxoutset" && len(req.Params) > 0 && string(req.Params[0]) == `"abort"`
+	var scanning func()
 	if isAbort {
 		f.aborts++
 	} else if req.Method == "scantxoutset" {
 		p, _ := json.Marshal(req.Params)
 		f.scans = append(f.scans, string(p))
+		scanning = f.scanning
 	}
 	f.mu.Unlock()
+	if drop > 0 {
+		time.Sleep(drop)
+		panic(http.ErrAbortHandler) // the connection is closed, and nothing is answered
+	}
+	if scanning != nil {
+		scanning()
+	}
 	answer := func(result, rpcErr string) {
 		if rpcErr != "" {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -251,8 +262,8 @@ func freshWallet(t *testing.T, now time.Time) *walletClock {
 	reset := func() {
 		for _, n := range []*walletNode{bch2Wallet, aux1175Wallet} {
 			n.mu.Lock()
-			n.chain, n.chainAt, n.script, n.figures, n.bestblock = blockchainInfo{}, time.Time{}, nil, nil, ""
-			n.scannedAt, n.retryAt = time.Time{}, time.Time{}
+			n.chain, n.chainErr, n.chainAt, n.script, n.figures, n.bestblock = blockchainInfo{}, nil, time.Time{}, nil, nil, ""
+			n.scannedAt, n.scanWhy, n.retryAt = time.Time{}, "", time.Time{}
 			n.mu.Unlock()
 		}
 	}
@@ -576,16 +587,16 @@ func TestWalletKeepsItsFiguresWhenAScanFails(t *testing.T) {
 }
 
 // A scan that takes longer than the card waits is stopped, and the node is not asked again for two
-// minutes.
+// minutes after it was stopped. The clock moves on by the scan's minute while it runs, as it would.
 func TestWalletStopsAScanThatTakesTooLong(t *testing.T) {
 	saved := walletScanTimeout
 	walletScanTimeout = 50 * time.Millisecond
 	t.Cleanup(func() { walletScanTimeout = saved })
 	node := newFakeNode(t)
-	node.set(func(f *fakeNode) { f.scanTakes = 10 * time.Second })
 	clock := walletSetup(t, node, walletTestAddress, "", stats.PayoutModeSolo)
+	node.set(func(f *fakeNode) { f.scanTakes, f.scanning = 10*time.Second, func() { clock.advance(time.Minute) } })
 	app := walletApp()
-	want := "Forge Solo cannot ask the BCH2 node right now: the node did not finish in a minute. It asks again in a minute."
+	want := "Forge Solo cannot ask the BCH2 node right now: the node did not finish in a minute. It asks again in 2 minutes."
 	if c := bch2Coin(t, app); c.State != walletUnavailable || c.Message != want {
 		t.Fatalf("WALLET-TIMEOUT: %+v", c)
 	}
@@ -594,14 +605,71 @@ func TestWalletStopsAScanThatTakesTooLong(t *testing.T) {
 	if aborts != 1 {
 		t.Errorf("WALLET-TIMEOUT-ABORT: %d aborts sent, want 1", aborts)
 	}
-	node.set(func(f *fakeNode) { f.scanTakes = 0 })
-	clock.advance(time.Minute)
+	node.set(func(f *fakeNode) { f.scanTakes, f.scanning = 0, nil })
+	clock.advance(time.Minute + 59*time.Second)
 	if c := bch2Coin(t, app); c.State != walletUnavailable || c.Message != want || node.count("scantxoutset") != 2 {
-		t.Errorf("WALLET-TIMEOUT-WAIT: %+v, %d scantxoutset calls (the scan and its abort)", c, node.count("scantxoutset"))
+		t.Errorf("WALLET-TIMEOUT-WAIT: 1m59s after the abort %+v, %d scantxoutset calls (the scan and its abort)", c, node.count("scantxoutset"))
 	}
-	clock.advance(61 * time.Second)
+	clock.advance(2 * time.Second)
 	if c := bch2Coin(t, app); c.State != walletOK || node.count("scantxoutset") != 3 {
-		t.Errorf("WALLET-TIMEOUT-AGAIN: %+v, %d scantxoutset calls", c, node.count("scantxoutset"))
+		t.Errorf("WALLET-TIMEOUT-AGAIN: 2m01s after the abort %+v, %d scantxoutset calls", c, node.count("scantxoutset"))
+	}
+}
+
+// A question that failed is the answer of every request that waited for it: four at once to a node
+// that holds the connection and then drops it make one call, and all four are answered when it
+// fails, not one after another. A scan that failed stands, like one that worked, for half a minute.
+func TestWalletSharesAFailedAnswer(t *testing.T) {
+	const held = 500 * time.Millisecond
+	node := newFakeNode(t)
+	node.set(func(f *fakeNode) { f.drop = held })
+	clock := walletSetup(t, node, walletTestAddress, "", stats.PayoutModeSolo)
+	app := walletApp()
+	start := time.Now()
+	var wg sync.WaitGroup
+	got := make([]walletCoin, 4)
+	took := make([]time.Duration, 4)
+	for i := range got {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			resp, err := app.Test(httptest.NewRequest("GET", "/api/v1/wallet", nil), 20000)
+			if err != nil {
+				return
+			}
+			var w walletAnswer
+			if json.NewDecoder(resp.Body).Decode(&w) == nil && w.BCH2 != nil {
+				got[i] = *w.BCH2
+			}
+			took[i] = time.Since(start)
+		}(i)
+	}
+	wg.Wait()
+	want := "Forge Solo cannot ask the BCH2 node right now: the node is not answering. It asks again in a minute."
+	for i, c := range got {
+		if c.State != walletUnavailable || c.Message != want || took[i] > 2*held {
+			t.Errorf("WALLET-FAILED-SHARED: request %d answered after %s: %+v", i, took[i], c)
+		}
+	}
+	if n := node.count("getblockchaininfo"); n != 1 {
+		t.Errorf("WALLET-FAILED-SHARED: 4 requests at once to a node that does not answer made %d calls, want 1", n)
+	}
+
+	// The node answers, but its scans fail: one scan per half minute, whatever the requests.
+	node.set(func(f *fakeNode) { f.drop, f.scanError = 0, `{"code":-1,"message":"something went wrong"}` })
+	clock.advance(walletChainFor)
+	for i := 0; i < 5; i++ {
+		if c := bch2Coin(t, app); c.State != walletUnavailable || c.Message != "Forge Solo cannot ask the BCH2 node right now: something went wrong. It asks again in a minute." {
+			t.Fatalf("WALLET-FAILED-KEPT: request %d: %+v", i+1, c)
+		}
+	}
+	if n := node.count("scantxoutset"); n != 1 {
+		t.Errorf("WALLET-FAILED-KEPT: 5 requests after a failed scan made %d scans, want 1", n)
+	}
+	node.set(func(f *fakeNode) { f.scanError = "" })
+	clock.advance(walletScanFloor)
+	if c := bch2Coin(t, app); c.State != walletOK || node.count("scantxoutset") != 2 {
+		t.Errorf("WALLET-FAILED-AGAIN: half a minute after the failed scan %+v, %d scans", c, node.count("scantxoutset"))
 	}
 }
 

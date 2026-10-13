@@ -218,7 +218,8 @@ services:
       - STRATUM_INTERNAL_URL=http://bch2-apps-forge-solo_stratum_1:3337
       - INTERNAL_API_TOKEN=${APP_INTERNAL_API_TOKEN}
       # Read-only: the dashboard reports whether the 1175 P2P forward is working, which needs
-      # that node's own peer list. Same private network, never published to the host.
+      # that node's own peer list, and its Wallet card reads the coins at the 1175 address from
+      # that node (scantxoutset). Same private network, never published to the host.
       - AUX1175_URL=http://bch2-apps-forge-solo_node1175_1:25359
       - AUX1175_USER=forge1175
       - AUX1175_PASSWORD=${APP_1175_RPC_PASSWORD}

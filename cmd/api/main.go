@@ -841,6 +841,25 @@ const rpcTimeout = 10 * time.Second
 // rpcMaxAnswer is the largest answer read from a node: a variable, so a test can lower it.
 var rpcMaxAnswer = 32 << 20
 
+// nodeIdleTimeout is how long a connection to a node is kept unused for the next question: less
+// than the 30 s after which the node closes it.
+const nodeIdleTimeout = 20 * time.Second
+
+// nodeHTTP is the client for every question to a node. A node closes a connection that has been idle
+// for 30 s (its -rpcservertimeout), and Go's default client keeps one for 90 s: a question sent on a
+// connection the node is just closing fails with EOF, and Go does not send a POST again. The
+// dashboard asks for the 1175 node's peers and coins together every 30 s, and nothing else asks
+// that node, so a question could find its connection closing and the dashboard said for that poll
+// that the node was not answering. This client drops an idle connection before the node does, as
+// Forge Gateway's nodeClient does.
+var nodeHTTP = nodeClient(nodeIdleTimeout)
+
+func nodeClient(idle time.Duration) *http.Client {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.IdleConnTimeout = idle
+	return &http.Client{Transport: t}
+}
+
 var errAnswerTooBig = errors.New("the node's answer is larger than 32 MB")
 
 // bch2Login is the BCH2 node's RPC login.
@@ -881,7 +900,7 @@ func rpcCallCtx(ctx context.Context, url, user, pass, method string, params inte
 	req.SetBasicAuth(user, pass)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := nodeHTTP.Do(req)
 	if err != nil {
 		return nil, err
 	}

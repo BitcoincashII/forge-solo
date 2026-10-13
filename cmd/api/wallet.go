@@ -27,7 +27,9 @@ import (
 // and the node is sent only raw(<that script in hex>).
 //
 // A scan reads the node's whole set of coins, so its answer is kept: a node is asked again at its
-// next block, never twice within walletScanFloor and never twice at once.
+// next block, never twice within walletScanFloor and never twice at once. A question that failed is
+// kept as well, for as long as one that worked: requests that waited for it share its answer, and a
+// node that does not answer is not asked once for each of them in turn.
 
 const (
 	walletChainFor   = 5 * time.Second  // a getblockchaininfo answer is used this long
@@ -84,12 +86,14 @@ type walletNode struct {
 
 	mu        sync.Mutex // held while this node is asked: one question at a time, and the others wait for its answer
 	chain     blockchainInfo
-	chainAt   time.Time
+	chainErr  error          // why the last getblockchaininfo failed; nil when it worked
+	chainAt   time.Time      // when the last getblockchaininfo was answered, or failed
 	script    []byte         // the address the figures below are for
 	figures   *walletFigures // nil until a scan of script succeeds
 	bestblock string         // the tip the figures were read at (the scan's bestblock)
-	scannedAt time.Time
-	retryAt   time.Time // after a scan the node did not finish in time, none before this
+	scannedAt time.Time      // when the last scan of script ended, whether it worked or not
+	scanWhy   string         // why that scan failed, in a few words; "" when it worked
+	retryAt   time.Time      // after a scan the node did not finish in time, none before this
 }
 
 var (
@@ -146,11 +150,10 @@ func (n *walletNode) coin(addr string) walletCoin {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if !bytes.Equal(script, n.script) {
-		n.script, n.figures, n.bestblock = script, nil, ""
+		n.script, n.figures, n.bestblock, n.scannedAt, n.scanWhy = script, nil, "", time.Time{}, ""
 	}
 	out.Figures = n.figures
-	now := walletNow()
-	if now.Sub(n.chainAt) >= walletChainFor {
+	if walletNow().Sub(n.chainAt) >= walletChainFor {
 		ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
 		raw, err := n.call(ctx, "getblockchaininfo", []interface{}{})
 		cancel()
@@ -158,23 +161,36 @@ func (n *walletNode) coin(addr string) walletCoin {
 		if err == nil && json.Unmarshal(raw, &chain) != nil {
 			err = errUnreadableAnswer
 		}
-		if err != nil {
-			out.State, out.Message = walletUnavailable, n.cannotAsk(nodeTrouble(err))
-			return out
+		// Kept from when the answer came, or the question failed: the requests that waited for it
+		// take this answer, and are not each a question of their own.
+		n.chainErr, n.chainAt = err, walletNow()
+		if err == nil {
+			n.chain = chain
 		}
-		n.chain, n.chainAt = chain, now
 	}
+	if n.chainErr != nil {
+		out.State, out.Message = walletUnavailable, n.cannotAsk(nodeTrouble(n.chainErr), inAMinute)
+		return out
+	}
+	now := walletNow()
 	switch {
 	case !chainSynced(n.chain.Blocks, n.chain.Headers, n.chain.InitialBlockDownload):
 		out.State = walletSyncing
 		out.Message = "The " + n.node + " is still syncing: the coins at your " + n.address + " show here once it has caught up."
 		return out
-	case n.figures != nil && (n.bestblock == n.chain.BestBlockHash || now.Sub(n.scannedAt) < walletScanFloor):
-		// At the node's tip, or a block or two behind it: Height says which.
+	case n.figures != nil && n.bestblock == n.chain.BestBlockHash:
 		out.State = walletOK
 		return out
 	case now.Before(n.retryAt):
-		out.State, out.Message = walletUnavailable, n.cannotAsk("the node did not finish in a minute")
+		out.State, out.Message = walletUnavailable, n.cannotAsk(tooSlow, in2Minutes)
+		return out
+	case now.Sub(n.scannedAt) < walletScanFloor && n.scanWhy != "":
+		// The last scan failed moments ago: that stands until the next may be made.
+		out.State, out.Message = walletUnavailable, n.cannotAsk(n.scanWhy, inAMinute)
+		return out
+	case now.Sub(n.scannedAt) < walletScanFloor:
+		// A block or two behind the node's tip: Height says which.
+		out.State = walletOK
 		return out
 	}
 
@@ -186,9 +202,11 @@ func (n *walletNode) coin(addr string) walletCoin {
 		abort, cancelAbort := context.WithTimeout(context.Background(), 5*time.Second)
 		_, _ = n.call(abort, "scantxoutset", []interface{}{"abort"})
 		cancelAbort()
-		n.retryAt = now.Add(walletRetryAfter)
+		// The wait is counted from now, after the scan's minute and the abort, not from before it.
+		n.scannedAt, n.scanWhy = walletNow(), tooSlow
+		n.retryAt = n.scannedAt.Add(walletRetryAfter)
 		log.Printf("WARNING: wallet: the %s did not finish scanning in %ds; asked it to stop", n.node, int(walletScanTimeout/time.Second))
-		out.State, out.Message = walletUnavailable, n.cannotAsk("the node did not finish in a minute")
+		out.State, out.Message = walletUnavailable, n.cannotAsk(tooSlow, in2Minutes)
 		return out
 	}
 	var scan scanAnswer
@@ -199,18 +217,20 @@ func (n *walletNode) coin(addr string) walletCoin {
 	if err == nil && scan.Success {
 		figures, err = splitCoins(scan.Height, scan.Unspents)
 	}
+	n.scannedAt = walletNow()
 	switch {
 	case err != nil:
-		out.State, out.Message = walletUnavailable, n.cannotAsk(nodeTrouble(err))
-		return out
+		n.scanWhy = nodeTrouble(err)
 	case !scan.Success:
 		// Someone stopped it (scantxoutset abort).
-		out.State, out.Message = walletUnavailable, n.cannotAsk("the scan was stopped before it finished")
+		n.scanWhy = "the scan was stopped before it finished"
+	default:
+		figures.CheckedAt = n.scannedAt.UTC().Truncate(time.Second)
+		n.figures, n.bestblock, n.scanWhy = figures, scan.BestBlock, ""
+		out.State, out.Figures = walletOK, figures
 		return out
 	}
-	figures.CheckedAt = now.UTC().Truncate(time.Second)
-	n.figures, n.bestblock, n.scannedAt = figures, scan.BestBlock, now
-	out.State, out.Figures = walletOK, figures
+	out.State, out.Message = walletUnavailable, n.cannotAsk(n.scanWhy, inAMinute)
 	return out
 }
 
@@ -219,8 +239,18 @@ func (n *walletNode) call(ctx context.Context, method string, params interface{}
 	return rpcCallCtx(ctx, url, user, pass, method, params)
 }
 
-func (n *walletNode) cannotAsk(why string) string {
-	return "Forge Solo cannot ask the " + n.node + " right now: " + strings.TrimRight(why, ".") + ". It asks again in a minute."
+// When the card asks a node again after a question failed: at the dashboard's next poll or the one
+// after, or, after a scan that ran out of time, once walletRetryAfter has passed.
+const (
+	inAMinute  = "in a minute"
+	in2Minutes = "in 2 minutes"
+)
+
+// tooSlow is why the card did not wait for a scan any longer.
+const tooSlow = "the node did not finish in a minute"
+
+func (n *walletNode) cannotAsk(why, again string) string {
+	return "Forge Solo cannot ask the " + n.node + " right now: " + strings.TrimRight(why, ".") + ". It asks again " + again + "."
 }
 
 // nodeTrouble is why a question to a node failed, in a few words.
