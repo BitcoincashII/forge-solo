@@ -2,7 +2,9 @@
 # Runs the end-to-end merge-mining proof: real pool code (CreateJob's coinbase commitment
 # and multi-tx merkle branch, plus the same AuxPoW assembler the stratum share path uses)
 # against a live 1175 regtest node, confirming a solved parent block is accepted by
-# submitauxblock and advances the aux chain.
+# submitauxblock and advances the aux chain. Then every kind of 1175 address is put to the same
+# node: the address check Forge Solo uses (internal/segwit) must take what its validateaddress and
+# getauxblock take, and refuse the rest.
 #
 #   ./scripts/it-1175.sh
 #
@@ -78,3 +80,8 @@ export MM_REGTEST_PAYOUT="$PAYOUT"
 
 run_must_pass TestMergeMineMultiTxParent_Live ./internal/mining/ -run TestMergeMineMultiTxParent_Live
 echo "✓ merge-mining end-to-end proof passed (aux chain now at $("${CLI[@]}" getblockcount))"
+
+# The 1175 address check Settings, the Wallet card and the stratum share takes exactly the
+# addresses this node's validateaddress and getauxblock take.
+run_must_pass TestScriptAgreesWithThe1175Node_Live ./internal/segwit/ -run TestScriptAgreesWithThe1175Node_Live
+echo "✓ the 1175 address check agrees with the 1175 node"

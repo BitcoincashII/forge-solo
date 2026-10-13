@@ -45,22 +45,37 @@ func TestIsValidBCH2Address(t *testing.T) {
 	}
 }
 
+// A 1175 address is one the 1175 node pays: esf1…, witness version 0 with a 20- or 32-byte program
+// and a bech32 checksum, or version 1 to 16 with 2 to 40 bytes and bech32m. Until 1.0.16 this test
+// called the 19-byte address below valid: Settings saved it, and the 1175 node refused every
+// getauxblock for it ("-5 Invalid payout address"), so merge-mining never worked.
 func TestIsValid1175Address(t *testing.T) {
-	// bech32 with hrp "esf" and an all-zero payload: a valid address that is obviously nobody's.
-	const valid = "esf1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnkz876"
+	// Witness version 0, the twenty bytes 0xe5 0xe5 …: a valid address that is obviously nobody's.
+	const valid = "esf1quhj7te09uhj7te09uhj7te09uhj7te09dnlk6x"
+	p32 := make([]byte, 32)
+	for i := range p32 {
+		p32[i] = byte(i + 1)
+	}
 	for _, tc := range []struct {
 		name string
 		addr string
 		want bool
 	}{
-		{"valid esf1", valid, true},
-		{"single-character typo", "esf1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnkz87p", false},
+		{"valid v0, 20 bytes", valid, true},
+		{"valid v0, 32 bytes", segwitAddress(t, "esf", 0, p32, false), true},
+		{"valid v1, 32 bytes, bech32m", segwitAddress(t, "esf", 1, p32, true), true},
+		{"valid v16, 2 bytes, bech32m", segwitAddress(t, "esf", 16, p32[:2], true), true},
+		{"a 19-byte program, as 1.0.12 to 1.0.15 saved", "esf1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnkz876", false},
+		{"v0 with a bech32m checksum", segwitAddress(t, "esf", 0, p32[:20], true), false},
+		{"v1 with a bech32 checksum", segwitAddress(t, "esf", 1, p32, false), false},
+		{"single-character typo", "esf1quhj7te09uhj7te09uhj7te09uhj7te09dnlk6y", false},
 		// A perfectly valid bech32 address for another chain. The hrp check is what stops a
 		// pasted BTC address from being stored as the 1175 payout target.
 		{"valid bech32, wrong hrp", "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", false},
-		{"uppercase", "ESF1QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQNKZ876", true},
+		{"1175 regtest", segwitAddress(t, "resf", 0, p32[:20], false), false},
+		{"uppercase", "ESF1QUHJ7TE09UHJ7TE09UHJ7TE09UHJ7TE09DNLK6X", true},
 		// BIP-173 forbids mixed case outright, and btcutil enforces it.
-		{"mixed case", "Esf1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnkz876", false},
+		{"mixed case", "Esf1quhj7te09uhj7te09uhj7te09uhj7te09dnlk6x", false},
 		{"surrounding whitespace", "  " + valid + "  ", true},
 		{"empty", "", false},
 		{"hrp only", "esf1", false},

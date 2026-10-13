@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BitcoincashII/forge-solo/internal/segwit"
 	"github.com/BitcoincashII/forge-solo/internal/stats"
 	"github.com/btcsuite/btcd/btcutil/bech32"
 )
@@ -155,7 +156,7 @@ func TestWalletAgainstRegtestNodes_Live(t *testing.T) {
 	key2 := esf.address("wpkh(" + itKey2Pub + ")")
 	change := esf.address("wpkh(" + itKey1Pub + ")")
 	hrp := key2[:strings.LastIndexByte(key2, '1')]
-	script, err := segwitScript(key2, hrp)
+	script, err := segwit.Script(key2, hrp)
 	if err != nil {
 		t.Fatalf("the 1175 node's address %s: %v", key2, err)
 	}

@@ -25,7 +25,7 @@ func TestNo1175NodeNo1175Address(t *testing.T) {
 	const (
 		addr  = "bitcoincashii:qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzse6qye33q"
 		moved = "esf1quhj7te09uhj7te09uhj7te09uhj7te09dnlk6x"
-		other = "esf1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnkz876"
+		other = "esf1qamhwamhwamhwamhwamhwamhwamhwamhwnlvzj4"
 	)
 	if err := stats.SavePoolSettings(addr, moved, "Before", stats.PayoutModeSolo); err != nil {
 		t.Fatal(err)

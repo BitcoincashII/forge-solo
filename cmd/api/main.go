@@ -24,8 +24,8 @@ import (
 	"github.com/BitcoincashII/forge-solo/internal/migstatus"
 	"github.com/BitcoincashII/forge-solo/internal/mining"
 	"github.com/BitcoincashII/forge-solo/internal/netlisten"
+	"github.com/BitcoincashII/forge-solo/internal/segwit"
 	"github.com/BitcoincashII/forge-solo/internal/stats"
-	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
 	fiberrecover "github.com/gofiber/fiber/v2/middleware/recover"
@@ -86,9 +86,6 @@ func prefixToValues(prefix string) []int {
 	return values
 }
 
-// isValid1175Address validates a 1175 payout address: a bech32 address with the
-// mainnet HRP "esf" and a valid checksum (esf1...). This is the address a miner
-// supplies to receive merge-mined 1175 rewards.
 // poolNameFromEnv is POOL_NAME, which the Umbrel compose sets, else "Forge Solo": the pool_name
 // of /pool/config.
 func poolNameFromEnv() string {
@@ -98,16 +95,34 @@ func poolNameFromEnv() string {
 	return "Forge Solo"
 }
 
+// isValid1175Address reports whether address, surrounding spaces aside, is a 1175 payout address:
+// one the 1175 node's getauxblock pays (esf1…, a witness version and program BIP 173 and BIP 350
+// allow). It is the check the Wallet card and the stratum make (internal/segwit). Until 1.0.16 only
+// the bech32 checksum and "esf" were checked: Settings saved an address with a 19-byte program, the
+// node refused every getauxblock for it, and merge-mining never worked.
 func isValid1175Address(address string) bool {
-	address = strings.TrimSpace(address)
-	if address == "" {
+	return segwit.Check1175(strings.TrimSpace(address)) == nil
+}
+
+// invalid1175Text is Settings' answer to a 1175 address that is not one. The page adds that nothing
+// was saved.
+const invalid1175Text = "Invalid 1175 (ESF) address: that is not a valid 1175 address, and the 1175 node would refuse " +
+	"to pay it. Copy your esf1… address again from your 1175 wallet, or leave the box empty to turn merge-mining off"
+
+// stored1175Invalid reports whether the 1175 address the stratum would merge-mine to is set and is
+// not a 1175 address: the stored one, else PAYOUT_ADDRESS_1175, as the stratum picks it. Such an
+// address was saved by 1.0.12 to 1.0.15, or moved from 1.0.12's database: the stratum leaves
+// merge-mining off for it, and the dashboard and Settings ask for a valid one. Never where this app
+// runs no 1175 node.
+func stored1175Invalid(stored string) bool {
+	if !mergeMiningAvailable() {
 		return false
 	}
-	hrp, data, err := bech32.Decode(address)
-	if err != nil || hrp != "esf" || len(data) == 0 {
-		return false
+	addr := strings.TrimSpace(stored)
+	if addr == "" {
+		addr = strings.TrimSpace(os.Getenv("PAYOUT_ADDRESS_1175"))
 	}
-	return true
+	return addr != "" && !isValid1175Address(addr)
 }
 
 // isValidBCH2Address validates a BCH2 mainnet payout address exactly the way the
@@ -1306,6 +1321,7 @@ func getPoolConfig(c *fiber.Ctx) error {
 	if err != nil {
 		return settingsUnreadable(c, err)
 	}
+	invalid1175 := stored1175Invalid(payout1175)
 	payout1175 = address1175InEffect(payout1175)
 	if tag == "" {
 		tag = os.Getenv("COINBASE_TAG")
@@ -1341,6 +1357,11 @@ func getPoolConfig(c *fiber.Ctx) error {
 	if p := secretsPathFromEnv(); p != "" {
 		out["secrets_path"] = p
 	}
+	// true: the 1175 address set is not a 1175 address (saved by 1.0.12 to 1.0.15), so the stratum
+	// leaves merge-mining off, and the dashboard and Settings say so. Left out otherwise.
+	if invalid1175 {
+		out["payout_address_1175_invalid"] = true
+	}
 	return c.JSON(out)
 }
 
@@ -1360,7 +1381,7 @@ func address1175InEffect(stored string) string {
 	// that sets the BCH2 address and un-pauses mining.
 	env := strings.TrimSpace(os.Getenv("PAYOUT_ADDRESS_1175"))
 	if env != "" && !isValid1175Address(env) {
-		log.Printf("WARNING: PAYOUT_ADDRESS_1175 is set but is not a valid esf1… address (%q); ignoring it", env)
+		log.Printf("WARNING: PAYOUT_ADDRESS_1175 is set but is not a valid 1175 address (%q); ignoring it", env)
 		return ""
 	}
 	return env
@@ -1435,7 +1456,8 @@ func savePoolConfig(c *fiber.Ctx) error {
 		poolAddr = curPool
 	}
 
-	// 1175 (ESF) merge-mining payout address: validate as bech32 esf1…. Blank CLEARS it,
+	// 1175 (ESF) merge-mining payout address: one the 1175 node pays (isValid1175Address), stored in
+	// lower case, bech32's one spelling of it. Blank CLEARS it,
 	// which is the only way to turn merge mining off -- previously the server substituted
 	// the current value, answered "Settings saved", and the old address sprang straight back
 	// into the field, so a user who no longer controlled that address had no path at all.
@@ -1449,8 +1471,11 @@ func savePoolConfig(c *fiber.Ctx) error {
 			return c.Status(400).JSON(fiber.Map{"success": false, "error": "This install runs no 1175 node, so it cannot merge-mine 1175: leave the 1175 (ESF) address out"})
 		}
 		payout1175 = cur1175
-	} else if payout1175 != "" && !isValid1175Address(payout1175) {
-		return c.Status(400).JSON(fiber.Map{"success": false, "error": "Invalid 1175 (ESF) address: it must be a valid esf1… address"})
+	} else if payout1175 != "" {
+		if !isValid1175Address(payout1175) {
+			return c.Status(400).JSON(fiber.Map{"success": false, "error": invalid1175Text})
+		}
+		payout1175 = strings.ToLower(payout1175)
 	}
 
 	// Blank clears the tag back to the default rather than silently restoring the old one.

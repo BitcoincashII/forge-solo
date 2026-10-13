@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"sort"
 	"strings"
@@ -14,8 +13,8 @@ import (
 	"time"
 
 	"github.com/BitcoincashII/forge-solo/internal/cashaddr"
+	"github.com/BitcoincashII/forge-solo/internal/segwit"
 	"github.com/BitcoincashII/forge-solo/internal/stats"
-	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -100,7 +99,7 @@ var (
 	bch2Wallet = &walletNode{node: "BCH2 node", address: "payout address", login: bch2Login, decode: bch2Script,
 		badAddress: "The payout address in Settings is not one Forge Solo can look up: it must be a bitcoincashii:q… address."}
 	aux1175Wallet = &walletNode{node: "1175 node", address: "1175 address", login: aux1175Login,
-		decode:     func(addr string) ([]byte, error) { return segwitScript(addr, "esf") },
+		decode:     func(addr string) ([]byte, error) { return segwit.Script(addr, segwit.HRP1175) },
 		badAddress: "The 1175 address in Settings is not one Forge Solo can look up: it must be an esf1… address with a valid witness program."}
 )
 
@@ -358,35 +357,4 @@ func bch2Script(addr string) ([]byte, error) {
 		return nil, errors.New("not a P2PKH address")
 	}
 	return a.Script(), nil
-}
-
-// segwitScript is the output script of a segwit address whose human-readable part is hrp ("esf" for
-// 1175): witness version 0 with a bech32 checksum and a 20- or 32-byte program, or version 1 to 16
-// with bech32m and 2 to 40 bytes (BIP 173, BIP 350).
-func segwitScript(addr, hrp string) ([]byte, error) {
-	got, data, checksum, err := bech32.DecodeGeneric(addr)
-	if err != nil {
-		return nil, err
-	}
-	if got != hrp || len(data) == 0 {
-		return nil, fmt.Errorf("not an address for %s1…", hrp)
-	}
-	version := data[0]
-	program, err := bech32.ConvertBits(data[1:], 5, 8, false)
-	if err != nil {
-		return nil, err
-	}
-	switch {
-	case version > 16 || len(program) < 2 || len(program) > 40:
-		return nil, errors.New("not a witness program")
-	case version == 0 && (checksum != bech32.Version0 || len(program) != 20 && len(program) != 32):
-		return nil, errors.New("not a version 0 witness program with a bech32 checksum")
-	case version > 0 && checksum != bech32.VersionM:
-		return nil, errors.New("a witness version above 0 takes a bech32m checksum")
-	}
-	op := byte(0) // OP_0, or OP_1 to OP_16
-	if version > 0 {
-		op = 0x50 + version
-	}
-	return append([]byte{op, byte(len(program))}, program...), nil
 }

@@ -44,7 +44,7 @@ func checkTidesConfig(t *testing.T) {
 	}
 
 	// The Settings page's save: everything in one write. With no mode it leaves the mode alone.
-	const esf = "esf1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnkz876"
+	const esf = "esf1qamhwamhwamhwamhwamhwamhwamhwamhwnlvzj4"
 	if err := SavePoolSettings(addr, esf, "Third", ""); err != nil {
 		t.Fatalf("SavePoolSettings: %v", err)
 	}

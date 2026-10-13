@@ -417,7 +417,8 @@ func segwitAddress(t *testing.T, hrp string, version byte, program []byte, bech3
 }
 
 // A 1175 address is decoded by BIP 173 and BIP 350: the witness version, the checksum it takes, and
-// the program's length.
+// the program's length. The card takes exactly the addresses Settings takes: each refusal here is a
+// Settings refusal too, and each address read here Settings saves.
 func TestWalletDecodes1175Addresses(t *testing.T) {
 	p20, p32 := make([]byte, 20), make([]byte, 32)
 	for i := range p32 {
@@ -440,13 +441,17 @@ func TestWalletDecodes1175Addresses(t *testing.T) {
 		{"regtest", segwitAddress(t, "resf", 0, p20, false), ""},
 		{"Bitcoin", segwitAddress(t, "bc", 0, p20, false), ""},
 		{"a descriptor", "addr(" + segwitAddress(t, "esf", 0, p20, false) + ")", ""},
+		{"a 19-byte program (saved by 1.0.12 to 1.0.15)", "esf1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnkz876", ""},
 	} {
-		got, err := segwitScript(c.addr, "esf")
+		got, err := aux1175Wallet.decode(c.addr)
 		if c.want == "" && err == nil {
 			t.Errorf("WALLET-DECODE-1175 %s: %s read as %x", c.name, c.addr, got)
 		}
 		if c.want != "" && (err != nil || hex.EncodeToString(got) != c.want) {
 			t.Errorf("WALLET-DECODE-1175 %s: %s read as %x (%v), want %s", c.name, c.addr, got, err, c.want)
+		}
+		if settings := isValid1175Address(c.addr); settings != (err == nil) {
+			t.Errorf("WALLET-DECODE-1175-SETTINGS %s: the card reads %s (err %v), Settings takes it: %v", c.name, c.addr, err, settings)
 		}
 	}
 }

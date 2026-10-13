@@ -51,7 +51,7 @@ func TestSettingsSaveIsAllOrNothing(t *testing.T) {
 	}
 	raw.Close()
 
-	code, b := post(`{"pool_address":"` + addr + `","payout_address_1175":"esf1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnkz876","coinbase_tag":"After","payout_mode":"tides"}`)
+	code, b := post(`{"pool_address":"` + addr + `","payout_address_1175":"esf1qamhwamhwamhwamhwamhwamhwamhwamhwnlvzj4","coinbase_tag":"After","payout_mode":"tides"}`)
 	_, payout1175, tag, err := stats.GetPoolConfig()
 	if err != nil {
 		t.Fatal(err)
