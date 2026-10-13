@@ -113,7 +113,7 @@ func logged(lines map[string]string, part string) string {
 // warned that 1175 merge-mining was off "until you set it in the dashboard", which would not turn it
 // on. In TIDES mode the start says merge-mining stays off; the missing-address warning is solo's.
 func TestTheStartSaysWhy1175MergeMiningIsOff(t *testing.T) {
-	const esf = "esf1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+	const esf = movedEsf
 	const warning = "1175 merge-mining is OFF until you set it in the dashboard"
 	const staysOff = "1175 merge-mining stays OFF while TIDES mode is on"
 

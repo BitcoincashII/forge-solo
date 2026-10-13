@@ -79,6 +79,12 @@ type mmRun struct {
 
 func startWithMoved1175(t *testing.T, mm string) *mmRun {
 	t.Helper()
+	return startWith1175(t, mm, movedEsf)
+}
+
+// startWith1175 is startWithMoved1175 with esf as the 1175 address in the settings.
+func startWith1175(t *testing.T, mm, esf string) *mmRun {
+	t.Helper()
 	dir := t.TempDir()
 	data := filepath.Join(dir, "data")
 	if err := os.MkdirAll(data, 0o700); err != nil {
@@ -90,7 +96,7 @@ func startWithMoved1175(t *testing.T, mm string) *mmRun {
 	}
 	// The tag is the marker: the settings watcher logs it at its first look at the database, in
 	// the same round as it would switch 1175 merge-mining on.
-	if err := stats.SavePoolSettings("", movedEsf, "/moved/", stats.PayoutModeSolo); err != nil {
+	if err := stats.SavePoolSettings("", esf, "/moved/", stats.PayoutModeSolo); err != nil {
 		t.Fatal(err)
 	}
 	seedMoved1175(t)

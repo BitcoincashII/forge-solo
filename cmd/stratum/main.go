@@ -28,6 +28,7 @@ import (
 	"github.com/BitcoincashII/forge-solo/internal/migstatus"
 	"github.com/BitcoincashII/forge-solo/internal/mining"
 	"github.com/BitcoincashII/forge-solo/internal/netlisten"
+	"github.com/BitcoincashII/forge-solo/internal/segwit"
 	"github.com/BitcoincashII/forge-solo/internal/stats"
 	"github.com/BitcoincashII/forge-solo/internal/stratum"
 	"github.com/BitcoincashII/forge-solo/internal/tidesgw"
@@ -1173,11 +1174,6 @@ func startZMQListener(zmqEndpoint string, logger *zap.Logger) {
 	}
 }
 
-// enableMergeMining1175 turns on 1175 (ESF) merge mining for the given esf1 payout address
-// and returns an aux client the stratum servers use to submit solved aux blocks. It
-// configures the job manager + the aux1175* globals and is safe to call at startup or at
-// runtime (from watchPoolConfig). Server wiring + the 1175 payout processor are the caller's
-// responsibility. The 1175 node is the authoritative address validator (via getauxblock).
 // enableJobManagerAuxMergeMining points the job manager at the aux (1175) node so each new
 // BCH2 job carries aux work. Call this ONLY after every stratum server's aux fields are wired
 // (EnableMergeMining/SetAuxBlockHandler), so no aux job reaches a connection goroutine before
@@ -1192,17 +1188,43 @@ func enableJobManagerAuxMergeMining(cfg *viper.Viper, auxPayout string) {
 		auxPayout)
 }
 
+// refused1175 is the 1175 address merge-mining was last left off for because it is not a 1175
+// address, so that is said once, not at every look at the settings. "" when there is none.
+var refused1175 string
+
+// usable1175Address reports whether merge-mining may pay addr: a 1175 address the 1175 node takes,
+// by the check Settings and the Wallet card make (internal/segwit). One that is not, as 1.0.12 to
+// 1.0.15 saved, is said in the log once, plainly, and merge-mining stays off for it. Before, merge-
+// mining came on for it, the 1175 node refused every getauxblock ("-5 Invalid payout address"),
+// and the log said once a minute that merge-mining had never produced work, maybe as the 1175 node
+// was still syncing. BCH2 mining never depends on it.
+func usable1175Address(addr string) bool {
+	err := segwit.Check1175(addr)
+	if err == nil {
+		refused1175 = ""
+		return true
+	}
+	if addr != refused1175 {
+		refused1175 = addr
+		logger.Warn("⚠️  Your 1175 payout address is not a valid 1175 address, so 1175 merge-mining is OFF. "+
+			"Enter a valid one in Settings on the dashboard. BCH2 mining is unaffected and continues normally.",
+			zap.String("payout_address_1175", addr), zap.String("why", err.Error()))
+	}
+	return false
+}
+
+// enableMergeMining1175 turns on 1175 (ESF) merge mining for the given esf1 payout address, which
+// the caller has checked with usable1175Address, and returns an aux client the stratum servers use
+// to submit solved aux blocks. It configures the job manager + the aux1175* globals and is safe to
+// call at startup or at runtime (from watchPoolConfig). Server wiring + the 1175 payout processor
+// are the caller's responsibility.
 func enableMergeMining1175(cfg *viper.Viper, auxPayout string) *mergemining.Client {
 	auxURL := fmt.Sprintf("http://%s:%d",
 		cfg.GetString("mergemining.aux_node.host"),
 		cfg.GetInt("mergemining.aux_node.port"))
 	auxUser := cfg.GetString("mergemining.aux_node.user")
 	auxPass := cfg.GetString("mergemining.aux_node.pass")
-	if !strings.HasPrefix(auxPayout, "esf1") || len(auxPayout) < 42 {
-		logger.Warn("⚠️  PAYOUT_ADDRESS_1175 does not look like a valid esf1… address — 1175 rewards may be rejected by the node, or if it decodes to a different valid address, mined to the WRONG place. Double-check it.", zap.String("configured", auxPayout))
-	} else {
-		logger.Info("💠 1175 (ESF) block rewards will be paid on-chain DIRECTLY to your configured address", zap.String("payout_address_1175", auxPayout))
-	}
+	logger.Info("💠 1175 (ESF) block rewards will be paid on-chain DIRECTLY to your configured address", zap.String("payout_address_1175", auxPayout))
 	ac := mergemining.NewClient(auxURL, auxUser, auxPass)
 	// No wallet URL is derived here: merge mining is aux-coinbase-direct. getauxblock is
 	// given the payout address explicitly and the 1175 node builds the aux coinbase itself,
@@ -1365,7 +1387,27 @@ func watchPoolConfig(jm *mining.JobManager, cfg *viper.Viper) {
 			last1175 = ""
 		}
 		lastDB1175 = p1175
-		if p1175 != last1175 && p1175 != "" && currentPayoutMode() == stats.PayoutModeSolo && node1175 {
+		solo1175 := p1175 != "" && currentPayoutMode() == stats.PayoutModeSolo && node1175
+		if solo1175 && p1175 != last1175 && !usable1175Address(p1175) {
+			// Not a 1175 address (Settings refuses one since 1.0.16, but 1.0.12 to 1.0.15 saved it, or
+			// the database was edited): merge-mining stays off, or goes off, rather than pay an
+			// address the 1175 node refuses. Said once, by usable1175Address; a valid address saved
+			// later turns it on again.
+			if merge1175Enabled {
+				jm.DisableMergeMining()
+				merge1175Enabled = false
+				aux1175PayoutAddr = ""
+				for _, srv := range []*stratum.Server{stratumServer, stratumRentalServer} {
+					if srv != nil {
+						srv.DisableMergeMining()
+					}
+				}
+				logger.Info("💠 1175 merge-mining DISABLED: the 1175 address in the settings is not a valid 1175 address. BCH2 mining continues")
+			}
+			last1175 = ""
+			solo1175 = false
+		}
+		if solo1175 && p1175 != last1175 {
 			if !merge1175Enabled {
 				ac := enableMergeMining1175(cfg, p1175)
 				if stratumServer != nil {
@@ -1647,7 +1689,8 @@ func main() {
 	if node1175 && effective1175Payout == "" && startMode != stats.PayoutModeTides {
 		logger.Warn("⚠️  Merge mining is enabled but PAYOUT_ADDRESS_1175 (your esf1… address) is not set — 1175 merge-mining is OFF until you set it in the dashboard. BCH2 mining continues normally.")
 	}
-	if node1175 && effective1175Payout != "" && startMode != stats.PayoutModeTides {
+	// An address that is not a 1175 address leaves merge-mining off, and the log says so once.
+	if node1175 && effective1175Payout != "" && startMode != stats.PayoutModeTides && usable1175Address(effective1175Payout) {
 		auxClient = enableMergeMining1175(config, effective1175Payout)
 	}
 	if !node1175 && effective1175Payout != "" {
