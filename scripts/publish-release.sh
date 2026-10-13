@@ -8,10 +8,11 @@
 #      (the line of SHA256SUMS-windows), how to check a download on Windows and on Linux, and what
 #      the installer was built from. Nothing is published unless all of it is there, and the
 #      installer is hashed again just before the upload.
-#   2. The draft is created with the installer and SHA256SUMS-windows, then read back: those two
-#      files, both uploaded, the installer with its size, and with its SHA-256 where GitHub gives
-#      one. A draft this run created that is not so is deleted again (its tag stays), so a re-run
-#      starts clean. A release that was there before is never touched.
+#   2. Once gh says there is no release for the tag yet, draft or not, the draft is created with the
+#      installer and SHA256SUMS-windows, then read back: those two files, both uploaded, the
+#      installer with its size, and with its SHA-256 where GitHub gives one. A draft this run
+#      created that is not so is deleted again (its tag stays), so a re-run starts clean. A release
+#      that was there before is never touched.
 #
 # Environment: SIGNING_CERT_SHA256, BCH2_VERSION, ESF_VERSION and PG_VERSION (release.yml's), and
 # GITHUB_REPOSITORY, GITHUB_SHA and GITHUB_REF_NAME (the tag) and GH_TOKEN, which GitHub gives.
@@ -94,10 +95,11 @@ sed -e "s|{{SETUP}}|${SETUP}|g" -e "s|{{CERT}}|${SIGNING_CERT_SHA256}|g" -e "s|{
   -e "s|{{V}}|${V}|g" -e "s|{{REPO}}|${GITHUB_REPOSITORY}|g" -e "s|{{SHA}}|${GITHUB_SHA}|g" \
   -e "s|{{BCH2}}|${BCH2_VERSION}|g" -e "s|{{ESF}}|${ESF_VERSION}|g" -e "s|{{PG}}|${PG_VERSION}|g" \
   "$WORK/downloads.md" >"$WORK/filled.md"
-cat "$WORK/changes.md" "$WORK/filled.md" >"$NOTES"
-if grep -q '{{' "$NOTES"; then
-  fail "the page's text has a value left out: $(grep -o '{{[A-Z0-9]*}}' "$NOTES" | sort -u | tr '\n' ' ')"
+# Only the part filled in here: the version's notes may well hold a "{{" of their own.
+if grep -q '{{' "$WORK/filled.md"; then
+  fail "the page's text has a value left out: $(grep -o '{{[A-Z0-9]*}}' "$WORK/filled.md" | sort -u | tr '\n' ' ')"
 fi
+cat "$WORK/changes.md" "$WORK/filled.md" >"$NOTES"
 for want in "The installer's SHA-256 is \`${HASH}\`" "Get-FileHash .\\${SETUP}" "${SIGNING_CERT_SHA256}" "**BCH2 Software**"; do
   grep -qF -- "$want" "$NOTES" || fail "the page's text does not say: $want"
 done
@@ -109,8 +111,13 @@ echo "$SETUP: $SIZE bytes, SHA-256 $HASH"
 # The installer must still be the one hashed above.
 [[ "$(sha256sum "$SETUP" | cut -d' ' -f1)" == "$HASH" ]] || fail "$SETUP changed while the page was made"
 
-if gh release view "$TAG" --json tagName >/dev/null 2>&1; then
+# Go on only when gh says there is no release for the tag, draft or not. Any other answer (GitHub
+# down for a moment, say) stops here with nothing created: going on then could make a second draft
+# beside one a cancelled run left, and the read-back and the clean-up below find a draft by its tag.
+if seen=$(gh release view "$TAG" --json tagName 2>&1); then
   fail "a release for ${TAG} is there already: it is left as it is. Delete it first if it is a broken draft."
+elif [[ $seen != *"release not found"* ]]; then
+  fail "could not tell whether a release for ${TAG} is there (gh: ${seen}). Nothing was created: run the job again."
 fi
 
 # A draft this run created and something went wrong with: delete it again, so that nothing half made

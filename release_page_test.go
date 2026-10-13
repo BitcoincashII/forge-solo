@@ -15,9 +15,10 @@ import (
 
 // fakeGH is gh as the release page tests need it: each call is written to $FAKE_GH_DIR/calls, and
 // GitHub's side is played as FAKE_GH_MODE says: exists (a release for the tag is there already),
-// create-fails (the upload breaks after the draft is made), wrong-digest (GitHub holds another
-// installer), lost-file (SHA256SUMS-windows is not on the draft), no-digest (GitHub gives no
-// SHA-256 of a file), or nothing wrong.
+// view-fails (GitHub answers the look for one with an error), create-fails (the upload breaks
+// after the draft is made), wrong-digest (GitHub holds another installer), lost-file
+// (SHA256SUMS-windows is not on the draft), no-digest (GitHub gives no SHA-256 of a file), or
+// nothing wrong. With no release, view says what gh says: "release not found".
 const fakeGH = `#!/usr/bin/env bash
 set -u
 d=$FAKE_GH_DIR
@@ -27,6 +28,10 @@ case "$1" in
 release)
   case "$2" in
   view)
+    if [[ $mode == view-fails ]]; then
+      echo "HTTP 502: Bad Gateway (https://api.github.com/repos/BitcoincashII/forge-solo/releases/tags/$3)" >&2
+      exit 1
+    fi
     if [[ $mode == exists || -f $d/draft ]]; then
       case "$*" in
       *isDraft*) echo true ;;
@@ -82,9 +87,9 @@ esac
 `
 
 // publishRun is one run of release.yml's "Publish the release" step, as GitHub runs a step with no
-// shell given (bash -e), in a checkout with RELEASE_NOTES.md and scripts/publish-release.sh, the
-// installer (none when it is nil) and a fake gh, with the workflow's env, the job's V and what GitHub
-// gives a tag build.
+// shell given (bash -e), in a checkout with RELEASE_NOTES.md (the repository's, unless
+// runPublishNotes is given other notes) and scripts/publish-release.sh, the installer (none when it
+// is nil) and a fake gh, with the workflow's env, the job's V and what GitHub gives a tag build.
 type publishRun struct {
 	out   string
 	err   error
@@ -96,6 +101,14 @@ type publishRun struct {
 
 func runPublish(t *testing.T, version string, installer []byte, mode string) publishRun {
 	t.Helper()
+	return runPublishNotes(t, version, installer, mode, nil)
+}
+
+func runPublishNotes(t *testing.T, version string, installer []byte, mode string, releaseNotes []byte) publishRun {
+	t.Helper()
+	if releaseNotes == nil {
+		releaseNotes = mustRead(t, "RELEASE_NOTES.md")
+	}
 	for _, tool := range []string{"bash", "sha256sum", "jq", "awk", "sed"} {
 		if _, err := exec.LookPath(tool); err != nil {
 			t.Fatalf("no %s here to run the publish step with: %v", tool, err)
@@ -119,8 +132,8 @@ func runPublish(t *testing.T, version string, installer []byte, mode string) pub
 	if err := os.MkdirAll(filepath.Join(dir, "scripts"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for src, dst := range map[string]string{"RELEASE_NOTES.md": "RELEASE_NOTES.md", "scripts/publish-release.sh": "scripts/publish-release.sh"} {
-		if err := os.WriteFile(filepath.Join(dir, dst), mustRead(t, src), 0o644); err != nil {
+	for dst, b := range map[string][]byte{"RELEASE_NOTES.md": releaseNotes, "scripts/publish-release.sh": mustRead(t, "scripts/publish-release.sh")} {
+		if err := os.WriteFile(filepath.Join(dir, dst), b, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -254,7 +267,9 @@ func TestReleasePageGivesTheInstallersSHA256(t *testing.T) {
 // A failure leaves nothing half made: before anything is uploaded, a missing or wrong installer, or
 // no notes for the version, stops the step with nothing created; a draft this run created that
 // failed its upload, or is not what was uploaded, is deleted again; and a release that was there
-// before is left as it is.
+// before is left as it is. Only gh's "release not found" lets the run go on: any other error in the
+// look for a release stops it with nothing created, as a draft a cancelled run left could be there
+// (a second draft for the tag beside it, and the read-back or clean-up by tag could find the other).
 func TestReleasePageLeavesNothingHalfMade(t *testing.T) {
 	for _, c := range []struct {
 		name, version, mode string
@@ -267,6 +282,8 @@ func TestReleasePageLeavesNothingHalfMade(t *testing.T) {
 		{name: "not a Windows program", version: "1.0.16", installer: []byte("PK not a program"), says: "is not a Windows program"},
 		{name: "no notes for the version", version: "1.0.99", installer: fakeInstaller, says: "RELEASE_NOTES.md has no section headed '## 1.0.99'"},
 		{name: "a release is there already", version: "1.0.16", mode: "exists", installer: fakeInstaller, says: "a release for v1.0.16 is there already"},
+		{name: "the look for a release fails", version: "1.0.16", mode: "view-fails", installer: fakeInstaller,
+			says: "could not tell whether a release for v1.0.16 is there (gh: HTTP 502: Bad Gateway"},
 		{name: "the upload fails", version: "1.0.16", mode: "create-fails", installer: fakeInstaller, created: true, deleted: true,
 			says: "the release could not be created with ForgeSolo-Setup-1.0.16.exe and SHA256SUMS-windows on it"},
 		{name: "GitHub holds another installer", version: "1.0.16", mode: "wrong-digest", installer: fakeInstaller, created: true, deleted: true,
@@ -302,5 +319,26 @@ func TestReleasePageLeavesNothingHalfMade(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The version's notes are published as they are, "{{" and all: only the part the step fills in is
+// checked for a value left out. The whole page was, so a note with "{{" in it failed the release
+// after the installer was signed, and only a new tag could fix it.
+func TestReleasePageKeepsTheNotesAsTheyAre(t *testing.T) {
+	const note = "- A note with braces of its own: `{{V}}`, `{{.Name}}` and `{{`, kept as they are."
+	notes := "# Release notes\n\n## 1.0.16\n\n" + note + "\n\n## 1.0.15\n\n- Earlier.\n"
+	r := runPublishNotes(t, "1.0.16", fakeInstaller, "", []byte(notes))
+	if r.err != nil {
+		t.Fatalf("RELEASE-PAGE-BRACES: notes with \"{{\" in them stopped the publish step (%v):\n%s", r.err, r.out)
+	}
+	if !strings.HasPrefix(r.notes, "\n"+note+"\n\n\n---\n\n## Downloads\n") {
+		t.Errorf("RELEASE-PAGE-BRACES: the page does not start with the notes as they are:\n%s", r.notes)
+	}
+	if strings.Contains(r.notes[len(note)+1:], "{{") {
+		t.Errorf("RELEASE-PAGE-BRACES: the part the step fills in has a value left out:\n%s", r.notes)
+	}
+	if !r.draft || !r.called("release create") {
+		t.Errorf("RELEASE-PAGE-BRACES: no draft was made (%q)", r.calls)
 	}
 }
