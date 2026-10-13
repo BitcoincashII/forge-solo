@@ -288,8 +288,8 @@ glossary explains it, for the dashboard's sake); Forge Pool is introduced with
 its address, the TIDES window as where Forge Pool registers the work of everyone mining into it
 through Forge Solo in TIDES mode or Forge Gateway (not the miners on Forge Pool's own ports), and a
 TIDES block as "a block found on work Forge Pool registered". Only facts from the READMEs at v1.0.16
-(root, `packaging/linux`, `windows`), its release notes or the page this one replaced: no odds, no earnings, no chain size, no "easy",
-no exclamation marks.
+(root, `packaging/linux`, `windows`), Forge Solo's release notes for that version or the page this
+one replaced: no odds, no earnings, no chain size, no "easy", no exclamation marks.
 
 ## Translations
 
