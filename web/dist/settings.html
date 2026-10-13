@@ -73,8 +73,10 @@
     <input class="txt mm" id="esfAddr" type="text" spellcheck="false" autocapitalize="none" placeholder="esf1…">
     <!-- Shown while the 1175 address stored is not a 1175 address (pool config:
          payout_address_1175_invalid), as 1.0.12 to 1.0.15 saved one: the mining service leaves
-         merge-mining off for it, and a save with it in the box is refused. -->
-    <p class="note mm mm-off" id="bad1175Note" hidden>Your 1175 payout address is not a valid 1175 address, so merge-mining is off. Enter a valid one in this box (copy it again from your 1175 wallet), or empty the box, and save.</p>
+         merge-mining off for it, and a save with it in the box is refused. With none stored, the
+         address is the app config's PAYOUT_ADDRESS_1175, which the box does not show and which
+         stays in effect while the box is empty: then only a valid one entered here replaces it. -->
+    <p class="note mm mm-off" id="bad1175Note" hidden>Your 1175 payout address is not a valid 1175 address, so merge-mining is off. <span id="bad1175Stored">Enter a valid one in this box (copy it again from your 1175 wallet), or empty the box, and save.</span><span id="bad1175Config" hidden>It is the one in this app's configuration (PAYOUT_ADDRESS_1175), which stays in effect while this box is empty: enter a valid one in this box (copy it again from your 1175 wallet) and save.</span></p>
     <label class="fld" for="cbTag">Coinbase tag (optional, ≤24 chars)</label>
     <input class="txt" id="cbTag" type="text" maxlength="24" placeholder="//forgesolo//">
     <!-- Shown where the API asks for the app's password: on Umbrel every app can reach Forge
@@ -277,6 +279,9 @@
      // A 1175 address that is not one (1.0.12 to 1.0.15 saved it): merge-mining is off for it.
      var bad1175=(d.payout_address_1175_invalid===true);
      document.getElementById('bad1175Note').hidden=!bad1175;
+     // The stored address is in the box; with none stored, it is the app config's (not shown).
+     document.getElementById('bad1175Stored').hidden=!esf;
+     document.getElementById('bad1175Config').hidden=!!esf;
      // Merge-mining status (#9): the ESF address, or an explicit "OFF" when empty.
      var es=document.getElementById('esfStatus');
      if(tides){ es.textContent='OFF: TIDES mode mines BCH2 only'+(esf?' (your address is kept for Solo)':''); es.className='v mm-off'; return; }

@@ -467,4 +467,14 @@ func TestABad1175AddressIsShown(t *testing.T) {
 	if !strings.Contains(textBetween(s, "function applyConfig(d){", "\n   }"), "document.getElementById('bad1175Note').hidden=!bad1175;") {
 		t.Error("BAD1175-SETTINGS-SHOW: Settings does not show the note when the flag is set")
 	}
+	// With no address stored, the bad one is the app config's PAYOUT_ADDRESS_1175: the box is empty,
+	// and emptying it, as the note said, kept that address and the warning. The note says so then.
+	if !strings.Contains(s, `<span id="bad1175Stored">Enter a valid one in this box (copy it again from your 1175 wallet), or empty the box, and save.</span>`) ||
+		!strings.Contains(s, `<span id="bad1175Config" hidden>It is the one in this app's configuration (PAYOUT_ADDRESS_1175), which stays in effect while this box is empty: `) {
+		t.Error("BAD1175-SETTINGS-CONFIG: the note does not have its two endings, for a stored address and for the app config's")
+	}
+	if ac := textBetween(s, "function applyConfig(d){", "\n   }"); !strings.Contains(ac, "document.getElementById('bad1175Stored').hidden=!esf;") ||
+		!strings.Contains(ac, "document.getElementById('bad1175Config').hidden=!!esf;") {
+		t.Error("BAD1175-SETTINGS-CONFIG-SHOW: Settings does not pick the note's ending by whether the box shows the address")
+	}
 }

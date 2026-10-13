@@ -1637,7 +1637,10 @@ func main() {
 	// the env/config values when the DB row is empty or the DB is unavailable.
 	effectivePoolAddr := poolAddress
 	effectiveCoinbaseTag := config.GetString("pool.coinbase_tag")
-	effective1175Payout := config.GetString("mergemining.payout_address")
+	// Trimmed as the api trims it: PAYOUT_ADDRESS_1175 reaches the config in quotes, so a stray
+	// space in it left merge-mining off ("not a valid 1175 address") while the dashboard, which
+	// reads the address trimmed, gave no warning.
+	effective1175Payout := strings.TrimSpace(config.GetString("mergemining.payout_address"))
 	if stats.IsDBConnected() {
 		if dbPool, db1175, dbTag, cErr := stats.GetPoolConfig(); cErr == nil {
 			if dbPool != "" {

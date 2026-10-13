@@ -52,6 +52,27 @@ func TestABad1175AddressLeavesMergeMiningOffAndSaysSo(t *testing.T) {
 	}
 }
 
+// PAYOUT_ADDRESS_1175 reaches the config in quotes, spaces and all. The api trims it, so the
+// dashboard gave no warning for a valid address with a stray space; the stratum did not, so it left
+// merge-mining off and logged that the address is not a valid 1175 address. It trims it too.
+func TestA1175AddressFromTheConfigIsTrimmed(t *testing.T) {
+	r := startWith1175(t, with1175Node+"  payout_address: \"  "+movedEsf+" \"\n", "")
+	r.waitFor(t, "Merge mining enabled")
+	r.watched(t)
+	mm := r.mergeMining(t)
+	r.stop()
+	out := r.out.String()
+	if strings.Contains(out, bad1175Said) {
+		t.Errorf("MM-TRIM-SAID: the stratum called the address with a space around it not valid:\n%s", out)
+	}
+	if !strings.Contains(out, `"payout_address_1175":"`+movedEsf+`"`) {
+		t.Errorf("MM-TRIM-ADDRESS: merge-mining does not pay the address trimmed:\n%s", out)
+	}
+	if mm == "off" {
+		t.Errorf("MM-TRIM-STATUS: the mining status says merge-mining is %q", mm)
+	}
+}
+
 // The settings change while the stratum runs: a valid 1175 address turns merge-mining on, one that
 // is not a 1175 address turns it off and is said once, and a valid one turns it on again. BCH2
 // mining goes on throughout (merge-mining never stops the stratum).
