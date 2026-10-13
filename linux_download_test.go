@@ -57,7 +57,7 @@ func downloads(t *testing.T, dir string) string {
 func TestLinuxDownloadCheckWorksWithBusyBox(t *testing.T) {
 	// BusyBox's sha256sum takes -c, -s and -w, and a list on standard input as "-".
 	busyboxOpts := map[string]bool{"-c": true, "-s": true, "-w": true, "-": true}
-	for _, f := range []string{"packaging/linux/README.md", "packaging/linux/RELEASE_NOTES.md", "README.md", ".github/workflows/release.yml"} {
+	for _, f := range []string{"packaging/linux/README.md", "packaging/linux/RELEASE_NOTES.md", "README.md", ".github/workflows/release.yml", "scripts/publish-release.sh"} {
 		for _, l := range strings.Split(string(mustRead(t, f)), "\n") {
 			code, _, _ := strings.Cut(l, "#")
 			_, args, ok := strings.Cut(code, "sha256sum ")

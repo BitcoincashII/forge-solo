@@ -260,8 +260,15 @@ jobs:
             exit 1
           fi
 
-      # What changed goes first: the section of RELEASE_NOTES.md headed "## <version>". A release
-      # without one stops here rather than publishing a page that says nothing.
+      # The page: what changed first (the section of RELEASE_NOTES.md headed "## <version>"; a
+      # release without one stops here rather than publishing a page that says nothing), then the
+      # downloads with the signed installer's SHA-256, the same as SHA256SUMS-windows, how to check a
+      # download on Windows (Get-FileHash, or the signer BCH2 Software) and on Linux
+      # (SHA256SUMS-linux, uploaded later with the Linux files), and what the installer was built
+      # from. scripts/publish-release.sh makes SHA256SUMS-windows and the text from the installer as
+      # it is, creates the draft with both files on it and reads it back; a draft it created that is
+      # not right it deletes again, so nothing half made is left and the job can be run again.
+      # release_page_test.go runs this step's command with a fake installer and a fake gh.
       #
       # The page is a draft. Its Downloads list names the Umbrel update and the Linux files, which
       # exist only after the store sync and the Linux upload, so it is published by hand after those
@@ -269,32 +276,7 @@ jobs:
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          SETUP="ForgeSolo-Setup-${V}.exe"
-          sha256sum "$SETUP" | tee SHA256SUMS-windows
-          awk -v h="## ${V}" '$0 == h {on = 1; next} /^## / {on = 0} on' RELEASE_NOTES.md > /tmp/changes.md
-          if ! grep -q '[^[:space:]]' /tmp/changes.md; then
-            echo "::error::RELEASE_NOTES.md has no section headed '## ${V}'"
-            exit 1
-          fi
-          {
-            cat /tmp/changes.md
-            printf '\n---\n\n## Downloads\n\n'
-            echo "- **Umbrel:** update Forge Solo from the App Store on your Umbrel."
-            echo "- **Windows:** \`${SETUP}\`, signed by the certificate with SHA-256 fingerprint \`${SIGNING_CERT_SHA256}\`."
-            echo "- **Linux:** \`forge-solo-${V}-linux-<arch>.tar.gz\`, where \`<arch>\` is what \`uname -m\` prints; checksums in \`SHA256SUMS-linux\`."
-            printf '\nThe Windows installer was built and signed by CI from a clean runner:\n\n'
-            echo "| | |"
-            echo "|---|---|"
-            echo "| Services built from | \`${GITHUB_REPOSITORY}@${GITHUB_SHA}\` |"
-            echo "| BCH2 node | ${BCH2_VERSION} |"
-            echo "| 1175 node | ${ESF_VERSION} |"
-            echo "| PostgreSQL | ${PG_VERSION}: only to move an earlier version's database |"
-            echo
-            echo "Every bundled component is fetched during the build and sha256-verified. \`SHA256SUMS-windows\` covers the installer."
-          } > /tmp/notes.md
-          gh release create "${GITHUB_REF_NAME}" "$SETUP" SHA256SUMS-windows --verify-tag --draft \
-            --title "Forge Solo ${V}" --notes-file /tmp/notes.md
+        run: bash scripts/publish-release.sh "$V"
 
   # The publish job runs on a tag only, so a change in how the installer is kept and taken back (the
   # artifact actions and their settings) would first show on a release. This job takes it back as the

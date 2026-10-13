@@ -153,7 +153,11 @@ func TestReleasePublishing(t *testing.T) {
 	if pub.TimeoutMinutes < 1 || pub.TimeoutMinutes > 60 {
 		t.Errorf("PUBLISH-TIME-LIMIT: the publish job's time limit is %d minutes; a stuck service would hold it for GitHub's six hours", pub.TimeoutMinutes)
 	}
-	if run := stepRun(t, w, "publish", "Publish the release"); !regexp.MustCompile(`gh release create [^\n]*--draft`).MatchString(run) {
+	// The page is made and created by scripts/publish-release.sh, which release_page_test.go runs.
+	if run := stepRun(t, w, "publish", "Publish the release"); strings.TrimSpace(run) != `bash scripts/publish-release.sh "$V"` {
+		t.Errorf("RELEASE-SCRIPT: the publish step runs %q, not scripts/publish-release.sh, which release_page_test.go tests", run)
+	}
+	if !regexp.MustCompile(`gh release create [^\n]*--draft`).Match(mustRead(t, "scripts/publish-release.sh")) {
 		t.Error("RELEASE-DRAFT: the release page is published at once, before the store and the Linux files have the version")
 	}
 	kept := false
