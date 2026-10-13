@@ -71,6 +71,10 @@
     <p class="note" id="getAddressNote" hidden>Need a BCH2 address? <a href="https://wallet.bch2.org" target="_blank" rel="noopener noreferrer" style="color:var(--bch-green,#0ac18e)">Create one in the BCH2 Wallet<span class="sr-only"> (opens in a new tab)</span></a>. Forge Solo only needs the address, so the keys can stay on another device, such as your phone: open wallet.bch2.org there and copy its BCH2 address here.</p>
     <label class="fld mm" for="esfAddr">1175 (ESF) merge-mining payout address (optional)</label>
     <input class="txt mm" id="esfAddr" type="text" spellcheck="false" autocapitalize="none" placeholder="esf1…">
+    <!-- Shown while the 1175 address stored is not a 1175 address (pool config:
+         payout_address_1175_invalid), as 1.0.12 to 1.0.15 saved one: the mining service leaves
+         merge-mining off for it, and a save with it in the box is refused. -->
+    <p class="note mm mm-off" id="bad1175Note" hidden>Your 1175 payout address is not a valid 1175 address, so merge-mining is off. Enter a valid one in this box (copy it again from your 1175 wallet), or empty the box, and save.</p>
     <label class="fld" for="cbTag">Coinbase tag (optional, ≤24 chars)</label>
     <input class="txt" id="cbTag" type="text" maxlength="24" placeholder="//forgesolo//">
     <!-- Shown where the API asks for the app's password: on Umbrel every app can reach Forge
@@ -270,9 +274,13 @@
      // Not-configured banner (#1): shown only when no BCH2 payout address is set, with where to get one.
      document.getElementById('notConfiguredBanner').style.display = pool ? 'none' : 'block';
      document.getElementById('getAddressNote').hidden = !!pool;
+     // A 1175 address that is not one (1.0.12 to 1.0.15 saved it): merge-mining is off for it.
+     var bad1175=(d.payout_address_1175_invalid===true);
+     document.getElementById('bad1175Note').hidden=!bad1175;
      // Merge-mining status (#9): the ESF address, or an explicit "OFF" when empty.
      var es=document.getElementById('esfStatus');
      if(tides){ es.textContent='OFF: TIDES mode mines BCH2 only'+(esf?' (your address is kept for Solo)':''); es.className='v mm-off'; return; }
+     if(bad1175){ es.textContent='OFF: '+(esf||'the 1175 address set')+' is not a valid 1175 address'; es.className='v mm-off'; return; }
      if(esf){ es.textContent=esf; es.className='v'; }
      else { es.textContent='not configured, merge-mining OFF'; es.className='v mm-off'; }
      if(esf) refreshMergeMiningHealth();

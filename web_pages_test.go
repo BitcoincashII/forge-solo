@@ -438,3 +438,33 @@ func TestPagesLoadScriptsAndStylesByVersion(t *testing.T) {
 		}
 	}
 }
+
+// A 1175 address that is not one (1.0.12 to 1.0.15 saved it) leaves merge-mining off, and nothing
+// said so: the dashboard showed the address as set. The API flags it (payout_address_1175_invalid);
+// the dashboard's banner says so in solo, and Settings beside the 1175 box and in the merge-mining
+// card, in the same words.
+func TestABad1175AddressIsShown(t *testing.T) {
+	const flag = "payout_address_1175_invalid"
+	const words = "Your 1175 payout address is not a valid 1175 address, so merge-mining is off."
+	if api := string(mustRead(t, "cmd/api/main.go")); !strings.Contains(api, `out["`+flag+`"] = true`) {
+		t.Fatalf("BAD1175-API: the API no longer sets %s", flag)
+	}
+	js := readWebFile(t, "js/pool-solo-inline.js")
+	if !strings.Contains(js, "cfg.payout_address_1175_invalid === true") || strings.Count(js, "noteConfig1175(cfg);") != 2 {
+		t.Error("BAD1175-DASHBOARD-READ: the dashboard does not read the flag at each settings read")
+	}
+	if !strings.Contains(js, "'⚠️ <b>"+words+"</b> '") || !strings.Contains(js, "Enter a valid one in <a href=\"/settings\"") {
+		t.Errorf("BAD1175-DASHBOARD-WORDS: the dashboard's banner does not say %q and link to Settings", words)
+	}
+	if !strings.Contains(textBetween(js, "async function updateStatusBanner() {", "if (!msg) { el.style.display = 'none'; return; }"),
+		"if (bad1175 && cfgPayoutMode !== 'tides') {") {
+		t.Error("BAD1175-DASHBOARD-BANNER: the status banner does not add the warning in solo")
+	}
+	s := readWebFile(t, "settings.html")
+	if !regexp.MustCompile(`<p class="note mm mm-off" id="bad1175Note" hidden>` + regexp.QuoteMeta(words) + ` `).MatchString(s) {
+		t.Errorf("BAD1175-SETTINGS-NOTE: Settings has no hidden note under the 1175 box saying %q", words)
+	}
+	if !strings.Contains(textBetween(s, "function applyConfig(d){", "\n   }"), "document.getElementById('bad1175Note').hidden=!bad1175;") {
+		t.Error("BAD1175-SETTINGS-SHOW: Settings does not show the note when the flag is set")
+	}
+}

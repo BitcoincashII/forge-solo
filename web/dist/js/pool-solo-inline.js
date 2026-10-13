@@ -56,6 +56,9 @@
         let nodeSynced = false;   // set by updateStatusBanner; gates network stats during IBD
         let nodeState = '';       // node-status: synced, syncing, starting or offline; '' until known
         let platform = '';        // pool config: windows, linux or umbrel; '' until known
+        // Pool config: the 1175 address set is not a 1175 address (1.0.12 to 1.0.15 saved one), so the
+        // mining service leaves merge-mining off; and the payout mode stored.
+        let bad1175 = false, cfgPayoutMode = '';
         let minerHashing = false; // set by fetchMinerData; true once a worker is actually hashing
         // Last /api/v1/mining-status payload and when it landed. The Workers tile needs the
         // stratum's LIVE connection count: "online" in the miner payload means "submitted a
@@ -208,6 +211,15 @@
             return d > 0 ? d : networkDiff;
         }
 
+        // What the banner says while the 1175 address set is not a 1175 address (pool config:
+        // payout_address_1175_invalid).
+        const BAD_1175_TEXT = '⚠️ <b>Your 1175 payout address is not a valid 1175 address, so merge-mining is off.</b> '
+            + 'Enter a valid one in <a href="/settings" style="color:inherit;font-weight:600;text-decoration:underline">Settings</a>.';
+        function noteConfig1175(cfg) {
+            bad1175 = !!(cfg && cfg.payout_address_1175_invalid === true);
+            cfgPayoutMode = (cfg && cfg.payout_mode) ? String(cfg.payout_mode) : '';
+        }
+
         async function updateStatusBanner() {
             var el = document.getElementById('syncBanner');
             if (!el) return;
@@ -221,6 +233,7 @@
                     configReachable = true;
                     configError = '';
                     if (cfg && cfg.platform) platform = cfg.platform;
+                    noteConfig1175(cfg);
                     if (cfg && cfg.pool_address && cfg.pool_address !== minerAddress) {
                         minerAddress = cfg.pool_address;
                     }
@@ -325,6 +338,13 @@
             if (tl.text) {
                 msg = (msg ? msg + '<div style="height:8px"></div>' : '') + tl.text;
                 if (tl.warn) tone = 'gold';
+            }
+            // A 1175 address that is not a 1175 address, as 1.0.12 to 1.0.15 saved: the mining
+            // service leaves merge-mining off for it, and BCH2 mining goes on. In solo only: TIDES
+            // mode mines BCH2 alone whatever the address, and Settings says so there.
+            if (bad1175 && cfgPayoutMode !== 'tides') {
+                msg = (msg ? msg + '<div style="height:8px"></div>' : '') + BAD_1175_TEXT;
+                tone = 'gold';
             }
             updateModeBadge(lastMiningStatus);
             renderBalanceLabels();
@@ -1095,6 +1115,7 @@
                     const cfg = await apiFetch('/api/v1/pool/config');
                     configReachable = true;
                     if (cfg && cfg.platform) platform = cfg.platform;
+                    noteConfig1175(cfg);
                     if (cfg && cfg.pool_address) minerAddress = cfg.pool_address;
                 } catch (e) {
                     configError = (e && e.apiError) || '';
