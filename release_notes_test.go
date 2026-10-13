@@ -442,7 +442,7 @@ func TestReleaseNotesNameTheWalletCardAsItShows(t *testing.T) {
 		{"DOCS-1016-MATURING", "Still maturing", "web/dist/solo.html", solo, []string{`<div class="wl">Still maturing</div>`}},
 		{"DOCS-1016-OPEN", "Open BCH2 Wallet", "web/dist/solo.html", solo, []string{`>Open BCH2 Wallet <span`}},
 		{"DOCS-1016-HINT", "Need a BCH2 address? Create one in the BCH2 Wallet", "web/dist/settings.html", settings,
-			[]string{"Need a BCH2 address? <a ", ">Create one in the BCH2 Wallet</a>"}},
+			[]string{"Need a BCH2 address? <a ", ">Create one in the BCH2 Wallet<span"}},
 	} {
 		if !strings.Contains(sec, `"`+c.label+`"`) {
 			t.Errorf("%s: RELEASE_NOTES.md ## 1.0.16 does not name %q", c.code, c.label)
@@ -459,7 +459,7 @@ func TestReleaseNotesNameTheWalletCardAsItShows(t *testing.T) {
 			t.Errorf("DOCS-1016-WORDS: RELEASE_NOTES.md ## 1.0.16 does not say %q", want)
 		}
 	}
-	if !strings.Contains(solo, "Each can be spent 100 blocks after the block that paid it.") {
+	if !strings.Contains(solo, "Each can be spent 100 blocks (for BCH2 about 17 hours) after the block that paid it.") {
 		t.Error("DOCS-1016-MATURITY: the Wallet card no longer says when a coin can be spent, as the release notes do")
 	}
 }

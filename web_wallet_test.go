@@ -25,29 +25,36 @@ func checkWalletLinks(t *testing.T, code, where, src string, want int) {
 	}
 }
 
-// The dashboard's Wallet card sits under the balance card and above the TIDES card, so in TIDES mode
-// it follows "Your TIDES payouts are not counted here". It is hidden until the API answers, says
-// what it shows and that Forge Solo cannot spend it, and links the BCH2 Wallet once.
+// The dashboard's Wallet card sits under the hashrate tiles, which a first look at the dashboard
+// keeps in view: above them, a card that is a third of a screen tall moved them below the fold. It is
+// hidden until the API answers, says what it shows, how that differs from Matured at the top, and
+// that Forge Solo cannot spend it, says where to spend the coins before it links the BCH2 Wallet,
+// and links it once.
 func TestWalletCardIsOnTheDashboard(t *testing.T) {
 	solo := readWebFile(t, "solo.html")
-	balance, wallet, tides := strings.Index(solo, `<div class="balance-card"`), strings.Index(solo, `id="walletCard"`), strings.Index(solo, `id="tidesCard"`)
-	if balance < 0 || wallet < balance || tides < wallet {
-		t.Fatalf("WEB-WALLET-CARD: the Wallet card is not between the balance card and the TIDES card (%d, %d, %d)", balance, wallet, tides)
+	tiles, wallet, grid := strings.Index(solo, `<div class="stats-row"`), strings.Index(solo, `id="walletCard"`), strings.Index(solo, `<div class="main-grid">`)
+	if tiles < 0 || wallet < tiles || grid < wallet {
+		t.Fatalf("WEB-WALLET-CARD: the Wallet card is not right under the hashrate tiles (%d, %d, %d)", tiles, wallet, grid)
 	}
-	card := textBetween(solo, `<div class="card wallet-card" id="walletCard"`, "<!-- TIDES mode:")
+	card := textBetween(solo, `<div class="card wallet-card" id="walletCard"`, `<div class="main-grid">`)
 	for _, want := range []string{
 		` hidden role="region" aria-labelledby="walletTitle">`,
-		"The coins at your payout address, as your node sees them: your block rewards, your TIDES payouts and anything else sent to it.",
+		"The coins at your payout address now, as your node sees them: your block rewards, your TIDES payouts and anything else sent to it, less anything sent from it.",
+		"Matured, at the top, adds up what your blocks paid, whether or not it is still there.",
 		"Forge Solo reads them from its own node and holds no keys, so it cannot spend them.",
 		`<div class="wl">Spendable</div>`, `<div class="wl">Still maturing</div>`,
-		`id="walletStatus" role="status"`, `id="walletAuxStatus" role="status"`,
-		`<caption class="sr-only">`, "Each can be spent 100 blocks after the block that paid it.",
+		`<span id="walletAsOf"></span><span id="walletStatus" role="status"></span>`,
+		`<span id="walletAuxAsOf"></span><span id="walletAuxStatus" role="status"></span>`,
+		`<caption class="sr-only">`, "Each can be spent 100 blocks (for BCH2 about 17 hours) after the block that paid it.",
+		"the BCH2 Wallet has no 1175</span>. The BCH2 Wallet keeps its keys in your browser, not on a server.</p>",
 		`Open BCH2 Wallet <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>`,
-		"The BCH2 Wallet keeps its keys in your browser, not on a server.",
 	} {
 		if !strings.Contains(card, want) {
 			t.Errorf("WEB-WALLET-CARD: the card lacks %q", want)
 		}
+	}
+	if spend, open := strings.Index(card, "Spend these coins from the wallet that holds your payout address's keys"), strings.Index(card, `<a class="wallet-btn"`); spend < 0 || open < spend {
+		t.Error("WEB-WALLET-SPEND: the card does not say where to spend the coins before its link to the BCH2 Wallet")
 	}
 	checkWalletLinks(t, "WEB-WALLET-LINK", "the Wallet card", card, 1)
 
@@ -84,8 +91,14 @@ func TestWalletCardReadsTheAPI(t *testing.T) {
 	if !strings.Contains(fetch, "apiFetch('/api/v1/wallet')") || !strings.Contains(js, "setInterval(fetchWallet, 30000);") {
 		t.Errorf("WEB-WALLET-JS: the dashboard does not read /api/v1/wallet every 30 s:\n%s", fetch)
 	}
-	if strings.Contains(render, "innerHTML") || strings.Count(render, "setText(") != 5 {
+	if strings.Contains(render, "innerHTML") || strings.Count(render, "setText(") != 6 {
 		t.Errorf("WEB-WALLET-JS: the card's values are not all written as text:\n%s", render)
+	}
+	// The block number is apart from the status line, which a screen reader reads out whenever it
+	// changes: it is not read out at every block. A spend from the address waits for a block too.
+	if !strings.Contains(render, "setText(prefix + 'AsOf', ") || strings.Contains(textBetween(render, "setText(prefix + 'Status'", ");"), "f.height") ||
+		!strings.Contains(render, "'Payments to or from this address show once a block includes them.'") {
+		t.Errorf("WEB-WALLET-STATUS: %s", render)
 	}
 	set := textBetween(js, "function setText(id, text) {", "\n        }\n")
 	if !strings.Contains(set, "el.textContent !== text") || !strings.Contains(set, "el.textContent = text") {
@@ -109,8 +122,10 @@ func TestWalletCardReadsTheAPI(t *testing.T) {
 func TestSettingsSaysWhereToGetAnAddress(t *testing.T) {
 	page := readWebFile(t, "settings.html")
 	note := textBetween(page, `<p class="note" id="getAddressNote" hidden>`, "</p>")
-	for _, want := range []string{"Need a BCH2 address?", ">Create one in the BCH2 Wallet</a>",
-		"Forge Solo only needs the address, so the keys can stay on another device, such as your phone."} {
+	// The new tab is said inside the link, so a screen reader reads it as part of the link. The
+	// link opens the wallet here; the keys stay elsewhere only when it is opened there.
+	for _, want := range []string{"Need a BCH2 address?", `>Create one in the BCH2 Wallet<span class="sr-only"> (opens in a new tab)</span></a>`,
+		"Forge Solo only needs the address, so the keys can stay on another device, such as your phone: open wallet.bch2.org there and copy its BCH2 address here."} {
 		if !strings.Contains(note, want) {
 			t.Errorf("WEB-SETTINGS-ADDRESS-HINT: the note lacks %q:\n%s", want, note)
 		}

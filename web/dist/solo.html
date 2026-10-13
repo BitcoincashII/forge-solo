@@ -156,7 +156,7 @@
 
             <div class="balance-card" role="region" aria-label="Balance information">
                 <div class="balance-info">
-                    <h2 id="matureLabel">Matured (spendable)</h2>
+                    <h2 id="matureLabel">Matured</h2>
                     <div class="balance-amount"><span id="matureBalance">--</span> <small>BCH2</small></div>
                     <div class="balance-sub"><span id="immatureLabel">Still maturing</span>: <span id="immatureBalance">--</span> BCH2 (spendable 100 blocks after the one that paid it)</div>
                     <div class="balance-sub" style="opacity:0.75">Already paid to your address by each block's coinbase. This app holds nothing.</div>
@@ -168,42 +168,6 @@
                     <div style="margin-top:4px;font-size:12px;opacity:0.8;color:#000" id="blocksFoundTides" hidden></div>
                     <div style="margin-top:8px;font-size:13px;opacity:0.8;color:#000" id="totalEarned">Total: --</div>
                 </div>
-            </div>
-
-            <!-- The coins at your payout address, read by Forge Solo's API from this install's own nodes
-                 (/api/v1/wallet). Read only: Forge Solo holds no keys. wallet.bch2.org refuses to be framed, so
-                 it is linked, never embedded. -->
-            <div class="card wallet-card" id="walletCard" hidden role="region" aria-labelledby="walletTitle">
-                <h2 id="walletTitle">Wallet <span class="wallet-ro">read only</span></h2>
-                <p class="wallet-note">The coins at your payout address, as your node sees them: your block rewards, your TIDES payouts and anything else sent to it. Forge Solo reads them from its own node and holds no keys, so it cannot spend them.</p>
-                <div class="wallet-addr" id="walletAddr"></div>
-                <div class="wallet-grid">
-                    <div><div class="wv" id="walletSpendable">--</div><div class="wl">Spendable</div></div>
-                    <div><div class="wv" id="walletMaturing">--</div><div class="wl">Still maturing</div><div class="ws" id="walletNext"></div></div>
-                </div>
-                <p class="wallet-note" id="walletStatus" role="status"></p>
-                <!-- Umbrel and Windows, with a 1175 address set. -->
-                <div id="walletAux" hidden>
-                    <div class="wallet-addr" id="walletAuxAddr"></div>
-                    <div class="wallet-grid">
-                        <div><div class="wv" id="walletAuxSpendable">--</div><div class="wl">1175 spendable</div></div>
-                        <div><div class="wv" id="walletAuxMaturing">--</div><div class="wl">1175 still maturing</div><div class="ws" id="walletAuxNext"></div></div>
-                    </div>
-                    <p class="wallet-note" id="walletAuxStatus" role="status"></p>
-                </div>
-                <details class="wallet-details" id="walletDetails" hidden>
-                    <summary>Coins still maturing</summary>
-                    <div class="table-scroll">
-                        <table class="blocks-table">
-                            <caption class="sr-only">Block rewards and TIDES payouts at your addresses that cannot be spent yet</caption>
-                            <thead><tr><th scope="col">Coin</th><th scope="col">Block</th><th scope="col">Amount</th><th scope="col">Spendable in</th></tr></thead>
-                            <tbody id="walletMaturingRows"></tbody>
-                        </table>
-                    </div>
-                    <p class="wallet-note">Each can be spent 100 blocks after the block that paid it.</p>
-                </details>
-                <a class="wallet-btn" href="https://wallet.bch2.org" target="_blank" rel="noopener noreferrer">Open BCH2 Wallet <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>
-                <p class="wallet-note">The BCH2 Wallet keeps its keys in your browser, not on a server. Spend these coins from the wallet that holds your payout address's keys<span id="walletAuxSpend" hidden>, and 1175 coins from a 1175 wallet: the BCH2 Wallet holds BCH2 only</span>.</p>
             </div>
 
             <!-- TIDES mode: shown only while the stratum reports TIDES in effect. -->
@@ -269,6 +233,43 @@
                     <div class="stat-value" id="rejectRate">0%</div>
                     <div class="stat-label" title="Counted by the mining service since it last started. An app update or reboot resets it; your blocks and balances are stored and are not affected.">Reject % <span style="opacity:.6;font-weight:400">(since restart)</span></div>
                 </div>
+            </div>
+
+            <!-- The coins at your payout address, read by Forge Solo's API from this install's own nodes
+                 (/api/v1/wallet). Read only: Forge Solo holds no keys. wallet.bch2.org refuses to be framed, so
+                 it is linked, never embedded. Under the hashrate tiles, so they stay in view at the top. -->
+            <div class="card wallet-card" id="walletCard" hidden role="region" aria-labelledby="walletTitle">
+                <h2 id="walletTitle">Wallet <span class="wallet-ro">read only</span></h2>
+                <p class="wallet-note">The coins at your payout address now, as your node sees them: your block rewards, your TIDES payouts and anything else sent to it, less anything sent from it. Matured, at the top, adds up what your blocks paid, whether or not it is still there. Forge Solo reads them from its own node and holds no keys, so it cannot spend them.</p>
+                <div class="wallet-addr" id="walletAddr"></div>
+                <div class="wallet-grid">
+                    <div><div class="wv" id="walletSpendable">--</div><div class="wl">Spendable</div></div>
+                    <div><div class="wv" id="walletMaturing">--</div><div class="wl">Still maturing</div><div class="ws" id="walletNext"></div></div>
+                </div>
+                <!-- The block number changes at every block; only the status line is announced. -->
+                <p class="wallet-note"><span id="walletAsOf"></span><span id="walletStatus" role="status"></span></p>
+                <!-- Umbrel and Windows, with a 1175 address set. -->
+                <div id="walletAux" hidden>
+                    <div class="wallet-addr" id="walletAuxAddr"></div>
+                    <div class="wallet-grid">
+                        <div><div class="wv" id="walletAuxSpendable">--</div><div class="wl">1175 spendable</div></div>
+                        <div><div class="wv" id="walletAuxMaturing">--</div><div class="wl">1175 still maturing</div><div class="ws" id="walletAuxNext"></div></div>
+                    </div>
+                    <p class="wallet-note"><span id="walletAuxAsOf"></span><span id="walletAuxStatus" role="status"></span></p>
+                </div>
+                <details class="wallet-details" id="walletDetails" hidden>
+                    <summary>Coins still maturing</summary>
+                    <div class="table-scroll">
+                        <table class="blocks-table">
+                            <caption class="sr-only">Block rewards and TIDES payouts at your addresses that cannot be spent yet</caption>
+                            <thead><tr><th scope="col">Coin</th><th scope="col">Block</th><th scope="col">Amount</th><th scope="col">Spendable in</th></tr></thead>
+                            <tbody id="walletMaturingRows"></tbody>
+                        </table>
+                    </div>
+                    <p class="wallet-note">Each can be spent 100 blocks (for BCH2 about 17 hours) after the block that paid it.</p>
+                </details>
+                <p class="wallet-note">Spend these coins from the wallet that holds your payout address's keys<span id="walletAuxSpend" hidden>, and 1175 coins from a 1175 wallet: the BCH2 Wallet has no 1175</span>. The BCH2 Wallet keeps its keys in your browser, not on a server.</p>
+                <a class="wallet-btn" href="https://wallet.bch2.org" target="_blank" rel="noopener noreferrer">Open BCH2 Wallet <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>
             </div>
 
             <div class="main-grid">
@@ -423,6 +424,6 @@
     </footer>
 
     <script src="/js/common.js?v=20261007a"></script>
-    <script src="/js/pool-solo-inline.js?v=20261012a"></script>
+    <script src="/js/pool-solo-inline.js?v=20261012b"></script>
 </body>
 </html>

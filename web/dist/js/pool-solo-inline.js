@@ -104,7 +104,7 @@
         function renderBalanceLabels() {
             const tides = soloFiguresOnly();
             const label = (id, text) => { const e = document.getElementById(id); if (e) e.textContent = text; };
-            label('matureLabel', tides ? 'Solo: matured (spendable)' : 'Matured (spendable)');
+            label('matureLabel', tides ? 'Solo: matured' : 'Matured');
             label('immatureLabel', tides ? 'Solo, still maturing' : 'Still maturing');
             label('totalPaidLabel', tides ? 'Total Paid (solo)' : 'Total Paid');
             label('blocksTitle', tides ? 'Your Solo Blocks' : 'Your Blocks Found');
@@ -357,7 +357,7 @@
         const CLOCK_FIX = {
             windows: 'turn on Set time automatically in Windows Settings, Time & language',
             linux: 'set it right, for example by turning on network time (on a system with systemd: timedatectl set-ntp true)',
-            umbrel: 'umbrelOS sets it by itself over the internet, so check that the Umbrel is online and that your network lets it reach a time server (UDP port 123); restarting the Umbrel sets it again'
+            umbrel: 'umbrelOS sets it by itself over the internet, so check that your network lets the Umbrel reach a time server (UDP port 123), then restart the Umbrel'
         };
         function clockAdvice(t) {
             const whose = platform === 'windows' ? 'This PC\'s clock' : (platform === 'umbrel' ? 'This Umbrel\'s clock' : 'This computer\'s clock');
@@ -526,10 +526,9 @@
             setText(prefix + 'Next', !f ? '' : next
                 ? 'next: ' + fmtCoins(next.sats, unit) + ' in ' + formatNumber(next.blocks_to_go) + ' block' + (next.blocks_to_go === 1 ? '' : 's')
                 : 'none');
-            let status = w.message || '';
-            if (f) status = 'As of block ' + formatNumber(f.height) + '. ' + (w.state === 'ok'
-                ? 'Coins sent to this address show once a block includes them.' : status);
-            setText(prefix + 'Status', status);
+            setText(prefix + 'AsOf', f ? 'As of block ' + formatNumber(f.height) + '. ' : '');
+            setText(prefix + 'Status', f && w.state === 'ok'
+                ? 'Payments to or from this address show once a block includes them.' : (w.message || ''));
             if (f && Array.isArray(f.maturing)) f.maturing.forEach(m => rows.push({ unit: unit, m: m }));
         }
 

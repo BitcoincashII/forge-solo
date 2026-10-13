@@ -86,7 +86,10 @@ func TestTidesClockRefusalSaysHowToSetTheClock(t *testing.T) {
 			t.Errorf("WEB-CLOCK-WORDS: the dashboard's %s text is not Forge Gateway's %q:\n%s", system, m[1], advice)
 		}
 	}
-	if !strings.Contains(advice, "umbrel: 'umbrelOS sets it by itself over the internet, so check that the Umbrel is online") {
+	// Forge Pool answered, so the Umbrel is online: what can stop umbrelOS setting its clock is a
+	// network that lets no time server's answer through.
+	if !strings.Contains(advice, "umbrel: 'umbrelOS sets it by itself over the internet, so check that your network lets the Umbrel reach a time server (UDP port 123)") ||
+		strings.Contains(advice, "is online") {
 		t.Errorf("WEB-CLOCK-UMBREL: %s", advice)
 	}
 	if !strings.Contains(readWebFile(t, "tides.html"), "Forge Pool also refuses the requests of an install whose clock is more than 2 minutes off its own") {

@@ -49,7 +49,9 @@ func TestTidesModeSaysTheBalanceIsSolo(t *testing.T) {
 	labels := textBetween(js, "function renderBalanceLabels() {", "\n        }\n")
 	for _, want := range []string{
 		"const tides = soloFiguresOnly();",
-		"label('matureLabel', tides ? 'Solo: matured (spendable)' : 'Matured (spendable)');",
+		// Not "(spendable)": what your blocks paid is not what the address holds once coins are sent
+		// from it, and the Wallet card's Spendable is the second.
+		"label('matureLabel', tides ? 'Solo: matured' : 'Matured');",
 		"label('immatureLabel', tides ? 'Solo, still maturing' : 'Still maturing');",
 		"label('totalPaidLabel', tides ? 'Total Paid (solo)' : 'Total Paid');",
 		"if (note) note.hidden = !tides;",
@@ -92,7 +94,7 @@ func TestTidesModeSaysTheBalanceIsSolo(t *testing.T) {
 	if !strings.Contains(page, `<h2 id="blocksTitle">Your Blocks Found</h2>`) {
 		t.Error("BAL-SOLO-BLOCKS-TITLE-ID: the Blocks table's heading has no id for renderBalanceLabels() to set")
 	}
-	for _, want := range []string{`<h2 id="matureLabel"`, `<span id="immatureLabel">Still maturing</span>:`,
+	for _, want := range []string{`<h2 id="matureLabel">Matured</h2>`, `<span id="immatureLabel">Still maturing</span>:`,
 		`<span id="totalPaidLabel">Total Paid</span>:`,
 		`id="balanceTidesNote" hidden>Your TIDES payouts are not counted here: they are in the TIDES card below.</div>`} {
 		if !strings.Contains(page, want) {
