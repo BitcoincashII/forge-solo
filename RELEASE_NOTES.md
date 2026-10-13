@@ -17,6 +17,14 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
   When SmartScreen says "Windows protected your PC", choose **More info**, then **Run anyway**.
   [Install on Windows](https://github.com/BitcoincashII/forge-solo#install-on-windows) in the README
   has every step.
+- **Windows:** this page gives the installer's SHA-256 under Downloads, the same as in
+  `SHA256SUMS-windows`. To check your download, run `Get-FileHash .\ForgeSolo-Setup-1.0.16.exe` in
+  PowerShell in the folder you downloaded it to: the Hash it shows must be that SHA-256. Or
+  right-click the installer, choose **Properties**, then **Digital Signatures**: the signer is
+  **BCH2 Software**. Install on Windows has this as an optional step now.
+- **Linux:** check your download against `SHA256SUMS-linux`: in the folder with both, run
+  `grep x86_64 SHA256SUMS-linux | sha256sum -c -`, with what `uname -m` prints in place of
+  `x86_64`. It says OK.
 - **Every platform:** updating from 1.0.12, read the
   [1.0.13 release notes](https://github.com/BitcoincashII/forge-solo/releases/tag/v1.0.13) too: on
   Umbrel and Windows the first start after the update moves your data from the old database into
@@ -54,6 +62,21 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
   `timedatectl set-ntp true`); on Umbrel, umbrelOS sets the clock itself, so check that your network
   lets the Umbrel reach a time server (UDP port 123), then restart the Umbrel. Before, they showed
   the pool's answer as it came.
+
+**Your 1175 payout address.**
+- **Umbrel and Windows:** Settings now saves only a 1175 address the 1175 node pays: an `esf1…`
+  address with witness version 0 and a 20- or 32-byte program, or version 1 to 16 with a bech32m
+  checksum, as the Wallet card reads it. Before, Settings checked only the address's checksum and its
+  `esf1` start, so it could save an address the 1175 node refuses, such as one with a 19-byte
+  program. The node then refused every request for 1175 work, and merge-mining never worked, with
+  nothing on the dashboard to say so. Settings now answers "Invalid 1175 (ESF) address" and saves
+  nothing.
+- **Umbrel and Windows:** if 1.0.12 to 1.0.15 saved such an address, the dashboard now says "Your
+  1175 payout address is not a valid 1175 address, so merge-mining is off. Enter a valid one in
+  Settings.", and Settings says so under the 1175 box. Merge-mining stays off until you enter a
+  valid address (or empty the box): the mining service says so once in its log, instead of asking
+  the 1175 node for work again and again and saying once a minute that merge-mining had never
+  produced work. BCH2 mining goes on as before.
 
 **Nodes.**
 - **Linux:** the BCH2 node's config has `disablewallet=1`, as on Umbrel and Windows. The node Forge

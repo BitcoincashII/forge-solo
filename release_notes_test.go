@@ -464,6 +464,38 @@ func TestReleaseNotesNameTheWalletCardAsItShows(t *testing.T) {
 	}
 }
 
+// 1.0.16's release page says that Settings saves only a 1175 address the 1175 node pays, quotes the
+// dashboard's warning for one 1.0.12 to 1.0.15 saved as the dashboard gives it, and says how to check
+// a download with the commands the page's Downloads give (scripts/publish-release.sh).
+func TestReleaseNotesTellThe1175CheckAndTheChecksums(t *testing.T) {
+	sec := flat(releaseSection(t, "1.0.16"))
+	const warning = "Your 1175 payout address is not a valid 1175 address, so merge-mining is off."
+	if js := string(mustRead(t, "web/dist/js/pool-solo-inline.js")); !strings.Contains(js, "<b>"+warning+"</b> ") ||
+		!strings.Contains(js, "'Enter a valid one in <a href=\"/settings\"") {
+		t.Errorf("DOCS-1016-1175-PAGE: the dashboard no longer says %q, which the release notes quote", warning)
+	}
+	if !strings.Contains(string(mustRead(t, "cmd/api/main.go")), `const invalid1175Text = "Invalid 1175 (ESF) address: `) {
+		t.Error("DOCS-1016-1175-API: Settings' refusal no longer starts \"Invalid 1175 (ESF) address\", as the release notes say")
+	}
+	page := string(mustRead(t, "scripts/publish-release.sh"))
+	for _, c := range []struct{ code, want, inPage string }{
+		{"DOCS-1016-1175-SAVES", "Settings now saves only a 1175 address the 1175 node pays", ""},
+		{"DOCS-1016-1175-REFUSAL", `Settings now answers "Invalid 1175 (ESF) address" and saves nothing`, ""},
+		{"DOCS-1016-1175-WARNING", `"` + warning + ` Enter a valid one in Settings."`, ""},
+		{"DOCS-1016-1175-BCH2", "BCH2 mining goes on as before", ""},
+		{"DOCS-1016-SHA-WIN", `run Get-FileHash .\ForgeSolo-Setup-1.0.16.exe in PowerShell`, "run `Get-FileHash .\\{{SETUP}}`"},
+		{"DOCS-1016-SHA-SIGNER", "then Digital Signatures: the signer is BCH2 Software", "then **Digital Signatures**: the signer is"},
+		{"DOCS-1016-SHA-LINUX", "run grep x86_64 SHA256SUMS-linux | sha256sum -c -, with what uname -m prints in place of x86_64", "`grep x86_64 SHA256SUMS-linux | sha256sum -c -`, with what `uname -m` prints in place of `x86_64`"},
+	} {
+		if !strings.Contains(sec, c.want) {
+			t.Errorf("%s: RELEASE_NOTES.md ## 1.0.16 does not say %q", c.code, c.want)
+		}
+		if c.inPage != "" && !strings.Contains(page, c.inPage) {
+			t.Errorf("%s-PAGE: the release page's Downloads no longer say %q, as the release notes do", c.code, c.inPage)
+		}
+	}
+}
+
 // The store's description and update notes keep their lists one item to a line and their
 // paragraphs apart. umbrelOS shows both as plain text with every line break kept, not as Markdown.
 // In a folded block, lines at the block's own indentation are joined into one: the store showed
