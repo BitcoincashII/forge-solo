@@ -211,7 +211,7 @@ func TestReleasePageGivesTheInstallersSHA256(t *testing.T) {
 		"The installer's SHA-256 is " + hash + ", as in SHA256SUMS-windows.",
 		"Linux: forge-solo-1.0.16-linux-<arch>.tar.gz, where <arch> is what uname -m prints; checksums in SHA256SUMS-linux.",
 		"## Check your download",
-		`Windows: in PowerShell, in the folder you downloaded it to, run Get-FileHash .\` + setup + ".",
+		`Windows: in PowerShell, run Get-FileHash ~\Downloads\` + setup + ` (if you saved it to another folder, put that folder in place of ~\Downloads).`,
 		"The Hash it shows must be the installer's SHA-256 above (PowerShell shows it in capital letters).",
 		"Or right-click the installer, choose Properties, then Digital Signatures: the signer is BCH2 Software.",
 		"Linux: in the folder with your download and SHA256SUMS-linux, run grep x86_64 SHA256SUMS-linux | sha256sum -c -, with what uname -m prints in place of x86_64: it says OK.",

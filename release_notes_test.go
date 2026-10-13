@@ -483,7 +483,8 @@ func TestReleaseNotesTellThe1175CheckAndTheChecksums(t *testing.T) {
 		{"DOCS-1016-1175-REFUSAL", `Settings now answers "Invalid 1175 (ESF) address" and saves nothing`, ""},
 		{"DOCS-1016-1175-WARNING", `"` + warning + ` Enter a valid one in Settings."`, ""},
 		{"DOCS-1016-1175-BCH2", "BCH2 mining goes on as before", ""},
-		{"DOCS-1016-SHA-WIN", `run Get-FileHash .\ForgeSolo-Setup-1.0.16.exe in PowerShell`, "run `Get-FileHash .\\{{SETUP}}`"},
+		{"DOCS-1016-SHA-WIN", `run Get-FileHash ~\Downloads\ForgeSolo-Setup-1.0.16.exe in PowerShell (if you saved it to another folder, put that folder in place of ~\Downloads)`,
+			"run `Get-FileHash ~\\Downloads\\{{SETUP}}`"},
 		{"DOCS-1016-SHA-SIGNER", "then Digital Signatures: the signer is BCH2 Software", "then **Digital Signatures**: the signer is"},
 		{"DOCS-1016-SHA-LINUX", "run grep x86_64 SHA256SUMS-linux | sha256sum -c -, with what uname -m prints in place of x86_64", "`grep x86_64 SHA256SUMS-linux | sha256sum -c -`, with what `uname -m` prints in place of `x86_64`"},
 	} {

@@ -18,8 +18,9 @@ and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
   [Install on Windows](https://github.com/BitcoincashII/forge-solo#install-on-windows) in the README
   has every step.
 - **Windows:** this page gives the installer's SHA-256 under Downloads, the same as in
-  `SHA256SUMS-windows`. To check your download, run `Get-FileHash .\ForgeSolo-Setup-1.0.16.exe` in
-  PowerShell in the folder you downloaded it to: the Hash it shows must be that SHA-256. Or
+  `SHA256SUMS-windows`. To check your download, run
+  `Get-FileHash ~\Downloads\ForgeSolo-Setup-1.0.16.exe` in PowerShell (if you saved it to another
+  folder, put that folder in place of `~\Downloads`): the Hash it shows must be that SHA-256. Or
   right-click the installer, choose **Properties**, then **Digital Signatures**: the signer is
   **BCH2 Software**. Install on Windows has this as an optional step now.
 - **Linux:** check your download against `SHA256SUMS-linux`: in the folder with both, run

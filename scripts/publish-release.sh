@@ -72,7 +72,8 @@ cat >"$WORK/downloads.md" <<'EOF'
 
 ## Check your download
 
-- **Windows:** in PowerShell, in the folder you downloaded it to, run `Get-FileHash .\{{SETUP}}`.
+- **Windows:** in PowerShell, run `Get-FileHash ~\Downloads\{{SETUP}}` (if you saved it to another
+  folder, put that folder in place of `~\Downloads`).
   The Hash it shows must be the installer's SHA-256 above (PowerShell shows it in capital letters).
   Or right-click the installer, choose **Properties**, then **Digital Signatures**: the signer is
   **BCH2 Software**.
@@ -100,7 +101,7 @@ if grep -q '{{' "$WORK/filled.md"; then
   fail "the page's text has a value left out: $(grep -o '{{[A-Z0-9]*}}' "$WORK/filled.md" | sort -u | tr '\n' ' ')"
 fi
 cat "$WORK/changes.md" "$WORK/filled.md" >"$NOTES"
-for want in "The installer's SHA-256 is \`${HASH}\`" "Get-FileHash .\\${SETUP}" "${SIGNING_CERT_SHA256}" "**BCH2 Software**"; do
+for want in "The installer's SHA-256 is \`${HASH}\`" "Get-FileHash ~\\Downloads\\${SETUP}" "${SIGNING_CERT_SHA256}" "**BCH2 Software**"; do
   grep -qF -- "$want" "$NOTES" || fail "the page's text does not say: $want"
 done
 echo "The release page, as it will be published:"

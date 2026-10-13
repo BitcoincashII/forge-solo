@@ -26,9 +26,10 @@ Forge Solo needs 64-bit Windows: Windows 10 or 11 on an x64 PC, or Windows 11 on
 
 1. Download `ForgeSolo-Setup-<version>.exe` from the
    [latest release](https://github.com/BitcoincashII/forge-solo/releases/latest).
-2. Check the download (optional). In PowerShell, in the folder you downloaded it to, run
-   `Get-FileHash .\ForgeSolo-Setup-<version>.exe`: the Hash it shows must be the installer's SHA-256
-   on the release page (also in `SHA256SUMS-windows`). Or right-click the installer, choose
+2. Check the download (optional). In PowerShell, run
+   `Get-FileHash ~\Downloads\ForgeSolo-Setup-<version>.exe` (if you saved it to another folder, put
+   that folder in place of `~\Downloads`): the Hash it shows must be the installer's SHA-256 on the
+   release page (also in `SHA256SUMS-windows`). Or right-click the installer, choose
    **Properties**, then **Digital Signatures**: the signer is **BCH2 Software**.
 3. Run the installer. When SmartScreen says "Windows protected your PC", choose **More info**, then
    **Run anyway**.
