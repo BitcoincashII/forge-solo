@@ -26,24 +26,28 @@ Forge Solo needs 64-bit Windows: Windows 10 or 11 on an x64 PC, or Windows 11 on
 
 1. Download `ForgeSolo-Setup-<version>.exe` from the
    [latest release](https://github.com/BitcoincashII/forge-solo/releases/latest).
-2. Run the installer. When SmartScreen says "Windows protected your PC", choose **More info**, then
+2. Check the download (optional). In PowerShell, in the folder you downloaded it to, run
+   `Get-FileHash .\ForgeSolo-Setup-<version>.exe`: the Hash it shows must be the installer's SHA-256
+   on the release page (also in `SHA256SUMS-windows`). Or right-click the installer, choose
+   **Properties**, then **Digital Signatures**: the signer is **BCH2 Software**.
+3. Run the installer. When SmartScreen says "Windows protected your PC", choose **More info**, then
    **Run anyway**.
-3. Forge Solo is not yet signed by a certificate Windows trusts. If Smart App Control on Windows 11
+4. Forge Solo is not yet signed by a certificate Windows trusts. If Smart App Control on Windows 11
    blocks the installer or Forge Solo, turn Smart App Control off: **Windows Security → App &
    browser control → Smart App Control settings**, then **Off**, and run the installer again. On a
    Windows 11 with its current updates you can turn it back on later in the same place; on an older
    one, turning it off lasts until Windows is reset. Windows 10 has no Smart App Control.
-4. Windows asks once whether Windows Command Processor may make changes to your device: choose
+5. Windows asks once whether Windows Command Processor may make changes to your device: choose
    **Yes**. That adds the firewall rules that let miners on your network reach Forge Solo (3333,
    3335) and other nodes reach its nodes (8339, 25360), and Defender exclusions for the blockchains.
-5. Set your network to **Private**: in Windows Settings, under **Network & internet**, open your
+6. Set your network to **Private**: in Windows Settings, under **Network & internet**, open your
    connection's properties and set its network profile to Private. While it is Public, miners on
    your network cannot connect. Windows 11 makes new networks Public.
-6. Forge Solo starts in the notification area of the taskbar and opens its dashboard. On the
+7. Forge Solo starts in the notification area of the taskbar and opens its dashboard. On the
    **Settings** page, set your BCH2 payout address (and your 1175 payout address, to merge-mine).
    Saving asks for the Settings password: right-click the Forge Solo icon, choose **Copy Settings
    Password**, and paste it.
-7. Point your miners at `stratum+tcp://<PC-IP>:3333`, where `<PC-IP>` is the PC's address on your
+8. Point your miners at `stratum+tcp://<PC-IP>:3333`, where `<PC-IP>` is the PC's address on your
    network; the dashboard shows it. Rentals from NiceHash and MiningRigRentals use port **3335**.
 
 Forge Solo mines while it runs. Tick **Start Forge Solo when I sign in** in the installer to have
@@ -54,8 +58,10 @@ it start with Windows. [windows/README.md](windows/README.md) says how the Windo
 Download `forge-solo-<version>-linux-<arch>.tar.gz` from the
 [latest release](https://github.com/BitcoincashII/forge-solo/releases/latest), for x86_64, aarch64,
 armv7l, armv6l, i686 or riscv64; it is fully static. [packaging/linux/README.md](packaging/linux/README.md)
-has the steps. Saving Settings asks for Forge Solo's password, `DASHBOARD_PASSWORD` in `secrets.env`
-in the data directory.
+has the steps. The first checks the download against `SHA256SUMS-linux` from the same release: in
+the folder with both, `grep x86_64 SHA256SUMS-linux | sha256sum -c -` (with your `<arch>` in place
+of `x86_64`) says OK. Saving Settings asks for Forge Solo's password, `DASHBOARD_PASSWORD` in
+`secrets.env` in the data directory.
 
 Windows 1.0.12 and earlier are on the [old Windows repository's releases](https://github.com/BitcoincashII/forge-solo-windows/releases).
 

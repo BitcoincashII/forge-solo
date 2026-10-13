@@ -37,6 +37,9 @@ About 1 GB of disk is plenty (the whole BCH2 chain is about 90 MB today), and it
 
 ## Start it
 
+Download your `.tar.gz` and `SHA256SUMS-linux` from the same release into one folder, and in that
+folder:
+
 ```sh
 grep x86_64 SHA256SUMS-linux | sha256sum -c -      # check the download: it says OK (SHA256SUMS-linux beside it)
 tar xzf forge-solo-VERSION-linux-x86_64.tar.gz
