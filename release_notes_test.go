@@ -506,8 +506,8 @@ func TestReleaseNotesTellThe1175CheckAndTheChecksums(t *testing.T) {
 // blank line. The update screen is short.
 func TestUmbrelStoreTextReadsAsWritten(t *testing.T) {
 	m := readUmbrelManifest(t)
-	if m.Version != "1.0.16" {
-		t.Errorf("DOCS-UMBREL-VERSION: umbrel-app.yml is version %q, not 1.0.16", m.Version)
+	if m.Version != "1.0.17" {
+		t.Errorf("DOCS-UMBREL-VERSION: umbrel-app.yml is version %q, not 1.0.17", m.Version)
 	}
 	joined := regexp.MustCompile(`\S[ \t]+-[ \t]+[A-Z]`)
 	item := regexp.MustCompile(`(?m)^[ \t]*- \S`)
@@ -576,6 +576,7 @@ func TestReleaseNotesTellWindowsUsersHowToInstall(t *testing.T) {
 		{"1.0.13", "on Windows 11, Smart App Control must be Off"},
 		{"1.0.15", "If Smart App Control on Windows 11 blocks the installer or Forge Solo, turn Smart App Control off"},
 		{"1.0.16", "If Smart App Control on Windows 11 blocks the installer or Forge Solo, turn Smart App Control off"},
+		{"1.0.17", "If Smart App Control on Windows 11 blocks the installer or Forge Solo, turn Smart App Control off"},
 	} {
 		sec := releaseSection(t, c.version)
 		text := flat(sec)

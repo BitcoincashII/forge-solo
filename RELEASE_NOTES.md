@@ -8,6 +8,40 @@ screen shows `releaseNotes` from `umbrel-app.yml` instead, so write that too.
 Up to 1.0.12 each platform kept its own notes: [windows/RELEASE_NOTES.md](windows/RELEASE_NOTES.md)
 and [packaging/linux/RELEASE_NOTES.md](packaging/linux/RELEASE_NOTES.md).
 
+## 1.0.17
+
+**Installing and updating.**
+- **Windows:** Forge Solo is not yet signed by a certificate Windows trusts. If Smart App Control on
+  Windows 11 blocks the installer or Forge Solo, turn Smart App Control off: **Windows Security →
+  App & browser control → Smart App Control settings**, then **Off**, and run the installer again.
+  When SmartScreen says "Windows protected your PC", choose **More info**, then **Run anyway**.
+  [Install on Windows](https://github.com/BitcoincashII/forge-solo#install-on-windows) in the README
+  has every step.
+- **Windows:** this page gives the installer's SHA-256 under Downloads, the same as in
+  `SHA256SUMS-windows`. To check your download, run
+  `Get-FileHash ~\Downloads\ForgeSolo-Setup-1.0.17.exe` in PowerShell (if you saved it to another
+  folder, put that folder in place of `~\Downloads`): the Hash it shows must be that SHA-256. Or
+  right-click the installer, choose **Properties**, then **Digital Signatures**: the signer is
+  **BCH2 Software**.
+- **Linux:** check your download against `SHA256SUMS-linux`: in the folder with both, run
+  `grep x86_64 SHA256SUMS-linux | sha256sum -c -`, with what `uname -m` prints in place of
+  `x86_64`. It says OK.
+- **Every platform:** updating from 1.0.12, read the
+  [1.0.13 release notes](https://github.com/BitcoincashII/forge-solo/releases/tag/v1.0.13) too: on
+  Umbrel and Windows the first start after the update moves your data from the old database into
+  `forgesolo.db`, once. Updating from 1.0.13, read the
+  [1.0.15 release notes](https://github.com/BitcoincashII/forge-solo/releases/tag/v1.0.15) too: they
+  list what changed since 1.0.13 (1.0.14 was not released).
+
+**Difficulty finds your miner faster.**
+- **Every platform:** Forge Solo gives each miner a variable difficulty: it starts the miner at the
+  lowest difficulty and raises it until the miner's shares come at the rate Forge Solo wants. It now
+  climbs from that floor to your miner's level in a few steps instead of many, so the dashboard's
+  hashrate and share figures settle soon after a miner connects, rather than reading low at first.
+  Nothing to set: a miner that is already running keeps the difficulty it had. This is the mode small
+  ASICs like the Bitaxe use, and it works the same whether you solo-mine, mine for a rented order, or
+  mine TIDES.
+
 ## 1.0.16
 
 **Installing and updating.**
