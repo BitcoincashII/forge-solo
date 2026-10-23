@@ -14,8 +14,9 @@
     "listen": "0.0.0.0:3333",
     "min_difficulty": 1024,
     "max_difficulty": 1000000000000,
-    "target_share_seconds": 5,
+    "target_share_seconds": 25,
     "retarget_seconds": 10,
+    "variance_percent": 50,
     "max_connections": 256,
     "max_connections_per_ip": 128
   },

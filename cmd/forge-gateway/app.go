@@ -132,7 +132,7 @@ func newStratum(cfg *Config, log *zap.Logger, proc *processor) *stratum.Server {
 		MinDiff:             cfg.Stratum.MinDifficulty,
 		AbsoluteMinDiff:     cfg.Stratum.MinDifficulty,
 		MaxDiff:             cfg.Stratum.MaxDifficulty,
-		VariancePercent:     0.25,
+		VariancePercent:     cfg.Stratum.VariancePercent / 100.0,
 		TargetShareTime:     cfg.Stratum.TargetShareSeconds,
 		RetargetTime:        cfg.Stratum.RetargetSeconds,
 		// The DATUM coinbase reserves 12 extranonce bytes: 4 per connection, 8 for the miner.

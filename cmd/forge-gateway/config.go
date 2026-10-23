@@ -56,6 +56,7 @@ type StratumConfig struct {
 	MaxDifficulty       float64 `json:"max_difficulty"`
 	TargetShareSeconds  int     `json:"target_share_seconds"`
 	RetargetSeconds     int     `json:"retarget_seconds"`
+	VariancePercent     float64 `json:"variance_percent"`
 	MaxConnections      int     `json:"max_connections"`
 	MaxConnectionsPerIP int     `json:"max_connections_per_ip"`
 }
@@ -161,10 +162,17 @@ func (c *Config) defaults() {
 		s.MaxDifficulty = 1e12
 	}
 	if s.TargetShareSeconds == 0 {
-		s.TargetShareSeconds = 5
+		s.TargetShareSeconds = 25 // a share every ~25s keeps a rig inside MiningRigRentals' optimal band
 	}
 	if s.RetargetSeconds == 0 {
 		s.RetargetSeconds = 10
+	}
+	if s.VariancePercent == 0 {
+		// Wide dead-band: marketplace tuners (Braiins bosminer) cycle a rented rig's hashrate by
+		// tens of percent every few minutes, and a tight band makes vardiff chase each swing -- the
+		// low side then dips under the marketplace's difficulty floor. 50% parks the difficulty; a
+		// genuine (>2x) change is still caught by the fast ramp.
+		s.VariancePercent = 50
 	}
 	if s.MaxConnections == 0 {
 		s.MaxConnections = 256
@@ -253,6 +261,9 @@ func (c *Config) checkBase() error {
 	}
 	if s.TargetShareSeconds < 1 || s.RetargetSeconds < 1 || s.MaxConnections < 1 || s.MaxConnectionsPerIP < 1 {
 		return errors.New("stratum target_share_seconds, retarget_seconds, max_connections and max_connections_per_ip must be positive")
+	}
+	if s.VariancePercent <= 0 || s.VariancePercent >= 100 {
+		return fmt.Errorf("stratum variance_percent %g must be between 0 and 100", s.VariancePercent)
 	}
 	if err := tidesgw.CheckPoolURL(c.Pool.URL); err != nil {
 		return fmt.Errorf("pool.url: %w", err)
