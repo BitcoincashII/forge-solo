@@ -51,7 +51,7 @@ env:
 jobs:
   installer:
     name: Build the Windows installer
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.ver.outputs.version }}
     steps:
@@ -169,7 +169,7 @@ jobs:
     # version its input names.
     if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: installer
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Signing and its checks take a few minutes. A service that never answers must fail the job
     # well before GitHub's six-hour limit.
     timeout-minutes: 30
@@ -286,7 +286,7 @@ jobs:
     name: The installer carries over
     if: (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && github.ref_type != 'tag'
     needs: installer
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       V: ${{ needs.installer.outputs.version }}
     steps:
