@@ -56,8 +56,15 @@ const (
 	// DifficultyReductionCooldown is how long to wait before increasing above the ceiling
 	DifficultyReductionCooldown = 2 * time.Minute
 
-	// firstRampMaxStep is the most firstRamp multiplies a connection's floor by in its one step.
+	// firstRampMaxStep is the most a single fastRamp step multiplies a connection's difficulty by.
 	firstRampMaxStep = 1000.0
+
+	// fastRampRatio is how much faster than the target a connection's shares must arrive for the
+	// ramp to lift it in a whole measured-ratio step instead of the +50%-per-retarget crawl. Above
+	// it the miner is plainly far below the difficulty its rate warrants; at or below it the
+	// ordinary clamped ramp takes the last, gentle step, so a noisy reading near the level cannot
+	// drive an overshoot.
+	fastRampRatio = 2.0
 )
 
 type Server struct {
@@ -2706,20 +2713,42 @@ func (c *Client) addShareSample(at time.Time, diff float64) int {
 // half the current difficulty: that one belongs to the climb to this difficulty, not to the rate
 // now. The cost: a miner whose hashrate rises takes longer to reach its new level, its shares
 // meanwhile faster, never refused.
+// recentAtLevel counts the newest shares, within window, found at a difficulty at or above
+// current/2 -- the run that belongs to the current level, stopping at the first share from a level
+// the difficulty has since more than doubled above. hitStale reports that such a stale share was
+// reached (so the run is all the fresh shares there are). See measuredShareTime and fastRamp.
+func recentAtLevel(samples []shareSample, current float64, window time.Duration) (k int, hitStale bool) {
+	if len(samples) == 0 {
+		return 0, false
+	}
+	last := samples[len(samples)-1].at
+	for i := len(samples) - 1; i >= 0 && last.Sub(samples[i].at) <= window; i-- {
+		if d := samples[i].diff; d > 0 && d < current/2 {
+			return k, true
+		}
+		k++
+	}
+	return k, false
+}
+
 func measuredShareTime(samples []shareSample, current float64, window time.Duration) float64 {
 	if current <= 0 {
 		return 0
 	}
 	n := VardiffSampleShares
 	if len(samples) > 0 {
-		last, k := samples[len(samples)-1].at, 0
-		for i := len(samples) - 1; i >= 0 && last.Sub(samples[i].at) <= window; i-- {
-			if d := samples[i].diff; d > 0 && d < current/2 {
-				break
-			}
-			k++
+		// Samples below current/2 are from a level the difficulty has since more than doubled above:
+		// they are stale. Padding the rate out to VardiffSampleShares with them -- dense, long-ago
+		// shares at a tiny difficulty -- reads far above the real rate and drives an overshoot, so
+		// where they begin, measure the fresh run alone. Only a jump of more than 2x produces them,
+		// so an ordinary ramp and a steady miner are unaffected. The fast step additionally waits
+		// for VardiffMinShares fresh shares (see adjustVardiffAt); the clamped ordinary step is safe
+		// on fewer, and must not stall at a high level where fresh shares come slowly.
+		if k, hitStale := recentAtLevel(samples, current, window); hitStale {
+			n = k
+		} else {
+			n = max(n, k)
 		}
-		n = max(n, k)
 	}
 	if len(samples) > n {
 		samples = samples[len(samples)-n:]
@@ -2771,12 +2800,23 @@ func (s *Server) adjustVardiff(client *Client) {
 func (s *Server) adjustVardiffAt(client *Client, now time.Time) {
 	client.mu.Lock()
 
+	// Use the appropriate assignment floor based on client type (rental vs regular).
+	// vardiffFloor is lock-free, so it is safe to call with client.mu held.
+	minDiff := s.vardiffFloor(client.RentalService != RentalNone)
+
+	// A connection still at its floor on its first ramp is let adjust as soon as it has the shares,
+	// without waiting out the retarget interval: a large rig left at the tiny floor for a whole
+	// interval buries the 100/s intake cap in rejects, and fastRamp (below) lifts it in one measured
+	// step with the bunching guard to keep that honest, so the wait buys nothing. Every later
+	// adjustment keeps the ordinary interval, so a settled miner is not retargeted on every share.
+	fromFloor := !client.FirstRampDone && client.Difficulty <= minDiff
+
 	// Only adjust every RetargetTime seconds (default 60)
 	retargetTime := s.config.RetargetTime
 	if retargetTime == 0 {
 		retargetTime = 60
 	}
-	if now.Sub(client.DifficultyChangedAt) < time.Duration(retargetTime)*time.Second {
+	if !fromFloor && now.Sub(client.DifficultyChangedAt) < time.Duration(retargetTime)*time.Second {
 		client.mu.Unlock()
 		return
 	}
@@ -2785,15 +2825,12 @@ func (s *Server) adjustVardiffAt(client *Client, now time.Time) {
 		client.mu.Unlock()
 		return
 	}
-	// Use appropriate assignment floor based on client type (rental vs regular).
-	// vardiffFloor is lock-free, so it is safe to call with client.mu held.
-	minDiff := s.vardiffFloor(client.RentalService != RentalNone)
-	// A connection that firstRamp may still lift off its floor is measured over its latest shares
-	// alone. Once the record has dropped its first share, firstRamp's step is no longer checked
-	// against the time since the first job, and rests on the latest shares having come after any
-	// that were read together; the last VardiffSampleTime can still hold those.
+	// A connection that fastRamp may still lift off its floor is measured over its latest shares
+	// alone. Once the record has dropped its first share, the step is no longer checked against the
+	// time since the level was last set, and rests on the latest shares having come after any that
+	// were read together; the last VardiffSampleTime can still hold those.
 	window := VardiffSampleTime
-	if !client.FirstRampDone && client.Difficulty <= minDiff {
+	if fromFloor {
 		window = 0
 	}
 	avgTime := measuredShareTime(client.ShareSamples, client.Difficulty, window)
@@ -2852,41 +2889,48 @@ func (s *Server) adjustVardiffAt(client *Client, now time.Time) {
 		ratio = 1.0 / MaxDifficultyMultiplier
 	}
 
-	// firstRamp: let a connection that starts at the floor and immediately proves it is
-	// far bigger take the whole measured ratio in ONE step, instead of crawling up at
-	// +50% per retarget.
+	// fastRamp lifts a connection that is still far below the difficulty its hashrate warrants in
+	// whole measured-ratio steps, instead of the +50%-per-retarget crawl. That crawl is not merely
+	// slow, it is self-harming for large hashrate: 1 PH/s of rented hashpower assigned the shipped
+	// min_diff of 1024 produces ~227 shares/s against the 100/s intake cap in handleSubmit, so more
+	// than half its submissions are refused until it reaches the difficulty its rate warrants -- and
+	// at +50% per retarget that climb took ~20 steps. A marketplace judges a pool by its reject
+	// rate; that read as a broken pool.
 	//
-	// The clamped ramp is not merely slow, it is self-harming for large hashrate. 1 PH/s
-	// of rented Braiins hashpower assigned the shipped min_diff of 1024 produces ~227
-	// shares/s against the 100/s intake cap in handleSubmit: more than half of its
-	// submissions are refused, and it takes ~20 clamped steps at 30s each -- about ten
-	// minutes -- to climb to the ~2.3M difficulty its rate actually warrants. Marketplace
-	// hashpower reconnects often, and isManyMinerMarketplace deliberately denies it the
-	// remembered-difficulty resume so each fanned miner sizes itself, which means it
-	// re-enters that ten-minute window on EVERY reconnect. A marketplace judges a pool by
-	// its reject rate; this reads as a broken pool.
+	// So the step repeats: every retarget that still measures the miner well above the target rate
+	// (measuredRatio > fastRampRatio) takes another whole-ratio step, and a genuinely large rig
+	// reaches its level in a couple of adjustments wherever it started -- off the floor, or off a
+	// remembered / d= level its grown hashrate has outrun. It stays bounded so it cannot yo-yo:
+	//   - It only steps UP. A ratio at or below the target rate takes the clamped path below (and a
+	//     small miner's ratio sits inside the variance window and has already returned above). The
+	//     final approach, as the ratio falls through fastRampRatio toward 1, is left to the gentle
+	//     clamped step, so a step cannot overshoot and strand the miner -- set far above its level
+	//     it sends almost no shares, and so cannot retarget back down for a long time.
+	//   - It cannot step up twice on one level's worth of data. A step more than doubles the
+	//     difficulty, so the shares that measured the old level fall below current/2, where
+	//     measuredShareTime drops them rather than pad the rate with them: it reads nothing, and the
+	//     retarget waits, until real shares AT THE NEW LEVEL have arrived. The 100/s cap holds the
+	//     measured rate down at the floor, so the first step off the floor is modest and the next,
+	//     uncapped, finds the level.
 	//
-	// Deliberately bounded so it cannot become a yo-yo: once per connection, only from the
-	// floor, and only upward. Everything after it is the ordinary clamped ramp. A small miner
-	// is untouched: at the floor its measured ratio sits inside the variance window and the
-	// function has already returned above.
-	//
-	// Overshoot is not harmless. The next adjustment needs accepted shares, and a miner set far
-	// above its level sends almost none, so it stays there for hours. The shares are timed as the
-	// stratum reads them, and ones that arrive together (the segment carrying the first ones lost
-	// and resent, the stratum held up for a moment) read as a rate hundreds of thousands of times
-	// the real one. So while the record holds every share since the connection's first job, the
-	// step is checked against the rate over that whole time:
-	//   - more than twice as slow: the shares arrived together, or the miner started hashing
-	//     after its first job (a reboot, an order filled later, an idle reset). Nothing changes
-	//     until more shares are in, at most until the record drops its first share; from then
-	//     the latest shares, read after any such bunch, measure the step alone.
+	// The first escape from the floor is the one step the clean-sample rule cannot cover -- there
+	// the shares at the level ARE the floor shares. They are timed as the stratum reads them, and
+	// ones that arrive together (the segment carrying the first lost and resent, the stratum held up
+	// for a moment) read as a rate hundreds of thousands of times the real one. So while the record
+	// still holds every share since the first job, that first step is checked against the rate over
+	// the whole time since:
+	//   - more than twice as slow: the shares arrived together, or the miner started hashing after
+	//     its first job (a reboot, an order filled later, an idle reset). Nothing changes until more
+	//     shares are in, at most until the record drops its first share; from then the latest
+	//     shares, read after any such bunch, measure the step alone.
 	//   - otherwise the step is the lower of the two.
-	// The step is capped, for a record that is all one bunch, and taken only where it goes further
-	// than the ordinary step.
-	firstRamp := !client.FirstRampDone && client.Difficulty <= minDiff && measuredRatio > 1.0
+	// The fast step rides on the measured rate, so it waits until VardiffMinShares shares at the
+	// current level back that rate: a step off a far lower level must not ride on the two or three
+	// that happened to land close together. The clamped ordinary step below needs no such wait.
+	freshAtLevel, _ := recentAtLevel(client.ShareSamples, client.Difficulty, VardiffSampleTime)
+	fastRamp := measuredRatio > fastRampRatio && freshAtLevel >= VardiffMinShares
 	rampRatio := math.Min(measuredRatio, firstRampMaxStep)
-	if firstRamp && !client.samplesDropped {
+	if fastRamp && fromFloor && !client.samplesDropped {
 		since := client.firstJobAt
 		if since.IsZero() {
 			since = client.ConnectedAt
@@ -2915,9 +2959,16 @@ func (s *Server) adjustVardiffAt(client *Client, now time.Time) {
 		newDiff = client.Difficulty - maxDelta
 	}
 	ramped := false
-	if firstRamp && client.Difficulty*rampRatio > newDiff {
+	if fastRamp && client.Difficulty*rampRatio > newDiff {
 		newDiff = client.Difficulty * rampRatio
-		client.FirstRampDone, ramped = true, true
+		client.FirstRampDone = true
+		// Seed the credit grace firstRampLevel (below) only where the step leaves a level the
+		// connection has PROVEN it holds -- the escape from the proven floor, or a later step whose
+		// starting level is within provenAhead of its last share. A connection whose shares prove
+		// far less than it is assigned (a gamed or shrunk miner) still has its ASSIGNMENT raised for
+		// cadence, but must not have its pool credit inflated to a level it has not reached; that
+		// stays provenAhead times the last share. See countedDifficulty.
+		ramped = fromFloor || client.ProvenDifficulty*provenAhead >= client.Difficulty
 	}
 	if newDiff < minDiff {
 		newDiff = minDiff

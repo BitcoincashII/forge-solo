@@ -95,32 +95,39 @@ func TestFirstRampEscapesTheFloorInOneAdjustment(t *testing.T) {
 	}
 }
 
-// firstRamp is once per connection. The second adjustment is the ordinary clamped ramp,
-// so a noisy measurement cannot yo-yo the assignment.
-func TestFirstRampAppliesOnlyOnce(t *testing.T) {
-	s := newRampTestServer(t)
-	const shareInterval = 1.0 / 227.0
-	c, done := rampClient(t, s, s.config.MinDiff, shareInterval)
-	defer done()
-
-	s.adjustVardiff(c)
-	c.mu.RLock()
-	afterFirst := c.Difficulty
-	c.mu.RUnlock()
-
-	// Re-arm: fresh samples, and an adjustment window that has elapsed.
-	c2, done2 := rampClient(t, s, afterFirst, shareInterval)
-	defer done2()
-	c2.FirstRampDone = true
-
-	s.adjustVardiff(c2)
-	c2.mu.RLock()
-	afterSecond := c2.Difficulty
-	c2.mu.RUnlock()
-
-	if afterSecond > afterFirst*1.5001 {
-		t.Errorf("second adjustment went from %v to %v, more than the +50%% clamp allows — "+
-			"firstRamp is not limited to one adjustment", afterFirst, afterSecond)
+// The ramp repeats, so a large miner reaches the difficulty its rate warrants in a few
+// adjustments, not the ~20-step, minutes-long +50% crawl it used to take: the one-shot escape left
+// a big rig stepping +50% per retarget whenever its first jump fell short (the bunching guard
+// clamps it where the first shares arrive together). It must get there without overshooting -- a
+// step set far above the level strands the miner, which then sends too few shares to retarget back.
+func TestFastRampReachesLevelQuickly(t *testing.T) {
+	for _, hr := range []float64{1e15, 10e15} {
+		for seed := int64(1); seed <= 3; seed++ {
+			s := mainPortServer()
+			want := level(s, hr)
+			m := newRampMiner(t, s, seed)
+			reached, peak := -1.0, 0.0
+			for sec := 1.0; sec <= 180 && reached < 0; sec++ {
+				m.mine(hr, sec)
+				if d := m.difficulty(); d > peak {
+					peak = d
+				}
+				if m.difficulty() >= 0.8*want {
+					reached = m.sec
+				}
+			}
+			if reached < 0 {
+				t.Errorf("%.0f PH/s seed %d: only %.4g after 180s, its level is %.4g", hr/1e15, seed, m.difficulty(), want)
+				continue
+			}
+			// The old +50% crawl from a clamped first step took a minute or more over this range.
+			if reached > 45 {
+				t.Errorf("%.0f PH/s seed %d: took %.0fs to reach its level %.4g -- still crawling", hr/1e15, seed, reached, want)
+			}
+			if peak > 3*want {
+				t.Errorf("%.0f PH/s seed %d: overshot to %.4g climbing to %.4g", hr/1e15, seed, peak, want)
+			}
+		}
 	}
 }
 
@@ -169,29 +176,26 @@ func TestFirstRampNeverGoesBelowTheFloor(t *testing.T) {
 	}
 }
 
-// A client that is ALREADY above the floor -- e.g. one that resumed a remembered level --
-// does not get the unclamped step. firstRamp is an escape from the floor, not a general
-// bypass of the ramp clamp.
-func TestFirstRampDoesNotApplyAboveTheFloor(t *testing.T) {
-	s := newRampTestServer(t)
+// The repeatable ramp is no longer floor-only: a connection sitting well below the difficulty its
+// hashrate warrants -- e.g. one that resumed a remembered or d= level its grown hashrate has
+// outrun -- catches up in a few adjustments. A correctly-levelled connection sits inside the
+// variance window and is left where it is.
+func TestFastRampCatchesUpAnUnderLeveledConnection(t *testing.T) {
+	s := mainPortServer()
+	want := level(s, 10e15)
 
-	const shareInterval = 1.0 / 227.0
-	c, done := rampClient(t, s, s.config.MinDiff*4, shareInterval)
-	defer done()
-
-	s.adjustVardiff(c)
-
-	c.mu.RLock()
-	assigned := c.Difficulty
-	ramped := c.FirstRampDone
-	c.mu.RUnlock()
-
-	if ramped {
-		t.Error("FirstRampDone set for a client that was not at the floor")
+	under := newRampMiner(t, s, 2)
+	under.resume(want / 40) // resumed far too low for the hashrate it now has
+	under.mine(10e15, 120)
+	if got := under.difficulty(); got < want/3 || got > 3*want {
+		t.Errorf("under-levelled resume at %.4g did not catch up to %.4g in 120s: %.4g", want/40, want, got)
 	}
-	if assigned > s.config.MinDiff*4*1.5001 {
-		t.Errorf("assigned %v: more than the +50%% clamp above the starting %v",
-			assigned, s.config.MinDiff*4)
+
+	ok := newRampMiner(t, s, 3)
+	ok.resume(want)
+	ok.mine(10e15, 120)
+	if got := ok.difficulty(); got < want/2 || got > 2*want {
+		t.Errorf("correctly-levelled resume at %.4g drifted to %.4g", want, got)
 	}
 }
 
