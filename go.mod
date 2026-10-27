@@ -6,7 +6,7 @@ go 1.26.0
 // html/template, net/http, net/textproto, os). The language version stays
 // 1.26, so no GODEBUG default changes with the move. The Docker build images
 // are pinned to the matching golang:1.27.2-bookworm digest.
-toolchain go1.27.2
+toolchain go1.27.3
 
 require (
 	github.com/btcsuite/btcd/btcutil v1.2.0
