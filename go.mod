@@ -11,7 +11,7 @@ toolchain go1.27.3
 require (
 	github.com/btcsuite/btcd/btcutil v1.2.0
 	github.com/go-zeromq/zmq4 v0.17.0
-	github.com/gofiber/fiber/v2 v2.52.15
+	github.com/gofiber/fiber/v2 v2.52.16
 	github.com/lib/pq v1.12.3
 	github.com/spf13/viper v1.21.0
 	go.uber.org/zap v1.28.0
