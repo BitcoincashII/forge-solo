@@ -29,7 +29,7 @@ RUN case "$VERSION" in ""|*[!0-9A-Za-z.+-]*) echo "build with --build-arg VERSIO
 # The server and what it loads, gathered under /out for the last stage: the postgres program, its
 # modules (without the JIT, which needs LLVM, and the build files), its share files, the time zones
 # and every library ldd lists for them. The C library is the last stage's own (the same Alpine).
-FROM postgres:16.15-alpine3.24@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea AS pg
+FROM postgres:16.15-alpine3.24@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab AS pg
 RUN set -eu; \
     mkdir -p /out/usr/local/bin /out/usr/local/lib /out/usr/local/share /out/usr/share; \
     cp -a /usr/local/bin/postgres /out/usr/local/bin/; \
@@ -43,7 +43,7 @@ RUN set -eu; \
     while read -r lib; do mkdir -p "/out$(dirname "$lib")"; cp -L "$lib" "/out$lib"; done < /tmp/libs; \
     test -s /tmp/libs
 
-FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
 COPY --from=pg /out/ /
 COPY --from=build /out/forge-solo-migrate /usr/local/bin/forge-solo-migrate
 # PostgreSQL looks its user up by uid; the old data belongs to uid 70.
